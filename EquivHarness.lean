@@ -127,9 +127,9 @@ def runOne (prog : Program) (a0 a1 : Int) (fuel : Nat) : RunOutcome :=
   let s0 := writeReg s0 5 (ofInt32 a1)
   match run prog s0 fuel with
   | .halted .exit s _ => .result (asSigned (readReg s 25))
-  | .halted (.illegalInstruction w) _ _ => .otherHalt s!"illegalInstruction {w}"
-  | .halted (.addressError a) _ _ => .otherHalt s!"addressError {a}"
-  | .halted .arithmeticOverflow _ _ => .otherHalt "arithmeticOverflow"
+  | .halted (.unhandledException code epc bad) _ _ =>
+    .otherHalt s!"unhandledException code={code.toNat} epc={epc} badVAddr={bad}"
+  | .halted (.noInstruction pc) _ _ => .otherHalt s!"noInstruction {pc}"
   | .halted .branchInDelaySlot _ _ => .otherHalt "branchInDelaySlot"
   | .limitReached _ _ => .limitReached
 

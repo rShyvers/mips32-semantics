@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# pre-commit: block any commit whose staged tree is not the tree a full green
+# gate run verified (.gate/green). Installed via scripts/install-hooks.sh.
+set -u
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+GATE_DIR=${GATE_DIR:-$ROOT/.gate}
+STAMP=$GATE_DIR/green
+
+block() {
+  {
+    echo "pre-commit: BLOCKED -- $1"
+    echo "  Run the full gate:      scripts/gate.sh"
+    echo "  then commit with:       scripts/gate-commit.sh \"<subject>\""
+    echo "  (only a fully green gate may be committed; emergency bypass: git commit --no-verify)"
+  } >&2
+  exit 1
+}
+
+[ -f "$STAMP" ] || block "no green stamp at $STAMP"
+want=$(sed -n 's/^tree=//p' "$STAMP" | head -1)
+[ -n "$want" ] || block "green stamp has no tree id"
+have=$(git write-tree 2>/dev/null) || block "cannot compute the staged tree (unmerged paths?)"
+[ "$have" = "$want" ] || block "staged tree $have is not the gated tree $want (changed after the gate, or staged selectively)"
+exit 0

@@ -17,10 +17,11 @@ Depends only on the foundation (`Word`, `Types`); read-only there.
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
 `hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; `fpCondFlag` is
 `false`; memory is empty; accumulated output is empty; `llBit` is `false`
-(no `ll` has executed yet); `squashNext` is `false` (no branch-likely
-instruction has executed yet); the three modeled coprocessor-0 registers
-(`cp0Status`, `cp0Cause`, `cp0Epc`) are all `0` (no exception has occurred
-yet). -/
+(no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot);
+the five modeled coprocessor-0 registers (`cp0Status`, `cp0Cause`, `cp0Epc`,
+`cp0BadVAddr`, `cp0ErrorEpc`) are all `0`. Note `Status = 0` is *not* the
+architectural reset value (reset sets `BEV` and `ERL`): the model starts as
+if boot code had already cleared them. -/
 def initialState (pc : W32) : State :=
   { pc := pc
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
@@ -32,10 +33,11 @@ def initialState (pc : W32) : State :=
     out := ""
     pendingBranch := none
     llBit := false
-    squashNext := false
     cp0Status := 0#32
     cp0Cause := 0#32
-    cp0Epc := 0#32 }
+    cp0Epc := 0#32
+    cp0BadVAddr := 0#32
+    cp0ErrorEpc := 0#32 }
 
 /-- Read general-purpose register `i`. Register `0` (`$zero`) always reads as
 `0` by construction of `initialState`/`writeReg`, but this also tolerates any
@@ -147,7 +149,6 @@ example : (initialState textBase).fpCondFlag = false := by decide
 example : (initialState textBase).out = "" := by decide
 example : (initialState textBase).pendingBranch = none := by decide
 example : (initialState textBase).llBit = false := by decide
-example : (initialState textBase).squashNext = false := by decide
 -- `Std.HashMap` has no `DecidableEq`, and its operations are not kernel-reducible
 -- (`decide`/`rfl`); check emptiness via a lookup checked with `#guard` instead.
 #guard (initialState textBase).regs[29]! = spInit
@@ -249,4 +250,6 @@ example : writeMemWord (initialState textBase) 0x10010001#32 0x12345678#32 = non
 example : (initialState textBase).cp0Status = 0#32 := by decide
 example : (initialState textBase).cp0Cause = 0#32 := by decide
 example : (initialState textBase).cp0Epc = 0#32 := by decide
+example : (initialState textBase).cp0BadVAddr = 0#32 := by decide
+example : (initialState textBase).cp0ErrorEpc = 0#32 := by decide
 #guard (initialState textBase).cp0Status = 0#32

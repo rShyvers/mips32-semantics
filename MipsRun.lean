@@ -132,21 +132,39 @@ def renderAsmError (e : AsmError) : String :=
   | .badOperand msg line => s!"bad operand: {msg} (line {line})"
   | .duplicateLabel msg line => s!"duplicate label: {msg} (line {line})"
 
-/-- Render a `HaltReason` as the `halt_reason` string: the two payload-carrying
-cases append the word/address in hex, per the issue's output contract.
+/-- Short name of a `Cause.ExcCode` value, for `halt_reason`. -/
+def excCodeName (code : W32) : String :=
+  match code.toNat with
+  | 4 => "address_error_load"
+  | 5 => "address_error_store"
+  | 8 => "syscall"
+  | 9 => "breakpoint"
+  | 10 => "reserved_instruction"
+  | 11 => "coprocessor_unusable"
+  | 12 => "arithmetic_overflow"
+  | 13 => "trap"
+  | n => s!"exccode_{n}"
 
-`branchInDelaySlot` is a MipsRun-specific extension beyond the issue's
-enumerated `halt_reason` list (`"exit" | "illegal_instruction" |
-"address_error" | "arithmetic_overflow"`): the issue was written before the
-real MIPS32 branch-delay-slot work (and its `HaltReason.branchInDelaySlot`
-constructor) landed. It carries no payload, so — like `exit`/
-`arithmeticOverflow` — it renders as a plain string with no hex suffix. -/
+/-- Render a `HaltReason` as the `halt_reason` string.
+
+* `exit` — clean exit (environment call 10).
+* `unhandled_exception:<name>:epc=0x<EPC>` — an architectural exception was
+  taken and no handler is installed at the exception vector. `<name>` is
+  `excCodeName` of `Cause.ExcCode` (`arithmetic_overflow`,
+  `reserved_instruction`, `syscall`, `breakpoint`, `trap`, …). Address errors
+  (`address_error_load`/`address_error_store`) append
+  `:badvaddr=0x<BadVAddr>`.
+* `no_instruction:0x<pc>` — control reached an aligned address holding no
+  instruction (ran off the program).
+* `branch_in_delay_slot` — a branch, jump or `eret` in a delay slot. -/
 def renderHaltReason (r : HaltReason) : String :=
   match r with
   | .exit => "exit"
-  | .illegalInstruction w => s!"illegal_instruction:0x{toHexDigits w}"
-  | .addressError a => s!"address_error:0x{toHexDigits a}"
-  | .arithmeticOverflow => "arithmetic_overflow"
+  | .unhandledException code epc badVAddr =>
+    let base := s!"unhandled_exception:{excCodeName code}:epc=0x{toHexDigits epc}"
+    if code == excCodeAdEL || code == excCodeAdES then s!"{base}:badvaddr=0x{toHexDigits badVAddr}"
+    else base
+  | .noInstruction pc => s!"no_instruction:0x{toHexDigits pc}"
   | .branchInDelaySlot => "branch_in_delay_slot"
 
 /-- The full success-path JSON object (`assembled: true`), for either a
@@ -259,9 +277,9 @@ private def notMipsSrc : String := "not mips at all"
 
 #guard (match assemble notMipsSrc with | .error _ => true | .ok _ => false)
 
-/-- Illegal instruction halt: an unsupported syscall service number (99)
-is, per `Step.execInstr`, reported the same way as any other
-undecodable-in-context word. -/
+/-- A `syscall` whose `$v0` (99) is outside the environment-call convention
+raises the Syscall exception (ExcCode 8); with no handler installed the run
+halts with `unhandledException 8 …`. -/
 private def illegalInstrSrc : String :=
 "main:\n" ++
 "    li   $v0, 99\n" ++
@@ -272,7 +290,12 @@ private def illegalInstrResult : RunResult :=
   | .ok prog => run prog (materializeSpec prog (initialState textBase)) 1000000
   | .error _ => .limitReached (initialState textBase) 0 -- unreachable: assembles fine
 
-#guard (match illegalInstrResult with | .halted (.illegalInstruction _) _ _ => true | _ => false)
+#guard (match illegalInstrResult with | .halted (.unhandledException c _ _) _ _ => c == excCodeSys | _ => false)
+#guard renderHaltReason (.unhandledException 12#32 0x00400008#32 0#32)
+  = "unhandled_exception:arithmetic_overflow:epc=0x00400008"
+#guard renderHaltReason (.unhandledException 4#32 0x00400008#32 0x10010001#32)
+  = "unhandled_exception:address_error_load:epc=0x00400008:badvaddr=0x10010001"
+#guard renderHaltReason (.noInstruction 0x00400010#32) = "no_instruction:0x00400010"
 
 /-- Step-limit-exhausted: an unconditional self-jump never halts, so a small
 fuel budget is exhausted (kept small here for test speed; `main` itself
@@ -284,7 +307,7 @@ branches/jumps never transfer control immediately (SPEC-NOTES §9 item 1) --
 the target (`State.pendingBranch`), which is committed by whichever
 instruction retires next. Without a delay-slot instruction physically
 present at `pc + 4`, that next fetch has nothing to read (this program's
-only assembled word is the `j` itself) and the run halts on `addressError`
+only assembled word is the `j` itself) and the run halts on `noInstruction`
 after 2 steps instead of ever reaching the step limit. The `nop` fills that
 slot so the loop is genuinely infinite (2 steps per iteration: the `j`, then
 its delay slot, which is where the jump actually lands), matching this

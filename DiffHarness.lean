@@ -79,28 +79,19 @@ def materialize (p : Program) (s0 : State) : State :=
                   (addr + 2#32) b2).insert (addr + 3#32) b3 })
     s0
 
-/-- The raw encoding of a bare `syscall` instruction (opcode 0, funct 0x0c,
-all register/shamt fields 0) — the only word that can ever produce
-`HaltReason.illegalInstruction` via the "unsupported syscall service number"
-path in `Step.execInstr` (every real unknown-opcode/funct word also produces
-`illegalInstruction`, but with a *different* raw word; a `syscall`
-instruction always encodes to this exact value regardless of which service
-number is in `$v0` at execution time, since the number lives in a register,
-not the instruction word). -/
-def syscallWord : W32 := encode .syscall
-
 /-- Classification of our simulator's outcome for one corpus program. -/
 inductive OurOutcome where
   /-- `assemble` failed: can't even build a `Program`. -/
   | asmFailed (msg : String)
   /-- Halted via `syscall 10` (normal exit). Carries the accumulated output. -/
   | clean (out : String)
-  /-- Halted on an unsupported `syscall` service number (the one case where
-  our v1 approximation of MARS's `SYSCALL_EXCEPTION` is deliberately
-  under-specified — see DESIGN.md / Step.lean docstring). -/
+  /-- A `syscall` whose `$v0` is outside the environment-call convention
+  (1/4/10/11) raised the Syscall exception (ExcCode 8) and no handler is
+  installed. -/
   | unsupportedSyscall (out : String)
-  /-- Halted for any other reason (illegal instruction on a genuine garbage
-  word, address error, arithmetic overflow) — a real runtime error. -/
+  /-- Halted for any other reason: an unhandled exception other than Syscall
+  (reserved instruction, address error, integer overflow, breakpoint, trap),
+  running off the program, or a branch in a delay slot — a runtime error. -/
   | error (out : String) (reason : String)
   /-- Ran out of the fuel budget without halting (a bug, or a genuinely
   non-terminating program — neither of which this corpus should produce). -/
@@ -114,11 +105,10 @@ def runOurs (src : String) (fuel : Nat) : OurOutcome :=
     let s0 := materialize prog (initialState textBase)
     match run prog s0 fuel with
     | .halted .exit s _ => .clean s.out
-    | .halted (.illegalInstruction w) s _ =>
-      if w == syscallWord then .unsupportedSyscall s.out
-      else .error s.out s!"illegalInstruction {w}"
-    | .halted (.addressError a) s _ => .error s.out s!"addressError {a}"
-    | .halted .arithmeticOverflow s _ => .error s.out "arithmeticOverflow"
+    | .halted (.unhandledException code epc bad) s _ =>
+      if code == excCodeSys then .unsupportedSyscall s.out
+      else .error s.out s!"unhandledException code={code.toNat} epc={epc} badVAddr={bad}"
+    | .halted (.noInstruction pc) s _ => .error s.out s!"noInstruction {pc}"
     | .halted .branchInDelaySlot s _ => .error s.out "branchInDelaySlot"
     | .limitReached s _ => .limitReached s.out
 
