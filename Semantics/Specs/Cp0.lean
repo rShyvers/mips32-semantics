@@ -18,11 +18,12 @@ it raises Coprocessor Unusable with `Cause.CE = 0` and does nothing else
 §6.2.22, p.100). The per-instruction `_spec_raw` theorems state the other case: they assume
 `hcp0 : cp0Usable s = true` (Kernel Mode, or `Status.CU0 = 1`; §3.5.3, p.23).
 
-## Theorems in this file (12)
+## Theorems in this file (13)
 
   `mfc0_spec_raw` `mtc0_spec_raw` `causeWriteMask_eq` `statusWriteMask_eq` `di_spec_raw`
   `ei_spec_raw` `eret_spec_raw` `eret_clears_llBit` `eret_in_delay_slot_reserved_instruction`
   `wait_spec_raw` `wait_preserves_state` `cp0_instruction_user_mode_unusable`
+  `usesCop1_of_usesCop0`
 -/
 
 set_option maxRecDepth 4000
@@ -52,7 +53,8 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read (0x80008400#32 ||| s.cp0ConfigK0.setWidth 32)
+      | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
+          (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI := by
@@ -88,7 +90,11 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
       | 16, 0 =>
-        { s with cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3, pc := s.pc + 4#32 }
+        { s with
+              cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3
+              cp0ConfigK23 := (readReg s (regIdxSpec rt) >>> 28).setWidth 3
+              cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
+              pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
@@ -182,7 +188,7 @@ theorem wait_preserves_state (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     ∃ s', step s = s' ∧ s'.regs = s.regs ∧ s'.fpRegs = s.fpRegs ∧
-      s'.hi = s.hi ∧ s'.lo = s.lo ∧ s'.mem = s.mem ∧
+      s'.hi = s.hi ∧ s'.lo = s.lo ∧ s'.physMem = s.physMem ∧
       s'.cp0Status = s.cp0Status ∧ s'.cp0Cause = s.cp0Cause ∧ s'.cp0Epc = s.cp0Epc ∧
       s'.pc = s.pc + 4#32 := by
   refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
@@ -259,9 +265,11 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
           { (initialState textBase) with cp0Epc := 0x3000#32, cp0Status := statusExlMask, llBit := true }
         s.llBit == false) = true
 
-#guard (let s := stepIn (prog1Spec .eret)
-          { (initialState textBase) with cp0Epc := 0x3000#32, cp0ErrorEpc := 0x4000#32,
-                                         cp0Status := statusErlMask ||| statusExlMask }
+-- (run from kseg0: with `ERL = 1` kuseg is the identity map and executing from it is UNDEFINED,
+-- MD00090 Vol III Rev 6.02 §A.1.2, p.316)
+#guard (let s := stepIn (buildProgSpec 0x80001000#32 [.eret])
+          { (initialState 0x80001000#32) with
+              cp0Epc := 0x3000#32, cp0ErrorEpc := 0x4000#32, cp0Status := statusErlMask ||| statusExlMask }
         s.pc == 0x4000#32 && s.cp0Status == statusExlMask) = true
 
 -- `eret_in_delay_slot_reserved_instruction`: Reserved Instruction taken in the

@@ -11,11 +11,13 @@ dependency on anything else in that project.
 
 ## What this is
 
-- `Semantics/Step.lean`: `step : State → State` is **one instruction time** of the processor (fetch from memory,
+- `Semantics/Step.lean`: `step : State → State` is **one instruction time** of the processor (fetch from memory
+  through the Fixed Mapping MMU of `State.lean`,
   strict decode, execute, commit) and nothing else: it never halts, and every exception is a state transition.
   `run : State → Nat → State` is `step` iterated `n` times.
 - `Semantics/Env.lean`: the environment, **explicitly outside the architecture**: the loader `load : Program →
-  State` (writes the assembled image into memory), the MARS-style `syscall` services (1, 4, 10, 11) and the
+  State` (writes the assembled image into physical memory, each word at the physical address of its virtual
+  address), the MARS-style `syscall` services (1, 4, 10, 11) and the
   conventions for stopping a run (`runHosted`). `MipsRun` and the harnesses use the hosted run.
 - `Semantics/Instruction.lean`: the `Instruction` type (178 constructors), `decode` (strict) and `encode`.
 - `Semantics/Asm.lean`: an assembler from source text to a `Program` (labels, directives, idioms, range checks).
@@ -50,14 +52,14 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1153 lines) states **83 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1153 lines) states **98 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 83 statements are a selection: every global theorem below and at least one per-instruction
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 98 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
 **(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 178
@@ -81,6 +83,8 @@ The results that are genuinely global, or independent of how an individual instr
 | exception entry: vector, `EXL`, pending branch abandoned, `LLbit` cleared, `EPC`/`Cause.BD` with and without delay slot, `ExcCode`, `CE` | `Specs/Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode` (`_ce` is in `Exception.lean` only) |
 | fetch from memory; fetch/decode failure: misaligned `pc`, undecodable word, Reserved Instruction, Coprocessor Unusable for an undecodable COP0/CACHE word outside Kernel Mode | `Specs/Fetch.lean` | `step_fetches_from_memory`, `step_misaligned_pc`, `step_undecodable`, `step_reserved_instruction`, `step_reserved_cop0_unusable` |
 | self-modifying code: a store to the next instruction is what executes next | `Specs/SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
+| address translation (Fixed Mapping MMU): each segment's mapping incl. `ERL = 1`; kseg0/kseg1 aliasing; from User Mode a kernel address is an Address Error (fetch, load, store) and changes no memory | `Specs/Mmu.lean` | `fixedMappingPA_kuseg_erl0`, `_kuseg_erl1`, `_kseg0`, `_kseg1`, `_kseg23`, `_kseg0_kseg1_alias`, `translate_user_kernel_address`, `translate_erl1_kuseg_identity`, `step_fetch_user_kernel_address`, `lw_user_kernel_address`, `sw_user_kernel_address`, `kseg1_store_visible_through_kseg0` |
+| loader correctness: after loading, a fetch or load of an image address returns the image word | `Specs/Loader.lean` | `load_readMemWord`, `load_step_fetches_image`, `loadAtReset_readMemWord_kseg` |
 | general delay-slot theorem; a control transfer in a delay slot raises Reserved Instruction (pin) | `Specs/DelaySlot.lean` | `delay_slot_commits_target`; `branch_in_delay_slot_reserved_instruction` |
 | the hosted run is `step` whenever it neither stops nor performs a service; the services | `Specs/Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run`, `hosted_print_int`, `hosted_exit` |
 | Coprocessor Unusable | `Specs/FpuCommon.lean`, `Specs/Cp0.lean` | `fp_coprocessor_unusable`, `cp0_instruction_user_mode_unusable` |
@@ -188,9 +192,9 @@ Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md
   `bc2fl`/`bc2tl`), `luxc1`, `suxc1`, the L format (`cvt.l`, `round.l`, `trunc.l`, `ceil.l`, `floor.l`,
   `cvt.s.l`, `cvt.d.l`) and paired-single (`*.ps`, `alnv.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu`).
   `pause` and `nal` assemble and decode as `sll $0,$0,5` and `bltzal $0` (`PAUSE` executes as the NOP the manual permits).
-- State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB and
-  mapped address translation and the User-Mode address checks (Kernel/User Mode and the CP0 access rule are modeled;
-  a kernel-segment reference from User Mode is not yet an Address Error), caches, `WatchLo`/`WatchHi`, EJTAG,
+- State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB (the
+  MMU is the Fixed Mapping MMU, `Config.MT = 3`, with kseg0/kseg1 aliasing and the User-Mode Address Errors;
+  SPEC-NOTES §9 item 27), caches, `WatchLo`/`WatchHi`, EJTAG,
   coprocessor 2, `Config2`..`Config5`.
 - The manuals themselves are inconsistent about the L format with `FR = 0` (`FIR.L = 1` is required, the L-format
   instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 1` and leaves the L format undecoded (SPEC-NOTES §9 item 13).
@@ -227,15 +231,15 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 73 trusted theorem names, challenge and solution modules
+comparator.json                the 98 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
 Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
 Semantics/Specs/               the specification: Defs, WellFormed (vocabulary); Lemmas, Tactics, Fixtures (plumbing);
                                DecodeSpec, Exception, Fetch, SelfModifying, DelaySlot, Invariants, RegFileSize,
-                               Hosted (global theorems);
+                               Mode, Reset, Mmu, Loader, Hosted (global theorems);
                                one file per instruction family (Arith, Shift, MulDiv, ..., FpuArith, ...); StepSpec (index)
-Semantics/Statements.lean      the trusted surface (73 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (98 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables
@@ -282,7 +286,10 @@ Fields (success): `assembled`, `halted`, `halt_reason`, `steps`, `output`, `regi
 with `pc`, or `limit`), `initial` (the loader's start state, before the image is written) and `final` (each: `pc`, `gpr`, `hi`, `lo`,
 `fpr` as raw 32-bit values, `fcsr`, `fp_cond_flag` (= FCSR bit 23, kept for compatibility), `ll_bit`, `ll_addr`,
 `pending_branch`, `cp0` with `status`, `cause`, `epc`, `badvaddr`, `errorepc`, `ebase`), `fcsr_mask`, `image`
-(`[address, word]` for every assembled word) and `memory` (every nonzero aligned word of the final memory).
+(`[address, word]` for every assembled word, by **virtual** address), `memory` (every nonzero aligned word of the
+final physical memory, reported at its virtual address `Env.canonicalVAddr`: kuseg for the loaded text/data/stack,
+kseg0 for the low 512 MB, identity for kseg2/kseg3; a word visible through both kseg0 and kseg1 appears once, under
+kseg0) and `physical_memory` (the same words by physical address). `pc`, registers, EPC and BadVAddr are virtual.
 
 **The `halt_reason` strings changed from the VibeCheck-era ones** (`illegal_instruction:0x...`,
 `address_error:0x...`, `arithmetic_overflow`, `branch_in_delay_slot`). Overflow, address errors, reserved

@@ -371,8 +371,9 @@ private def cuState : State :=
 -- #### FP loads/stores
 private def fpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 4#32)]) with
-      mem := (((∅ : Std.HashMap W32 UInt8).insert 0x10010004#32 0x3f).insert 0x10010005#32 0x80)
-               |>.insert 0x10010006#32 0x00 |>.insert 0x10010007#32 0x00 }  -- 1.0 at offset 4
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010004#32 0x3f).insert 0x50010005#32 0x80)
+               |>.insert 0x50010006#32 0x00 |>.insert 0x50010007#32 0x00 }  -- 1.0 at offset 4
 #guard nextFpRegEq (hstep (prog1 (.lwc1 8#32 9#32 4#32)) fpMemTestState) 9 0x3f800000#32
 #guard nextFpRegEq (hstep (prog1 (.lwxc1 3#32 9#32 8#32)) fpMemTestState) 3 0x3f800000#32
 #guard (stepState (prog1 (.swc1 8#32 9#32 4#32))
@@ -389,8 +390,9 @@ private def fpMemTestState : State :=
 -- ldc1/sdc1: big-endian doubleword (high word at the lower address), doubleword-aligned
 private def dpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 8#32)]) with
-      mem := ((((∅ : Std.HashMap W32 UInt8).insert 0x10010008#32 0x3f).insert 0x10010009#32 0xf0)
-               |>.insert 0x1001000f#32 0x01) }  -- 0x3ff0000000000001 at offset 8
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := ((((∅ : Std.HashMap W32 UInt8).insert 0x50010008#32 0x3f).insert 0x50010009#32 0xf0)
+               |>.insert 0x5001000f#32 0x01) }  -- 0x3ff0000000000001 at offset 8
 #guard (match hstep (prog1 (.ldc1 8#32 2#32 8#32)) dpMemTestState with
         | .next s => readFpD s 2#32 == 0x3ff0000000000001#64 && readFpReg s 3 == 0x3ff00000#32
         | .halt _ => false)

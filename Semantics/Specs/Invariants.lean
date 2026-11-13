@@ -78,9 +78,10 @@ theorem writeFpReg_regs (s : State) (i : Fin 32) (v : W32) :
 theorem writeFpD_regs (s : State) (f : W32) (v : BitVec 64) :
     (writeFpD s f v).regs = s.regs := rfl
 
-/-- `(writeMemByte s a v).getD d` (the shape `swl`/`swr` use) keeps `regs`. -/
-theorem writeMemByte_getD_regs (s d : State) (a : W32) (v : UInt8) :
-    ((writeMemByte s a v).getD d).regs = s.regs := rfl
+/-- `(writeMemByte s a v).getD s` (the shape `swl`/`swr` use) keeps `regs`. -/
+theorem writeMemByte_getD_regs (s : State) (a : W32) (v : UInt8) :
+    ((writeMemByte s a v).getD s).regs = s.regs := by
+  unfold writeMemByte; cases translate s a <;> rfl
 
 /-- `Step.lean`'s `advance` (delay-slot resolution / `pc + 4`) only
 touches `pc` and `pendingBranch`. -/

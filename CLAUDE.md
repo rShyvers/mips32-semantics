@@ -35,17 +35,17 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
 - The `/gate` skill wraps this. `lake check` takes ~2-5 min; do not run it in parallel with other lake jobs in one tree.
 
 ## File map
-- Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State`, `Program`), `State.lean`
-  (accessors, the six memory-access functions), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
-  bit patterns, no host floats), `Step.lean` (`step : State → State`, `run`, exception model, Kernel/User Mode, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
-  architecture (`load`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
+- Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State`, `Program`, `VAddr`/`PAddr`), `State.lean`
+  (accessors, Kernel/User Mode, the Fixed Mapping MMU `translate`, the six memory-access functions on physical `physMem`), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
+  bit patterns, no host floats), `Step.lean` (`step : State → State`, `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
+  architecture (`load` by physical address `loadAddr`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
   `Semantics.lean`/`Checked.lean` roots
 
 - Spec, one file per family: `Semantics/Specs/<Family>.lean` (`Arith`, `Shift`, `MulDiv`, `BitOps`, `Immediate`, `Memory`, `Atomic`,
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
-  `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
+  `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (83 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (98 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,

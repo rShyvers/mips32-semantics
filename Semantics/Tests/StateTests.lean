@@ -26,7 +26,7 @@ example : (initialState textBase).llBit = false := by decide
 #guard (initialState textBase).regs[29]! = spInit
 #guard (initialState textBase).regs[0]! = 0#32
 #guard (initialState textBase).fpRegs.size = 32
-#guard (initialState textBase).mem.get? 0x10010000#32 = none
+#guard (initialState textBase).physMem.get? 0x10010000#32 = none
 
 -- `readReg` / `writeReg`: `$zero` write-ignore
 example : readReg (initialState textBase) 0 = 0#32 := by decide
@@ -77,8 +77,9 @@ example : readMemWord (initialState textBase) (textBase + 1#32) = none := by dec
 -- big-endian composition for half: bytes 0x12,0x34 at a,a+1 → 0x1234
 def halfTestState : State :=
   { (initialState textBase) with
-      mem := ((∅ : Std.HashMap W32 UInt8).insert 0x10010000#32 0x12)
-               |>.insert 0x10010001#32 0x34 }
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := ((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x12)
+               |>.insert 0x50010001#32 0x34 }
 #guard readMemHalf halfTestState 0x10010000#32 = some 0x1234#32
 
 -- half misalignment rejected
@@ -88,8 +89,9 @@ example : readMemHalf halfTestState 0x10010001#32 = none := by decide
 -- big-endian composition for word: bytes 0x12,0x34,0x56,0x78 at a..a+3 → 0x12345678
 def wordTestState : State :=
   { (initialState textBase) with
-      mem := (((∅ : Std.HashMap W32 UInt8).insert 0x10010000#32 0x12).insert 0x10010001#32 0x34
-                |>.insert 0x10010002#32 0x56).insert 0x10010003#32 0x78 }
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x12).insert 0x50010001#32 0x34
+                |>.insert 0x50010002#32 0x56).insert 0x50010003#32 0x78 }
 #guard readMemWord wordTestState 0x10010000#32 = some 0x12345678#32
 
 -- word misalignment rejected

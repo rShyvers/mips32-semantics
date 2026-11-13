@@ -26,14 +26,16 @@ transition (possibly to the exception vector). Loading a program, the MARS-style
 services and the conventions for stopping a run are the environment's, not the processor's; they
 are in `Semantics/Env.lean`.
 
-1. **Fetch** the big-endian word at `pc` from `State.mem` (`readMemWord s s.pc`). A misaligned
-   `pc` raises Address Error (AdEL, `BadVAddr = pc`). Memory that was never written reads as 0
-   (`State.lean`; 0 encodes `sll $0, $0, 0`, a no-op).
+1. **Fetch** the big-endian word at `pc` (`readMemWord s s.pc`): the virtual `pc` is translated
+   by the Fixed Mapping MMU (`State.lean`, `translate`) and the word read from physical memory
+   `State.physMem`. A misaligned `pc`, or a `pc` outside useg in User Mode, raises Address Error
+   (AdEL, `BadVAddr = pc`). Memory that was never written reads as 0 (`State.lean`; 0 encodes
+   `sll $0, $0, 0`, a no-op).
 2. **Decode** it (`Instruction.decode`, strict). A word that does not decode raises Reserved
    Instruction (or Coprocessor Unusable for an unusable coprocessor's encoding space).
 3. **Execute** it (`execInstr`).
 
-Because fetch reads `mem`, a store to the instruction stream changes what is executed (MD00086
+Because fetch reads `physMem`, a store to the instruction stream changes what is executed (MD00086
 Vol II-A Rev 6.06, SYNCI, p.412). The model has no caches, so `synci` has nothing to synchronize.
 
 ## Branch delay slots
@@ -53,7 +55,8 @@ nullifies its delay slot: its own step goes straight to `pc + 8`.
 `Cause.ExcCode`, `Status.EXL ← 1`, `PC ←` the general vector (`BEV`
 selects which; `EBase` supplies the base when `BEV = 0`), and the pending
 branch is abandoned. Raised here: Integer Overflow (`add`/`addi`/`sub`),
-Address Error (misaligned load/store/fetch; sets `BadVAddr`), Reserved
+Address Error (misaligned load/store/fetch, or a kernel address referenced from User Mode;
+sets `BadVAddr`), Reserved
 Instruction, Coprocessor Unusable (`Cause.CE` = the unit), Floating Point,
 System Call (`syscall`, always), Breakpoint, Trap.
 
@@ -72,9 +75,17 @@ the destination when an enabled exception was raised.
 Kernel Mode and User Mode (MD00090 Vol III Rev 6.02 ch.3, p.21-23; `kernelMode`, `userMode`):
 Supervisor Mode and Debug Mode are not implemented. A coprocessor-0 instruction (`usesCop0`), an
 undecodable COP0 word or a CACHE word (`isCop0Word`) executed outside Kernel Mode with
-`Status.CU0 = 0` raises Coprocessor Unusable with `Cause.CE = 0` (§6.2.22, p.100). User-Mode
-address checks (kseg references from User Mode) belong to the MMU and are not modeled yet: every
-memory access goes through the six `readMem*`/`writeMem*` functions of `State.lean`.
+`Status.CU0 = 0` raises Coprocessor Unusable with `Cause.CE = 0` (§6.2.22, p.100). The User-Mode
+address check (a reference outside useg from User Mode is an Address Error, Table 4.2, p.30)
+belongs to the MMU: every memory access goes through the six `readMem*`/`writeMem*` functions of
+`State.lean`, which translate through `translate` (`kernelMode`/`userMode` are defined there).
+
+## Address translation
+
+The MMU is the Fixed Mapping MMU (`Config.MT = 3`, `configValue`; MD00090 Vol III Rev 6.02
+Appendix A.1, p.313-317), implemented once in `State.lean` (`fixedMappingPA`, `translate`):
+kseg0/kseg1 → the low 512 MB, useg/kuseg → `VA + 1 GB` (`ERL = 0`) or `VA` (`ERL = 1`), kseg2/kseg3
+→ `VA`.
 
 ## Reset
 
@@ -83,7 +94,8 @@ memory access goes through the six `readMem*`/`writeMem*` functions of `State.le
 
 ## Not modeled
 
-Interrupts, timer, TLB, caches, shadow register sets (see `docs/spec/SPEC-NOTES.md`).
+Interrupts, timer, TLB (the MMU is the Fixed Mapping MMU), caches, shadow register sets (see
+`docs/spec/SPEC-NOTES.md`).
 -/
 
 /-- Convert a raw 5-bit register-field value (as extracted by `decode`, hence
@@ -291,21 +303,6 @@ def causeExcCode (s : State) : W32 :=
 /-- `Status.CU1`: coprocessor 1 is usable. -/
 def cu1Enabled (s : State) : Bool := s.cp0Status &&& statusCu1Mask != 0#32
 
-/-- **Kernel Mode** (MD00090 Vol III Rev 6.02 §3.2, p.21): "The processor is in Kernel Mode
-when the DM bit in the Debug register is 0 (if the processor implements Debug Mode), and any of
-the following is true: The KSU field in the CP0 Status register contains 0b00. The EXL bit in the
-Status register is 1. The ERL bit in the Status register is 1." Debug Mode is not implemented
-(`Config1.EP = 0`) and neither is Supervisor Mode, so `KSU` is `UM ‖ R0` with `R0` reading 0
-(Table 9.47, p.195): `KSU = 0b00` iff `UM = 0`. -/
-def kernelMode (s : State) : Bool :=
-  s.cp0Status &&& statusUmMask == 0#32 || s.cp0Status &&& statusExlMask != 0#32 ||
-    s.cp0Status &&& statusErlMask != 0#32
-
-/-- **User Mode** (MD00090 Vol III Rev 6.02 §3.4, p.22): "The KSU field in the Status register
-contains 0b10. The EXL and ERL bits in the Status register are both 0." With `KSU = UM ‖ 0`
-this is `UM = 1`, `EXL = 0`, `ERL = 0`, i.e. exactly "not Kernel Mode": there is no third mode. -/
-def userMode (s : State) : Bool := !kernelMode s
-
 /-- **Coprocessor 0 is usable** (MD00090 Vol III Rev 6.02 §3.5.3, p.23): "Access to Coprocessor
 0 registers are enabled under any of the following conditions: The processor is running in Kernel
 Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1." -/
@@ -444,21 +441,28 @@ names no real product. -/
 def prIdValue : W32 := 0x00010000
 
 /-- `Config` (CP0 register 16, select 0; MD00090 Vol III Rev 6.02 §9.45,
-Table 9.64, p.233-235): `M` = 1 (Config1 present), `BE` = 1 (big-endian),
-`AT` = 0 (MIPS32), `AR` = 1 (Release 2), `MT` = 0 (no MMU), `VI` = 0,
-everything else 0 except `K0` (bits 2..0), which is `s.cp0ConfigK0`: Read/Write,
-reset 2 (Uncached, Table 9.12 p.133). `mtc0` stores bits 2..0 of the written value
-into it unchanged (every 3-bit value is accepted; pre-Release 6 the manual does not
-say what a write of an unsupported attribute does: "For Release 6, writes of
-unsupported values are ignored", Table 9.64 p.235). The model has no cache, so
-`K0` has no effect on anything else. The other fields are read-only. -/
-def configValue (s : State) : W32 := 0x80008400#32 ||| (s.cp0ConfigK0.setWidth 32)
+Table 9.64, p.233-235; Appendix A.1.2, Figure A.3 / Table A.2, p.317): `M` = 1 (Config1
+present), `BE` = 1 (big-endian), `AT` = 0 (MIPS32), `AR` = 1 (Release 2), `MT` = 3 (Fixed
+Mapping MMU, "See “Fixed Mapping MMU” on page 313"), `Impl` = 0, `VI` = 0, and the three
+Read/Write cacheability fields: `K23` (bits 30..28, `s.cp0ConfigK23`), `KU` (bits 27..25,
+`s.cp0ConfigKU`) and `K0` (bits 2..0, `s.cp0ConfigK0`), reset `K0 = 2` (Uncached, Table 9.12
+p.133; "Suggested", §6.2.5 p.90) and `K23 = KU = 2` (their reset state is "Undefined", p.233,
+pinned like `K0`). So `configValue` is `0x8000_8580` plus the three fields (`0xA400_8582` after
+Reset). `mtc0` stores the written bits 30..28, 27..25 and 2..0 into them unchanged (every 3-bit
+value is accepted; pre-Release 6 the manual does not say what a write of an unsupported
+attribute does: "For Release 6, writes of unsupported values are ignored", p.233, p.235). The
+model has no cache, so they have no effect on anything else. The other fields are read-only. -/
+def configValue (s : State) : W32 :=
+  0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) ||| (s.cp0ConfigKU.setWidth 32 <<< 25) |||
+    s.cp0ConfigK0.setWidth 32
 
 /-- `Config1` (CP0 register 16, select 1; MD00090 Vol III Rev 6.02 §9.46,
-Table 9.65): `FP` = 1 (FPU implemented) and nothing else — `M` = 0 (no
-Config2), no TLB entries beyond the encoding's minimum, no caches (`IL` =
-`DL` = 0), no coprocessor 2, MDMX, performance counters, watch registers,
-MIPS16e or EJTAG. -/
+Table 9.65, p.237-240): `FP` = 1 (FPU implemented) and nothing else — `M` = 0 (no
+Config2), `MMU Size - 1` = 0, no caches (`IL` = `DL` = 0), no coprocessor 2, MDMX,
+performance counters, watch registers, MIPS16e or EJTAG. `MMU Size - 1` is "Number of entries
+in the TLB minus one ... The value zero is implied by ConfigMT having a value of ‘none’" (p.237);
+the manual says nothing for a Fixed Mapping MMU (`MT = 3`), which has no TLB: 0 is the only value
+the field can take that claims no more than one entry (pin). -/
 def config1Value : W32 := 0x00000001
 
 /-- The effect of the already-fetched, already-decoded instruction `instr`
@@ -768,7 +772,7 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- `synci` (MD00086 Vol II-A Rev 6.06, SYNCI, p.412-413): Operation
   -- `vaddr ← GPR[base] + sign_extend(offset); SynchronizeCacheLines(vaddr)`.
   -- The model has no caches (`Config1.IL = DL = 0`, `config1Value`) and
-  -- fetches instructions straight from `mem`, so every store is already
+  -- fetches instructions straight from `physMem`, so every store is already
   -- visible to instruction fetch and there is no cache line to synchronize:
   -- the operation has no effect on architectural state. Its exceptions are
   -- TLB, Cache Error and an implementation-dependent AdEL for kernel
@@ -778,101 +782,103 @@ def execBody (s : State) (instr : Instruction) : State :=
     let _addr := readReg s (regIdx rs) + signExt16 imm
     mkNext s s
   -- `lwl`/`lwr`/`swl`/`swr`: real MIPS32 classic (pre-r6) unaligned
-  -- load/store pair (MD00086 Rev 2.50 §3.2, Table 3-4; `docs/spec/
-  -- MIPS-COVERAGE-GAPS.md` §3.6). Unlike `lw`/`sw`, `addr` has no alignment
-  -- requirement -- `readMemByte`/`writeMemByte` are already total, so none
-  -- of these four cases can fault. `off = addr.toNat % 4` selects how many
-  -- bytes straddle the word boundary; the `.getD` fallback on every
-  -- `readMemByte`/`writeMemByte` result is never actually exercised (those
-  -- helpers always return `some`), it just discharges the `Option` they
-  -- still return. See `docs/spec/INSTRUCTION-REF.md`'s dedicated section
-  -- for the worked byte-position example this case-split implements.
+  -- load/store pair (MD00086 Vol II-A Rev 6.06, LWL p.240, LWR p.247, SWL p.397, SWR p.401;
+  -- `docs/spec/MIPS-COVERAGE-GAPS.md` §3.6). Unlike `lw`/`sw`, `addr` has no alignment
+  -- requirement. The only Address Error is the MMU's: a kernel address referenced from User Mode
+  -- (`translate`; AdEL for `lwl`/`lwr`, AdES for `swl`/`swr`, `BadVAddr = addr`). Every byte
+  -- touched lies in the aligned word containing `addr`, hence in `addr`'s 512 MB segment, so the
+  -- first byte access decides: when it succeeds the others succeed too, and their `.getD`
+  -- fallbacks are never used. `off = addr.toNat % 4` selects how many bytes straddle the word
+  -- boundary. See `docs/spec/INSTRUCTION-REF.md`'s dedicated section for the worked
+  -- byte-position example this case-split implements.
   | .lwl rs rt imm =>
     let addr := readReg s (regIdx rs) + signExt16 imm
-    let off := addr.toNat % 4
-    let old := readReg s (regIdx rt)
-    let b0 := (readMemByte s addr).getD 0
-    let v :=
-      match off with
-      | 0 =>
-        let b1 := (readMemByte s (addr + 1#32)).getD 0
-        let b2 := (readMemByte s (addr + 2#32)).getD 0
-        let b3 := (readMemByte s (addr + 3#32)).getD 0
-        setByteSlot (setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2) 3 b3
-      | 1 =>
-        let b1 := (readMemByte s (addr + 1#32)).getD 0
-        let b2 := (readMemByte s (addr + 2#32)).getD 0
-        setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2
-      | 2 =>
-        let b1 := (readMemByte s (addr + 1#32)).getD 0
-        setByteSlot (setByteSlot old 0 b0) 1 b1
-      | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
-        setByteSlot old 0 b0
-    mkNext s (writeReg s (regIdx rt) v)
+    match readMemByte s addr with
+    | none => takeAddressException s excCodeAdEL addr
+    | some b0 =>
+      let off := addr.toNat % 4
+      let old := readReg s (regIdx rt)
+      let v :=
+        match off with
+        | 0 =>
+          let b1 := (readMemByte s (addr + 1#32)).getD 0
+          let b2 := (readMemByte s (addr + 2#32)).getD 0
+          let b3 := (readMemByte s (addr + 3#32)).getD 0
+          setByteSlot (setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2) 3 b3
+        | 1 =>
+          let b1 := (readMemByte s (addr + 1#32)).getD 0
+          let b2 := (readMemByte s (addr + 2#32)).getD 0
+          setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2
+        | 2 =>
+          let b1 := (readMemByte s (addr + 1#32)).getD 0
+          setByteSlot (setByteSlot old 0 b0) 1 b1
+        | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
+          setByteSlot old 0 b0
+      mkNext s (writeReg s (regIdx rt) v)
   | .lwr rs rt imm =>
     let addr := readReg s (regIdx rs) + signExt16 imm
-    let off := addr.toNat % 4
-    let old := readReg s (regIdx rt)
-    let v :=
-      match off with
-      | 0 =>
-        let b3 := (readMemByte s addr).getD 0
-        setByteSlot old 3 b3
-      | 1 =>
-        let b2 := (readMemByte s (addr - 1#32)).getD 0
-        let b3 := (readMemByte s addr).getD 0
-        setByteSlot (setByteSlot old 2 b2) 3 b3
-      | 2 =>
-        let b1 := (readMemByte s (addr - 2#32)).getD 0
-        let b2 := (readMemByte s (addr - 1#32)).getD 0
-        let b3 := (readMemByte s addr).getD 0
-        setByteSlot (setByteSlot (setByteSlot old 1 b1) 2 b2) 3 b3
-      | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-        let b0 := (readMemByte s (addr - 3#32)).getD 0
-        let b1 := (readMemByte s (addr - 2#32)).getD 0
-        let b2 := (readMemByte s (addr - 1#32)).getD 0
-        let b3 := (readMemByte s addr).getD 0
-        setByteSlot (setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2) 3 b3
-    mkNext s (writeReg s (regIdx rt) v)
+    match readMemByte s addr with
+    | none => takeAddressException s excCodeAdEL addr
+    | some b3 =>
+      let off := addr.toNat % 4
+      let old := readReg s (regIdx rt)
+      let v :=
+        match off with
+        | 0 =>
+          setByteSlot old 3 b3
+        | 1 =>
+          let b2 := (readMemByte s (addr - 1#32)).getD 0
+          setByteSlot (setByteSlot old 2 b2) 3 b3
+        | 2 =>
+          let b1 := (readMemByte s (addr - 2#32)).getD 0
+          let b2 := (readMemByte s (addr - 1#32)).getD 0
+          setByteSlot (setByteSlot (setByteSlot old 1 b1) 2 b2) 3 b3
+        | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+          let b0 := (readMemByte s (addr - 3#32)).getD 0
+          let b1 := (readMemByte s (addr - 2#32)).getD 0
+          let b2 := (readMemByte s (addr - 1#32)).getD 0
+          setByteSlot (setByteSlot (setByteSlot (setByteSlot old 0 b0) 1 b1) 2 b2) 3 b3
+      mkNext s (writeReg s (regIdx rt) v)
   -- `swl`/`swr` are store-class, so (like `sw`/`sh`/`swc1`) they clear
   -- `llBit` -- see the module docstring's `ll`/`sc` paragraph.
   | .swl rs rt imm =>
     let addr := readReg s (regIdx rs) + signExt16 imm
-    let off := addr.toNat % 4
     let v := readReg s (regIdx rt)
-    let s1 := (writeMemByte s addr (getByteSlot v 0)).getD s
-    let s' :=
-      match off with
-      | 0 =>
-        let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
-        let s3 := (writeMemByte s2 (addr + 2#32) (getByteSlot v 2)).getD s2
-        (writeMemByte s3 (addr + 3#32) (getByteSlot v 3)).getD s3
-      | 1 =>
-        let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
-        (writeMemByte s2 (addr + 2#32) (getByteSlot v 2)).getD s2
-      | 2 => (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
-      | _ => s1  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-    mkNext s { s' with llBit := false }
+    match writeMemByte s addr (getByteSlot v 0) with
+    | none => takeAddressException s excCodeAdES addr
+    | some s1 =>
+      let off := addr.toNat % 4
+      let s' :=
+        match off with
+        | 0 =>
+          let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
+          let s3 := (writeMemByte s2 (addr + 2#32) (getByteSlot v 2)).getD s2
+          (writeMemByte s3 (addr + 3#32) (getByteSlot v 3)).getD s3
+        | 1 =>
+          let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
+          (writeMemByte s2 (addr + 2#32) (getByteSlot v 2)).getD s2
+        | 2 => (writeMemByte s1 (addr + 1#32) (getByteSlot v 1)).getD s1
+        | _ => s1  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+      mkNext s { s' with llBit := false }
   | .swr rs rt imm =>
     let addr := readReg s (regIdx rs) + signExt16 imm
-    let off := addr.toNat % 4
     let v := readReg s (regIdx rt)
-    let s' :=
-      match off with
-      | 0 => (writeMemByte s addr (getByteSlot v 3)).getD s
-      | 1 =>
-        let s1 := (writeMemByte s (addr - 1#32) (getByteSlot v 2)).getD s
-        (writeMemByte s1 addr (getByteSlot v 3)).getD s1
-      | 2 =>
-        let s1 := (writeMemByte s (addr - 2#32) (getByteSlot v 1)).getD s
-        let s2 := (writeMemByte s1 (addr - 1#32) (getByteSlot v 2)).getD s1
-        (writeMemByte s2 addr (getByteSlot v 3)).getD s2
-      | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-        let s1 := (writeMemByte s (addr - 3#32) (getByteSlot v 0)).getD s
-        let s2 := (writeMemByte s1 (addr - 2#32) (getByteSlot v 1)).getD s1
-        let s3 := (writeMemByte s2 (addr - 1#32) (getByteSlot v 2)).getD s2
-        (writeMemByte s3 addr (getByteSlot v 3)).getD s3
-    mkNext s { s' with llBit := false }
+    match writeMemByte s addr (getByteSlot v 3) with
+    | none => takeAddressException s excCodeAdES addr
+    | some s1 =>
+      let off := addr.toNat % 4
+      let s' :=
+        match off with
+        | 0 => s1
+        | 1 => (writeMemByte s1 (addr - 1#32) (getByteSlot v 2)).getD s1
+        | 2 =>
+          let s2 := (writeMemByte s1 (addr - 2#32) (getByteSlot v 1)).getD s1
+          (writeMemByte s2 (addr - 1#32) (getByteSlot v 2)).getD s2
+        | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+          let s2 := (writeMemByte s1 (addr - 3#32) (getByteSlot v 0)).getD s1
+          let s3 := (writeMemByte s2 (addr - 2#32) (getByteSlot v 1)).getD s2
+          (writeMemByte s3 (addr - 1#32) (getByteSlot v 2)).getD s3
+      mkNext s { s' with llBit := false }
   -- Control flow: one architectural delay slot per branch/jump (SPEC-NOTES
   -- §9 item 1; INSTRUCTION-REF Global rule 3). No branch/jump changes `pc`
   -- to its target: it moves to `pcNext = pc + 4` (the delay-slot
@@ -1336,7 +1342,8 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
     | _, _ => takeException s excCodeRI
   -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1` are
-  -- read-only (the write is ignored); `Config` takes only `K0` (bits 2..0); `Status` keeps only `statusWriteMask`
+  -- read-only (the write is ignored); `Config` takes only `K23` (30..28), `KU` (27..25) and `K0`
+  -- (2..0); `Status` keeps only `statusWriteMask`
   -- bits (others read as zero); `Cause` changes only `causeWriteMask` bits
   -- (DC, IV, IP1..0), keeping `BD`/`CE`/`ExcCode`/everything else; `EPC`/
   -- `ErrorEPC` are fully writable; `EBase` takes the Exception Base field
@@ -1351,7 +1358,9 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 15, 0 => mkNext s s
     | 15, 1 => mkNext s { s with cp0EBase :=
               (readReg s (regIdx rt) &&& ebaseWriteMask) ||| ebaseFixedBits }
-    | 16, 0 => mkNext s { s with cp0ConfigK0 := (readReg s (regIdx rt)).setWidth 3 }
+    | 16, 0 => mkNext s { s with cp0ConfigK0 := (readReg s (regIdx rt)).setWidth 3,
+                                 cp0ConfigK23 := (readReg s (regIdx rt) >>> 28).setWidth 3,
+                                 cp0ConfigKU := (readReg s (regIdx rt) >>> 25).setWidth 3 }
     | 16, 1 => mkNext s s
     | 30, 0 => mkNext s { s with cp0ErrorEpc := readReg s (regIdx rt) }
     | _, _ => takeException s excCodeRI
@@ -1428,8 +1437,9 @@ def execInstr (s : State) (instr : Instruction) : State :=
 
 /-- One instruction time: fetch the word at `s.pc` from memory, decode, execute.
 
-* Fetch is `readMemWord s s.pc`, a big-endian word read from `State.mem`; it fails only for a
-  misaligned `pc`, which raises Address Error (AdEL) with `BadVAddr = pc`.
+* Fetch is `readMemWord s s.pc`, a big-endian word read from physical memory through the MMU
+  (`translate`); it fails only for a misaligned `pc` or a `pc` outside useg in User Mode, which
+  raise Address Error (AdEL) with `BadVAddr = pc` (MD00090 Vol III Rev 6.02 §6.2.9, p.92-93).
 * A word that does not decode: Reserved Instruction — except that a COP0 or
   CACHE word (`isCop0Word`) raises Coprocessor Unusable (`CE = 0`) when
   coprocessor 0 is not usable (`cp0Usable`), a word in coprocessor 1's
@@ -1471,6 +1481,7 @@ StatusRP ← 0;  StatusTS ← 0;  StatusSR ← 0;  StatusNMI ← 0   -- not impl
 CauseDC ← 0
 EBaseExceptionBase ← 0                                     -- EBase reads 0x8000_0000
 Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1 fixed
+                                     -- K23, KU: reset "Undefined" (p.233), pinned to 2 like K0
 if InstructionInBranchDelaySlot then ErrorEPC ← restartPC  # PC of branch/jump
 else ErrorEPC ← restartPC                                  # PC of instruction
 PC ← 0xBFC0 0000
@@ -1490,6 +1501,8 @@ def resetException (s : State) : State :=
       cp0Cause := s.cp0Cause &&& ~~~causeDcMask
       cp0EBase := ebaseFixedBits
       cp0ConfigK0 := 2#3
+      cp0ConfigK23 := 2#3
+      cp0ConfigKU := 2#3
       cp0ErrorEpc := if s.pendingBranch.isSome then s.pc - 4#32 else s.pc
       pc := resetVector
       pendingBranch := none
@@ -1498,7 +1511,7 @@ def resetException (s : State) : State :=
 /-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose
 values for the registers the reset leaves undefined are all pinned to 0, `State.lean`). So
 `pc = 0xBFC0_0000`, `Status = BEV | ERL` (0x0040_0004: Kernel Mode, bootstrap vectors, CU0 = CU1
-= 0), `Cause = 0`, `EBase` reads 0x8000_0000, `Config.K0 = 2`, `ErrorEPC = 0` (the restart PC
+= 0), `Cause = 0`, `EBase` reads 0x8000_0000, `Config.K0 = K23 = KU = 2`, `ErrorEPC = 0` (the restart PC
 of a power-on reset is not meaningful, p.89: "this value may or may not be predictable if the
 Reset Exception was taken as the result of power being applied to the processor"), every GPR,
 `HI`/`LO`, FPR and `FCSR` 0, memory empty. Properties: `Specs/Reset.lean`. -/

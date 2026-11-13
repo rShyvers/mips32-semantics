@@ -13,8 +13,9 @@ open StepTest
 
 private def memTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32)]) with
-      mem := ((((∅ : Std.HashMap W32 UInt8).insert 0x10010004#32 0x80).insert 0x10010005#32 0x01)
-                |>.insert 0x10010006#32 0xff).insert 0x10010007#32 0x00 }
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := ((((∅ : Std.HashMap W32 UInt8).insert 0x50010004#32 0x80).insert 0x50010005#32 0x01)
+                |>.insert 0x50010006#32 0xff).insert 0x50010007#32 0x00 }
 
 -- lw: full big-endian word
 #guard nextRegEq (hstep (prog1 (.lw 8#32 9#32 4#32)) memTestState) 9 0x8001ff00#32
@@ -101,17 +102,20 @@ private def llscDoubleState : State := setRegs regs0 [(8, llscAddr), (10, 0xaaaa
 
 private def unalignedBase : W32 := 0x10010000#32
 
+-- `physMem` is physical: `unalignedBase` (kuseg) is at `loadAddr unalignedBase` = `+ 0x4000_0000`.
+private def unalignedPA : W32 := loadAddr unalignedBase
+
 private def unalignedTestState : State :=
   { (setRegs regs0 [(8, unalignedBase)]) with
-      mem := (∅ : Std.HashMap W32 UInt8)
-                |>.insert (unalignedBase + 0#32) 0x11
-                |>.insert (unalignedBase + 1#32) 0x22
-                |>.insert (unalignedBase + 2#32) 0x33
-                |>.insert (unalignedBase + 3#32) 0x44
-                |>.insert (unalignedBase + 4#32) 0x55
-                |>.insert (unalignedBase + 5#32) 0x66
-                |>.insert (unalignedBase + 6#32) 0x77
-                |>.insert (unalignedBase + 7#32) 0x88 }
+      physMem := (∅ : Std.HashMap W32 UInt8)
+                |>.insert (unalignedPA + 0#32) 0x11
+                |>.insert (unalignedPA + 1#32) 0x22
+                |>.insert (unalignedPA + 2#32) 0x33
+                |>.insert (unalignedPA + 3#32) 0x44
+                |>.insert (unalignedPA + 4#32) 0x55
+                |>.insert (unalignedPA + 5#32) 0x66
+                |>.insert (unalignedPA + 6#32) 0x77
+                |>.insert (unalignedPA + 7#32) 0x88 }
 
 -- `lwl`: addr % 4 == 0 loads the full word, exactly matching plain `lw`.
 #guard nextRegEq (hstep (prog1 (.lwl 8#32 9#32 0#32)) unalignedTestState) 9 0x11223344#32
@@ -261,3 +265,57 @@ private def synciTestState : State := setRegs regs0 [(8, 0x10010000#32)]
                  readMemWord s2 0x10010004#32 == some 0#32
              | .halt _ => false)
         | none => false)
+
+-- ### The Fixed Mapping MMU (MD00090 Vol III Rev 6.02 Appendix A.1, p.313-317; Table 4.2, p.30)
+
+-- Translation, segment by segment (Table A.1, p.313-314).
+#guard fixedMappingPA false 0x00400000#32 == 0x40400000#32   -- kuseg, ERL = 0: + 1 GB
+#guard fixedMappingPA true 0x00400000#32 == 0x00400000#32    -- kuseg, ERL = 1: identity
+#guard fixedMappingPA false 0x7fffeffc#32 == 0xbfffeffc#32
+#guard fixedMappingPA false 0x80001234#32 == 0x00001234#32   -- kseg0
+#guard fixedMappingPA true 0xa0001234#32 == 0x00001234#32    -- kseg1, the same physical byte
+#guard fixedMappingPA false 0xc0001234#32 == 0xc0001234#32   -- kseg2: identity
+#guard fixedMappingPA false 0xfffffffc#32 == 0xfffffffc#32   -- kseg3: identity
+-- The loader and the observer's virtual name are inverse on everything the loader writes.
+#guard [0x00400000#32, 0x10010000#32, 0x7fffeffc#32, 0x80000180#32, 0x90000000#32, 0xbfc00000#32,
+        0xc0000000#32, 0xfffffff0#32].all fun va =>
+  canonicalVAddr (loadAddr va) == (if va.toNat < 0xc0000000 && 0xa0000000 ≤ va.toNat then va - 0x20000000#32 else va)
+
+-- User Mode (UM = 1): a load/store/fetch outside useg is an Address Error with BadVAddr = the address.
+private def userMem : State := { (setRegs regs0 [(8, 0x80000100#32), (9, 0x12345678#32)]) with cp0Status := 0x20000010#32 }
+#guard raisesAddr (hstep (prog1 (.lw 8#32 10#32 0#32)) userMem) excCodeAdEL 0x80000100#32
+#guard raisesAddr (hstep (prog1 (.sw 8#32 9#32 4#32)) userMem) excCodeAdES 0x80000104#32
+#guard raisesAddr (hstep (prog1 (.lb 8#32 10#32 0x2000#32)) userMem) excCodeAdEL 0x80002100#32
+#guard raisesAddr (hstep (prog1 (.sb 8#32 9#32 0x2000#32)) userMem) excCodeAdES 0x80002100#32
+#guard raisesAddr (hstep (prog1 (.lwl 8#32 10#32 1#32)) userMem) excCodeAdEL 0x80000101#32
+#guard raisesAddr (hstep (prog1 (.swr 8#32 9#32 2#32)) userMem) excCodeAdES 0x80000102#32
+#guard raisesAddr (hstep (prog1 (.lw 8#32 10#32 0#32))
+          (setRegs userMem [(8, 0xc0000000#32)])) excCodeAdEL 0xc0000000#32
+#guard raisesAddr (hstep (prog1 (.sh 8#32 9#32 0#32))
+          (setRegs userMem [(8, 0xe0000000#32)])) excCodeAdES 0xe0000000#32
+-- ... and the store did not happen (physical memory unchanged).
+#guard (match hstep (prog1 (.sw 8#32 9#32 4#32)) userMem with
+        | .next s => s.physMem.size == (loadImage (prog1 (.sw 8#32 9#32 4#32)) userMem).physMem.size
+        | .halt _ => false)
+-- User-Mode access to useg works.
+#guard (stepState (prog1 (.sw 8#32 9#32 0#32)) (setRegs userMem [(8, 0x10010000#32)])).bind
+        (fun s' => readMemWord s' 0x10010000#32) = some 0x12345678#32
+-- User-Mode fetch from kseg0: AdEL, EPC = BadVAddr = pc.
+#guard (let s := step (loadImage (progAt 0x80001000#32 (.sll 0#32 0#32 0#32))
+          { userMem with pc := 0x80001000#32 })
+        causeExcCode s == excCodeAdEL && s.cp0BadVAddr == 0x80001000#32 && s.cp0Epc == 0x80001000#32)
+
+-- Kernel Mode: kseg0/kseg1 aliasing (a store through kseg1 is read through kseg0, and back).
+#guard (stepState (prog1 (.sw 8#32 9#32 0#32)) (setRegs regs0 [(8, 0xa0380000#32), (9, 0xcafe0042#32)])).bind
+        (fun s' => readMemWord s' 0x80380000#32) = some 0xcafe0042#32
+#guard (stepState (prog1 (.sb 8#32 9#32 5#32)) (setRegs regs0 [(8, 0x80380000#32), (9, 0xab#32)])).bind
+        (fun s' => readMemByte s' 0xa0380005#32) = some 0xab
+-- ERL = 1: kuseg is the identity map, so kuseg 0x0038_0000 is the physical word kseg0 0x8038_0000 names.
+#guard (let s := step (loadImage (progAt kText (.sw 8#32 9#32 0#32))
+          { (setRegs regs0 [(8, 0x00380000#32), (9, 0x5a5a1234#32)]) with
+              pc := kText, cp0Status := statusCu1Mask ||| statusErlMask })
+        readMemWord { s with cp0Status := statusCu1Mask } 0x80380000#32 == some 0x5a5a1234#32 &&
+        readMemWord { s with cp0Status := statusCu1Mask } 0x00380000#32 == some 0#32)
+-- With ERL = 0 the same kuseg address is physical 0x4038_0000: a different word.
+#guard (stepState (prog1 (.sw 8#32 9#32 0#32)) (setRegs regs0 [(8, 0x00380000#32), (9, 0x77#32)])).bind
+        (fun s' => readMemWord s' 0x80380000#32) = some 0#32

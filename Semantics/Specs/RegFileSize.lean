@@ -54,28 +54,36 @@ theorem writeMemWord_fpRegs (s stored : State) (addr v : W32)
   unfold writeMemWord at h
   split at h
   · cases h
-  · injection h with h'
-    rw [← h']
+  · split at h
+    · cases h
+    · injection h with h'
+      rw [← h']
 
 theorem writeMemHalf_fpRegs (s stored : State) (addr v : W32)
     (h : writeMemHalf s addr v = some stored) : stored.fpRegs = s.fpRegs := by
   unfold writeMemHalf at h
   split at h
   · cases h
-  · injection h with h'
-    rw [← h']
+  · split at h
+    · cases h
+    · injection h with h'
+      rw [← h']
 
 theorem writeMemByte_fpRegs (s stored : State) (addr : W32) (v : UInt8)
     (h : writeMemByte s addr v = some stored) : stored.fpRegs = s.fpRegs := by
   unfold writeMemByte at h
-  injection h with h'
-  rw [← h']
+  split at h
+  · cases h
+  · injection h with h'
+    rw [← h']
 
-theorem writeMemByte_getD_regs' (s d : State) (a : W32) (v : UInt8) :
-    ((writeMemByte s a v).getD d).regs = s.regs := rfl
+theorem writeMemByte_getD_regs' (s : State) (a : W32) (v : UInt8) :
+    ((writeMemByte s a v).getD s).regs = s.regs := by
+  unfold writeMemByte; cases translate s a <;> rfl
 
-theorem writeMemByte_getD_fpRegs (s d : State) (a : W32) (v : UInt8) :
-    ((writeMemByte s a v).getD d).fpRegs = s.fpRegs := rfl
+theorem writeMemByte_getD_fpRegs (s : State) (a : W32) (v : UInt8) :
+    ((writeMemByte s a v).getD s).fpRegs = s.fpRegs := by
+  unfold writeMemByte; cases translate s a <;> rfl
 
 theorem advance_regs' (orig result : State) : (advance orig result).regs = result.regs := by
   unfold advance; split <;> rfl

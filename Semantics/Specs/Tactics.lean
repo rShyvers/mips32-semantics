@@ -35,7 +35,7 @@ Steps: (1) split `s` into its fields and substitute `pendingBranch := none`, so 
 the same term up to computation: `rfl`. -/
 macro "step_spec" : tactic => `(tactic| (
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0⟩ := s
+    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
   simp only at hpb
   subst hpb
   unfold step
@@ -71,7 +71,7 @@ macro "fp_step_spec" : tactic => `(tactic| (
     | (rw [← fpFinishD_eq s _ _ hpb]; rfl)
     | (rw [← fpFinishCmp_eq s _ _ hpb]; rfl)
     | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-         cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0⟩ := s
+         cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
        simp only at hpb
        subst hpb
        rfl)))
@@ -94,7 +94,7 @@ macro "cp0_step_spec" : tactic => `(tactic| (
   rw [execInstr_eq_body s _ (Or.inr hpb) (Or.inl ?hcop1) (Or.inr hcp0)]
   case hcop1 => rfl
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0⟩ := s
+    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
   simp only at hpb
   subst hpb
   try dsimp only

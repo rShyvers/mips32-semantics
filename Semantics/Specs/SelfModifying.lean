@@ -5,15 +5,16 @@ import Semantics.Specs.Fetch
 /-!
 # SelfModifying — instruction fetch sees stores
 
-`step` fetches from `State.mem`, the same memory loads and stores use, so writing the instruction
+`step` fetches from `State.physMem`, the same memory loads and stores use, so writing the instruction
 stream is visible to the next fetch. The manual defines this (it is what SYNCI exists for:
 "This instruction is used after a new instruction stream is written to make the new instructions
 effective relative to an instruction fetch", MD00086 Vol II-A Rev 6.06, SYNCI, p.412); the model
 has no caches, so no SYNCI is needed for the store to take effect (`synci` is a no-op, `Step.lean`).
 
-## Theorems in this file (6)
+## Theorems in this file (7)
 
-  `getLsbD_255` `word_of_bytes` `byte_toUInt8_toNat` `readMemWord_writeMemWord_same`
+  `getLsbD_255` `word_of_bytes` `byte_toUInt8_toNat` `readMemWord_writeMemWord_alias`
+  `readMemWord_writeMemWord_same`
   `sw_next_instruction_is_fetched` `store_changes_next_instruction`
 -/
 
@@ -55,26 +56,41 @@ theorem byte_toUInt8_toNat (x : W32) :
   rw [h]
   exact BitVec.ofNat_toNat _ _ |>.trans (by simp)
 
-/-- **A word read returns the word just written there** (big-endian, both ways). -/
-theorem readMemWord_writeMemWord_same (s s' : State) (a v : W32)
-    (h : writeMemWord s a v = some s') : readMemWord s' a = some v := by
+/-- **A word written through one virtual address is read through any other virtual address that
+translates to the same physical address** (the store changes `physMem` only, so the translation
+of the second address is unchanged). -/
+theorem readMemWord_writeMemWord_alias (s s' : State) (a b v : W32)
+    (h : writeMemWord s a v = some s') (hb : b.toNat % 4 = 0)
+    (htr : translate s b = translate s a) : readMemWord s' b = some v := by
   unfold writeMemWord at h
   split at h
   · cases h
   · rename_i hal
-    injection h with h
-    subst h
-    unfold readMemWord
-    rw [ite_of_neg hal]
-    have d1 : (a + 1#32 == a) = false := by simp
-    have d2 : (a + 2#32 == a) = false := by simp
-    have d3 : (a + 3#32 == a) = false := by simp
-    have d21 : (a + 2#32 == a + 1#32) = false := by simp
-    have d31 : (a + 3#32 == a + 1#32) = false := by simp
-    have d32 : (a + 3#32 == a + 2#32) = false := by simp
-    simp only [Std.HashMap.get?_insert, d1, d2, d3, d21, d31, d32, beq_self_eq_true, ↓reduceIte,
-      Bool.false_eq_true, Option.getD_some, byte_toUInt8_toNat]
-    rw [word_of_bytes]
+    cases hta : translate s a with
+    | none => rw [hta] at h; cases h
+    | some pa =>
+      rw [hta] at h
+      injection h with h
+      have hst : s'.cp0Status = s.cp0Status := by rw [← h]
+      unfold readMemWord
+      rw [ite_of_neg (by omega), translate_congr s' s hst b, htr, hta, ← h]
+      have d1 : (pa + 1#32 == pa) = false := by simp
+      have d2 : (pa + 2#32 == pa) = false := by simp
+      have d3 : (pa + 3#32 == pa) = false := by simp
+      have d21 : (pa + 2#32 == pa + 1#32) = false := by simp
+      have d31 : (pa + 3#32 == pa + 1#32) = false := by simp
+      have d32 : (pa + 3#32 == pa + 2#32) = false := by simp
+      simp only [Std.HashMap.get?_insert, d1, d2, d3, d21, d31, d32, beq_self_eq_true, ↓reduceIte,
+        Bool.false_eq_true, Option.getD_some, byte_toUInt8_toNat]
+      rw [word_of_bytes]
+
+/-- **A word read returns the word just written there** (big-endian, both ways). -/
+theorem readMemWord_writeMemWord_same (s s' : State) (a v : W32)
+    (h : writeMemWord s a v = some s') : readMemWord s' a = some v := by
+  have hal : a.toNat % 4 = 0 := by
+    refine Classical.byContradiction fun hn => ?_
+    rw [writeMemWord_misaligned s a v hn] at h; cases h
+  exact readMemWord_writeMemWord_alias s s' a a v h hal rfl
 
 /-- **Self-modifying code: a store to the next instruction is what the next fetch returns.** If
 the instruction at `pc` (not in a delay slot) is `sw $rt, imm($rs)` and its effective address is
@@ -83,7 +99,8 @@ there returns the stored value `$rt`, whatever memory held before. -/
 theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
-    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32) :
+    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true) :
     (step s).pc = s.pc + 4#32 ∧
       readMemWord (step s) (step s).pc = some (readReg s (regIdxSpec rt)) := by
   have hal : s.pc.toNat % 4 = 0 := by
@@ -95,10 +112,11 @@ theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
   dsimp only
   rw [haddr]
   obtain ⟨s', hs'⟩ : ∃ s', writeMemWord s (s.pc + 4#32) (readReg s (regIdxSpec rt)) = some s' :=
-    Option.isSome_iff_exists.mp (writeMemWord_isSome_of_aligned s _ _ hal4)
+    Option.isSome_iff_exists.mp (writeMemWord_isSome_of_aligned s _ _ hal4 hacc)
   rw [hs']
   have hpc : s'.pc = s.pc := by
-    unfold writeMemWord at hs'; rw [ite_of_neg (by omega)] at hs'; injection hs' with h; rw [← h]
+    unfold writeMemWord at hs'; rw [ite_of_neg (by omega), translate_of_allowed s _ hacc] at hs'
+    injection hs' with h; rw [← h]
   refine ⟨by simp [hpc], ?_⟩
   show readMemWord s' (s'.pc + 4#32) = _
   rw [hpc]
@@ -111,10 +129,11 @@ theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' :
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true)
     (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
     step (step s) = execInstr (step s) instr' :=
   step_fetches_from_memory (step s) _ instr'
-    (sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr).2 hnew
+    (sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr hacc).2 hnew
 
 /-! ### Satisfiable example
 

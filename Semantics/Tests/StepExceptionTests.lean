@@ -17,12 +17,14 @@ open StepTest
   = some "-5"
 private def syscall4State : State :=
   { (setRegs regs0 [(2, 4#32), (4, 0x10010000#32)]) with
-      mem := (((∅ : Std.HashMap W32 UInt8).insert 0x10010000#32 0x48).insert 0x10010001#32 0x69)
-               |>.insert 0x10010002#32 0 }
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x48).insert 0x50010001#32 0x69)
+               |>.insert 0x50010002#32 0 }
 #guard hstepOut (prog1 (.syscall 0#32)) syscall4State = some "Hi"
 private def syscall4EmptyState : State :=
   { (setRegs regs0 [(2, 4#32), (4, 0x10010000#32)]) with
-      mem := (∅ : Std.HashMap W32 UInt8).insert 0x10010000#32 0 }
+      -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
+      physMem := (∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0 }
 #guard hstepOut (prog1 (.syscall 0#32)) syscall4EmptyState = some ""
 #guard isHaltExit (hstep (prog1 (.syscall 0#32)) (setRegs regs0 [(2, 10#32)]))
 #guard hstepOut (prog1 (.syscall 0#32)) (setRegs regs0 [(2, 11#32), (4, 0x41#32)])
@@ -201,8 +203,8 @@ private def vectorHandlerProg : Program :=
 -- mtc0 then mfc0 reads back the written value through the register's write
 -- mask (Status: 0xabcd &&& 0x3040ff17; Cause: 0xabcd &&& 0x00800300; EPC: all).
 #guard (match stepState (prog1 (.mtc0 8#32 12#32 0#32)) (setRegs regs0 [(8, 0xabcd#32)]) with
-        | some s' => nextRegEq (hstep (prog1 (.mfc0 9#32 12#32 0#32)) { s' with pc := textBase }) 9
-            0xab05#32
+        | some s' => nextRegEq (hstep (progAt kText (.mfc0 9#32 12#32 0#32)) { s' with pc := kText }) 9
+            0xab05#32  -- ERL is now 1: the second instruction runs from kseg0 (kText)
         | none => false)
 #guard (match stepState (prog1 (.mtc0 8#32 13#32 0#32)) (setRegs regs0 [(8, 0xabcd#32)]) with
         | some s' => nextRegEq (hstep (prog1 (.mfc0 9#32 13#32 0#32)) { s' with pc := textBase }) 9
@@ -325,8 +327,9 @@ private def ovState : State := setRegs regs0 [(8, 0x7fffffff#32), (9, 1#32), (10
 
 -- ### eret: ERL selects ErrorEPC; LLbit is always cleared
 
-#guard (match stepState (prog1 .eret)
-          { regs0 with cp0Epc := 0x3000#32, cp0ErrorEpc := 0x4000#32, cp0Status := statusErlMask ||| statusExlMask } with
+#guard (match stepState (progAt kText .eret)
+          { regs0 with pc := kText, cp0Epc := 0x3000#32, cp0ErrorEpc := 0x4000#32,
+                       cp0Status := statusErlMask ||| statusExlMask } with
         | some s' => s'.pc == 0x4000#32 && s'.cp0Status == statusExlMask
         | none => false)
 #guard (match stepState (prog1 .eret) { eretReadyState with llBit := true } with
@@ -367,23 +370,26 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 
 -- ### CP0 additions: PRId / Config / Config1 / EBase, di / ei, Cause.DC
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 0#32)) regs0) 9 0x00010000#32
-#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0x80008402#32
+-- Config: M=1, K23=2, KU=2, BE=1, AR=1, MT=3 (Fixed Mapping), K0=2
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0xA4008582#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x00000001#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 1#32)) regs0) 9 0x80000000#32
--- `Config` (16,0): only `K0` (bits 2..0) is writable (MD00090 Vol III Rev 6.02 Table 9.64, p.235);
--- writing all ones changes K0 to 7 and leaves every other bit alone
+-- `Config` (16,0): only `K23` (30..28), `KU` (27..25) and `K0` (2..0) are writable (MD00090 Vol III
+-- Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317); writing all ones sets the three to 7 and leaves
+-- every other bit alone
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
         | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-            0x80008407#32
+            0xFE008587#32
         | .halt _ => false)
--- every 3-bit K0 value reads back; bits 31..3 of the written value are ignored; nothing else changes
+-- every 3-bit K0 value reads back; the bits outside K23/KU/K0 are ignored; nothing else changes
 #guard (List.range 8).all fun k =>
   (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xfffffff8#32 ||| BitVec.ofNat 32 k)]) with
     | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-        (0x80008400#32 ||| BitVec.ofNat 32 k)
+        (0xFE008580#32 ||| BitVec.ofNat 32 k)
     | .halt _ => false)
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0#32)]) with
-        | .next s => s.cp0ConfigK0 == 0#3 && s.cp0Status == regs0.cp0Status && s.cp0EBase == regs0.cp0EBase
+        | .next s => s.cp0ConfigK0 == 0#3 && s.cp0ConfigK23 == 0#3 && s.cp0ConfigKU == 0#3 &&
+            s.cp0Status == regs0.cp0Status && s.cp0EBase == regs0.cp0EBase
         | .halt _ => false)
 -- EBase: only bits 29..12 are writable; bits 31..30 stay `10`
 #guard (match hstep (prog1 (.mtc0 9#32 15#32 1#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
@@ -457,8 +463,11 @@ private def cp0Unusable (s : State) : Bool :=
 -- UM = 1 with EXL = 1 or ERL = 1 is Kernel Mode: CP0 usable.
 #guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000012#32 }
         readReg s 8 == 0x20000012#32 && s.pc == textBase + 4#32)
-#guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000014#32 }
-        readReg s 8 == 0x20000014#32 && s.pc == textBase + 4#32)
+-- (with ERL = 1 the instruction runs from kseg0: executing from kuseg with ERL = 1 is UNDEFINED,
+-- MD00090 Vol III Rev 6.02 §A.1.2, p.316)
+#guard (let s := step (loadImage (progAt kText (.mfc0 8#32 12#32 0#32))
+          { userSt with cp0Status := 0x20000014#32, pc := kText })
+        readReg s 8 == 0x20000014#32 && s.pc == kText + 4#32)
 -- `eret` in a delay slot is Reserved Instruction in User Mode too (pin; delay-slot check first).
 #guard causeExcCode (step1 .eret { userSt with pendingBranch := some 0x400100#32 }) == excCodeRI
 -- Any exception from User Mode enters Kernel Mode, UM still 1.
@@ -475,7 +484,7 @@ private def cp0Unusable (s : State) : Bool :=
 
 #guard resetState.pc == 0xbfc00000#32 && resetState.cp0Status == 0x00400004#32 &&
   kernelMode resetState && exceptionVector resetState == 0xbfc00380#32 &&
-  ebaseValue resetState == 0x80000000#32 && configValue resetState == 0x80008402#32 &&
+  ebaseValue resetState == 0x80000000#32 && configValue resetState == 0xA4008582#32 &&
   resetState.cp0ErrorEpc == 0#32 && resetState.cp0Cause == 0#32
 -- An exception taken right after reset (BEV = 1) goes to the bootstrap vector 0xBFC0_0380;
 -- with ERL = 1 it is still Kernel Mode and CP0 is usable.

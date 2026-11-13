@@ -7,7 +7,7 @@ import Semantics.Specs.Defs
 Nothing here is a headline statement: these are small facts about `if`, bit masks, `writeReg`,
 `readCString`, `mkNext` and the `fpFinish*` helpers, used by the proofs in the family files.
 
-## Theorems in this file (46)
+## Theorems in this file (53)
 
   `ite_of_pos` `ite_of_neg` `mask_field_written` `mask_field_kept` `two_fields_first`
   `two_fields_second` `two_fields_kept` `bit_of_31` `bit_of_124` `excCode_field_roundtrip`
@@ -15,12 +15,14 @@ Nothing here is a headline statement: these are small facts about `if`, bit mask
   `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem`
   `writeReg_proj_pendingBranch` `writeReg_proj_llBit` `writeReg_proj_cp0Status`
   `writeReg_proj_cp0Cause` `writeReg_proj_cp0Epc` `writeReg_proj_cp0BadVAddr`
-  `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_cp0ConfigK0` `writeReg_proj_regs`
+  `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_cp0ConfigK0`
+  `writeReg_proj_cp0ConfigK23` `writeReg_proj_cp0ConfigKU` `writeReg_proj_regs`
   `writeReg_pc` `writeReg_hi` `writeReg_lo` `writeReg_reads_back`
   `readReg_zero_of_regs_eq` `writeMemWord_regs` `writeMemHalf_regs` `writeMemByte_regs`
   `writeFpReg_reads_back` `mkNext_of_none` `execInstr_eq_body` `fpFinishS_eq` `fpFinishD_eq`
   `fpFinishCmp_eq` `readMemWord_misaligned` `writeMemWord_misaligned`
   `readMemWord_isSome_of_aligned` `writeMemWord_isSome_of_aligned`
+  `translate_congr` `readMemByte_congr` `translate_of_allowed` `translate_of_not_allowed`
 -/
 
 set_option maxRecDepth 4000
@@ -89,24 +91,37 @@ theorem excCode_field_roundtrip (c : W32) : ((c <<< 2) &&& 124#32) >>> 2 = c &&&
     simp [h5, this, h2]
   · simp [h5]
 
-/-- `readCString` only looks at memory. -/
-theorem readCString_mem (s s' : State) (h : s.mem = s'.mem) (a : W32) (f : Nat) :
+/-- Translation depends on `Status` alone (the mode and `ERL`). -/
+theorem translate_congr (s s' : State) (h : s.cp0Status = s'.cp0Status) (va : W32) :
+    translate s va = translate s' va := by
+  unfold translate accessAllowed kernelMode erlSet; rw [h]
+
+/-- A byte read depends only on physical memory and `Status`. -/
+theorem readMemByte_congr (s s' : State) (hm : s.physMem = s'.physMem)
+    (h : s.cp0Status = s'.cp0Status) (va : W32) : readMemByte s va = readMemByte s' va := by
+  unfold readMemByte; rw [translate_congr s s' h, hm]
+
+/-- `readCString` only looks at memory, through the MMU (so also at `Status`). -/
+theorem readCString_mem (s s' : State) (h : s.physMem = s'.physMem)
+    (hst : s.cp0Status = s'.cp0Status) (a : W32) (f : Nat) :
     readCString s a f = readCString s' a f := by
   induction f generalizing a with
   | zero => rfl
-  | succ n ih => unfold readCString; rw [h, ih]
+  | succ n ih => unfold readCString; rw [readMemByte_congr s s' h hst, ih]
 
-/-- `readCString` as a function of the memory alone (proof device). -/
-def readCStringOfMem (m : Std.HashMap W32 UInt8) (a : W32) (f : Nat) : String :=
-  readCString { initialState 0#32 with mem := m } a f
+/-- `readCString` as a function of the physical memory and `Status` alone (proof device). -/
+def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) : String :=
+  readCString { initialState 0#32 with physMem := m, cp0Status := st } a f
 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
-    (st ca epc bva eepc lla eb a : W32) (k0 : BitVec 3) (f : Nat) :
-    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0⟩ a f
-      = readCStringOfMem mem a f :=
-  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0⟩
-    { initialState 0#32 with mem := mem } rfl a f
+    (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (f : Nat) :
+    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
+        k23, ku⟩ a f
+      = readCStringOfMem mem st a f :=
+  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
+      k23, ku⟩
+    { initialState 0#32 with physMem := mem, cp0Status := st } rfl rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
   unfold writeReg; split <;> rfl
@@ -123,7 +138,7 @@ theorem writeReg_proj_fpRegs (s : State) (i : Fin 32) (v : W32) : (writeReg s i 
 theorem writeReg_proj_fcsr (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).fcsr = s.fcsr := by
   unfold writeReg; split <;> rfl
 
-theorem writeReg_proj_mem (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).mem = s.mem := by
+theorem writeReg_proj_mem (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).physMem = s.physMem := by
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_pendingBranch (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pendingBranch = s.pendingBranch := by
@@ -156,6 +171,12 @@ theorem writeReg_proj_cp0EBase (s : State) (i : Fin 32) (v : W32) : (writeReg s 
 theorem writeReg_proj_cp0ConfigK0 (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0ConfigK0 = s.cp0ConfigK0 := by
   unfold writeReg; split <;> rfl
 
+theorem writeReg_proj_cp0ConfigK23 (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0ConfigK23 = s.cp0ConfigK23 := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0ConfigKU (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0ConfigKU = s.cp0ConfigKU := by
+  unfold writeReg; split <;> rfl
+
 theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).regs = if i == 0 then s.regs else s.regs.set! i.val v := by
   unfold writeReg; split <;> rfl
@@ -184,7 +205,7 @@ theorem writeReg_reads_back (s : State) (i : Fin 32) (v : W32) (hne : i ≠ 0)
 
 /-- Two states with the same `regs` field read `$zero` the same —
 the register-file-only half of `readReg`: any state change that leaves
-`regs` alone (`pc`/`pendingBranch`/`hi`/`lo`/`mem`/…) cannot disturb
+`regs` alone (`pc`/`pendingBranch`/`hi`/`lo`/`physMem`/…) cannot disturb
 `$zero`. -/
 theorem readReg_zero_of_regs_eq {s1 s2 : State} (h : s1.regs = s2.regs) :
     readReg s1 0 = readReg s2 0 := by
@@ -192,15 +213,17 @@ theorem readReg_zero_of_regs_eq {s1 s2 : State} (h : s1.regs = s2.regs) :
   rw [h]
 
 /-- `writeMemWord` never changes `regs` when it succeeds — it only ever
-touches `mem` (INSTRUCTION-REF "sw"/"sc" sections' effective-address write).
+touches `physMem` (INSTRUCTION-REF "sw"/"sc" sections' effective-address write).
 -/
 theorem writeMemWord_regs (s stored : State) (addr v : W32)
     (h : writeMemWord s addr v = some stored) : stored.regs = s.regs := by
   unfold writeMemWord at h
   split at h
   · cases h
-  · injection h with h'
-    rw [← h']
+  · split at h
+    · cases h
+    · injection h with h'
+      rw [← h']
 
 /-- `writeMemHalf` never changes `regs` when it succeeds — the halfword
 counterpart of `writeMemWord_regs` (INSTRUCTION-REF "sh" section). -/
@@ -209,20 +232,21 @@ theorem writeMemHalf_regs (s stored : State) (addr v : W32)
   unfold writeMemHalf at h
   split at h
   · cases h
-  · injection h with h'
-    rw [← h']
+  · split at h
+    · cases h
+    · injection h with h'
+      rw [← h']
 
 /-- `writeMemByte` never changes `regs` — the byte-write counterpart of
-`writeMemWord_regs`/`writeMemHalf_regs`, completing the trio. Unlike
-`writeMemWord`/`writeMemHalf` it has no alignment check at all
-(`writeMemByte`'s own docstring: "always succeeds"), so this is even
-simpler to prove: no `split`, just unfold-and-read-off the `{ s with
-mem := ... }` field. -/
+`writeMemWord_regs`/`writeMemHalf_regs`, completing the trio. It has no
+alignment check; it fails only on the MMU's address-error check. -/
 theorem writeMemByte_regs (s stored : State) (addr : W32) (v : UInt8)
     (h : writeMemByte s addr v = some stored) : stored.regs = s.regs := by
   unfold writeMemByte at h
-  injection h with h'
-  rw [← h']
+  split at h
+  · cases h
+  · injection h with h'
+    rw [← h']
 
 /-- Writing `v` to FP register `i` and immediately reading `i` back gives
 exactly `v` (`writeFpReg` has no hardwired-zero slot, unlike `writeReg`). -/
@@ -302,16 +326,28 @@ theorem writeMemWord_misaligned (s : State) (a v : W32) (h : a.toNat % 4 ≠ 0) 
   unfold writeMemWord
   rw [ite_of_pos h]
 
-/-- Conversely, an aligned `readMemWord` always succeeds. -/
-theorem readMemWord_isSome_of_aligned (s : State) (a : W32) (h : a.toNat % 4 = 0) :
+/-- An accessible address translates by the fixed mapping (`State.lean`, `translate`). -/
+theorem translate_of_allowed (s : State) (a : W32) (h : accessAllowed s a = true) :
+    translate s a = some (fixedMappingPA (erlSet s) a) := by
+  unfold translate; rw [ite_of_pos h]
+
+/-- An inaccessible address (a kernel address from User Mode) does not translate. -/
+theorem translate_of_not_allowed (s : State) (a : W32) (h : accessAllowed s a = false) :
+    translate s a = none := by
+  unfold translate; rw [ite_of_neg (by simp [h])]
+
+/-- Conversely, an aligned `readMemWord` of an accessible address always succeeds. -/
+theorem readMemWord_isSome_of_aligned (s : State) (a : W32) (h : a.toNat % 4 = 0)
+    (hacc : accessAllowed s a = true) :
     (readMemWord s a).isSome = true := by
   unfold readMemWord
-  rw [ite_of_neg (by omega)]
+  rw [ite_of_neg (by omega), translate_of_allowed s a hacc]
   rfl
 
-/-- Conversely, an aligned `writeMemWord` always succeeds. -/
-theorem writeMemWord_isSome_of_aligned (s : State) (a v : W32) (h : a.toNat % 4 = 0) :
+/-- Conversely, an aligned `writeMemWord` of an accessible address always succeeds. -/
+theorem writeMemWord_isSome_of_aligned (s : State) (a v : W32) (h : a.toNat % 4 = 0)
+    (hacc : accessAllowed s a = true) :
     (writeMemWord s a v).isSome = true := by
   unfold writeMemWord
-  rw [ite_of_neg (by omega)]
+  rw [ite_of_neg (by omega), translate_of_allowed s a hacc]
   rfl

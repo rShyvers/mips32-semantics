@@ -18,12 +18,13 @@ theorems here say exactly where the hosted run differs from the bare processor:
 * `runHosted_preserves_zero_register`, `runHosted_preserves_wellFormed`: the global invariants
   hold for the hosted run too (the services touch no register).
 
-## Theorems in this file (12)
+## Theorems in this file (13)
 
   `readCStringSpec_eq` `hostStep_stop` `hostStep_eq_step` `hostStep_bare_eq_step`
   `runHosted_go_agrees` `runHosted_agrees_with_run` `hostStep_syscall_spec` `hosted_print_int`
   `hosted_exit` `hostStep_preserves` `runHosted_preserves_zero_register`
   `runHosted_preserves_wellFormed`
+  `runHosted_go_preserves`
 -/
 
 set_option maxRecDepth 4000

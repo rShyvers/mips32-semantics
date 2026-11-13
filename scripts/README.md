@@ -91,8 +91,11 @@ Many of the tests (FP compare/convert/flag/trap/CpU/random-pool programs) are pr
 1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
    oracle extension: `image` (`[addr, word]` for every assembled word: text 0x00400000, data 0x10010000, `.ktext` 0x80000180),
    `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause,epc,badvaddr,errorepc,ebase}),
-   `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | branch_in_delay_slot | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
-   (every nonzero aligned word of the final memory).
+   `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
+   (every nonzero aligned word of the final **physical** memory, keyed by its **virtual** address `Env.canonicalVAddr`: the model has the Fixed
+   Mapping MMU, so the loaded data at virtual 0x10010000 lives at physical 0x50010000 and is reported as 0x10010000) and `physical_memory`
+   (the same words by physical address). The oracle compares `memory` with QEMU's memory read back **by virtual address** (in Kernel Mode,
+   through the harness's TLB), so both sides speak virtual addresses; `image` is virtual too.
 2. `oracle.py` builds a per-test ELF: the fixed harness `tests/oracle/harness/boot.s` + a generated image (config words, the program image
    at kseg0 aliases of RAM pages, TLB entry table) linked by a generated linker script with one PT_LOAD per section.
 3. QEMU boots it (`-kernel`, reset entry in kseg0). The stub programs 16 TLB entries (4 KB pages, PageMask 0): text pages (+ the odd partner
@@ -117,7 +120,12 @@ end of the text (the model reports `no_instruction`, QEMU a TLB refill; both cou
 ### What is compared (and what is masked, with reasons)
 GPRs (all 32; **nothing** is ignored by default: the harness preserves $k0/$k1), HI, LO, FPRs (raw 32-bit), FCSR under the model's `fcsr_mask`,
 Status & `0x3040ff17` (IE, EXL, ERL, UM, IM7..0, BEV, CU0, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; QEMU's TI, IP7..IP2, WP, PCI are hardware state the model lacks),
-EPC, BadVAddr, ErrorEPC, pc, syscall output, final data+stack memory, termination kind (+ ExcCode for exceptions).
+EPC, BadVAddr, ErrorEPC, pc, syscall output, final data+stack memory (virtual addresses on both sides, see step 1), termination kind (+ ExcCode for exceptions).
+Address translation: the model's MMU is the Fixed Mapping MMU (kuseg = virtual + 0x4000_0000 while ERL = 0), QEMU 24Kf's kuseg is TLB-mapped by the
+harness; neither physical placement is observable by a test that uses virtual addresses, so the kuseg offset is checked on the model only
+(`Semantics/Specs/Mmu.lean`, `Loader.lean`). kseg0/kseg1 aliasing, the ERL = 1 kuseg identity map and User-Mode Address Errors are deterministic
+on both and are compared (`tests/oracle/mmu_*`). A test that sets ERL = 1 runs that code from kseg0 (`.ktext`): executing from kuseg with ERL = 1 is
+UNDEFINED (MD00090 Vol III Rev 6.02 A.1.2 p.316) and QEMU would fetch from physical = virtual.
 Skipped by termination kind: for `no_instruction` the Status/Cause/EPC/BadVAddr/pc (QEMU's describe its TLB refill); for `exit` the EPC (QEMU's syscall exception clobbers it).
 Not observable on QEMU: the LL bit (reported by MipsRun, not compared; `ll_sc_*` tests observe it through `sc`).
 

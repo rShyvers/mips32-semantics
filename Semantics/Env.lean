@@ -19,8 +19,14 @@ bench does around the processor — and has no counterpart in the MIPS32 manuals
   `bootConvention textBase resetState`. `MipsRun --reset` skips the boot convention and starts at
   the reset vector (`loadAtReset`).
 * **Loader.** `load p` writes the assembled image `p` (text, data, `.ktext`, `.kdata`; a
-  `Program`) into the memory of `hostedStart`. From then on the processor fetches
-  from memory; the `Program` is no longer consulted by the machine.
+  `Program`, keyed by **virtual** address) into the **physical** memory of `hostedStart`: each
+  word at `loadAddr va`, the physical address the Fixed Mapping MMU gives `va` while
+  `Status.ERL = 0` (kuseg `+ 0x4000_0000`, kseg0/kseg1 the low 512 MB, kseg2/kseg3 identity).
+  That is the translation a loaded program runs under (the hosted start has `ERL = 0`; a reset-time
+  program must clear `ERL` before it runs kuseg code, since executing from kuseg with `ERL = 1` is
+  UNDEFINED, MD00090 Vol III Rev 6.02 §A.1.2, p.316). `Specs/Loader.lean` proves that a fetch or
+  load of an image address then returns the image word. From then on the processor fetches from
+  memory; the `Program` is no longer consulted by the machine.
 * **Hosted services.** MARS/SPIM-style `syscall` services 1 (print int), 4 (print string),
   10 (exit) and 11 (print char), selected by `$v0`. The hosted run performs one *instead of*
   stepping when the instruction at `pc` is a `syscall` selecting it, as if an operating system's
@@ -41,18 +47,44 @@ run is not stopped, and that `runHosted` then agrees with the bare `run`.
 
 /-! ## Loader -/
 
-/-- Write the 32-bit word `w` big-endian at `addr` (the byte layout of `writeMemWord`), without
-an alignment check: the loader's own memory write. -/
-def loadWord (m : Std.HashMap W32 UInt8) (addr w : W32) : Std.HashMap W32 UInt8 :=
+/-- **Where the loader puts the image word with virtual address `va`**: its physical address under
+the Fixed Mapping MMU with `Status.ERL = 0` (`fixedMappingPA false`, MD00090 Vol III Rev 6.02
+Table A.1, p.313-314), the translation every loaded program runs under (`hostedStart` has
+`ERL = 0`; see the module docstring for `loadAtReset`). Text `0x0040_0000` → `0x4040_0000`, data
+`0x1001_0000` → `0x5001_0000`, `.ktext 0x8000_0180` → `0x0000_0180`, `.kdata 0x9000_0000` →
+`0x1000_0000`, boot code `0xBFC0_0000` → `0x1FC0_0000`. -/
+def loadAddr (va : VAddr) : PAddr := fixedMappingPA false va
+
+/-- **The virtual name an observer gives a physical address** (environment convention, used by
+`MipsRun`'s `memory` JSON field): the inverse of `loadAddr` — kuseg for `0x4000_0000`-`0xBFFF_FFFF`
+(`PA - 0x4000_0000`), kseg0 for the low 512 MB (`PA + 0x8000_0000`), identity for kseg2/kseg3
+(`0xC000_0000`-), and identity for `0x2000_0000`-`0x3FFF_FFFF`, which only kuseg with `ERL = 1`
+reaches (Table A.1, p.314: "inaccessible when the ERL bit is off"). -/
+def canonicalVAddr (pa : PAddr) : VAddr :=
+  if pa.toNat < 0x20000000 then pa + 0x80000000#32
+  else if pa.toNat < 0x40000000 then pa
+  else if pa.toNat < 0xC0000000 then pa - 0x40000000#32
+  else pa
+
+/-- The big-endian word of physical memory `m` at physical address `pa` (no translation, no
+alignment check: an observer's read, not the processor's). -/
+def physWord (m : Std.HashMap PAddr UInt8) (pa : PAddr) : W32 :=
+  let b (a : PAddr) : W32 := BitVec.ofNat 32 ((m.get? a).getD 0).toNat
+  (b pa <<< 24) ||| (b (pa + 1#32) <<< 16) ||| (b (pa + 2#32) <<< 8) ||| b (pa + 3#32)
+
+/-- Write the 32-bit word `w` big-endian at physical address `pa` (the byte layout of
+`writeMemWord`), without an alignment check: the loader's own memory write. -/
+def loadWord (m : Std.HashMap PAddr UInt8) (pa : PAddr) (w : W32) : Std.HashMap PAddr UInt8 :=
   let b0 : UInt8 := ((w >>> 24) &&& 0xff#32).toNat.toUInt8
   let b1 : UInt8 := ((w >>> 16) &&& 0xff#32).toNat.toUInt8
   let b2 : UInt8 := ((w >>> 8) &&& 0xff#32).toNat.toUInt8
   let b3 : UInt8 := (w &&& 0xff#32).toNat.toUInt8
-  (((m.insert addr b0).insert (addr + 1#32) b1).insert (addr + 2#32) b2).insert (addr + 3#32) b3
+  (((m.insert pa b0).insert (pa + 1#32) b1).insert (pa + 2#32) b2).insert (pa + 3#32) b3
 
-/-- Write every word of the image `p` into the memory of `s`. -/
+/-- Write every word of the image `p` (virtual addresses) into the physical memory of `s`, each at
+`loadAddr` of its address. -/
 def loadImage (p : Program) (s : State) : State :=
-  { s with mem := p.fold (fun m addr w => loadWord m addr w) s.mem }
+  { s with physMem := p.fold (fun m va w => loadWord m (loadAddr va) w) s.physMem }
 
 /-- **The boot convention** of the hosted environment: what boot code at the reset vector does
 before it jumps to a loaded program whose entry point is `entry`. Written as the instructions
@@ -80,10 +112,13 @@ def hostedStart : State := bootConvention textBase resetState
 memory. -/
 def load (p : Program) : State := loadImage p hostedStart
 
-/-- **The reset loader** (`MipsRun --reset`): the image `p` written into the memory of
-`resetState`, with no boot convention. Execution begins at the reset vector `0xBFC0_0000`, so the
-image must place boot code there (e.g. `.ktext 0xBFC00000`); otherwise the hosted run stops at
-once (`noInstruction 0xBFC0_0000`). -/
+/-- **The reset loader** (`MipsRun --reset`): the image `p` written into the physical memory of
+`resetState`, with no boot convention, at the same physical addresses as `load` (`loadAddr`).
+Execution begins at the reset vector `0xBFC0_0000` (kseg1, physical `0x1FC0_0000`), so the image
+must place boot code there (e.g. `.ktext 0xBFC00000`); otherwise the hosted run stops at once
+(`noInstruction 0xBFC0_0000`). kuseg words are placed for `ERL = 0`: the boot code must clear
+`ERL` (e.g. by `eret`) before it runs or reads them through kuseg — with `ERL = 1` kuseg is the
+identity map (§4.7, p.31) and executing from it is UNDEFINED (§A.1.2, p.316). -/
 def loadAtReset (p : Program) : State := loadImage p resetState
 
 /-! ## Hosted run -/
@@ -159,14 +194,18 @@ def selectedService (s : State) : Option Service :=
 the service total. -/
 def printStringFuel : Nat := 65536
 
-/-- Scan up to `fuel` bytes from `addr`, stopping before the first `0x00`, each byte one
-character. Memory that was never written reads as 0, so the scan ends there. -/
-def readCString (s : State) (addr : W32) : Nat → String
+/-- Scan up to `fuel` bytes from the virtual address `addr` (read with `readMemByte`, i.e. through
+the MMU in the current mode, as the program itself would), stopping before the first `0x00` or the
+first byte the program could not read (a kernel address from User Mode), each byte one character.
+Memory that was never written reads as 0, so the scan ends there. -/
+def readCString (s : State) (addr : VAddr) : Nat → String
   | 0 => ""
   | fuel + 1 =>
-    let b := (s.mem.get? addr).getD 0
-    if b == 0 then ""
-    else String.singleton (Char.ofNat b.toNat) ++ readCString s (addr + 1#32) fuel
+    match readMemByte s addr with
+    | none => ""
+    | some b =>
+      if b == 0 then ""
+      else String.singleton (Char.ofNat b.toNat) ++ readCString s (addr + 1#32) fuel
 
 /-- Perform a hosted service on behalf of the `syscall` at `pc`. A print service appends to the
 output and then completes the `syscall` like any non-control-flow instruction (`advance`: `pc + 4`,

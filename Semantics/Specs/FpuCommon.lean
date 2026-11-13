@@ -56,7 +56,7 @@ no memory changes**. -/
 theorem takeCoprocessorUnusable_spec (s s' : State)
     (h : takeCoprocessorUnusable s = s') :
     causeExcCode s' = 11#32 ∧ s'.cp0Cause &&& causeCeMask = 0x10000000#32 ∧
-      s'.fpRegs = s.fpRegs ∧ s'.fcsr = s.fcsr ∧ s'.regs = s.regs ∧ s'.mem = s.mem ∧
+      s'.fpRegs = s.fpRegs ∧ s'.fcsr = s.fcsr ∧ s'.regs = s.regs ∧ s'.physMem = s.physMem ∧
       s'.pc = exceptionVector s ∧ s'.cp0Status = s.cp0Status ||| statusExlMask := by
   try unfold takeException at h
   try unfold takeCoprocessorUnusable at h
@@ -74,7 +74,7 @@ theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Fl
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
     (h : fpCompletesS s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
-      s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s := by
+      s'.regs = s.regs ∧ s'.physMem = s.physMem ∧ s'.pc = exceptionVector s := by
   unfold fpCompletesS at h
   rw [ite_of_pos hen] at h
   try unfold takeException at h
@@ -88,7 +88,7 @@ theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Fl
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
     (h : fpCompletesD s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
-      s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s := by
+      s'.regs = s.regs ∧ s'.physMem = s.physMem ∧ s'.pc = exceptionVector s := by
   unfold fpCompletesD at h
   rw [ite_of_pos hen] at h
   try unfold takeException at h

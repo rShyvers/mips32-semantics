@@ -21,7 +21,7 @@ set_option maxRecDepth 4000
 state `s`: `PC ← 0xBFC0_0000`; `Status.BEV ← 1`, `Status.ERL ← 1` (so the processor is in Kernel
 Mode, §3.2 p.21, and the bootstrap exception vector `0xBFC0_0380` is in use); `Cause.DC ← 0`;
 `EBase` reads `0x8000_0000` (`EBaseExceptionBase ← 0`); `Config` is its configuration state with
-`K0 = 2` (`0x8000_8402`); `ErrorEPC ←` the restart PC (the branch, if `s` was in a delay slot);
+`K0 = 2`, and the pinned `K23 = KU = 2`, with `MT = 3` (`0xA400_8582`); `ErrorEPC ←` the restart PC (the branch, if `s` was in a delay slot);
 no branch is pending. `Status.RP/TS/SR/NMI ← 0` hold because those bits are not implemented and
 read 0. -/
 theorem resetException_spec (s : State) :
@@ -30,7 +30,7 @@ theorem resetException_spec (s : State) :
     (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
     (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
     ebaseValue (resetException s) = 0x80000000#32 ∧
-    configValue (resetException s) = 0x80008402#32 ∧
+    configValue (resetException s) = 0xA4008582#32 ∧
     (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
     (resetException s).pendingBranch = none ∧
     kernelMode (resetException s) = true ∧
@@ -44,7 +44,8 @@ theorem resetException_spec (s : State) :
     rw [BitVec.and_assoc, show ~~~causeDcMask &&& causeDcMask = 0#32 by decide, BitVec.and_zero]
   · show (ebaseFixedBits &&& ebaseWriteMask) ||| ebaseFixedBits = _
     decide
-  · show 0x80008400#32 ||| (2#3).setWidth 32 = _
+  · show 0x80008580#32 ||| ((2#3).setWidth 32 <<< 28) ||| ((2#3).setWidth 32 <<< 25) |||
+      (2#3).setWidth 32 = _
     decide
   · unfold kernelMode
     show (_ || _ || (s.cp0Status ||| statusBevMask ||| statusErlMask) &&& statusErlMask != 0#32) = true
@@ -63,7 +64,7 @@ leaves undefined keeps its value (a pin; any value is legal): the GPRs, `HI`/`LO
 theorem resetException_keeps (s : State) :
     (resetException s).regs = s.regs ∧ (resetException s).hi = s.hi ∧
     (resetException s).lo = s.lo ∧ (resetException s).fpRegs = s.fpRegs ∧
-    (resetException s).fcsr = s.fcsr ∧ (resetException s).mem = s.mem ∧
+    (resetException s).fcsr = s.fcsr ∧ (resetException s).physMem = s.physMem ∧
     (resetException s).cp0Epc = s.cp0Epc ∧ (resetException s).cp0BadVAddr = s.cp0BadVAddr ∧
     (resetException s).cp0Status &&& ~~~(statusBevMask ||| statusErlMask) =
       s.cp0Status &&& ~~~(statusBevMask ||| statusErlMask) := by
@@ -74,14 +75,14 @@ theorem resetException_keeps (s : State) :
 /-- **The state after a cold reset** (`resetState = resetException powerOnState`): `pc =
 0xBFC0_0000`, `Status = 0x0040_0004` (`BEV = ERL = 1`, every other bit 0: Kernel Mode, `CU0 =
 CU1 = 0`), `Cause = 0`, `EPC = BadVAddr = ErrorEPC = 0`, `EBase` reads `0x8000_0000`, `Config`
-reads `0x8000_8402` (`K0 = 2`), the general exception vector is the bootstrap one
+reads `0xA400_8582` (`MT = 3`, `K23 = KU = K0 = 2`), the general exception vector is the bootstrap one
 (`0xBFC0_0380`), no branch is pending, `LLbit` clear, and every GPR, `HI`, `LO`, FPR and `FCSR`
 is 0 (pins of undefined reset values, `powerOnState`). -/
 theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
     resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
-    configValue resetState = 0x80008402#32 ∧ kernelMode resetState = true ∧
+    configValue resetState = 0xA4008582#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
     resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
@@ -98,7 +99,7 @@ theorem bootConvention_spec (entry : W32) (s : State) :
     (bootConvention entry s).pendingBranch = none ∧
     (bootConvention entry s).cp0Cause = s.cp0Cause ∧ (bootConvention entry s).cp0Epc = s.cp0Epc ∧
     (bootConvention entry s).cp0ErrorEpc = s.cp0ErrorEpc ∧
-    (bootConvention entry s).cp0EBase = s.cp0EBase ∧ (bootConvention entry s).mem = s.mem ∧
+    (bootConvention entry s).cp0EBase = s.cp0EBase ∧ (bootConvention entry s).physMem = s.physMem ∧
     (bootConvention entry s).fcsr = s.fcsr ∧ (bootConvention entry s).fpRegs = s.fpRegs := by
   refine ⟨rfl, rfl, ?_, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · unfold kernelMode
@@ -130,6 +131,7 @@ theorem load_is_reset_then_boot (p : Program) :
 #guard (let r := resetException { (initialState textBase) with cp0Status := 0x30000011#32 }
         r.cp0Status == 0x30400015#32 && kernelMode r && r.pc == 0xbfc00000#32)
 -- From the reset state, `eret` (ERL = 1) jumps to ErrorEPC and clears ERL (what a boot ROM may use
--- to leave the reset state).
-#guard (let s := stepIn (prog1Spec .eret) { resetState with pc := textBase, cp0ErrorEpc := 0x400100#32 }
+-- to leave the reset state). It runs from the reset vector (kseg1): with ERL = 1 kuseg is the
+-- identity map and executing from kuseg is UNDEFINED (MD00090 Vol III Rev 6.02 §A.1.2, p.316).
+#guard (let s := stepIn (buildProgSpec resetVector [.eret]) { resetState with cp0ErrorEpc := 0x400100#32 }
         s.pc == 0x400100#32 && s.cp0Status == statusBevMask)

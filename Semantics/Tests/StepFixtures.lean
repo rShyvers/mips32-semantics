@@ -9,8 +9,8 @@ Formerly `section TestHelpers` of `Semantics/Step.lean` (there `private`; here i
 
 
 Per DESIGN.md §5 / CLAUDE.md §5: pure arithmetic helpers (no `Program` or
-`State.mem` HashMap access) are checked with `by decide`/`by rfl`. Anything
-that steps touches `State.mem` (`Std.HashMap`), which is `cbv_opaque` and not
+`State.physMem` HashMap access) are checked with `by decide`/`by rfl`. Anything
+that steps touches `State.physMem` (`Std.HashMap`), which is `cbv_opaque` and not
 kernel-reducible, so *every* stepping check uses `#guard` (compiled evaluation).
 
 **What the tests step.** The tests were written as "program `p`, state `s`, one step". Since
@@ -34,6 +34,11 @@ def setFpRegs (s : State) (kvs : List (Fin 32 × W32)) : State :=
 
 def prog1 (instr : Instruction) : Program :=
   (∅ : Program).insert textBase (encode instr)
+
+/-- A kseg0 code address (physical `0x1000`) for tests that run with `Status.ERL = 1`: with
+`ERL = 1` kuseg is the identity map and executing from it is UNDEFINED (MD00090 Vol III Rev 6.02
+§A.1.2, p.316), so such tests do not fetch from `textBase`. -/
+def kText : W32 := 0x80001000#32
 
 def progAt (addr : W32) (instr : Instruction) : Program :=
   (∅ : Program).insert addr (encode instr)
@@ -146,7 +151,7 @@ state at all, not just the few fields any individual existing test happens
 to check. -/
 def sameStateExceptPc (s s' : State) : Bool :=
   s'.regs == s.regs && s'.hi == s.hi && s'.lo == s.lo && s'.fpRegs == s.fpRegs &&
-    s'.fcsr == s.fcsr && s'.mem == s.mem &&
+    s'.fcsr == s.fcsr && s'.physMem == s.physMem &&
     s'.pendingBranch == s.pendingBranch && s'.llBit == s.llBit &&
     s'.cp0Status == s.cp0Status && s'.cp0Cause == s.cp0Cause && s'.cp0Epc == s.cp0Epc &&
     s'.cp0EBase == s.cp0EBase && s'.llAddr == s.llAddr && s'.cp0BadVAddr == s.cp0BadVAddr

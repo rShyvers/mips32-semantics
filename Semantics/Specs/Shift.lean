@@ -202,22 +202,22 @@ the top) versus `0x01234567` (the low nibble discarded). The two states differ
 only in memory (`m'` holds the `srl` at `pc`). -/
 theorem rotr_output_ne_srl_output (s : State) (m' : Std.HashMap W32 UInt8) (w w' : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rotr 10#32 8#32 4#32))
-    (hfetch' : readMemWord { s with mem := m' } s.pc = some w')
+    (hfetch' : readMemWord { s with physMem := m' } s.pc = some w')
     (hdecode' : decode w' = some (.srl 10#32 8#32 4#32))
     (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32)
     (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) :
-    ∃ s1 s2, step s = s1 ∧ step { s with mem := m' } = s2 ∧
+    ∃ s1 s2, step s = s1 ∧ step { s with physMem := m' } = s2 ∧
       readReg s1 10 = 0x81234567#32 ∧ readReg s2 10 = 0x01234567#32 ∧
       readReg s1 10 ≠ readReg s2 10 := by
   have h1 : readReg (writeReg s (regIdxSpec 10#32) 0x81234567#32) 10 = 0x81234567#32 :=
     writeReg_reads_back s 10 _ (by decide) hsize32
-  have h2 : readReg (writeReg { s with mem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
+  have h2 : readReg (writeReg { s with physMem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
       = 0x01234567#32 :=
-    writeReg_reads_back { s with mem := m' } 10 _ (by decide) hsize32
+    writeReg_reads_back { s with physMem := m' } 10 _ (by decide) hsize32
   refine ⟨_, _, rotr_wraps_not_zero_fill s w hfetch hdecode hpb hrt,
-    srl_zero_fills_same_input { s with mem := m' } w' hfetch' hdecode' hpb hrt, h1, h2, ?_⟩
+    srl_zero_fills_same_input { s with physMem := m' } w' hfetch' hdecode' hpb hrt, h1, h2, ?_⟩
   show readReg (writeReg s (regIdxSpec 10#32) 0x81234567#32) 10
-    ≠ readReg (writeReg { s with mem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
+    ≠ readReg (writeReg { s with physMem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
   rw [h1, h2]
   decide
 

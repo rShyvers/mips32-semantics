@@ -8,14 +8,24 @@ Foundation module (DESIGN.md §3): `Program` (assembler output), `State` (the pr
 instruction-word constructors, and constants. Depends only on `Word`.
 -/
 
-/-- An assembled program image: a sparse map from word addresses to 32-bit words (text, data,
-`.ktext`, `.kdata`). This is **not** processor state: it is what the assembler (`Asm.lean`)
-produces and what the loader (`Semantics/Env.lean`, `load`) writes into `State.mem` before
-execution starts. The processor fetches instructions from `State.mem` only. -/
-abbrev Program := Std.HashMap W32 W32
+/-- A **virtual address**: what a program computes (`pc`, effective addresses, the addresses the
+assembler uses). The Fixed Mapping MMU (`State.lean`, `translate`) turns it into a physical address
+(MD00090 Vol III Rev 6.02, Appendix A.1, p.313-314). Only a name for `W32`, for readability. -/
+abbrev VAddr := W32
+
+/-- A **physical address**: an index into `State.physMem`. Only a name for `W32`. -/
+abbrev PAddr := W32
+
+/-- An assembled program image: a sparse map from word-aligned **virtual** addresses to 32-bit
+words (text, data, `.ktext`, `.kdata`). This is **not** processor state: it is what the assembler
+(`Asm.lean`) produces and what the loader (`Semantics/Env.lean`, `load`) writes into
+`State.physMem`, each word at the physical address its virtual address translates to
+(`Env.loadAddr`), before execution starts. The processor fetches instructions from
+`State.physMem` only. -/
+abbrev Program := Std.HashMap VAddr W32
 
 /-- The architectural state of the modeled processor between instructions. It is
-self-contained: instructions are fetched from `mem` (`Step.lean`, `step`), so a store to the
+self-contained: instructions are fetched from `physMem` (`Step.lean`, `step`), so a store to the
 instruction stream changes what is executed (MD00086 Vol II-A Rev 6.06, SYNCI, p.412). Anything
 that belongs to the environment rather than to the processor (the loaded image, the output of the
 hosted services, halting) lives in `Semantics/Env.lean`. -/
@@ -46,10 +56,14 @@ structure State where
   `FIR.Has2008 = 0`) read as zero and ignore writes. `FCCR`/`FEXR`/`FENR` are
   views of this one register (`cfc1`/`ctc1`). -/
   fcsr : W32
-  /-- Byte-addressable, sparse memory; instructions are fetched from here too. A byte that was
-  never written reads as `0` (`State.lean`): a pin of what the model's memory system returns for
-  locations nothing was loaded into, which the architecture leaves to the system. -/
-  mem : Std.HashMap W32 UInt8
+  /-- **Physical memory**: byte-addressable and sparse, keyed by the **physical** address. Every
+  processor access (instruction fetch, loads, stores) reaches it through the Fixed Mapping MMU
+  (`State.lean`, `translate`), so one physical byte can have several virtual names (kseg0 and
+  kseg1 both map onto the low 512 MB). The whole 2^32-byte physical space exists: a byte that was
+  never written reads as `0` and no access ends in a Bus Error — a pin of what the model's memory
+  system does, which the architecture leaves to the system (MD00090 Vol III Rev 6.02 §6.2.16,
+  p.97). -/
+  physMem : Std.HashMap PAddr UInt8
   /-- The delay-slot marker. `some t` means **the instruction at `pc` is in a
   branch delay slot**, and control goes to `t` once it has executed; `none`
   means it is not in a delay slot.
@@ -149,6 +163,15 @@ structure State where
   (Uncached, the "Required" encoding of Table 9.12, p.133; a pin of the undefined
   reset state). -/
   cp0ConfigK0 : BitVec 3 := 2#3
+  /-- Coprocessor 0 `Config.K23` (register 16, select 0, bits 30..28): "Kseg2/Kseg3 cacheability
+  and coherency attribute", Read/Write, reset "Undefined", for a Fixed Mapping MMU (MD00090 Vol III
+  Rev 6.02 Table A.2, p.317: "Required"; Table 9.64, p.233: "Optional"). Stored and read back; no
+  other effect (no caches). Pinned to `2` at power-on and by the Reset exception. -/
+  cp0ConfigK23 : BitVec 3 := 2#3
+  /-- Coprocessor 0 `Config.KU` (register 16, select 0, bits 27..25): "Kuseg cacheability and
+  coherency attribute when StatusERL is zero", Read/Write, reset "Undefined" (Table A.2, p.317;
+  Table 9.64, p.233). Stored and read back; no other effect. Pinned to `2` like `K23`. -/
+  cp0ConfigKU : BitVec 3 := 2#3
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/

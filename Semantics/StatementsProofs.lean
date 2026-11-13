@@ -57,7 +57,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
       (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
-      (exceptionEntry s code ce).mem = s.mem ∧
+      (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
       (exceptionEntry s code ce).llBit = false ∧
@@ -303,11 +303,13 @@ theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
-      { s with
-            mem := s.mem.insert (readReg s (regIdxSpec rs) + signExt16 imm)
-              (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
-            llBit := false
-            pc := s.pc + 4#32 } :=
+      match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
+      | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
+      | some pa =>
+        { s with
+              physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
+              llBit := false
+              pc := s.pc + 4#32 } :=
   _root_.sb_spec_raw s w rs rt imm hfetch hdecode hpb
 
 theorem ll_spec_raw (s : State) (w rs rt imm : W32)
@@ -343,27 +345,29 @@ theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
-      let old := readReg s (regIdxSpec rt)
-      let b0 := (readMemByte s addr).getD 0
-      let v :=
-        match off with
-        | 0 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          let b3 := (readMemByte s (addr + 3#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
-        | 1 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
-        | 2 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
-        | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
-          setByteSlotSpec old 0 b0
-      { (writeReg s (regIdxSpec rt) v) with
-          pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } :=
+      match readMemByte s addr with
+      | none => takeAddressException s excCodeAdEL addr
+      | some b0 =>
+        let off := addr.toNat % 4
+        let old := readReg s (regIdxSpec rt)
+        let v :=
+          match off with
+          | 0 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            let b3 := (readMemByte s (addr + 3#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
+          | 1 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
+          | 2 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
+          | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
+            setByteSlotSpec old 0 b0
+        { (writeReg s (regIdxSpec rt) v) with
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } :=
   _root_.lwl_spec_raw s w rs rt imm hfetch hdecode hpb
 
 /-! ## Branches and jumps -/
@@ -473,7 +477,8 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read (0x80008400#32 ||| s.cp0ConfigK0.setWidth 32)
+      | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
+          (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI :=
@@ -499,7 +504,11 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
       | 16, 0 =>
-        { s with cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3, pc := s.pc + 4#32 }
+        { s with
+              cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3
+              cp0ConfigK23 := (readReg s (regIdxSpec rt) >>> 28).setWidth 3
+              cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
+              pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
@@ -562,7 +571,7 @@ theorem resetException_spec (s : State) :
     (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
     (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
     ebaseValue (resetException s) = 0x80000000#32 ∧
-    configValue (resetException s) = 0x80008402#32 ∧
+    configValue (resetException s) = 0xA4008582#32 ∧
     (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
     (resetException s).pendingBranch = none ∧
     kernelMode (resetException s) = true ∧
@@ -573,7 +582,7 @@ theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
     resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
-    configValue resetState = 0x80008402#32 ∧ kernelMode resetState = true ∧
+    configValue resetState = 0xA4008582#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
     resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
@@ -598,7 +607,7 @@ theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Fl
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
     (h : fpCompletesS s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
-      s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s :=
+      s'.regs = s.regs ∧ s'.physMem = s.physMem ∧ s'.pc = exceptionVector s :=
   _root_.fpCompletesS_trap s s' fd r hen h
 
 theorem fpCompletesS_ok (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags)
@@ -715,23 +724,108 @@ theorem bc1t_spec_raw (s : State) (w cc imm : W32)
       else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } :=
   _root_.bc1t_spec_raw s w cc imm hfetch hdecode hpb hcu
 
+/-! ## Address translation: the Fixed Mapping MMU, and the loader -/
+
+theorem fixedMappingPA_kuseg_erl0 (va : W32) (h : va.toNat < 0x80000000) :
+    fixedMappingPA false va = va + 0x40000000#32 ∧
+      (fixedMappingPA false va).toNat = va.toNat + 0x40000000 :=
+  _root_.fixedMappingPA_kuseg_erl0 va h
+
+theorem fixedMappingPA_kuseg_erl1 (va : W32) (h : va.toNat < 0x80000000) :
+    fixedMappingPA true va = va :=
+  _root_.fixedMappingPA_kuseg_erl1 va h
+
+theorem fixedMappingPA_kseg0 (erl : Bool) (va : W32) (h1 : 0x80000000 ≤ va.toNat)
+    (h2 : va.toNat < 0xA0000000) : (fixedMappingPA erl va).toNat = va.toNat - 0x80000000 :=
+  _root_.fixedMappingPA_kseg0 erl va h1 h2
+
+theorem fixedMappingPA_kseg1 (erl : Bool) (va : W32) (h1 : 0xA0000000 ≤ va.toNat)
+    (h2 : va.toNat < 0xC0000000) : (fixedMappingPA erl va).toNat = va.toNat - 0xA0000000 :=
+  _root_.fixedMappingPA_kseg1 erl va h1 h2
+
+theorem fixedMappingPA_kseg23 (erl : Bool) (va : W32) (h : 0xC0000000 ≤ va.toNat) :
+    fixedMappingPA erl va = va :=
+  _root_.fixedMappingPA_kseg23 erl va h
+
+theorem fixedMappingPA_kseg0_kseg1_alias (erl : Bool) (x : W32) (hx : x.toNat < 0x20000000) :
+    fixedMappingPA erl (0x80000000#32 + x) = x ∧ fixedMappingPA erl (0xA0000000#32 + x) = x :=
+  _root_.fixedMappingPA_kseg0_kseg1_alias erl x hx
+
+theorem translate_user_kernel_address (s : State) (va : W32) (hum : userMode s = true)
+    (hk : isUseg va = false) : translate s va = none :=
+  _root_.translate_user_kernel_address s va hum hk
+
+theorem translate_erl1_kuseg_identity (s : State) (va : W32) (herl : erlSet s = true)
+    (h : va.toNat < 0x80000000) : translate s va = some va :=
+  _root_.translate_erl1_kuseg_identity s va herl h
+
+theorem step_fetch_user_kernel_address (s : State) (hum : userMode s = true)
+    (hk : isUseg s.pc = false) : step s = takeAddressException s excCodeAdEL s.pc :=
+  _root_.step_fetch_user_kernel_address s hum hk
+
+theorem lw_user_kernel_address (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
+    (hpb : s.pendingBranch = none) (hum : userMode s = true)
+    (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
+    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+      (step s).physMem = s.physMem ∧
+      (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm :=
+  _root_.lw_user_kernel_address s w rs rt imm hfetch hdecode hpb hum hk
+
+theorem sw_user_kernel_address (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
+    (hpb : s.pendingBranch = none) (hum : userMode s = true)
+    (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
+    step s = takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+      (step s).physMem = s.physMem ∧
+      (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm :=
+  _root_.sw_user_kernel_address s w rs rt imm hfetch hdecode hpb hum hk
+
+theorem kseg1_store_visible_through_kseg0 (s s' : State) (x v : W32) (hk : kernelMode s = true)
+    (hx : x.toNat < 0x20000000) (hal : x.toNat % 4 = 0)
+    (h : writeMemWord s (0xA0000000#32 + x) v = some s') :
+    readMemWord s' (0x80000000#32 + x) = some v :=
+  _root_.kseg1_store_visible_through_kseg0 s s' x v hk hx hal h
+
+theorem load_readMemWord (p : Program) (a w : W32) (hw : p.get? a = some w)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ a → loadAddr b ≠ loadAddr a) :
+    readMemWord (load p) a = some w :=
+  _root_.load_readMemWord p a w hw halign hdisj
+
+theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
+    (hw : p.get? textBase = some w) (hdecode : decode w = some instr)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ textBase → loadAddr b ≠ loadAddr textBase) :
+    step (load p) = execInstr (load p) instr :=
+  _root_.load_step_fetches_image p w instr hw hdecode halign hdisj
+
+theorem loadAtReset_readMemWord_kseg (p : Program) (a w : W32) (hw : p.get? a = some w)
+    (hk : 0x80000000 ≤ a.toNat)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ a → loadAddr b ≠ loadAddr a) :
+    readMemWord (loadAtReset p) a = some w :=
+  _root_.loadAtReset_readMemWord_kseg p a w hw hk halign hdisj
+
 /-! ## Self-modifying code and the hosted environment -/
 
 theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
-    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32) :
+    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true) :
     (step s).pc = s.pc + 4#32 ∧
       readMemWord (step s) (step s).pc = some (readReg s (regIdxSpec rt)) :=
-  _root_.sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr
+  _root_.sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr hacc
 
 theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true)
     (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
     step (step s) = execInstr (step s) instr' :=
-  _root_.store_changes_next_instruction s w rs rt imm instr' hfetch hdecode hpb haddr hnew
+  _root_.store_changes_next_instruction s w rs rt imm instr' hfetch hdecode hpb haddr hacc hnew
 
 theorem hostStep_eq_step (env : HostEnv) (h : Hosted)
     (hstop : stopReason env h.machine = none)

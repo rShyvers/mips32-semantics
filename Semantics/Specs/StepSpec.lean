@@ -34,6 +34,8 @@ import Semantics.Specs.FpuConvert
 import Semantics.Specs.FpuCompare
 import Semantics.Specs.FpuBranch
 import Semantics.Specs.SelfModifying
+import Semantics.Specs.Mmu
+import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
 
 /-!
@@ -51,8 +53,9 @@ side is written out with the state primitives (`readReg`, `writeReg`, `readMemWo
 abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
 
 * `hfetch : readMemWord s s.pc = some w` and `hdecode : decode w = some instr` say "the word in
-  memory at `pc` is `w`, and it decodes to `instr`": `step` fetches from `State.mem`, so this is
-  the fetch itself (there is no separate program). A misaligned `pc` makes `readMemWord` `none`.
+  memory at `pc` is `w`, and it decodes to `instr`": `step` fetches from `State.physMem` through the
+  MMU (`translate`), so this is the fetch itself (there is no separate program). A misaligned `pc`, or
+  a `pc` outside useg in User Mode, makes `readMemWord` `none`.
 * `hpb : s.pendingBranch = none` restricts a theorem to an instruction that is not in a branch
   delay slot. `delay_slot_commits_target` (`DelaySlot.lean`) lifts any such equation to the
   delay-slot case; `exceptionEntry_*` (`Exception.lean`) describe exception entry in both cases.
@@ -67,7 +70,7 @@ Besides the general statement, most files contain **satisfiable examples** (`#gu
 `step` on a concrete program loaded into a state with `Fixtures.lean`, showing the hypotheses are
 not vacuous) and **bad-output rejection** theorems (an outcome a buggy implementation might
 plausibly produce, which `step` provably does not). `#guard` rather than `decide` is used
-wherever a `Program`/`State.mem` hash map is involved, because those do not reduce in the kernel.
+wherever a `Program`/`State.physMem` hash map is involved, because those do not reduce in the kernel.
 
 Every theorem is fully proved. Notes on how individual proofs came about are in
 `docs/PROOF-NOTES.md`, not here.
@@ -83,7 +86,9 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Decode / encode | `WellFormed.lean`, `DecodeSpec.lean` | `Instruction.WellFormed` (field ranges), `decode_encode` (round trip) |
 | Exception entry | `Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode`, `_ce` |
 | Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_fetches_from_memory`, `step_undecodable`, `step_reserved_instruction`, `step_reserved_cop0_unusable` |
-| Self-modifying code | `SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
+| Self-modifying code | `SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` (and `readMemWord_writeMemWord_alias`) |
+| Address translation (Fixed Mapping MMU) | `Mmu.lean` | `fixedMappingPA_*` (each segment, `ERL`, kseg0/kseg1 alias), `translate_*`, the `*_user_kernel_address` Address Errors (every access function, fetch, `lw`, `sw`), `kseg1_store_visible_through_kseg0` |
+| Loader | `Loader.lean` | `loadImage_readMemWord`, `load_readMemWord`, `load_step_fetches_image`, `loadAtReset_readMemWord_kseg` |
 | Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
 | Register-file sizes | `RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed`: the `regs.size = 32` / `fpRegs.size = 32` side conditions are invariants (the rest is proof device) |

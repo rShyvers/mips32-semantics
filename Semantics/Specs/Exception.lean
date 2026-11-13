@@ -41,7 +41,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
       (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
-      (exceptionEntry s code ce).mem = s.mem ∧
+      (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
       (exceptionEntry s code ce).llBit = false ∧

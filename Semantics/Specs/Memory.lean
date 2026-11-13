@@ -12,11 +12,12 @@ Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Memory access"; "Memory-ordering / cache-hint instructions (`sync`/`synci`) — v1.x addition"; "Summary table".
 
-## Theorems in this file (13)
+## Theorems in this file (14)
 
   `lw_spec_raw` `lw_misaligned_spec` `lw_misaligned_no_load` `sw_spec_raw` `sh_spec_raw`
   `sb_spec_raw` `pref_spec_raw` `lb_spec_raw` `lbu_spec_raw` `lh_spec_raw` `lhu_spec_raw`
   `sync_spec_raw` `synci_spec_raw`
+  `sb_spec_raw_writeMemByte`
 -/
 
 set_option maxRecDepth 4000
@@ -142,21 +143,41 @@ theorem sh_spec_raw (s : State) (w rs rt imm : W32)
             pc := ({ s' with llBit := false }).pc + 4#32 } := by
   step_spec
 
+/-- `sb` in terms of `writeMemByte` (proof device for `sb_spec_raw`). -/
+theorem sb_spec_raw_writeMemByte (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
+    (hpb : s.pendingBranch = none) :
+    step s =
+      match writeMemByte s (readReg s (regIdxSpec rs) + signExt16 imm)
+          (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8 with
+      | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
+      | some s' =>
+        { ({ s' with llBit := false }) with
+            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+  step_spec
+
 /-- **`sb` stores the low byte of `$rt` at `$rs + sext16(offset)` and
 clears `llBit`** (MD00086 "SB": `StoreMemory(BYTE, GPR[rt] 7..0)`). There is
-no alignment requirement, so `sb` never raises an Address Error; exactly
-one memory byte changes. Clearing `llBit` is the model's pinned choice for
+no alignment requirement; the effective address is translated by the MMU (`translate`): a
+kernel address from User Mode raises Address Error (AdES, `BadVAddr` = the address, MD00090
+Vol III Rev 6.02 Table 4.2, p.30) and stores nothing; otherwise exactly one byte of physical
+memory changes, at the translated address. Clearing `llBit` is the model's pinned choice for
 every store (see `State.llBit`). -/
 theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
-      { s with
-            mem := s.mem.insert (readReg s (regIdxSpec rs) + signExt16 imm)
-              (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
-            llBit := false
-            pc := s.pc + 4#32 } := by
-  step_spec
+      match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
+      | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
+      | some pa =>
+        { s with
+              physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
+              llBit := false
+              pc := s.pc + 4#32 } := by
+  have h := sb_spec_raw_writeMemByte s w rs rt imm hfetch hdecode hpb
+  rw [h]
+  unfold writeMemByte
+  cases translate s (readReg s (regIdxSpec rs) + signExt16 imm) <;> rfl
 
 -- `sb_spec_raw`: `sb $9, 1($8)` writes exactly the low byte `0xab` at the
 -- (odd) address, leaves its neighbours alone, and clears `llBit`.

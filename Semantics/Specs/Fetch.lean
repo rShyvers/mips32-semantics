@@ -3,7 +3,7 @@ import Semantics.Specs.Lemmas
 /-!
 # Fetch — instruction fetch from memory, and fetch / decode failures
 
-`step` fetches the big-endian word at `pc` from `State.mem` (`readMemWord s s.pc`). What happens
+`step` fetches the big-endian word at `pc` from `State.physMem` (`readMemWord s s.pc`). What happens
 when that word is not an instruction: misaligned `pc` (Address Error), a word `decode` rejects
 (Reserved Instruction, or Coprocessor Unusable for an unusable coprocessor's encoding space). There
 is no "no instruction" case in the processor: memory that was never written reads as 0

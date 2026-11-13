@@ -110,7 +110,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
       (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
-      (exceptionEntry s code ce).mem = s.mem ∧
+      (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
       (exceptionEntry s code ce).llBit = false ∧
@@ -470,18 +470,22 @@ theorem sw_spec_raw (s : State) (w rs rt imm : W32)
 
 /-- **`sb` stores the low byte of `$rt` at `$rs + sext16(offset)` and
 clears `llBit`** (MD00086 "SB": `StoreMemory(BYTE, GPR[rt] 7..0)`). There is
-no alignment requirement, so `sb` never raises an Address Error; exactly
-one memory byte changes. Clearing `llBit` is the model's pinned choice for
+no alignment requirement; the effective address is translated by the MMU (`translate`): a
+kernel address from User Mode raises Address Error (AdES, `BadVAddr` = the address, MD00090
+Vol III Rev 6.02 Table 4.2, p.30) and stores nothing; otherwise exactly one byte of physical
+memory changes, at the translated address. Clearing `llBit` is the model's pinned choice for
 every store (see `State.llBit`). -/
 theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
-      { s with
-            mem := s.mem.insert (readReg s (regIdxSpec rs) + signExt16 imm)
-              (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
-            llBit := false
-            pc := s.pc + 4#32 } := by
+      match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
+      | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
+      | some pa =>
+        { s with
+              physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
+              llBit := false
+              pc := s.pc + 4#32 } := by
   sorry
 
 /-- **`ll` loads a word exactly like `lw`, and additionally sets `llBit`
@@ -536,33 +540,37 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
 `$rt`'s existing least-significant bytes untouched** — exactly how many
 bytes merge depends on `addr.toNat % 4` (4 at `off = 0`, behaving exactly
 like a plain `lw`; down to 1 at `off = 3`). Raises no exception on a misaligned
-address, unlike `lw` (INSTRUCTION-REF `lwl` section). -/
+address, unlike `lw` (INSTRUCTION-REF `lwl` section); the only exception is the MMU's Address
+Error (AdEL, `BadVAddr = addr`) for a kernel address referenced from User Mode (MD00090 Vol III
+Rev 6.02 Table 4.2, p.30). -/
 theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
-      let old := readReg s (regIdxSpec rt)
-      let b0 := (readMemByte s addr).getD 0
-      let v :=
-        match off with
-        | 0 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          let b3 := (readMemByte s (addr + 3#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
-        | 1 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
-        | 2 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
-        | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
-          setByteSlotSpec old 0 b0
-      { (writeReg s (regIdxSpec rt) v) with
-          pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+      match readMemByte s addr with
+      | none => takeAddressException s excCodeAdEL addr
+      | some b0 =>
+        let off := addr.toNat % 4
+        let old := readReg s (regIdxSpec rt)
+        let v :=
+          match off with
+          | 0 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            let b3 := (readMemByte s (addr + 3#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
+          | 1 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
+          | 2 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
+          | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
+            setByteSlotSpec old 0 b0
+        { (writeReg s (regIdxSpec rt) v) with
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
   sorry
 
 /-! ## Branches and jumps
@@ -747,7 +755,8 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read (0x80008400#32 ||| s.cp0ConfigK0.setWidth 32)
+      | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
+          (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI := by
@@ -759,7 +768,8 @@ EXL, ERL, UM, IM7..0, BEV, CU0, CU1; every other bit reads as zero). `Cause` (13
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
 writable. `EBase` (15,1) takes bits 29..12 of the written value under the
-fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
+fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0)
+(Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317);
 `BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
 usable (`hcp0`). -/
@@ -783,7 +793,11 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
       | 16, 0 =>
-        { s with cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3, pc := s.pc + 4#32 }
+        { s with
+              cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3
+              cp0ConfigK23 := (readReg s (regIdxSpec rt) >>> 28).setWidth 3
+              cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
+              pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
@@ -866,7 +880,8 @@ theorem eret_to_user_mode (s : State) (w : W32)
 
 /-- **What the Reset exception defines** (MD00090 Vol III Rev 6.02 §6.2.5, p.89-90), from any
 state: `PC ← 0xBFC0_0000`, `Status.BEV ← 1`, `Status.ERL ← 1` (Kernel Mode, bootstrap vectors),
-`Cause.DC ← 0`, `EBase` reads `0x8000_0000`, `Config` reads `0x8000_8402` (`K0 = 2`),
+`Cause.DC ← 0`, `EBase` reads `0x8000_0000`, `Config` reads `0xA400_8582` (`MT = 3` Fixed Mapping,
+`K23 = KU = K0 = 2`),
 `ErrorEPC ←` the restart PC, no branch pending. -/
 theorem resetException_spec (s : State) :
     (resetException s).pc = 0xBFC00000#32 ∧
@@ -874,7 +889,7 @@ theorem resetException_spec (s : State) :
     (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
     (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
     ebaseValue (resetException s) = 0x80000000#32 ∧
-    configValue (resetException s) = 0x80008402#32 ∧
+    configValue (resetException s) = 0xA4008582#32 ∧
     (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
     (resetException s).pendingBranch = none ∧
     kernelMode (resetException s) = true ∧
@@ -887,7 +902,7 @@ theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
     resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
-    configValue resetState = 0x80008402#32 ∧ kernelMode resetState = true ∧
+    configValue resetState = 0xA4008582#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
     resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
@@ -926,7 +941,7 @@ theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Fl
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
     (h : fpCompletesS s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
-      s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s := by
+      s'.regs = s.regs ∧ s'.physMem = s.physMem ∧ s'.pc = exceptionVector s := by
   sorry
 
 /-- **No trap: result bits and FCSR.** When no enabled exception was raised,
@@ -1080,6 +1095,120 @@ theorem bc1t_spec_raw (s : State) (w cc imm : W32)
       else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
   sorry
 
+/-! ## Address translation: the Fixed Mapping MMU, and the loader
+
+Proved in `Semantics/Specs/` — Mmu.lean, Loader.lean. -/
+
+/-- **useg/kuseg with `Status.ERL = 0`: physical = virtual + 1 GB** (MD00090 Vol III Rev 6.02 §A.1.1, p.313;
+Table A.1, p.313: kuseg `0x0000_0000`-`0x7FFF_FFFF` → `0x4000_0000`-`0xBFFF_FFFF`). -/
+theorem fixedMappingPA_kuseg_erl0 (va : W32) (h : va.toNat < 0x80000000) :
+    fixedMappingPA false va = va + 0x40000000#32 ∧
+      (fixedMappingPA false va).toNat = va.toNat + 0x40000000 := by
+  sorry
+
+/-- **useg/kuseg with `Status.ERL = 1`: identity** (§A.1.1, p.313; §4.7, p.31: "the kuseg Segment becomes
+an unmapped, uncached Segment"). -/
+theorem fixedMappingPA_kuseg_erl1 (va : W32) (h : va.toNat < 0x80000000) :
+    fixedMappingPA true va = va := by
+  sorry
+
+/-- **kseg0 → the low 512 MB** (`0x8000_0000`-`0x9FFF_FFFF` → `0x0000_0000`-`0x1FFF_FFFF`; Table 4.3, p.31;
+Table A.1, p.313), whatever `ERL` is. -/
+theorem fixedMappingPA_kseg0 (erl : Bool) (va : W32) (h1 : 0x80000000 ≤ va.toNat)
+    (h2 : va.toNat < 0xA0000000) : (fixedMappingPA erl va).toNat = va.toNat - 0x80000000 := by
+  sorry
+
+/-- **kseg1 → the same low 512 MB** (`0xA000_0000`-`0xBFFF_FFFF` → `0x0000_0000`-`0x1FFF_FFFF`; Table 4.3,
+p.31; Table A.1, p.313), whatever `ERL` is. -/
+theorem fixedMappingPA_kseg1 (erl : Bool) (va : W32) (h1 : 0xA0000000 ≤ va.toNat)
+    (h2 : va.toNat < 0xC0000000) : (fixedMappingPA erl va).toNat = va.toNat - 0xA0000000 := by
+  sorry
+
+/-- **kseg2 (sseg/ksseg) and kseg3: identity** ("Sseg/Ksseg/Kseg2/Kseg3 addresses are mapped using an
+identity mapping", §A.1.1, p.313; Table A.1, p.314). -/
+theorem fixedMappingPA_kseg23 (erl : Bool) (va : W32) (h : 0xC0000000 ≤ va.toNat) :
+    fixedMappingPA erl va = va := by
+  sorry
+
+/-- **kseg0 and kseg1 alias**: `0x8000_0000 + x` and `0xA000_0000 + x` are both physical `x`. -/
+theorem fixedMappingPA_kseg0_kseg1_alias (erl : Bool) (x : W32) (hx : x.toNat < 0x20000000) :
+    fixedMappingPA erl (0x80000000#32 + x) = x ∧ fixedMappingPA erl (0xA0000000#32 + x) = x := by
+  sorry
+
+/-- **From User Mode, every address outside useg is an Address Error**: kseg0, kseg1, kseg2 and kseg3 are
+"Address Error" from User Mode (MD00090 Vol III Rev 6.02 Table 4.2, p.30; §6.2.9, p.92), checked
+"before the translation process" (§A.1.1, p.313). -/
+theorem translate_user_kernel_address (s : State) (va : W32) (hum : userMode s = true)
+    (hk : isUseg va = false) : translate s va = none := by
+  sorry
+
+/-- **With `Status.ERL = 1` kuseg is the identity map** (§4.7, p.31; Table A.1, p.313). -/
+theorem translate_erl1_kuseg_identity (s : State) (va : W32) (herl : erlSet s = true)
+    (h : va.toNat < 0x80000000) : translate s va = some va := by
+  sorry
+
+/-- **An instruction fetch from a kernel address in User Mode raises Address Error (AdEL)** with
+`BadVAddr = EPC = pc` (§6.2.9, p.92-93). -/
+theorem step_fetch_user_kernel_address (s : State) (hum : userMode s = true)
+    (hk : isUseg s.pc = false) : step s = takeAddressException s excCodeAdEL s.pc := by
+  sorry
+
+/-- **A User-Mode `lw` of a kernel address raises Address Error (AdEL)**, with `BadVAddr` = the
+effective address, and changes no memory. -/
+theorem lw_user_kernel_address (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
+    (hpb : s.pendingBranch = none) (hum : userMode s = true)
+    (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
+    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+      (step s).physMem = s.physMem ∧
+      (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
+  sorry
+
+/-- **A User-Mode `sw` to a kernel address raises Address Error (AdES)**, with `BadVAddr` = the
+effective address, and stores nothing. -/
+theorem sw_user_kernel_address (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
+    (hpb : s.pendingBranch = none) (hum : userMode s = true)
+    (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
+    step s = takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+      (step s).physMem = s.physMem ∧
+      (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
+  sorry
+
+/-- **kseg0/kseg1 data aliasing**: in Kernel Mode, a word stored through kseg1 at `0xA000_0000 + x` is what
+a load through kseg0 at `0x8000_0000 + x` returns. -/
+theorem kseg1_store_visible_through_kseg0 (s s' : State) (x v : W32) (hk : kernelMode s = true)
+    (hx : x.toNat < 0x20000000) (hal : x.toNat % 4 = 0)
+    (h : writeMemWord s (0xA0000000#32 + x) v = some s') :
+    readMemWord s' (0x80000000#32 + x) = some v := by
+  sorry
+
+/-- **Loader correctness (hosted start).** If the image `p` holds `w` at the virtual address `a`, all image
+addresses are word-aligned and no other image address is loaded at the same physical address
+(`Env.loadAddr`), then a word read (fetch or `lw`) of `a` in the loaded state returns `w`. -/
+theorem load_readMemWord (p : Program) (a w : W32) (hw : p.get? a = some w)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ a → loadAddr b ≠ loadAddr a) :
+    readMemWord (load p) a = some w := by
+  sorry
+
+/-- **The first step of a loaded program executes the image word at `textBase`.** -/
+theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
+    (hw : p.get? textBase = some w) (hdecode : decode w = some instr)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ textBase → loadAddr b ≠ loadAddr textBase) :
+    step (load p) = execInstr (load p) instr := by
+  sorry
+
+/-- **Loader correctness (reset start, `ERL = 1`)** for kernel-segment addresses (kseg0-kseg3, where
+`ERL` does not change the mapping), e.g. the boot code at the reset vector `0xBFC0_0000`. -/
+theorem loadAtReset_readMemWord_kseg (p : Program) (a w : W32) (hw : p.get? a = some w)
+    (hk : 0x80000000 ≤ a.toNat)
+    (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
+    (hdisj : ∀ b v, p.get? b = some v → b ≠ a → loadAddr b ≠ loadAddr a) :
+    readMemWord (loadAtReset p) a = some w := by
+  sorry
+
 /-! ## Self-modifying code and the hosted environment
 
 Proved in `Semantics/Specs/` — SelfModifying.lean, Hosted.lean. The hosted run is NOT the
@@ -1087,11 +1216,14 @@ architecture (`Semantics/Env.lean`); these statements say exactly where it diffe
 
 /-- **Self-modifying code: a store to the next instruction is what the next fetch returns.** If
 the instruction at `pc` (not in a delay slot) is `sw $rt, imm($rs)` and its effective address is
-`pc + 4`, then after the step `pc = pc + 4` and the fetch there returns `$rt`. -/
+`pc + 4`, and that address is accessible in the current mode (`hacc`: Kernel Mode, or a useg
+address; otherwise the store is an Address Error), then after the step `pc = pc + 4` and the
+fetch there returns `$rt`. -/
 theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
-    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32) :
+    (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true) :
     (step s).pc = s.pc + 4#32 ∧
       readMemWord (step s) (step s).pc = some (readReg s (regIdxSpec rt)) := by
   sorry
@@ -1102,6 +1234,7 @@ theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' :
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
+    (hacc : accessAllowed s (s.pc + 4#32) = true)
     (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
     step (step s) = execInstr (step s) instr' := by
   sorry

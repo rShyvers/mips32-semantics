@@ -45,7 +45,7 @@ one JSON object to stdout and nothing else. Exit codes:
 ## Loading (issue #12)
 
 `Asm.assemble` returns the whole image (text, `.data`, `.ktext`, `.kdata`) as one `Program`; the
-loader `Env.load` writes all of it into `State.mem`, from which the processor fetches
+loader `Env.load` writes all of it into `State.physMem`, from which the processor fetches
 instructions and loads data. (This replaces the former `materializeSpec` copy, which had the same
 byte layout.)
 -/
@@ -174,16 +174,26 @@ def jsonPairs (xs : Array (Nat × Nat)) : String :=
 def imageJson (p : Program) : String :=
   jsonPairs (p.toArray.map (fun (a, w) => (a.toNat, w.toNat)))
 
-/-- Every nonzero aligned memory word of the final state, `[addr, word]`,
-sorted. (Includes the loaded program image, which `Env.load` writes into
-`State.mem`, and any store the program made to it.) -/
-def memoryJson (s : State) : String :=
+/-- The nonzero aligned words of the final state's **physical** memory, `[physical address,
+word]`, sorted (every byte the loader or a store wrote; `Env.physWord`). -/
+def physWords (s : State) : Array (Nat × Nat) :=
   let addrs : Std.HashMap Nat Unit :=
-    s.mem.fold (fun acc a _ => acc.insert (a.toNat / 4 * 4) ()) {}
-  let ws := addrs.fold (fun (acc : Array (Nat × Nat)) a _ =>
-    let w := (readMemWord s (BitVec.ofNat 32 a)).getD 0#32
+    s.physMem.fold (fun acc a _ => acc.insert (a.toNat / 4 * 4) ()) {}
+  addrs.fold (fun (acc : Array (Nat × Nat)) a _ =>
+    let w := physWord s.physMem (BitVec.ofNat 32 a)
     if w == 0#32 then acc else acc.push (a, w.toNat)) #[]
-  jsonPairs ws
+
+/-- The `memory` field: every nonzero aligned word of physical memory, reported at its **virtual**
+address `Env.canonicalVAddr pa` (the inverse of the loader's `loadAddr`: kuseg for the loaded
+text/data/stack, kseg0 for the low 512 MB, identity for kseg2/kseg3), sorted. So `memory` speaks
+the same (virtual) addresses as `image` and the registers. Words reachable through several
+virtual names (kseg0/kseg1 aliases) appear once, under the kseg0 name. -/
+def memoryJson (s : State) : String :=
+  jsonPairs ((physWords s).map (fun (a, w) => ((canonicalVAddr (BitVec.ofNat 32 a)).toNat, w)))
+
+/-- The `physical_memory` field: the same words keyed by physical address. -/
+def physicalMemoryJson (s : State) : String :=
+  jsonPairs (physWords s)
 
 /-- The registers a loader faithful to `Env.hostedStart` needs, as JSON. Emitted
 for the *initial* state so that other executors (QEMU harness) are
@@ -237,7 +247,8 @@ def renderRunResult (prog : Program) (init : State) (r : HostedResult) : String 
   s!"\"fcsr_mask\": {fcsrMask.toNat}, " ++
   s!"\"initial\": {stateJson init}, " ++
   s!"\"image\": {imageJson prog}, " ++
-  s!"\"memory\": {memoryJson s}" ++
+  s!"\"memory\": {memoryJson s}, " ++
+  s!"\"physical_memory\": {physicalMemoryJson s}" ++
   "}"
 
 /-- The failure-path JSON object (`assembled: false`): every field besides

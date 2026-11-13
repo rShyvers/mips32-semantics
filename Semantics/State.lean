@@ -6,9 +6,11 @@ import Semantics.Types
 # State — hardware operations on `State`
 
 Initial-state construction, register
-read/write (with the `$zero`-is-write-ignored rule), and
-byte/halfword/word memory access (instruction fetch is a word read, `Step.lean`'s `step`) with MIPS/MARS alignment and big-endian
-composition rules (SPEC-NOTES §1,§4,§7; INSTRUCTION-REF Global rules §2,§4,§5).
+read/write (with the `$zero`-is-write-ignored rule), the operating mode (`kernelMode`, `userMode`),
+the **Fixed Mapping MMU** (`fixedMappingPA`, `translate`: virtual → physical address with the
+User-Mode address check), and byte/halfword/word memory access through it (instruction fetch is a
+word read, `Step.lean`'s `step`) with MIPS alignment and big-endian composition rules (SPEC-NOTES
+§1,§4,§7; INSTRUCTION-REF Global rules §2,§4,§5).
 
 Depends only on the foundation (`Word`, `Types`); read-only there.
 -/
@@ -20,7 +22,8 @@ not in that list, so the architecture leaves their reset value undefined. The mo
 one of them to 0: all GPRs (including `$sp`), `HI`, `LO`, all FPRs, `FCSR` (whose fields have reset
 state "Undefined", MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95), `Status`, `Cause`, `EPC`,
 `BadVAddr`, `ErrorEPC`, `LLAddr`; `LLbit` clear, no pending branch, empty memory (bytes read 0),
-and `pc = 0`. `EBase` and `Config.K0` hold the values the Reset exception gives them anyway.
+and `pc = 0`. `EBase` and `Config.K0`/`K23`/`KU` hold the values the Reset exception gives them
+anyway.
 This is *not* the reset state: `Step.lean`'s `resetState` is `resetException powerOnState`. -/
 def powerOnState : State :=
   { pc := 0#32
@@ -29,7 +32,7 @@ def powerOnState : State :=
     lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
-    mem := ∅
+    physMem := ∅
     pendingBranch := none
     llBit := false
     cp0Status := 0#32
@@ -39,7 +42,9 @@ def powerOnState : State :=
     cp0ErrorEpc := 0#32
     llAddr := 0#32
     cp0EBase := ebaseFixedBits
-    cp0ConfigK0 := 2#3 }
+    cp0ConfigK0 := 2#3
+    cp0ConfigK23 := 2#3
+    cp0ConfigKU := 2#3 }
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
@@ -67,7 +72,7 @@ def initialState (pc : W32) : State :=
     lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
-    mem := ∅
+    physMem := ∅
     pendingBranch := none
     llBit := false
     cp0Status := statusCu1Mask
@@ -77,7 +82,9 @@ def initialState (pc : W32) : State :=
     cp0ErrorEpc := 0#32
     llAddr := 0#32
     cp0EBase := ebaseFixedBits
-    cp0ConfigK0 := 2#3 }
+    cp0ConfigK0 := 2#3
+    cp0ConfigK23 := 2#3
+    cp0ConfigKU := 2#3 }
 
 /-- Read general-purpose register `i`. Register `0` (`$zero`) always reads as
 `0` by construction of `initialState`/`writeReg`, but this also tolerates any
@@ -106,72 +113,182 @@ the write. -/
 def writeFpReg (s : State) (i : Fin 32) (v : W32) : State :=
   { s with fpRegs := s.fpRegs.set! i.val v }
 
+/-! ## Operating mode -/
+
+/-- **Kernel Mode** (MD00090 Vol III Rev 6.02 §3.2, p.21): "The processor is in Kernel Mode
+when the DM bit in the Debug register is 0 (if the processor implements Debug Mode), and any of
+the following is true: The KSU field in the CP0 Status register contains 0b00. The EXL bit in the
+Status register is 1. The ERL bit in the Status register is 1." Debug Mode is not implemented
+(`Config1.EP = 0`) and neither is Supervisor Mode, so `KSU` is `UM ‖ R0` with `R0` reading 0
+(Table 9.47, p.195): `KSU = 0b00` iff `UM = 0`. -/
+def kernelMode (s : State) : Bool :=
+  s.cp0Status &&& statusUmMask == 0#32 || s.cp0Status &&& statusExlMask != 0#32 ||
+    s.cp0Status &&& statusErlMask != 0#32
+
+/-- **User Mode** (MD00090 Vol III Rev 6.02 §3.4, p.22): "The KSU field in the Status register
+contains 0b10. The EXL and ERL bits in the Status register are both 0." With `KSU = UM ‖ 0`
+this is `UM = 1`, `EXL = 0`, `ERL = 0`, i.e. exactly "not Kernel Mode": there is no third mode. -/
+def userMode (s : State) : Bool := !kernelMode s
+
+/-- `Status.ERL` (bit 2) is set. -/
+def erlSet (s : State) : Bool := s.cp0Status &&& statusErlMask != 0#32
+
+/-! ## The Fixed Mapping MMU
+
+The model's MMU is the **Fixed Mapping MMU** (`Config.MT = 3`, `configValue`; MD00090 Vol III
+Rev 6.02 Appendix A.1, p.313-317): no TLB, a fixed virtual → physical translation, "and no memory
+protection beyond what is provided by the address error checks required of all MMUs" (A.1, p.313).
+Translation happens in exactly one place, `translate`, which the six `readMem*`/`writeMem*`
+functions below call; instruction fetch is `readMemWord s s.pc` (`Step.lean`). `State.physMem` is
+physical memory. The loader (`Env.lean`) is not the processor: it writes `physMem` directly, at
+`Env.loadAddr`.
+
+The 32-bit virtual address space (Table 4.1, p.28; Table A.1, p.313-314), by `VA31..29`:
+
+| VA range | segment | User Mode | Kernel Mode: physical address |
+|---|---|---|---|
+| `0x0000_0000`-`0x7FFF_FFFF` | useg/kuseg | legal | `VA + 0x4000_0000` if `ERL = 0`; `VA` if `ERL = 1` |
+| `0x8000_0000`-`0x9FFF_FFFF` | kseg0 | Address Error | `VA - 0x8000_0000` (low 512 MB) |
+| `0xA000_0000`-`0xBFFF_FFFF` | kseg1 | Address Error | `VA - 0xA000_0000` (low 512 MB) |
+| `0xC000_0000`-`0xDFFF_FFFF` | kseg2 (sseg/ksseg) | Address Error | `VA` |
+| `0xE000_0000`-`0xFFFF_FFFF` | kseg3 | Address Error | `VA` |
+
+Supervisor Mode does not exist ("Supervisor Mode is not supported with a Fixed Mapping MMU",
+A.1.1, p.313), so the 0xC000_0000 segment is only ever referenced from Kernel Mode (as ksseg/kseg2).
+Cacheability attributes (`Config.K0`, `K23`, `KU`; A.1.2, p.316-317) select nothing: the model has
+no caches (`Config1.IL = DL = 0`). No TLB exception can occur (there is no TLB, Config.MT ≠ 1). -/
+
+/-- The **user segment** useg/kuseg, `VA31 = 0` (`0x0000_0000`-`0x7FFF_FFFF`): the only segment
+"legal from" User Mode (MD00090 Vol III Rev 6.02 Table 4.1, p.28; Table 4.2, p.30). -/
+def isUseg (va : VAddr) : Bool := va.toNat < 0x80000000
+
+/-- kseg0, `0x8000_0000`-`0x9FFF_FFFF` (`VA31..29 = 0b100`, Table 4.1, p.28). -/
+def isKseg0 (va : VAddr) : Bool := 0x80000000 ≤ va.toNat && va.toNat < 0xA0000000
+
+/-- kseg1, `0xA000_0000`-`0xBFFF_FFFF` (`VA31..29 = 0b101`, Table 4.1, p.28). -/
+def isKseg1 (va : VAddr) : Bool := 0xA0000000 ≤ va.toNat && va.toNat < 0xC0000000
+
+/-- **Fixed Mapping translation** (MD00090 Vol III Rev 6.02 §A.1.1, p.313; Table A.1,
+p.313-314), with `erl` = `Status.ERL`:
+
+* "Kseg0 and Kseg1 addresses are translated in an identical manner to the TLB-based MMU: they both
+  map to the low 512MB of physical memory" (kseg0 `0x8000_0000`.. and kseg1 `0xA000_0000`.. both
+  generate `0x0000_0000`-`0x1FFF_FFFF`; §4.6, Table 4.3, p.30-31): `VA[28..0]`.
+* "Useg/Suseg/Kuseg addresses are mapped by adding 1GB to the virtual address when the ERL bit is
+  zero in the Status register, and are mapped using an identity mapping when the ERL bit is one".
+* "Sseg/Ksseg/Kseg2/Kseg3 addresses are mapped using an identity mapping."
+
+It is a total function of the address; who may use which address is `translate`'s check. -/
+def fixedMappingPA (erl : Bool) (va : VAddr) : PAddr :=
+  if va.toNat < 0x80000000 then (if erl then va else va + 0x40000000#32)
+  else if va.toNat < 0xC0000000 then va &&& 0x1FFFFFFF#32
+  else va
+
+/-- **The address-error check of the MMU**: Kernel Mode may reference every segment, User Mode only
+useg (MD00090 Vol III Rev 6.02 Table 4.2, p.30; there is no Supervisor Mode). -/
+def accessAllowed (s : State) (va : VAddr) : Bool := kernelMode s || isUseg va
+
+/-- **Address translation with the address-error check** — the one translation point of the model.
+`none` means Address Error: "A reference is made to a kernel address space from User Mode"
+(MD00090 Vol III Rev 6.02 §6.2.9, p.92); in User Mode every segment except useg is "Address Error"
+(Table 4.2, p.30), and "address error checking is still done before the translation process.
+Therefore, an attempt to reference kseg0 from User Mode still results in an address error
+exception" (§A.1.1, p.313). That check is `accessAllowed`; otherwise the result is
+`some (fixedMappingPA ERL va)`. Fetch, load and store are
+treated alike (Table 4.2 makes no distinction; the callers raise AdEL for a fetch or load and AdES
+for a store, with `BadVAddr` = `va`, §6.2.9, p.93).
+
+Fetching from kuseg while `ERL = 1` is UNDEFINED ("The operation of the processor is UNDEFINED if
+the ERL bit is set while the processor is executing instructions from kuseg", §A.1.2, p.316); the
+model pins it to the data translation (identity), which neither halts nor hangs (MD00086 Vol II-A
+Rev 6.06 §1.2.2, p.4). -/
+def translate (s : State) (va : VAddr) : Option PAddr :=
+  if accessAllowed s va then some (fixedMappingPA (erlSet s) va) else none
+
 /-! ## Memory access
 
 Every memory access of the processor — instruction fetch (`readMemWord s s.pc`, `Step.lean`),
 loads and stores, including `lwl`/`lwr`/`swl`/`swr` byte by byte — goes through the six functions
-below, which index `State.mem` by the virtual address directly (no MMU: the model has no address
-translation, `Config.MT = 0`, `configValue`). An address translation (e.g. the Fixed Mapping MMU)
-would be inserted in these six functions and nowhere else. (The loader, `Env.lean`, writes `mem`
-directly: it places the image, it is not the processor.) -/
+below. Each takes a **virtual** address, checks alignment (halfword, word), translates it with
+`translate` (Address Error ⇒ `none`) and reads or writes `State.physMem` at the **physical**
+address. An aligned halfword or word never crosses a 512 MB segment boundary, so its bytes are at
+consecutive physical addresses `pa`, `pa + 1`, …. A result `none` is an Address Error (misaligned,
+or a kernel address from User Mode); the caller raises AdEL or AdES with `BadVAddr` = the virtual
+address. -/
 
-/-- Read a single byte from memory at `addr`. Bytes that have never been
-written read as `0` (a pin: what memory holds where nothing was loaded or
-stored is a property of the system, not of the processor architecture; MARS
-and the QEMU harness also zero-fill); byte access has no alignment requirement. -/
-def readMemByte (s : State) (addr : W32) : Option UInt8 :=
-  some (s.mem.get? addr |>.getD 0)
+/-- Read a single byte at virtual address `addr`. Bytes that have never been written read as `0`
+(a pin: what memory holds where nothing was loaded or stored is a property of the system, not of
+the processor architecture; MARS and the QEMU harness also zero-fill). Byte access has no
+alignment requirement; `none` only for a kernel address from User Mode. -/
+def readMemByte (s : State) (addr : VAddr) : Option UInt8 :=
+  match translate s addr with
+  | none => none
+  | some pa => some (s.physMem.get? pa |>.getD 0)
 
-/-- Read a big-endian halfword (2 bytes) starting at `addr`. The byte at
-`addr` is the most-significant byte, the byte at `addr + 1` the
-least-significant. Returns `none` if `addr` is not halfword-aligned
-(a multiple of 2). Unwritten bytes read as `0`. -/
-def readMemHalf (s : State) (addr : W32) : Option W32 :=
+/-- Read a big-endian halfword (2 bytes) starting at virtual address `addr`. The byte at
+`addr` is the most-significant byte, the byte at `addr + 1` the least-significant. Returns
+`none` if `addr` is not halfword-aligned (a multiple of 2) or not accessible (`translate`).
+Unwritten bytes read as `0`. -/
+def readMemHalf (s : State) (addr : VAddr) : Option W32 :=
   if addr.toNat % 2 ≠ 0 then none
   else
-    let hi := s.mem.get? addr |>.getD 0
-    let lo := s.mem.get? (addr + 1#32) |>.getD 0
-    some ((BitVec.ofNat 32 hi.toNat <<< 8) ||| BitVec.ofNat 32 lo.toNat)
+    match translate s addr with
+    | none => none
+    | some pa =>
+      let hi := s.physMem.get? pa |>.getD 0
+      let lo := s.physMem.get? (pa + 1#32) |>.getD 0
+      some ((BitVec.ofNat 32 hi.toNat <<< 8) ||| BitVec.ofNat 32 lo.toNat)
 
-/-- Read a big-endian word (4 bytes) starting at `addr`. The byte at `addr`
+/-- Read a big-endian word (4 bytes) starting at virtual address `addr`. The byte at `addr`
 is the most-significant byte, down to `addr + 3` as the least-significant.
-Returns `none` if `addr` is not word-aligned (a multiple of 4). Unwritten
-bytes read as `0`. Instruction fetch is `readMemWord s s.pc` (`Step.lean`). -/
-def readMemWord (s : State) (addr : W32) : Option W32 :=
+Returns `none` if `addr` is not word-aligned (a multiple of 4) or not accessible (`translate`).
+Unwritten bytes read as `0`. Instruction fetch is `readMemWord s s.pc` (`Step.lean`). -/
+def readMemWord (s : State) (addr : VAddr) : Option W32 :=
   if addr.toNat % 4 ≠ 0 then none
   else
-    let b0 := s.mem.get? addr |>.getD 0
-    let b1 := s.mem.get? (addr + 1#32) |>.getD 0
-    let b2 := s.mem.get? (addr + 2#32) |>.getD 0
-    let b3 := s.mem.get? (addr + 3#32) |>.getD 0
-    some ((BitVec.ofNat 32 b0.toNat <<< 24) ||| (BitVec.ofNat 32 b1.toNat <<< 16) |||
-          (BitVec.ofNat 32 b2.toNat <<< 8) ||| BitVec.ofNat 32 b3.toNat)
+    match translate s addr with
+    | none => none
+    | some pa =>
+      let b0 := s.physMem.get? pa |>.getD 0
+      let b1 := s.physMem.get? (pa + 1#32) |>.getD 0
+      let b2 := s.physMem.get? (pa + 2#32) |>.getD 0
+      let b3 := s.physMem.get? (pa + 3#32) |>.getD 0
+      some ((BitVec.ofNat 32 b0.toNat <<< 24) ||| (BitVec.ofNat 32 b1.toNat <<< 16) |||
+            (BitVec.ofNat 32 b2.toNat <<< 8) ||| BitVec.ofNat 32 b3.toNat)
 
-/-- Write a single byte `v` to memory at `addr`. Byte access has no alignment
-requirement, so this always succeeds. -/
-def writeMemByte (s : State) (addr : W32) (v : UInt8) : Option State :=
-  some { s with mem := s.mem.insert addr v }
+/-- Write a single byte `v` at virtual address `addr`. Byte access has no alignment
+requirement; `none` only for a kernel address from User Mode (nothing is written). -/
+def writeMemByte (s : State) (addr : VAddr) (v : UInt8) : Option State :=
+  match translate s addr with
+  | none => none
+  | some pa => some { s with physMem := s.physMem.insert pa v }
 
-/-- Write a big-endian halfword `v` (low 16 bits used) to memory at `addr`:
+/-- Write a big-endian halfword `v` (low 16 bits used) at virtual address `addr`:
 the most-significant byte goes to `addr`, the least-significant to
-`addr + 1`. Returns `none` if `addr` is not halfword-aligned. -/
-def writeMemHalf (s : State) (addr : W32) (v : W32) : Option State :=
+`addr + 1`. Returns `none` if `addr` is not halfword-aligned or not accessible. -/
+def writeMemHalf (s : State) (addr : VAddr) (v : W32) : Option State :=
   if addr.toNat % 2 ≠ 0 then none
   else
-    let hi : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
-    let lo : UInt8 := (v &&& 0xff#32).toNat.toUInt8
-    some { s with mem := (s.mem.insert addr hi).insert (addr + 1#32) lo }
+    match translate s addr with
+    | none => none
+    | some pa =>
+      let hi : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
+      let lo : UInt8 := (v &&& 0xff#32).toNat.toUInt8
+      some { s with physMem := (s.physMem.insert pa hi).insert (pa + 1#32) lo }
 
-/-- Write a big-endian word `v` to memory at `addr`: the most-significant
+/-- Write a big-endian word `v` at virtual address `addr`: the most-significant
 byte goes to `addr`, down to the least-significant byte at `addr + 3`.
-Returns `none` if `addr` is not word-aligned. -/
-def writeMemWord (s : State) (addr : W32) (v : W32) : Option State :=
+Returns `none` if `addr` is not word-aligned or not accessible. -/
+def writeMemWord (s : State) (addr : VAddr) (v : W32) : Option State :=
   if addr.toNat % 4 ≠ 0 then none
   else
-    let b0 : UInt8 := ((v >>> 24) &&& 0xff#32).toNat.toUInt8
-    let b1 : UInt8 := ((v >>> 16) &&& 0xff#32).toNat.toUInt8
-    let b2 : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
-    let b3 : UInt8 := (v &&& 0xff#32).toNat.toUInt8
-    some { s with
-      mem := (((s.mem.insert addr b0).insert (addr + 1#32) b1).insert
-                (addr + 2#32) b2).insert (addr + 3#32) b3 }
+    match translate s addr with
+    | none => none
+    | some pa =>
+      let b0 : UInt8 := ((v >>> 24) &&& 0xff#32).toNat.toUInt8
+      let b1 : UInt8 := ((v >>> 16) &&& 0xff#32).toNat.toUInt8
+      let b2 : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
+      let b3 : UInt8 := (v &&& 0xff#32).toNat.toUInt8
+      some { s with
+        physMem := (((s.physMem.insert pa b0).insert (pa + 1#32) b1).insert
+                  (pa + 2#32) b2).insert (pa + 3#32) b3 }

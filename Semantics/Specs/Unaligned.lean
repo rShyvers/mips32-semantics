@@ -21,8 +21,10 @@ set_option maxRecDepth 4000
 /-! ## `lwl`/`lwr`/`swl`/`swr`
 
 `docs/spec/INSTRUCTION-REF.md` "Unaligned memory access" section. Unlike `lw`/`sw`, the effective
-address has no alignment requirement: `readMemByte`/`writeMemByte` are total, so none of these
-can raise Address Error (contrast `lw_spec_raw`), and `swl`/`swr`, like `sw`, clear `LLbit`.
+address has no alignment requirement, so none of these raises Address Error for misalignment
+(contrast `lw_spec_raw`); the only Address Error is the MMU's, for a kernel address referenced
+from User Mode (the access at `addr` decides: every byte touched lies in the same aligned word,
+hence in the same segment). `swl`/`swr`, like `sw`, clear `LLbit`.
 Each right-hand side is `Step.lean`'s four-way match on `off := addr.toNat % 4`, written with
 `setByteSlotSpec`/`getByteSlotSpec` (`Defs.lean`) and `readMemByte`/`writeMemByte`. -/
 
@@ -31,33 +33,37 @@ Each right-hand side is `Step.lean`'s four-way match on `off := addr.toNat % 4`,
 `$rt`'s existing least-significant bytes untouched** — exactly how many
 bytes merge depends on `addr.toNat % 4` (4 at `off = 0`, behaving exactly
 like a plain `lw`; down to 1 at `off = 3`). Raises no exception on a misaligned
-address, unlike `lw` (INSTRUCTION-REF `lwl` section). -/
+address, unlike `lw` (INSTRUCTION-REF `lwl` section); the only exception is the MMU's Address
+Error (AdEL, `BadVAddr = addr`) for a kernel address referenced from User Mode (`readMemByte`
+`none`, MD00090 Vol III Rev 6.02 Table 4.2, p.30). -/
 theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
-      let old := readReg s (regIdxSpec rt)
-      let b0 := (readMemByte s addr).getD 0
-      let v :=
-        match off with
-        | 0 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          let b3 := (readMemByte s (addr + 3#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
-        | 1 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          let b2 := (readMemByte s (addr + 2#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
-        | 2 =>
-          let b1 := (readMemByte s (addr + 1#32)).getD 0
-          setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
-        | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
-          setByteSlotSpec old 0 b0
-      { (writeReg s (regIdxSpec rt) v) with
-          pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+      match readMemByte s addr with
+      | none => takeAddressException s excCodeAdEL addr
+      | some b0 =>
+        let off := addr.toNat % 4
+        let old := readReg s (regIdxSpec rt)
+        let v :=
+          match off with
+          | 0 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            let b3 := (readMemByte s (addr + 3#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
+          | 1 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            let b2 := (readMemByte s (addr + 2#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
+          | 2 =>
+            let b1 := (readMemByte s (addr + 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
+          | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
+            setByteSlotSpec old 0 b0
+        { (writeReg s (regIdxSpec rt) v) with
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
   step_spec
 
 /-- **`lwr` ("load word right") merges 1–4 least-significant bytes ending
@@ -66,36 +72,35 @@ at `$rs + sext16(offset)` into the least-significant end of `$rt`, leaving
 `lwl_spec_raw`: exactly how many bytes merge depends on `addr.toNat % 4`
 (1 at `off = 0`, up to 4 at `off = 3`, behaving exactly like a plain `lw`).
 Raises no exception on a misaligned address, unlike `lw` (INSTRUCTION-REF `lwr`
-section). -/
+section); only the MMU's Address Error (AdEL) for a kernel address from User Mode. -/
 theorem lwr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwr rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
-      let old := readReg s (regIdxSpec rt)
-      let v :=
-        match off with
-        | 0 =>
-          let b3 := (readMemByte s addr).getD 0
-          setByteSlotSpec old 3 b3
-        | 1 =>
-          let b2 := (readMemByte s (addr - 1#32)).getD 0
-          let b3 := (readMemByte s addr).getD 0
-          setByteSlotSpec (setByteSlotSpec old 2 b2) 3 b3
-        | 2 =>
-          let b1 := (readMemByte s (addr - 2#32)).getD 0
-          let b2 := (readMemByte s (addr - 1#32)).getD 0
-          let b3 := (readMemByte s addr).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 1 b1) 2 b2) 3 b3
-        | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-          let b0 := (readMemByte s (addr - 3#32)).getD 0
-          let b1 := (readMemByte s (addr - 2#32)).getD 0
-          let b2 := (readMemByte s (addr - 1#32)).getD 0
-          let b3 := (readMemByte s addr).getD 0
-          setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
-      { (writeReg s (regIdxSpec rt) v) with
-          pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+      match readMemByte s addr with
+      | none => takeAddressException s excCodeAdEL addr
+      | some b3 =>
+        let off := addr.toNat % 4
+        let old := readReg s (regIdxSpec rt)
+        let v :=
+          match off with
+          | 0 =>
+            setByteSlotSpec old 3 b3
+          | 1 =>
+            let b2 := (readMemByte s (addr - 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec old 2 b2) 3 b3
+          | 2 =>
+            let b1 := (readMemByte s (addr - 2#32)).getD 0
+            let b2 := (readMemByte s (addr - 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 1 b1) 2 b2) 3 b3
+          | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+            let b0 := (readMemByte s (addr - 3#32)).getD 0
+            let b1 := (readMemByte s (addr - 2#32)).getD 0
+            let b2 := (readMemByte s (addr - 1#32)).getD 0
+            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
+        { (writeReg s (regIdxSpec rt) v) with
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
   step_spec
 
 /-- **`swl` ("store word left") stores `$rt`'s most-significant 1–4 bytes
@@ -103,28 +108,31 @@ starting at `$rs + sext16(offset)`, and clears `llBit`** (store-class, like
 `sw`/`sh`) — exactly how many bytes are stored depends on
 `addr.toNat % 4` (4 at `off = 0`, behaving exactly like a plain `sw`; down
 to 1 at `off = 3`). Raises no exception on a misaligned address, unlike `sw`
-(INSTRUCTION-REF `swl` section). -/
+(INSTRUCTION-REF `swl` section); only the MMU's Address Error (AdES, nothing stored) for a
+kernel address from User Mode. -/
 theorem swl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swl rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
       let v := readReg s (regIdxSpec rt)
-      let s1 := (writeMemByte s addr (getByteSlotSpec v 0)).getD s
-      let s' :=
-        match off with
-        | 0 =>
-          let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
-          let s3 := (writeMemByte s2 (addr + 2#32) (getByteSlotSpec v 2)).getD s2
-          (writeMemByte s3 (addr + 3#32) (getByteSlotSpec v 3)).getD s3
-        | 1 =>
-          let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
-          (writeMemByte s2 (addr + 2#32) (getByteSlotSpec v 2)).getD s2
-        | 2 => (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
-        | _ => s1  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-      { ({ s' with llBit := false }) with
-          pc := ({ s' with llBit := false }).pc + 4#32 } := by
+      match writeMemByte s addr (getByteSlotSpec v 0) with
+      | none => takeAddressException s excCodeAdES addr
+      | some s1 =>
+        let off := addr.toNat % 4
+        let s' :=
+          match off with
+          | 0 =>
+            let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
+            let s3 := (writeMemByte s2 (addr + 2#32) (getByteSlotSpec v 2)).getD s2
+            (writeMemByte s3 (addr + 3#32) (getByteSlotSpec v 3)).getD s3
+          | 1 =>
+            let s2 := (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
+            (writeMemByte s2 (addr + 2#32) (getByteSlotSpec v 2)).getD s2
+          | 2 => (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
+          | _ => s1  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+        { ({ s' with llBit := false }) with
+            pc := ({ s' with llBit := false }).pc + 4#32 } := by
   step_spec
 
 /-- **`swr` ("store word right") stores `$rt`'s least-significant 1–4
@@ -132,38 +140,38 @@ bytes ending at `$rs + sext16(offset)`, and clears `llBit`** (store-class,
 like `sw`/`sh`) — the mirror image of `swl_spec_raw`: exactly how many
 bytes are stored depends on `addr.toNat % 4` (1 at `off = 0`, up to 4 at
 `off = 3`, behaving exactly like a plain `sw`). Raises no exception on a misaligned
-address, unlike `sw` (INSTRUCTION-REF `swr` section). -/
+address, unlike `sw` (INSTRUCTION-REF `swr` section); only the MMU's Address Error (AdES,
+nothing stored) for a kernel address from User Mode. The byte at `addr` is written first. -/
 theorem swr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swr rs rt imm))
     (hpb : s.pendingBranch = none) :
     step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      let off := addr.toNat % 4
       let v := readReg s (regIdxSpec rt)
-      let s' :=
-        match off with
-        | 0 => (writeMemByte s addr (getByteSlotSpec v 3)).getD s
-        | 1 =>
-          let s1 := (writeMemByte s (addr - 1#32) (getByteSlotSpec v 2)).getD s
-          (writeMemByte s1 addr (getByteSlotSpec v 3)).getD s1
-        | 2 =>
-          let s1 := (writeMemByte s (addr - 2#32) (getByteSlotSpec v 1)).getD s
-          let s2 := (writeMemByte s1 (addr - 1#32) (getByteSlotSpec v 2)).getD s1
-          (writeMemByte s2 addr (getByteSlotSpec v 3)).getD s2
-        | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
-          let s1 := (writeMemByte s (addr - 3#32) (getByteSlotSpec v 0)).getD s
-          let s2 := (writeMemByte s1 (addr - 2#32) (getByteSlotSpec v 1)).getD s1
-          let s3 := (writeMemByte s2 (addr - 1#32) (getByteSlotSpec v 2)).getD s2
-          (writeMemByte s3 addr (getByteSlotSpec v 3)).getD s3
-      { ({ s' with llBit := false }) with
-          pc := ({ s' with llBit := false }).pc + 4#32 } := by
+      match writeMemByte s addr (getByteSlotSpec v 3) with
+      | none => takeAddressException s excCodeAdES addr
+      | some s1 =>
+        let off := addr.toNat % 4
+        let s' :=
+          match off with
+          | 0 => s1
+          | 1 => (writeMemByte s1 (addr - 1#32) (getByteSlotSpec v 2)).getD s1
+          | 2 =>
+            let s2 := (writeMemByte s1 (addr - 2#32) (getByteSlotSpec v 1)).getD s1
+            (writeMemByte s2 (addr - 1#32) (getByteSlotSpec v 2)).getD s2
+          | _ =>  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
+            let s2 := (writeMemByte s1 (addr - 3#32) (getByteSlotSpec v 0)).getD s1
+            let s3 := (writeMemByte s2 (addr - 2#32) (getByteSlotSpec v 1)).getD s2
+            (writeMemByte s3 (addr - 1#32) (getByteSlotSpec v 2)).getD s3
+        { ({ s' with llBit := false }) with
+            pc := ({ s' with llBit := false }).pc + 4#32 } := by
   step_spec
 
 /-- Base address for the concrete `lwl`/`lwr`/`swl`/`swr` examples below
 (mirrors `Step.lean`'s test-only `unalignedBase`). -/
 def unalignedBaseSpec : W32 := 0x10010000#32
 
-/-- Write a list of `(address, byte)` pairs into `s.mem`, for building the
+/-- Write a list of `(address, byte)` pairs into `s.physMem`, for building the
 concrete unaligned-memory examples below (mirrors `setRegsSpec`'s `foldl`
 shape; `writeMemByte` always succeeds — see its docstring — so the `.getD
 acc` fallback is never actually exercised, same as every `.getD` in
