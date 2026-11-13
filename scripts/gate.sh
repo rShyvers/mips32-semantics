@@ -4,9 +4,9 @@
 #   scripts/gate.sh [--quick] [--from STEP | --only STEP] [--allow-warnings]
 #                   [--fix] [--json] [--selftest] [-h]
 #
-# STEP is a number 1-9, a letter a-i, or a name (forbidden build check
-# comparator diffharness equivharness trace manuals hygiene).
-# Only a FULL run (all 9 steps, none failed, tree unchanged during the run)
+# STEP is a number 1-10, a letter a-j, or a name (forbidden build check
+# comparator diffharness equivharness oracle trace manuals hygiene).
+# Only a FULL run (all 10 steps, none failed, tree unchanged during the run)
 # writes the stamp .gate/green, whose tree id gate-commit.sh and the
 # pre-commit hook compare against. See scripts/README.md.
 #
@@ -27,7 +27,7 @@ ALLOW_FILE=$ROOT/scripts/gate-allow.txt
 STD_AXIOMS="propext Classical.choice Quot.sound"
 MARS_JAR=vendor/mars/Mars4_5.jar
 
-STEP_NAMES=(forbidden build check comparator diffharness equivharness trace manuals hygiene)
+STEP_NAMES=(forbidden build check comparator diffharness equivharness oracle trace manuals hygiene)
 NSTEPS=${#STEP_NAMES[@]}
 
 # ---------------------------------------------------------------- scanner ---
@@ -208,8 +208,8 @@ current_tree() {
 step_index() {  # resolve name/letter/number to 1-based index
   local s=${1,,} i
   case $s in
-    [1-9]) echo "$s"; return 0 ;;
-    [a-i]) echo $(( $(printf '%d' "'$s") - 96 )); return 0 ;;
+    [1-9]|10) echo "$s"; return 0 ;;
+    [a-j]) echo $(( $(printf '%d' "'$s") - 96 )); return 0 ;;
   esac
   for i in "${!STEP_NAMES[@]}"; do
     [ "${STEP_NAMES[$i]}" = "$s" ] && { echo $((i + 1)); return 0; }
@@ -242,7 +242,7 @@ declare -A SEL
 for ((i = 1; i <= NSTEPS; i++)); do SEL[$i]=1; done
 FULL=1
 if [ $QUICK = 1 ]; then
-  FULL=0; for i in 2 3 4 5 6; do SEL[$i]=0; done
+  FULL=0; for i in 2 3 4 5 6 7; do SEL[$i]=0; done
 elif [ -n "$ONLY" ]; then
   FULL=0; for ((i = 1; i <= NSTEPS; i++)); do SEL[$i]=0; done; SEL[$ONLY]=1
 elif [ -n "$FROM" ]; then
@@ -254,7 +254,7 @@ mkdir -p "$LOGDIR" || die "cannot create $LOGDIR"
 
 # ------------------------------------------------------------ step bodies ---
 NOTE=""
-X_CORPUS=""; X_EQUIV=""; X_CONSTR=""; X_THEOREMS=""; X_AXIOMS=""; X_WARNINGS=""; X_COMPARATOR=""
+X_CORPUS=""; X_EQUIV=""; X_ORACLE=""; X_CONSTR=""; X_THEOREMS=""; X_AXIOMS=""; X_WARNINGS=""; X_COMPARATOR=""
 
 step_forbidden() {
   local files=() f
@@ -349,6 +349,40 @@ step_equivharness() {
   NOTE="$n equivalence cases behaved as claimed"
 }
 
+# QEMU/LLVM differential oracle (scripts/oracle.py): behaviour suite (+ tests/asm), encodings vs llvm-mc, harness selftest.
+# Missing qemu-system-mips / LLVM tools is a FAIL, never a skip. Declared QEMU deviations and known model bugs do not fail the
+# step (they are counted and printed); any undeclared mismatch, stale declaration or harness error does.
+step_oracle() {
+  local log=$1 rc st sm
+  python3 scripts/oracle.py selftest
+  rc=$?
+  [ $rc -eq 0 ] || { NOTE="oracle selftest failed (exit $rc; 2 = qemu/llvm missing)"; return 1; }
+  echo "=== oracle behaviour suite (+ tests/asm)"
+  python3 scripts/oracle.py --asm
+  rc=$?
+  [ $rc -eq 0 ] || { NOTE="oracle behaviour suite failed (exit $rc; 2 = qemu/llvm missing)"; return 1; }
+  echo "=== oracle encodings vs llvm-mc"
+  python3 scripts/oracle.py --encodings
+  rc=$?
+  [ $rc -eq 0 ] || { NOTE="oracle encodings failed (exit $rc; 2 = qemu/llvm missing)"; return 1; }
+  st=$(grep -E '^SUMMARY: [0-9]+ tests' "$log" | tail -1)
+  sm=$(grep -E '^ENCODINGS: ' "$log" | tail -1)
+  [ -n "$st" ] && [ -n "$sm" ] || { NOTE="no oracle SUMMARY/ENCODINGS line"; return 1; }
+  local n p d k f sk
+  n=$(echo "$st" | sed -n 's/^SUMMARY: \([0-9]*\) tests.*/\1/p')
+  p=$(echo "$st" | sed -n 's/.* \([0-9]*\) pass.*/\1/p')
+  d=$(echo "$st" | sed -n 's/.* \([0-9]*\) declared deviations.*/\1/p')
+  k=$(echo "$st" | sed -n 's/.* \([0-9]*\) known model bugs.*/\1/p')
+  f=$(echo "$st" | sed -n 's/.* \([0-9]*\) fail.*/\1/p')
+  sk=$(echo "$st" | sed -n 's/.* \([0-9]*\) skipped.*/\1/p')
+  [ "$f" = 0 ] || { NOTE="oracle: $f failing tests"; return 1; }
+  [ $((p + d + k)) -eq "$n" ] || { NOTE="oracle: counts do not add up ($st)"; return 1; }
+  local es ed
+  es=$(echo "$sm" | sed -n 's/.* \([0-9]*\) same.*/\1/p'); ed=$(echo "$sm" | sed -n 's/.* \([0-9]*\) declared.*/\1/p')
+  X_ORACLE=$n
+  NOTE="$n tests: $p pass, $d declared QEMU deviations, $k known model bugs, $sk skipped; encodings $es same, $ed declared"
+}
+
 step_trace() {
   local log=$1 tmp rc
   [ -f scripts/trace.py ] || { echo "scripts/trace.py missing"; NOTE="trace.py missing"; return 1; }
@@ -411,7 +445,7 @@ step_hygiene() {
 if [ $FULL = 0 ]; then
   echo "== gate: PARTIAL run (--quick/--from/--only). This is NOT a green gate; no stamp will be written. =="
 fi
-[ $FIX = 1 ] && [ "${SEL[7]}" = 1 ] && {
+[ $FIX = 1 ] && [ "${SEL[8]}" = 1 ] && {
   python3 scripts/trace.py > "$LOGDIR/00-fix-trace.log" 2>&1 \
     && echo "gate: --fix regenerated docs/TRACE.md" || echo "gate: --fix: trace.py failed, see $LOGDIR/00-fix-trace.log"
 }
@@ -465,7 +499,7 @@ if [ $STAMPED = 1 ]; then
     echo "toolchain=$TOOLCHAIN"
     echo "allow_warnings=$ALLOW_WARN"
     for ((i = 1; i <= NSTEPS; i++)); do echo "step.${STEP_NAMES[$((i - 1))]}=${RES[$i]}"; done
-    echo "corpus=$X_CORPUS"; echo "equiv=$X_EQUIV"
+    echo "corpus=$X_CORPUS"; echo "equiv=$X_EQUIV"; echo "oracle=$X_ORACLE"
     echo "constructors=$X_CONSTR"; echo "theorems=$X_THEOREMS"
     echo "axioms=$X_AXIOMS"; echo "warnings=${X_WARNINGS:-0}"
   } > "$GATE_DIR/green"
@@ -476,7 +510,7 @@ for ((i = 1; i <= NSTEPS; i++)); do
   printf '%s\t%s\t%s\t%s\t%s\n' "$i" "${STEP_NAMES[$((i - 1))]}" "${RES[$i]}" "${SECS[$i]}" "${NOTES[$i]}" >> "$TSV"
 done
 VERDICT="$VERDICT" STAMPED=$STAMPED FULLRUN=$FULL NOW=$NOW HEADREV=$HEADREV TREE="$TREE1" \
-CORPUS=$X_CORPUS EQUIV=$X_EQUIV CONSTR=$X_CONSTR THEOREMS=$X_THEOREMS AXIOMS=$X_AXIOMS \
+CORPUS=$X_CORPUS EQUIV=$X_EQUIV ORACLE=$X_ORACLE CONSTR=$X_CONSTR THEOREMS=$X_THEOREMS AXIOMS=$X_AXIOMS \
 WARNINGS=${X_WARNINGS:-0} TOOLCHAIN="$TOOLCHAIN" TOTAL=$((SECONDS - t_all)) \
 python3 -I - "$TSV" "$GATE_DIR/last-run.json" <<'PY'
 import json, os, sys
@@ -490,7 +524,7 @@ def num(k):
 doc = {"verdict": e["VERDICT"], "full_run": e["FULLRUN"] == "1", "stamped": e["STAMPED"] == "1",
        "timestamp": e["NOW"], "head": e["HEADREV"], "tree": e["TREE"] or None,
        "toolchain": e["TOOLCHAIN"], "total_seconds": int(e["TOTAL"]), "steps": steps,
-       "corpus": num("CORPUS"), "equiv": num("EQUIV"), "constructors": num("CONSTR"),
+       "corpus": num("CORPUS"), "equiv": num("EQUIV"), "oracle": num("ORACLE"), "constructors": num("CONSTR"),
        "theorems": num("THEOREMS"), "warnings": num("WARNINGS"),
        "axioms": [a for a in e["AXIOMS"].split(",") if a]}
 json.dump(doc, open(sys.argv[2], "w"), indent=2); open(sys.argv[2], "a").write("\n")

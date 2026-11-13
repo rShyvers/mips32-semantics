@@ -24,9 +24,9 @@ and machine-checked spec theorems. Validated differentially against MARS 4.5 and
 `scripts/gate.sh` is the single source of truth. Steps: 1 forbidden constructs (code only, comments/strings
 stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
-(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness; 7 traceability
-(`trace.py --check` + `docs/TRACE.md` up to date); 8 manuals tool selftest (SKIP if texts absent); 9 hygiene.
-- While iterating: `scripts/gate.sh --quick` (steps 1,7,8,9; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
+(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness; 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
+(`trace.py --check` + `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent); 10 hygiene.
+- While iterating: `scripts/gate.sh --quick` (steps 1,8,9,10; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
 - Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates TRACE.md). Only a full green run
   writes `.gate/green`, bound to the exact tree content.
 - Commit ONLY with `scripts/gate-commit.sh "<subject>" [body-file]` (or `--run`). Never `git commit` by hand,
@@ -41,8 +41,8 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
 - `Semantics/Step.lean` `step`/`run`, exception model. TRUSTED. `Semantics/Specs/StepSpec.lean` `<ctor>_spec_raw` + derived theorems.
 - `Semantics/Specs/DecodeSpec.lean` decode-level specs. `Semantics.lean`/`Checked.lean` library roots (Checked = what `lake check` replays).
 - `comparator.json` the trusted theorem list for `lake comparator`. TRUSTED. `lakefile.toml` targets.
-- `DiffHarness.lean` corpus vs MARS. `EquivHarness.lean` equivalence corpus. `MipsRun.lean` run one .asm -> JSON.
-- `tests/corpus/*.asm` differential programs; `tests/equiv/*.asm` equivalence pairs; `vendor/mars/` MARS jar + source.
+- `DiffHarness.lean` corpus vs MARS. `EquivHarness.lean` equivalence corpus. `MipsRun.lean` run one .asm -> JSON (plus the oracle extension: initial/final state, image, memory).
+- `scripts/oracle.py` + `tests/oracle/**` QEMU/llvm-mc differential oracle (see `scripts/README.md`). `tests/corpus/*.asm` differential programs; `tests/equiv/*.asm` equivalence pairs; `vendor/mars/` MARS jar + source.
 - `docs/spec/INSTRUCTION-REF.md` per-instruction reference; `SPEC-NOTES.md` decisions/divergences; `docs/TRACE.md` GENERATED matrix.
 - `docs/spec/manuals/` manual texts + `mipsdoc.py` lookup tool (see its `AGENTS.md`). `scripts/` gate and trace tooling.
 - Trusted surface (changes need explicit owner-visible mention): Instruction.lean, Step.lean, State.lean, Types.lean,

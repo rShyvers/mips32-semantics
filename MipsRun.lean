@@ -20,9 +20,9 @@ present in `lake-manifest.json`'s packages to reuse).
 ## CLI
 
 ```
-MipsRun [path.asm]
+MipsRun [--max-steps N] [path.asm]
 ```
-Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
+`--max-steps N` bounds the run (default 1000000). Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
 one JSON object to stdout and nothing else. Exit codes:
 - `0` — assembled and ran to completion or to the step limit (a *program*
   runtime error, e.g. an illegal instruction, is reported as data in the
@@ -167,20 +167,94 @@ def renderHaltReason (r : HaltReason) : String :=
   | .noInstruction pc => s!"no_instruction:0x{toHexDigits pc}"
   | .branchInDelaySlot => "branch_in_delay_slot"
 
+/-- Raw FCSR as the model holds it (`State.fcsr`). `scripts/oracle.py` compares
+exactly the bits in `fcsrMask` and nothing else. -/
+def fcsrOf (s : State) : W32 := s.fcsr
+
+/-- The FCSR bits the model implements: RM (1..0), Flags (6..2), Enables
+(11..7), Cause (17..12), FS (24), FCC0 (23), FCC1..7 (31..25); bits 22..18 are
+reserved and read as zero (`fcsrWritableMask` in `Semantics/FpOps.lean`). -/
+def fcsrMask : W32 := Mips.Fp.fcsrWritableMask
+
+/-- A JSON array of decimal numbers. -/
+def jsonNums (xs : List Nat) : String :=
+  "[" ++ String.intercalate ", " (xs.map toString) ++ "]"
+
+/-- Sorted `[addr, word]` pairs as a JSON array. -/
+def jsonPairs (xs : Array (Nat × Nat)) : String :=
+  let ys := xs.qsort (fun a b => a.1 < b.1)
+  "[" ++ String.intercalate ", " (ys.toList.map (fun (a, w) => s!"[{a}, {w}]")) ++ "]"
+
+/-- The assembled program image: every `Program` entry (text, data, `.ktext`,
+`.kdata`), address -> 32-bit word, sorted by address. -/
+def imageJson (p : Program) : String :=
+  jsonPairs (p.toArray.map (fun (a, w) => (a.toNat, w.toNat)))
+
+/-- Every nonzero aligned memory word of the final state, `[addr, word]`,
+sorted. (Includes the materialised program image, since `materializeSpec`
+copies it into `State.mem`.) -/
+def memoryJson (s : State) : String :=
+  let addrs : Std.HashMap Nat Unit :=
+    s.mem.fold (fun acc a _ => acc.insert (a.toNat / 4 * 4) ()) {}
+  let ws := addrs.fold (fun (acc : Array (Nat × Nat)) a _ =>
+    let w := (readMemWord s (BitVec.ofNat 32 a)).getD 0#32
+    if w == 0#32 then acc else acc.push (a, w.toNat)) #[]
+  jsonPairs ws
+
+/-- The registers an `initialState`-faithful loader needs, as JSON. Emitted
+for the *initial* state so that other executors (QEMU harness) are
+data-driven from this binary rather than hard-coding its conventions. -/
+def stateJson (s : State) : String :=
+  "{" ++
+  s!"\"pc\": {s.pc.toNat}, " ++
+  s!"\"gpr\": {jsonNums (s.regs.toList.map (·.toNat))}, " ++
+  s!"\"hi\": {s.hi.toNat}, \"lo\": {s.lo.toNat}, " ++
+  s!"\"fpr\": {jsonNums (s.fpRegs.toList.map (·.toNat))}, " ++
+  s!"\"fcsr\": {(fcsrOf s).toNat}, " ++
+  s!"\"fp_cond_flag\": {(fcsrOf s).getLsbD 23}, " ++
+  s!"\"ll_bit\": {s.llBit}, " ++
+  s!"\"ll_addr\": {s.llAddr.toNat}, " ++
+  s!"\"pending_branch\": {match s.pendingBranch with | some t => toString t.toNat | none => "null"}, " ++
+  s!"\"cp0\": " ++ "{" ++
+    s!"\"status\": {s.cp0Status.toNat}, \"cause\": {s.cp0Cause.toNat}, " ++
+    s!"\"epc\": {s.cp0Epc.toNat}, \"badvaddr\": {s.cp0BadVAddr.toNat}, " ++
+    s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}" ++ "}" ++
+  "}"
+
+/-- Structured halt reason (`halt` field). -/
+def haltJson (r : Option HaltReason) (s : State) : String :=
+  match r with
+  | none => "{\"kind\": \"limit\"}"
+  | some .exit => "{\"kind\": \"exit\"}"
+  | some (.unhandledException code epc bad) =>
+    s!"\{\"kind\": \"unhandled_exception\", \"code\": {code.toNat}, \"epc\": {epc.toNat}, \"badvaddr\": {bad.toNat}}"
+  | some (.noInstruction pc) => s!"\{\"kind\": \"no_instruction\", \"pc\": {pc.toNat}}"
+  | some .branchInDelaySlot => s!"\{\"kind\": \"branch_in_delay_slot\", \"pc\": {s.pc.toNat}}"
+
 /-- The full success-path JSON object (`assembled: true`), for either a
-`halted` or `limitReached` `RunResult`. -/
-def renderRunResult (r : RunResult) : String :=
-  let (halted, haltReasonJson, steps, s) :=
+`halted` or `limitReached` `RunResult`. The first block of fields is the
+original contract (unchanged); the second block is the oracle extension. -/
+def renderRunResult (prog : Program) (init : State) (r : RunResult) : String :=
+  let (halted, haltReasonJson, haltObj, steps, s) :=
     match r with
-    | .halted reason s steps => (true, jsonStr (renderHaltReason reason), steps, s)
-    | .limitReached s steps => (false, "null", steps, s)
+    | .halted reason s steps =>
+      (true, jsonStr (renderHaltReason reason), haltJson (some reason) s, steps, s)
+    | .limitReached s steps => (false, "null", haltJson none s, steps, s)
   "{\"assembled\": true, " ++
   s!"\"halted\": {halted}, " ++
   s!"\"halt_reason\": {haltReasonJson}, " ++
   s!"\"steps\": {steps}, " ++
   s!"\"output\": {jsonStr s.out}, " ++
   s!"\"registers\": {registersJson s}, " ++
-  "\"error\": null}"
+  "\"error\": null, " ++
+  -- oracle extension
+  s!"\"halt\": {haltObj}, " ++
+  s!"\"final\": {stateJson s}, " ++
+  s!"\"fcsr_mask\": {fcsrMask.toNat}, " ++
+  s!"\"initial\": {stateJson init}, " ++
+  s!"\"image\": {imageJson prog}, " ++
+  s!"\"memory\": {memoryJson s}" ++
+  "}"
 
 /-- The failure-path JSON object (`assembled: false`): every field besides
 `assembled`/`error` is `null`, per the issue's field rules. -/
@@ -199,8 +273,31 @@ def readSource (path : Option String) : IO (Except String String) := do
     | none => pure (Except.ok (← (← IO.getStdin).readToEnd))
   catch e => pure (Except.error (toString e))
 
+/-- Command line: `MipsRun [--max-steps N] [path.asm]`. -/
+structure Cli where
+  path : Option String := none
+  maxSteps : Nat := 1000000
+
+def parseArgs : List String → Except String Cli
+  | [] => .ok {}
+  | "--max-steps" :: n :: rest =>
+    match n.toNat?, parseArgs rest with
+    | some k, .ok c => .ok { c with maxSteps := k }
+    | none, _ => .error s!"--max-steps expects a number, got '{n}'"
+    | _, .error e => .error e
+  | ["--max-steps"] => .error "--max-steps expects a number"
+  | p :: rest =>
+    match parseArgs rest with
+    | .ok c => .ok { c with path := some p }
+    | .error e => .error e
+
 def main (args : List String) : IO UInt32 := do
-  match ← readSource args.head? with
+  match parseArgs args with
+  | .error msg =>
+    IO.eprintln s!"MipsRun: {msg}"
+    return 2
+  | .ok cli =>
+  match ← readSource cli.path with
   | .error msg =>
     IO.eprintln s!"MipsRun: {msg}"
     return 2
@@ -210,9 +307,9 @@ def main (args : List String) : IO UInt32 := do
       IO.println (renderAsmFailure e)
       return 1
     | .ok prog =>
-      let maxSteps : Nat := 1000000
-      let result := run prog (materializeSpec prog (initialState textBase)) maxSteps
-      IO.println (renderRunResult result)
+      let init := materializeSpec prog (initialState textBase)
+      let result := run prog init cli.maxSteps
+      IO.println (renderRunResult prog (initialState textBase) result)
       return 0
 
 -- ====================================================================

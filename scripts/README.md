@@ -4,7 +4,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 
 | Script | What it does |
 |---|---|
-| `gate.sh` | Runs the 9 gate steps, prints `[n/9] name ... PASS/FAIL/SKIP (s)`, keeps logs in `.gate/logs/`, always writes `.gate/last-run.json`; on a full green run writes the stamp `.gate/green` (tree id of the exact verified content, timestamp, HEAD, toolchain, per-step results). |
+| `gate.sh` | Runs the 10 gate steps, prints `[n/10] name ... PASS/FAIL/SKIP (s)`, keeps logs in `.gate/logs/`, always writes `.gate/last-run.json`; on a full green run writes the stamp `.gate/green` (tree id of the exact verified content, timestamp, HEAD, toolchain, per-step results). |
 | `gate-commit.sh "<subject>" [body-file]` | Commits only if on a non-main branch, the stamp exists, and the current tree id equals the stamp. Stages `git add -A`, re-verifies the staged tree, commits with a `Gate:` trailer block and `Co-Authored-By` last. Never pushes. `--run` runs the gate first. |
 | `install-hooks.sh` | `git config core.hooksPath .githooks` for this clone (idempotent). The `pre-commit` hook then blocks any commit whose staged tree differs from the stamp. Bypass in an emergency: `git commit --no-verify`. |
 | `trace.py` | Generates `docs/TRACE.md` (`--check`: exit 1 on missing step arm / spec theorem / sorry; `--out FILE`). |
@@ -20,11 +20,12 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | 4 | comparator | `lake comparator` exits 0 and prints `Your solution is okay!` |
 | 5 | diffharness | `lake exe DiffHarness` exits 0, and `SUMMARY: all N corpus programs PASS` has N = number of `tests/corpus/*.asm`; java and `vendor/mars/Mars4_5.jar` required (missing = FAIL) |
 | 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed` |
-| 7 | trace | `trace.py --check` passes and regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line); `--fix` rewrites it |
-| 8 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent |
-| 9 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
+| 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU 24Kf vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mips` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
+| 8 | trace | `trace.py --check` passes and regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line); `--fix` rewrites it |
+| 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent |
+| 10 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
 
-Flags: `--quick` (1,7,8,9 only; NOT green, no stamp), `--from STEP`, `--only STEP` (number, letter a-i or name), `--allow-warnings`,
+Flags: `--quick` (1,8,9,10 only; NOT green, no stamp), `--from STEP`, `--only STEP` (number, letter a-j or name), `--allow-warnings`,
 `--fix`, `--json` (also print the JSON), `--selftest`. Exit 0 iff no step failed. Env for testing: `GATE_ROOT`, `GATE_DIR`, `GATE_CORPUS_DIR`.
 The stamp is written only if the tree id is unchanged between the start and the end of the run.
 
@@ -49,7 +50,15 @@ Replace the five gate `run:` steps in `.github/workflows/ci.yml` (keep checkout,
         uses: actions/upload-artifact@v4
         with: { name: gate-logs, path: .gate/ }
 ```
-CI needs `python3` and `java` on the runner (ubuntu-latest has both). The stamp written in CI is irrelevant; the exit code is the verdict.
+CI needs `python3` and `java` on the runner (ubuntu-latest has both) plus, for step 7, `qemu-system-mips` and LLVM >= 18 (`llvm`, `lld`; set `ORACLE_LLVM_DIR` to the directory holding `llvm-mc ld.lld llvm-objdump llvm-objcopy`):
+```yaml
+      - name: Install the differential-oracle tools (QEMU MIPS system emulator + LLVM)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-mips llvm lld
+          echo "ORACLE_LLVM_DIR=$(dirname "$(readlink -f "$(command -v llvm-mc || ls /usr/lib/llvm-*/bin/llvm-mc | tail -1)")")" >> "$GITHUB_ENV"
+```
+(`oracle.py` looks in `$ORACLE_LLVM_DIR`, then `/usr/lib/llvm-21/bin`, then `PATH`; `ld.lld` and `llvm-objcopy` must sit next to `llvm-mc`; on Debian/Ubuntu they do under `/usr/lib/llvm-N/bin`.) The stamp written in CI is irrelevant; the exit code is the verdict.
 
 ## Troubleshooting
 - "stale stamp" / hook blocks: something changed after the gate (even a whitespace edit or a regenerated TRACE.md). Re-run `scripts/gate.sh`.
@@ -60,3 +69,90 @@ CI needs `python3` and `java` on the runner (ubuntu-latest has both). The stamp 
 - TRACE.md stale: `python3 scripts/trace.py` (or `gate.sh --fix`) and include it in the commit.
 - manuals SKIP: run `docs/spec/manuals/fetch.sh` (needs `pdftotext`); a SKIP does not block the stamp but is recorded in the commit trailer.
 - Reading failures: logs are `.gate/logs/NN-name.log`; `.gate/` is gitignored.
+
+
+## Differential oracle: QEMU vs the model (`oracle.py`)
+
+A second oracle next to MARS. It runs **the same machine code at the same addresses** on `qemu-system-mips` (`-M malta -cpu 24Kf`,
+big-endian MIPS32r2, legacy-NaN FPU) and on the Lean model, then compares the final architectural state. Unlike MARS it handles
+rotr/rotrv/seb/seh/wsbh/ext/ins, branch-likely, sync/synci, cfc1/ctc1, lwl/lwr/swl/swr (big-endian) and delay-slot/exception semantics.
+
+```
+python3 scripts/oracle.py                 # all tests/oracle/*.asm; exit 1 iff any FAIL
+python3 scripts/oracle.py --only NAME     # repeatable; -v shows details of passing tests too
+python3 scripts/oracle.py --list          # tests + their `# oracle:` directives
+python3 scripts/oracle.py --json out.json --keep   # --keep leaves ELF/ld script/image sources in a temp dir
+python3 scripts/oracle.py --asm           # also the runnable tests/asm programs (the others are listed as SKIP with the reason)
+python3 scripts/oracle.py --encodings     # assembler oracle: our Asm.lean vs llvm-mc (-triple=mips-unknown-elf -mcpu=mips32r2)
+python3 scripts/oracle.py selftest        # checks the harness itself (judge logic + end-to-end FAIL/DEVIATION behaviour)
+```
+Needs `qemu-system-mips`, LLVM tools (`llvm-mc ld.lld llvm-objdump llvm-objcopy`; `/usr/lib/llvm-21/bin` or `ORACLE_LLVM_DIR`),
+`lake` (it runs `lake build MipsRun`; `ORACLE_NO_BUILD=1` skips that) and Python 3 stdlib. A missing tool exits 2 with a message; nothing is
+silently skipped. Output: one line per test `PASS` / `FAIL` / `DEVIATION(declared)`, then
+`SUMMARY: N tests, P pass, D declared deviations, K known model bugs, F fail, S skipped`. A few seconds for all tests (parallel), ~60 ms of QEMU per test.
+
+Many of the tests (FP compare/convert/flag/trap/CpU/random-pool programs) are produced by `tests/oracle/gen/gen_tests.py` (deterministic; the committed `.asm` files are the artefacts).
+
+### How a test runs
+1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
+   oracle extension: `image` (`[addr, word]` for every assembled word: text 0x00400000, data 0x10010000, `.ktext` 0x80000180),
+   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause,epc,badvaddr,errorepc,ebase}),
+   `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | branch_in_delay_slot | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
+   (every nonzero aligned word of the final memory).
+2. `oracle.py` builds a per-test ELF: the fixed harness `tests/oracle/harness/boot.s` + a generated image (config words, the program image
+   at kseg0 aliases of RAM pages, TLB entry table) linked by a generated linker script with one PT_LOAD per section.
+3. QEMU boots it (`-kernel`, reset entry in kseg0). The stub programs 16 TLB entries (4 KB pages, PageMask 0): text pages (+ the odd partner
+   of an even last page), data 0x10010000..+32 KB, stack 0x7fffe000..+8 KB, page 0 (harness scratch at 0xE00..0xFFF, do not use). It then loads
+   **all initial values from the model's `initial` JSON** (GPRs, HI/LO, FPRs, FCSR, Status, Cause, EPC, ErrorEPC; `$sp` = `spInit`, `$gp` = 0)
+   and jumps to the model's start pc with `$k0 = $k1 = 0`. Status is exactly the model's initial value (0x20000000: CU1 set, so the FPU works and the raw Status read agrees).
+4. Exceptions go to 0x80000180: the test's own `.ktext` if it has one, else the harness default handler. The default handler
+   * emulates the model's environment calls `$v0` = 1 (print int), 4 (print string), 11 (print char) into an output buffer and resumes after the
+     syscall (EPC+4; in a delay slot (Cause.BD = 1) it decodes the branch at EPC (j/jal/jr/jalr/beq/bne/blez/bgtz/regimm incl. likely forms/bc1t/bc1f) and resumes at its target);
+     all registers, HI/LO, $k0/$k1 are preserved;
+   * `$v0 = 10` (exit): dumps state, `pc` = the syscall address, Status.EXL and Cause.BD/ExcCode hidden (they belong to the harness's syscall exception);
+   * any other exception: dumps state as is (`$k0/$k1` restored), `pc` reported as 0x80000180, compared with the model's `unhandledException`.
+   A TLB refill (vector 0x80000000, owned by the harness even with `.ktext`) means the guest ran into an unmapped page: a fetch (EPC = BadVAddr) is the
+   counterpart of the model's `no_instruction` (running off the text end, jr to nowhere); a data access to an unmapped page is a harness error (the test touched memory the harness does not map).
+5. The dump (GPRs, HI/LO, FCSR, Status/Cause/EPC/BadVAddr/ErrorEPC, pc, FPRs, syscall output, every nonzero word of the data+stack pages) goes out
+   over the Malta UART as hex; the stub writes Malta SOFTRES and QEMU exits (`-no-reboot`). Hang guard: a wall-clock timeout (`--timeout`, default 20 s);
+   QEMU has no instruction budget in this setup, the model side is bounded by `--max-steps` (directive `# oracle: max-steps N`, default 100000).
+
+Tests **with** a `.ktext` handler cannot use the environment syscalls (they would be exceptions for the handler on QEMU): end them by running off the
+end of the text (the model reports `no_instruction`, QEMU a TLB refill; both count as the same termination).
+
+### What is compared (and what is masked, with reasons)
+GPRs (all 32; **nothing** is ignored by default: the harness preserves $k0/$k1), HI, LO, FPRs (raw 32-bit), FCSR under the model's `fcsr_mask`,
+Status & `0x2040ff07` (IE, EXL, ERL, IM7..0, BEV, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; QEMU's TI, IP7..IP2, WP, PCI are hardware state the model lacks),
+EPC, BadVAddr, ErrorEPC, pc, syscall output, final data+stack memory, termination kind (+ ExcCode for exceptions).
+Skipped by termination kind: for `no_instruction` the Status/Cause/EPC/BadVAddr/pc (QEMU's describe its TLB refill); for `exit` the EPC (QEMU's syscall exception clobbers it).
+Not observable on QEMU: the LL bit (reported by MipsRun, not compared; `ll_sc_*` tests observe it through `sc`).
+
+### Per-test directives (comment lines `# oracle: ...`)
+| directive | meaning |
+|---|---|
+| `ignore-regs k0 k1 ...` | do not compare these GPRs |
+| `unpredictable <field> <citation>` | UNPREDICTABLE per the manual: field not compared (citation mandatory) |
+| `expect-deviation <field> <reason + manual citation>` | the MANUAL and QEMU disagree (manual wins): the mismatch is reported as `DEVIATION(declared)`; an **undeclared** mismatch FAILs; a declaration that does **not** occur FAILs (stale) |
+| `known-model-bug <field> <manual citation> <one-line description>` | the MODEL is wrong per the manual: reported as `KNOWN-MODEL-BUG`, counted separately, does not fail; FAILs when the mismatch stops occurring |
+| `expect <field>=<value> ...` | assertion on the MODEL's value taken from the manual (a failing model is reported as `model != manual expectation`) |
+| `max-steps N` | model step budget |
+Fields: `gpr:t0` (or `gpr`), `fpr:f4` (or `fpr`), `hi lo fcsr status cause epc badvaddr errorepc pc output term`, `mem:0x10010004` (or `mem`).
+
+### Encoding oracle (`--encodings`)
+`tests/oracle/encodings.list` (generated once from the `rTable/iTable/bTable/cop1Table` of `Semantics/Asm.lean`, then hand-extended) has one form per line,
+`@T` / `@B` = label ahead / behind. Each form is assembled in a 64-byte-aligned slot by our assembler (via MipsRun's image) and by llvm-mc
+(+ `.set noreorder`/`.set noat` only in the llvm copy; `div rs,rt` is spelled `div $zero,rs,rt` there) and the words are compared; mismatches print both encodings and llvm-objdump's disassembly.
+Every mnemonic of the Asm.lean tables **and** of every `Instruction` constructor (`trace.py --json`) must be in the list. Known, intended differences are in `ENC_DECLARED` in
+`oracle.py` (our `li`/`la`/`move`/`abs` expansions follow MARS/SPIM); a declaration that no longer occurs FAILs.
+
+### In the gate
+Step 7 of `gate.sh` runs `oracle.py selftest`, `oracle.py --asm` and `oracle.py --encodings` and FAILs on any undeclared mismatch, stale declaration, harness error or missing tool.
+It prints `N tests: P pass, D declared QEMU deviations, K known model bugs, S skipped; encodings X same, Y declared`.
+
+### Model-bug triage (`known-model-bug`)
+`# oracle: known-model-bug <field> <manual citation> <one-line description>` marks a mismatch where the MODEL is wrong per the manual and is not fixed yet (the gate cannot be red for it, but it must stay visible).
+It is reported in its own section (`KNOWN-MODEL-BUG`), counted separately in the SUMMARY, does not fail the run, and FAILs if the mismatch stops occurring (so the directive must be deleted when the bug is fixed). Zero exist today.
+
+### Programs of `tests/asm`
+`--asm` also runs the `tests/asm/*.asm` programs (names `asm/NAME`), using sidecar directives kept in `oracle.py` (`ASM_DIRECTIVES`; the programs are not edited because EquivHarness reads them).
+Programs the harness cannot judge are listed as `SKIP name: reason` and counted (`ASM_SKIP` plus an automatic rule: a `.ktext` handler containing `syscall`, and EBase relocation `mtc0 $x,$15,1`).

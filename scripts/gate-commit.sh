@@ -76,11 +76,12 @@ trap 'rm -f "$MSG" "$SAVED_INDEX"' EXIT
   if [ -n "$BODY" ]; then printf '\n'; cat "$BODY"; fi
   printf '\n'
   printf 'Gate: green (tree %s, %s)\n' "$STAMP_TREE" "$(stamp_get timestamp)"
-  printf 'Gate-Steps: forbidden=%s build=%s check=%s comparator=%s diffharness=%s equivharness=%s trace=%s manuals=%s hygiene=%s\n' \
+  printf 'Gate-Steps: forbidden=%s build=%s check=%s comparator=%s diffharness=%s equivharness=%s oracle=%s trace=%s manuals=%s hygiene=%s\n' \
     "$(stamp_get step.forbidden)" "$(stamp_get step.build)" "$(stamp_get step.check)" "$(stamp_get step.comparator)" \
-    "$(stamp_get step.diffharness)" "$(stamp_get step.equivharness)" "$(stamp_get step.trace)" "$(stamp_get step.manuals)" "$(stamp_get step.hygiene)"
+    "$(stamp_get step.diffharness)" "$(stamp_get step.equivharness)" "$(stamp_get step.oracle)" "$(stamp_get step.trace)" "$(stamp_get step.manuals)" "$(stamp_get step.hygiene)"
   printf 'Gate-Corpus: %s programs PASS vs MARS\n' "$(stamp_get corpus)"
   printf 'Gate-Equiv: %s cases\n' "$(stamp_get equiv)"
+  printf 'Gate-Oracle: %s QEMU/LLVM oracle tests\n' "$(stamp_get oracle)"
   printf 'Gate-Trace: %s constructors, %s spec theorems\n' "$(stamp_get constructors)" "$(stamp_get theorems)"
   printf 'Gate-Axioms: %s\n' "$(stamp_get axioms)"
   printf 'Gate-Warnings: %s (allow_warnings=%s)\n' "$(stamp_get warnings)" "$(stamp_get allow_warnings)"
