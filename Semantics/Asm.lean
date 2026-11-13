@@ -12,11 +12,39 @@ words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
 **not** depend on an `Instruction` enum.
 
 ## Supported syntax
-- Labels (`name:`), optionally followed by an instruction/directive on the
-  same line.
-- Directives: `.text`, `.data`, `.word`, `.half`, `.byte`, `.asciiz`, `.space`.
-- `#` line comments (honoring `"..."` string literals, so `#` inside an
-  `.asciiz` string is not treated as a comment start).
+- Labels (`name:`, one or more per line), optionally followed by an
+  instruction/directive on the same line. A label name must match
+  `[A-Za-z_.$][A-Za-z0-9_.$]*`; any other text in front of a `:` (outside
+  quotes) is an error.
+- Directives (case-insensitive): segments `.text`/`.data`/`.ktext`/`.kdata`
+  (each with an optional start-address operand); data `.word`, `.half`,
+  `.byte`, `.float`, `.double`, `.ascii`, `.asciiz` (= `.asciz`/`.string`),
+  `.space`; `.align n`; and `.globl`/`.global`/`.extern` (accepted, no-ops).
+- `#` line comments (honoring `"..."` string and `'c'` character literals,
+  so `#`/`:`/`,` inside them are not treated as syntax).
+- Mnemonics are case-insensitive (`ADD`, `Add`), as in GNU as; register
+  names are case-sensitive.
+- Numeric operands: decimal, `0x` hex, `0b` binary, **leading-`0` octal**
+  (`010` = 8, as GNU as and MARS), character literals `'a'`/`'\n'`, an
+  optional leading `+`/`-`, and `±` sums of those. No digit separators.
+  `la`, `.word` and branch/jump targets also take `label+const` /
+  `label-const`.
+- **Nothing is ever truncated**: every immediate, offset, branch/jump
+  displacement and data value is range-checked and rejected with an error
+  carrying the source line number if it does not fit (see "Range checks"
+  below). Out-of-range immediates are *not* macro-expanded.
+- Empty operands (`add $t0,, $t1`, a trailing `,`) are errors.
+- Assembler idioms expanding to existing instructions (GNU as expansions;
+  none inserts a `nop` -- this assembler always behaves like GNU as under
+  `.set noreorder`, every branch keeps its real delay slot): `b`, `bal`,
+  `beqz`, `bnez`, `neg`, `negu`, `not`, `abs`, `blt`/`bge`/`bgt`/`ble`,
+  `bltu`/`bgeu`/`bgtu`/`bleu` (via `$at`), `ssnop`, `ehb`, `jr.hb`,
+  `jalr.hb` -- see `expandIdiom`.
+- Optional code operands: `break [code]`, `syscall [code]`,
+  `teq rs, rt[, code]` (all six register traps), `sync [stype]`, and
+  `mfc0`/`mtc0 rt, rd[, sel]`. The `Instruction` constructors carry none of
+  these fields, so only the value 0 is accepted; a nonzero value is a
+  "field not representable" error, never silently dropped.
 - All v1 real instructions (`docs/spec/INSTRUCTION-REF.md`): R-type arith/
   logic/shift/mult-div/mfhi/mflo, I-type immediate/logic/memory, J-type,
   branches, and `syscall` (zero operands, all fields zero except
@@ -97,36 +125,88 @@ words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
   does not check/enforce that `N` is even.
 - Coprocessor-0 (CP0) register move / execution control (real MIPS32 ISA,
   `docs/spec/MIPS-COVERAGE-GAPS.md` \u00a73.10A; see `Instruction.lean`/
-  `Step.lean`): `mfc0 $rt, rd` / `mtc0 $rt, rd` (`rd` is a plain numeric CP0
-  register reference, e.g. `mfc0 $t0, 12` \u2014 this model has no named CP0
-  register aliases, unlike `$f0`..`$f31` for coprocessor 1), and `eret`/
-  `wait` (zero operands, like `break`).
-- Pseudo-ops: `li`, `la` (label only — see deviation note below), `move`,
-  `nop`, expanded per `vendor/mars-src/PseudoOps.txt`.
+  `Step.lean`): `mfc0 $rt, $rd` / `mtc0 $rt, $rd` (`rd` is a CP0 register
+  number, written `$12` as in standard MIPS assembly or as the bare number
+  `12`; this model has no named CP0 register aliases), and `eret`/`wait`
+  (zero operands, like `break`). `cfc1`/`ctc1` likewise take the FPU
+  control register as `$31` (or the older `$f31` spelling).
+- Pseudo-ops: `li`, `la` (label or `label±const` — see deviation note
+  below), `move`, `nop`, expanded per `vendor/mars-src/PseudoOps.txt`.
 - Register names `$zero,$at,$v0,$v1,$a0..$a3,$t0..$t7,$s0..$s7,$t8,$t9,
-  $k0,$k1,$gp,$sp,$fp,$ra` plus raw numeric `$0`..`$31`, and FP register names
+  $k0,$k1,$gp,$sp,$fp,$s8,$ra` plus raw numeric `$0`..`$31` (canonical
+  decimal only: `$08` and `$1_0` are errors), and FP register names
   `$f0`..`$f31` for the coprocessor-1 instructions.
 
+## Range checks
+| operand | accepted range |
+|---|---|
+| `addi`/`addiu`/`slti`/`sltiu`, trap immediates, memory offsets | −32768..32767 |
+| `andi`/`ori`/`xori`/`lui` | 0..65535 |
+| `li`, `.word` | −2^31..2^32−1 |
+| `.half` | −32768..65535 |
+| `.byte` | −128..255 |
+| branch to a label | (target − (pc+4)) divisible by 4, −32768..32767 words |
+| numeric branch operand (the word offset itself, MARS convention) | −32768..32767 |
+| `j`/`jal` | word-aligned, same 256MB region as the delay slot |
+
 ## Layout
-`.text` code words are placed sequentially starting at `textBase` (0x00400000);
-`.data` starts at `dataBase` (0x10010000, SPEC-NOTES §1). `.word` aligns the
-current segment pointer up to a multiple of 4 before emitting; `.half` aligns
-to a multiple of 2; `.byte`/`.asciiz`/`.space` require no alignment. A program
-may use either or both segments, and `.text`/`.data` directives may switch
-segments more than once.
+The `Program` is a sparse address → word map, so any number of disjoint
+regions can be assembled. There are four segments, each with its own
+location counter: `.text` (default `textBase`, 0x00400000), `.data`
+(`dataBase`, 0x10010000, SPEC-NOTES §1), `.ktext` (`ktextBase`, 0x80000180
+= the exception vector `Step.lean` dispatches to) and `.kdata` (`kdataBase`,
+0x90000000). A segment directive with an address operand (`.data
+0x10000000`, `.text 0x00400100`) moves that segment's location counter
+there; without an operand the segment resumes where it left off. Execution
+still starts at `textBase` (the harnesses' `initialState textBase`), exactly
+as in MARS. Two items that would occupy the same bytes are an error, as is
+running past address 2^32.
+
+Alignment: `.word`/`.float` align the location counter to 4, `.half` to 2,
+`.double` to 8; `.byte`/`.ascii`/`.asciiz`/`.space` need none. `.align n`
+aligns to 2^n (n = 1..16); `.align 0` switches the automatic alignment of
+the data directives off until the next segment directive (MARS/GNU as
+behaviour). **A label is bound after alignment**: it names the address of
+the next item, so `w: .word 77` after a `.byte` names the word itself, and
+so does a label on its own line in front of it. (MARS 4.5 differs for the
+own-line case only: it binds such a label to the unaligned address.)
+
+Data in `.text`: data directives are accepted in `.text`/`.ktext` (as in
+GNU as; MARS rejects them), and every instruction is word-aligned first, so
+data can never misalign the code after it. Instructions in `.data`/`.kdata`
+are rejected.
+
+All data is big-endian (`.word 0x01020304` stores byte `01` first; a
+`.double` stores its most-significant word first, the order `ldc1`/`sdc1`
+use). `.float`/`.double` literals are converted with exact rational
+arithmetic, correctly rounded to nearest-even (`ratToIeee`) -- no host
+floating point is involved. String literals take the escapes listed at
+`scanQuoted`; several comma-separated strings may follow one directive.
 
 ## Deviation from MARS `la`
 MARS's `la` pseudo-op has many address-forms (`la $t,100($t2)`,
 `la $t,label+100000($t2)`, a `COMPACT` single-instruction form when the
 resolved address fits 16 bits, etc. — see `PseudoOps.txt` lines 249-258).
 Per DESIGN.md §4 ("`la` = `li` of a label address"), this assembler supports
-exactly `la $rt, label` (register + bare label, two tokens). Since every v1
-label address is `>= textBase` or `>= dataBase`, both far above 16 bits, the
-general two-instruction `lui $at,hi16 ; ori $rt,$at,lo16` expansion (the same
-one MARS uses for non-compact `la`/large `li`) is always exactly correct and
-the `COMPACT` single-instruction case can never trigger. Any other `la` form
-is a `badOperand` error. (Flagged for the Wave 3 DiffHarness worker: keep the
-differential corpus's `la` usage to `la $rt, label`.)
+exactly `la $rt, label` and `la $rt, label±const`. It always emits the
+general two-instruction `lui $at,hi16 ; ori $rt,$at,lo16` expansion (the
+same one MARS uses for non-compact `la`/large `li`), whatever the resolved
+address -- pass 1 reserves exactly two words before label addresses are
+known. Any other `la` form (register-relative, purely numeric) is a
+`badOperand` error.
+
+## Other documented differences from MARS / GNU as
+- `li` of 0..65535 uses `ori` (MARS: `addiu` for 0..32767), and a value
+  written as a 32-bit pattern `0xffff8000`..`0xffffffff` uses `lui`/`ori`
+  (MARS folds it to the one-word `addiu` of the equivalent negative).
+- `clo`/`clz` encode `rt = rd` (MIPS32 spec; MARS leaves `rt` 0).
+- `b label` is GNU as's `beq $0,$0,label` (MARS: `bgez $0,label`); `abs`
+  is GNU as's branch-over form (MARS uses `sra`/`xor`/`subu`).
+- The compare-and-branch idioms always use the two-instruction `$at` form;
+  GNU as's one-instruction special cases for a literal `$0` operand are not
+  replicated (same semantics).
+- GNU as defaults to `.set reorder` (it fills delay slots itself); this
+  assembler has no `.set` and always assembles what is written.
 -/
 
 /-- Errors produced by `assemble`. Each case carries a human-readable message
@@ -149,6 +229,15 @@ abbrev AsmResult := Except AsmError Program
 `Types.lean`). -/
 def dataBase : W32 := 0x10010000
 
+/-- Default base address of the `.ktext` (kernel text) segment: the MIPS32
+general exception vector (`exceptionVectorAddr` in `Types.lean`), so an
+exception handler can be assembled where `Step.lean` dispatches to. -/
+def ktextBase : W32 := 0x80000180
+
+/-- Default base address of the `.kdata` (kernel data) segment (MARS/SPIM
+convention). -/
+def kdataBase : W32 := 0x90000000
+
 /-- `$at` (register 1), the scratch register used by the `li`/`la` two-word
 expansion, matching MARS's convention (`PseudoOps.txt`). -/
 def atReg : Nat := 1
@@ -167,117 +256,268 @@ private def trimStr (s : String) : String := s.trimAscii.toString
 /-- `String.drop`/`.take`/`.dropEnd` return `String.Slice` in this Lean
 version; these wrappers convert back to `String` for uniform downstream use. -/
 private def dropS (s : String) (n : Nat) : String := (s.drop n).toString
-private def takeS (s : String) (n : Nat) : String := (s.take n).toString
-private def dropEndS (s : String) (n : Nat) : String := (s.dropEnd n).toString
+
+private def trimChars (cs : List Char) : List Char :=
+  ((cs.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse
+
+/-- Quote-tracking state shared by every line-level scanner (comment
+stripping, label splitting, operand splitting), so that `#`, `:` and `,`
+inside a `"..."` string or a `'c'` character literal are never treated as
+syntax. -/
+private inductive QState
+  | normal | str | strEsc | chr | chrEsc
+
+private def QState.next (st : QState) (c : Char) : QState :=
+  match st with
+  | .normal => if c == '"' then .str else if c == '\'' then .chr else .normal
+  | .str => if c == '\\' then .strEsc else if c == '"' then .normal else .str
+  | .strEsc => .str
+  | .chr => if c == '\\' then .chrEsc else if c == '\'' then .normal else .chr
+  | .chrEsc => .chr
+
+private def QState.isNormal : QState → Bool
+  | .normal => true
+  | _ => false
 
 /-- Strip a `#` line comment, but not one occurring inside a `"..."` string
-literal (so `.asciiz "a # b"` keeps its `#`). -/
-private def stripComment (l : String) : String := Id.run do
+or `'c'` character literal (so `.asciiz "a # b"` and `li $t0, '#'` keep
+their `#`). -/
+private def stripComment (cs : List Char) : List Char := Id.run do
   let mut result : List Char := []
-  let mut inStr := false
-  let mut esc := false
-  for c in l.toList do
-    if inStr then
-      result := c :: result
-      if esc then esc := false
-      else if c == '\\' then esc := true
-      else if c == '"' then inStr := false
+  let mut st := QState.normal
+  for c in cs do
+    if st.isNormal && c == '#' then
+      break
+    result := c :: result
+    st := st.next c
+  return result.reverse
+
+/-- Split at every `sep` that is outside string/character literals. Always
+returns at least one piece. -/
+private def splitTop (cs : List Char) (sep : Char) : List (List Char) := Id.run do
+  let mut parts : Array (List Char) := #[]
+  let mut cur : List Char := []
+  let mut st := QState.normal
+  for c in cs do
+    if st.isNormal && c == sep then
+      parts := parts.push cur.reverse
+      cur := []
     else
-      if c == '#' then
-        break
-      else
-        if c == '"' then inStr := true
-        result := c :: result
-  return String.ofList result.reverse
+      cur := c :: cur
+      st := st.next c
+  return (parts.push cur.reverse).toList
 
-/-- Split a line into an optional label and the remainder (trimmed). -/
-private def splitLabel (line : String) : Option String × String :=
-  match line.splitOn ":" with
-  | [one] => (none, one)
-  | first :: rest => (some (trimStr first), trimStr (String.intercalate ":" rest))
-  | [] => (none, line)
+private def isIdentStart (c : Char) : Bool := c.isAlpha || c == '_' || c == '.' || c == '$'
+private def isIdentChar (c : Char) : Bool := c.isAlphanum || c == '_' || c == '.' || c == '$'
 
-/-- Split whitespace-separated tokens, dropping empty pieces. -/
-private def wsTokens (s : String) : List String :=
-  (s.splitToList (·.isWhitespace)).filter (fun t => !t.isEmpty)
+/-- A valid label/symbol name: `[A-Za-z_.$][A-Za-z0-9_.$]*`. -/
+private def isIdent (cs : List Char) : Bool :=
+  match cs with
+  | [] => false
+  | c :: rest => isIdentStart c && rest.all isIdentChar
 
-/-- Find the index of the first occurrence of `c` in `s`, if any. -/
-private def findChar (s : String) (c : Char) : Option Nat :=
-  s.toList.findIdx? (· == c)
-
-/-- Find the matching `"` for an opening `"` at the start of `s`, decoding
-simple backslash escapes (`\n \t \0 \\ \"`). Returns the decoded content and
-the number of source characters consumed (including both quotes). -/
-private def scanQuotedString (s : String) : Option (String × Nat) := Id.run do
-  let chars := s.toList
-  if chars.isEmpty || chars.head! != '"' then
-    return none
-  let mut out : List Char := []
-  let mut i : Nat := 1
-  let n := chars.length
-  let mut done := false
-  let mut ok := false
-  while !done && i < n do
-    let c := chars[i]!
-    if c == '\\' && i + 1 < n then
-      let e := chars[i + 1]!
-      let decoded :=
-        match e with
-        | 'n' => '\n'
-        | 't' => '\t'
-        | '0' => Char.ofNat 0
-        | '\\' => '\\'
-        | '"' => '"'
-        | other => other
-      out := decoded :: out
-      i := i + 2
-    else if c == '"' then
-      ok := true
-      done := true
-      i := i + 1
-    else
-      out := c :: out
-      i := i + 1
-  if ok then
-    return some (String.ofList out.reverse, i)
-  else
-    return none
-
-/-- A single parsed source line: optional label, optional mnemonic (`none`
-for a label-only or blank line), and its operand tokens. -/
+/-- A single parsed source line: the labels defined on it (possibly several,
+`a: b: .word 1`), optional mnemonic (`none` for a label-only or blank line;
+always lower-cased -- mnemonics and directives are case-insensitive, as in
+GNU as), and its comma-separated operand tokens (trimmed, never empty; string
+operands are kept in their quoted source form and decoded by the directive
+that consumes them). -/
 structure ParsedLine where
-  label : Option String
+  labels : List String
   mnemonic : Option String
   operands : List String
   lineNo : Nat
 
 private def parseLine (lineNo : Nat) (rawLine : String) : Except AsmError ParsedLine := do
-  let noComment := stripComment rawLine
-  let trimmed := trimStr noComment
-  if trimmed.isEmpty then
-    return { label := none, mnemonic := none, operands := [], lineNo }
-  let (label, remRaw) := splitLabel trimmed
-  let rem := trimStr remRaw
-  if rem.isEmpty then
-    return { label, mnemonic := none, operands := [], lineNo }
-  -- `.asciiz` needs special handling: its single operand is a quoted string
-  -- that may itself contain whitespace/commas.
-  if rem.startsWith ".asciiz" then
-    let afterMnem := trimStr (dropS rem ".asciiz".length)
-    match scanQuotedString afterMnem with
-    | some (decoded, _) => return { label, mnemonic := some ".asciiz", operands := [decoded], lineNo }
-    | none => throw (.badOperand s!".asciiz expects a quoted string" lineNo)
-  else
-    let toks := wsTokens rem
-    match toks with
-    | [] => return { label, mnemonic := none, operands := [], lineNo }
-    | mnem :: restToks =>
-      let operandStr := String.intercalate " " restToks
-      let operands := (operandStr.splitOn ",").map trimStr |>.filter (fun t => !t.isEmpty)
-      return { label, mnemonic := some mnem, operands, lineNo }
+  let cs := trimChars (stripComment rawLine.toList)
+  if cs.isEmpty then
+    return { labels := [], mnemonic := none, operands := [], lineNo }
+  -- Label splitting: every `:` outside quotes ends a label, and the text in
+  -- front of it must be a valid identifier (so `addi $a0,$a0,5 :`, `1bad:`,
+  -- `a b:` and a bare `:` are errors instead of silently becoming labels).
+  let pieces := (splitTop cs ':').map trimChars
+  let labelPieces := pieces.dropLast
+  let stmt := pieces.getLast?.getD []
+  for lp in labelPieces do
+    if !isIdent lp then
+      throw (.badOperand s!"invalid label name '{String.ofList lp}' before ':'" lineNo)
+  let labels := labelPieces.map String.ofList
+  if stmt.isEmpty then
+    return { labels, mnemonic := none, operands := [], lineNo }
+  let mnemCs := stmt.takeWhile (fun c => !c.isWhitespace)
+  let mnem := String.ofList (mnemCs.map Char.toLower)
+  let rest := trimChars (stmt.drop mnemCs.length)
+  if rest.isEmpty then
+    return { labels, mnemonic := some mnem, operands := [], lineNo }
+  let operandCs := (splitTop rest ',').map trimChars
+  if operandCs.any List.isEmpty then
+    throw (.badOperand s!"empty operand in '{String.ofList stmt}'" lineNo)
+  return { labels, mnemonic := some mnem, operands := operandCs.map String.ofList, lineNo }
 
 -- ====================================================================
--- Registers and immediates
+-- Numeric / character / string literals
+-- ====================================================================
+
+private def hexDigit? (c : Char) : Option Nat :=
+  if '0' ≤ c ∧ c ≤ '9' then some (c.toNat - '0'.toNat)
+  else if 'a' ≤ c ∧ c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
+  else if 'A' ≤ c ∧ c ≤ 'F' then some (c.toNat - 'A'.toNat + 10)
+  else none
+
+/-- Non-empty digit string in the given base (2/8/10/16); no separators
+(`1_000` is rejected), no sign. -/
+private def digitsToNat (base : Nat) (cs : List Char) : Option Nat :=
+  if cs.isEmpty then none
+  else
+    cs.foldl
+      (fun acc c => acc.bind fun a => (hexDigit? c).bind fun d =>
+        if d < base then some (a * base + d) else none)
+      (some 0)
+
+/-- Unsigned integer literal with GNU-as radix rules: `0x…` hex, `0b…`
+binary, a leading `0` followed by more digits is **octal** (`010` = 8, `08`
+is an error), anything else decimal. -/
+private def parseNatLit (cs : List Char) : Option Nat :=
+  match cs with
+  | '0' :: 'x' :: r => digitsToNat 16 r
+  | '0' :: 'X' :: r => digitsToNat 16 r
+  | '0' :: 'b' :: r => digitsToNat 2 r
+  | '0' :: 'B' :: r => digitsToNat 2 r
+  | '0' :: c :: r => digitsToNat 8 (c :: r)
+  | _ => digitsToNat 10 cs
+
+private def isOctDigit (c : Char) : Bool := '0' ≤ c && c ≤ '7'
+
+private def utf8Bytes (c : Char) : List Nat :=
+  (String.singleton c).toUTF8.toList.map (·.toNat)
+
+/-- Scan the body of a quoted literal (the opening quote `q` already
+consumed): returns the decoded bytes and the source text after the closing
+quote. Escapes (GNU as set plus `\'`): `\n \t \r \b \f \\ \" \'`, octal
+`\N`/`\NN`/`\NNN` (so `\0` is NUL; a value above `\377` is an error) and
+hex `\xH`/`\xHH` (at most two digits: `"\x41b"` is `A`,`b`, whereas GNU as
+would swallow every following hex digit). Any other escape letter is an
+error (MARS 4.5 has no octal/hex escapes -- it stores `"\101"` as the three
+characters `1`,`0`,`1`). Unescaped characters contribute
+their UTF-8 bytes. -/
+private def scanQuoted (q : Char) : Nat → List Char → List Nat → Except String (List Nat × List Char)
+  | 0, _, _ => .error s!"missing closing {q}"
+  | fuel + 1, cs, acc =>
+    match cs with
+    | [] => .error s!"missing closing {q}"
+    | '\\' :: [] => .error "dangling '\\' at end of literal"
+    | '\\' :: e :: rest =>
+      if e == 'x' then
+        let hs := (rest.take 2).takeWhile (fun c => (hexDigit? c).isSome)
+        match digitsToNat 16 hs with
+        | some v => scanQuoted q fuel (rest.drop hs.length) (v :: acc)
+        | none => .error "\\x escape needs at least one hex digit"
+      else if isOctDigit e then
+        let ds := ((e :: rest).take 3).takeWhile isOctDigit
+        match digitsToNat 8 ds with
+        | some v =>
+          if v < 256 then scanQuoted q fuel ((e :: rest).drop ds.length) (v :: acc)
+          else .error "octal escape out of range (max \\377)"
+        | none => .error "bad octal escape"
+      else
+        let simple : Option Nat :=
+          if e == 'n' then some 10 else if e == 't' then some 9 else if e == 'r' then some 13
+          else if e == 'b' then some 8 else if e == 'f' then some 12
+          else if e == '\\' then some 92 else if e == '"' then some 34 else if e == '\'' then some 39
+          else none
+        match simple with
+        | some b => scanQuoted q fuel rest (b :: acc)
+        | none => .error s!"unknown escape '\\{e}'"
+    | c :: rest =>
+      if c == q then .ok (acc.reverse, rest)
+      else scanQuoted q fuel rest ((utf8Bytes c).reverse ++ acc)
+
+/-- Decode a complete `"..."` operand token into its bytes; anything after
+the closing quote is an error. -/
+private def parseStringTok (tok : String) (line : Nat) : Except AsmError (List Nat) :=
+  match tok.toList with
+  | '"' :: body =>
+    match scanQuoted '"' (body.length + 1) body [] with
+    | .ok (bytes, rest) =>
+      if rest.isEmpty then pure bytes
+      else throw (.badOperand s!"unexpected text after string literal: '{String.ofList rest}'" line)
+    | .error m => throw (.badOperand s!"bad string literal {tok}: {m}" line)
+  | _ => throw (.badOperand s!"expected a quoted string, got '{tok}'" line)
+
+/-- Unsigned atom: an integer literal or a `'c'` character literal (exactly
+one byte, escapes as in strings). -/
+private def parseAtomNat (cs : List Char) (line : Nat) : Except AsmError Nat :=
+  match cs with
+  | '\'' :: body =>
+    match scanQuoted '\'' (body.length + 1) body [] with
+    | .ok ([b], []) => pure b
+    | .ok _ => throw (.badImmediate s!"character literal must be exactly one byte: {String.ofList cs}" line)
+    | .error m => throw (.badImmediate s!"bad character literal {String.ofList cs}: {m}" line)
+  | _ =>
+    match parseNatLit cs with
+    | some n => pure n
+    | none => throw (.badImmediate s!"invalid immediate: '{String.ofList cs}'" line)
+
+/-- Split an operand expression into signed atoms: `lbl+4-'a'` ↦
+`[(false, lbl), (false, 4), (true, 'a')]`. Unary sign runs compose. -/
+private def splitTerms (cs : List Char) : List (Bool × List Char) := Id.run do
+  let mut out : Array (Bool × List Char) := #[]
+  let mut neg := false
+  let mut cur : List Char := []
+  let mut st := QState.normal
+  for c in cs do
+    if st.isNormal && (c == '+' || c == '-') then
+      if (trimChars cur).isEmpty then
+        if c == '-' then neg := !neg
+        cur := []
+      else
+        out := out.push (neg, trimChars cur.reverse)
+        neg := c == '-'
+        cur := []
+    else
+      cur := c :: cur
+      st := st.next c
+  return (out.push (neg, trimChars cur.reverse)).toList
+
+/-- Parse an operand expression `term (± term)*` where at most one term is
+a symbol (which must be added, not subtracted) and the rest are integer /
+character literals. Returns the symbol (if any) and the constant part. -/
+private def parseExpr (tok : String) (line : Nat) : Except AsmError (Option String × Int) := do
+  let terms := splitTerms tok.toList
+  let mut sym : Option String := none
+  let mut k : Int := 0
+  for (neg, atom) in terms do
+    match atom with
+    | [] => throw (.badImmediate s!"malformed expression '{tok}'" line)
+    | c :: _ =>
+      if c.isDigit || c == '\'' then
+        let n ← parseAtomNat atom line
+        k := if neg then k - (n : Int) else k + (n : Int)
+      else if isIdent atom then
+        if neg then throw (.badOperand s!"cannot subtract a label in '{tok}'" line)
+        if sym.isSome then throw (.badOperand s!"more than one label in '{tok}'" line)
+        sym := some (String.ofList atom)
+      else
+        throw (.badImmediate s!"invalid immediate: '{tok}'" line)
+  pure (sym, k)
+
+/-- Parse a pure numeric constant operand: decimal, `0x` hex, `0b` binary,
+leading-0 octal, `'c'` character literals, optional leading `+`/`-`, and
+`±`-sums of those. A label is an error here. -/
+private def parseImmediate (tok : String) (line : Nat) : Except AsmError Int := do
+  let (sym, k) ← parseExpr tok line
+  match sym with
+  | none => pure k
+  | some s => throw (.badImmediate s!"expected a numeric constant, got '{s}' in '{tok}'" line)
+
+/-- Reject `v` outside `lo..hi` -- the assembler never truncates an
+out-of-range immediate. -/
+private def checkRange (what : String) (lo hi v : Int) (line : Nat) : Except AsmError Unit :=
+  if lo ≤ v ∧ v ≤ hi then pure ()
+  else throw (.badImmediate s!"{what} out of range ({lo}..{hi}): {v}" line)
+
+-- ====================================================================
+-- Registers
 -- ====================================================================
 
 private def regTable : List (String × Nat) :=
@@ -287,7 +527,16 @@ private def regTable : List (String × Nat) :=
    ("s0", 16), ("s1", 17), ("s2", 18), ("s3", 19), ("s4", 20), ("s5", 21), ("s6", 22), ("s7", 23),
    ("t8", 24), ("t9", 25),
    ("k0", 26), ("k1", 27),
-   ("gp", 28), ("sp", 29), ("fp", 30), ("ra", 31)]
+   ("gp", 28), ("sp", 29), ("fp", 30), ("s8", 30), ("ra", 31)]
+
+/-- Canonical decimal register number `0`..`31`: digits only, no leading
+zero (`$08`), no separators (`$1_0`), no other radix. -/
+private def parseRegNum (cs : List Char) : Option Nat :=
+  if cs.isEmpty || !cs.all Char.isDigit || (cs.length > 1 && cs.head? == some '0') then none
+  else
+    match digitsToNat 10 cs with
+    | some n => if n < 32 then some n else none
+    | none => none
 
 private def parseRegister (tok : String) (line : Nat) : Except AsmError Nat := do
   if !(tok.startsWith "$") then
@@ -296,8 +545,8 @@ private def parseRegister (tok : String) (line : Nat) : Except AsmError Nat := d
   match regTable.find? (fun p => p.1 == body) with
   | some (_, n) => pure n
   | none =>
-    match body.toNat? with
-    | some n => if n < 32 then pure n else throw (.badRegister s!"register number out of range (0-31): '{tok}'" line)
+    match parseRegNum body.toList with
+    | some n => pure n
     | none => throw (.badRegister s!"unknown register: '{tok}'" line)
 
 /-- `$f0`..`$f31`, the coprocessor-1 (FPU) single-precision register names. -/
@@ -305,7 +554,7 @@ private def fpRegTable : List (String × Nat) :=
   (List.range 32).map (fun i => (s!"f{i}", i))
 
 /-- Parse an FP register operand. Unlike `parseRegister`, there is no raw
-numeric fallback (`$5` is never an FP register) \u2014 FPU operands always use
+numeric fallback (`$5` is never an FP register) — FPU operands always use
 the `$fN` spelling, matching real MIPS32 assembly syntax. -/
 private def parseFpRegister (tok : String) (line : Nat) : Except AsmError Nat := do
   if !(tok.startsWith "$") then
@@ -315,65 +564,32 @@ private def parseFpRegister (tok : String) (line : Nat) : Except AsmError Nat :=
   | some (_, n) => pure n
   | none => throw (.badRegister s!"unknown FP register (expected '$f0'..'$f31'): '{tok}'" line)
 
-/-- Parse a `mfc0`/`mtc0` CP0-register-number operand: a plain numeric
-token (`12`, not `$12`) in range 0-31 \u2014 this model has no named CP0
-register aliases (`Asm.lean` module docstring), so the operand is always a
-raw register number, same convention real MIPS32 assembly uses for `mfc0`/
-`mtc0`'s `rd` operand. Only 12/13/14 are semantically meaningful
-(`Step.lean` halts on any other value at execution time), but the
-assembler accepts the full 0-31 range here, matching the real encoding's
-5-bit field. -/
-private def parseCp0Register (tok : String) (line : Nat) : Except AsmError Nat := do
-  match tok.toNat? with
-  | some n => if n < 32 then pure n else throw (.badRegister s!"CP0 register number out of range (0-31): '{tok}'" line)
-  | none => throw (.badRegister s!"expected a numeric CP0 register number, got '{tok}'" line)
+/-- Parse a coprocessor register-*number* operand (`mfc0`/`mtc0`'s `rd`,
+`cfc1`/`ctc1`'s control register): the standard `$N` spelling (`$12`,
+canonical decimal, 0-31) or the bare number `12` this assembler has always
+accepted. Named GPR aliases (`$t4`) are deliberately not accepted here. -/
+private def parseCopRegister (what : String) (tok : String) (line : Nat) : Except AsmError Nat := do
+  let body := if tok.startsWith "$" then dropS tok 1 else tok
+  match parseRegNum body.toList with
+  | some n => pure n
+  | none => throw (.badRegister s!"expected a {what} register number 0-31 ('$N' or 'N'), got '{tok}'" line)
 
-private def hexDigit? (c : Char) : Option Nat :=
-  if '0' ≤ c ∧ c ≤ '9' then some (c.toNat - '0'.toNat)
-  else if 'a' ≤ c ∧ c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
-  else if 'A' ≤ c ∧ c ≤ 'F' then some (c.toNat - 'A'.toNat + 10)
-  else none
-
-private def parseHexNat (s : String) : Option Nat :=
-  if s.isEmpty then none
-  else
-    s.toList.foldl
-      (fun acc c => acc.bind fun a => (hexDigit? c).map fun d => a * 16 + d)
-      (some 0)
-
-/-- Parse a numeric literal token: decimal (`123`, `-123`) or hex
-(`0x1A`, `-0x1A`). -/
-private def parseImmediate (tok : String) (line : Nat) : Except AsmError Int := do
-  if tok.isEmpty then
-    throw (.badImmediate s!"empty immediate" line)
-  let neg := tok.startsWith "-"
-  let body := if neg then dropS tok 1 else tok
-  let valOpt : Option Nat :=
-    if body.startsWith "0x" ∨ body.startsWith "0X" then parseHexNat (dropS body 2)
-    else body.toNat?
-  match valOpt with
-  | some n => pure (if neg then -(n : Int) else (n : Int))
-  | none => throw (.badImmediate s!"invalid immediate: '{tok}'" line)
-
-/-- Does this token look like a numeric literal (vs. a label reference)? -/
-private def looksNumeric (tok : String) : Bool :=
-  !tok.isEmpty ∧
-    (tok.front.isDigit ∨ (tok.startsWith "-" ∧ tok.length > 1 ∧ (dropS tok 1).front.isDigit))
-
-/-- Parse a `offset(reg)` or `(reg)` memory operand. -/
+/-- Parse a `offset(reg)` or `(reg)` memory operand (whitespace allowed
+around the parts: `4 ($sp)`). The offset must be a numeric constant in the
+signed 16-bit range. -/
 private def parseMemOperand (tok : String) (line : Nat) : Except AsmError (Int × Nat) := do
-  match findChar tok '(' with
-  | none => throw (.badOperand s!"expected 'offset(register)' operand, got '{tok}'" line)
-  | some i =>
-    let immStr := takeS tok i
-    let rest := dropS tok (i + 1)
-    if !(rest.endsWith ")") then
+  match splitTop tok.toList '(' with
+  | [immCs, restCs] =>
+    let rest := trimChars restCs
+    if rest.getLast? != some ')' then
       throw (.badOperand s!"missing closing ')' in operand '{tok}'" line)
-    else
-      let regStr := dropEndS rest 1
-      let imm ← if immStr.isEmpty then pure (0 : Int) else parseImmediate immStr line
-      let reg ← parseRegister regStr line
-      pure (imm, reg)
+    let regStr := String.ofList (trimChars rest.dropLast)
+    let immStr := String.ofList (trimChars immCs)
+    let imm ← if immStr.isEmpty then pure (0 : Int) else parseImmediate immStr line
+    checkRange "memory offset" (-32768) 32767 imm line
+    let reg ← parseRegister regStr line
+    pure (imm, reg)
+  | _ => throw (.badOperand s!"expected 'offset(register)' operand, got '{tok}'" line)
 
 -- ====================================================================
 -- Mnemonic classification
@@ -529,8 +745,17 @@ private def cop1Table : List (String × Cop1Form) :=
 -- ordering barrier, `docs/spec/MIPS-COVERAGE-GAPS.md` section 3.7) does not
 -- carry the `stype` hint field this model omits -- see `Instruction.lean`'s
 -- `.sync` docstring.
-private def pseudoSet : List String := ["li", "la", "move", "nop", "syscall", "break", "sync"]
-private def directiveSet : List String := [".text", ".data", ".word", ".half", ".byte", ".asciiz", ".space"]
+private def pseudoSet : List String :=
+  ["li", "la", "move", "nop", "syscall", "break", "sync",
+   -- assembler idioms (see `expandIdiom` / `encodeInstruction`)
+   "b", "bal", "beqz", "bnez", "neg", "negu", "not", "abs",
+   "blt", "bge", "bgt", "ble", "bltu", "bgeu", "bgtu", "bleu",
+   "ssnop", "ehb", "jr.hb", "jalr.hb"]
+/-- Data-emitting directives (laid out by `directiveLayout`). Segment
+directives, `.align` and the no-op `.globl`/`.global`/`.extern` are handled
+directly in `layoutLine`. -/
+private def directiveSet : List String :=
+  [".word", ".half", ".byte", ".ascii", ".asciiz", ".asciz", ".string", ".space", ".float", ".double"]
 
 /-- SPECIAL2/SPECIAL3 mnemonics with an opcode-bearing R-type-like shape that
 doesn't fit any existing `RForm` (nonzero opcode and/or an operand count
@@ -584,7 +809,7 @@ private def cop0Mnemonics : List String := ["mfc0", "mtc0", "eret", "wait"]
 private def isKnownMnemonic (m : String) : Bool :=
   rTable.any (·.1 == m) ∨ iTable.any (·.1 == m) ∨ jTable.any (·.1 == m) ∨
     bTable.any (·.1 == m) ∨ cop1Table.any (·.1 == m) ∨ pseudoSet.contains m ∨
-    directiveSet.contains m ∨ bshflMnemonics.contains m ∨ jrJalrMnemonics.contains m ∨
+    bshflMnemonics.contains m ∨ jrJalrMnemonics.contains m ∨
     multAccumMnemonics.contains m ∨ hiLoMoveMnemonics.contains m ∨
     bitfieldMnemonics.contains m ∨ cop0Mnemonics.contains m
 
@@ -597,14 +822,13 @@ private def liWordCount (v : Int) : Nat :=
   else if (0 : Int) ≤ v ∧ v ≤ 65535 then 1
   else 2
 
+
 -- ====================================================================
 -- Program-building helpers (byte/half-word packing, big-endian)
 -- ====================================================================
 
 /-- Round `a` up to the next multiple of `n` (`n > 0`). -/
-private def alignUp (a : W32) (n : Nat) : W32 :=
-  let an := a.toNat
-  natToW32 (((an + n - 1) / n) * n)
+private def alignUpNat (a n : Nat) : Nat := ((a + n - 1) / n) * n
 
 /-- Write a single byte into `prog` at `addr`, merging it into the
 big-endian-packed 4-byte-aligned word that contains it (other bytes of that
@@ -619,57 +843,297 @@ private def putByte (prog : Program) (addr : W32) (b : Nat) : Program :=
   let inserted := cleared ||| (natToW32 (b % 256) <<< shift)
   prog.insert wordAddr inserted
 
-private def putHalf (prog : Program) (addr : W32) (h : Nat) : Program :=
-  let hi := (h / 256) % 256
-  let lo := h % 256
-  let prog := putByte prog addr hi
-  putByte prog (addr + 1#32) lo
-
 private def putWord (prog : Program) (addr : W32) (w : W32) : Program :=
   prog.insert addr w
 
-private def putString (prog : Program) (addr : W32) (s : String) : Program :=
-  let bytes := s.toList.map (fun c => c.toNat % 256)
-  let withNull := bytes ++ [0]
-  withNull.foldl (fun (p, a) b => (putByte p a b, a + 1#32)) (prog, addr) |>.1
+/-- Write `bytes` at consecutive addresses starting at `addr`. -/
+private def putBytes (prog : Program) (addr : W32) (bytes : List Nat) : Program :=
+  (bytes.foldl (fun (p, a) b => (putByte p a b, a + 1#32)) (prog, addr)).1
+
+/-- The `n` big-endian bytes of `v` (most-significant first), `v` taken
+modulo `256^n`. Every multi-byte datum (`.half`/`.word`/`.float`/`.double`)
+goes through this, so data is laid out big-endian whether or not its address
+is aligned (`.align 0`). -/
+private def beBytes (n : Nat) (v : Nat) : List Nat :=
+  (List.range n).map (fun i => (v / 256 ^ (n - 1 - i)) % 256)
+
+-- ====================================================================
+-- `.float` / `.double`: exact decimal → IEEE-754 conversion
+-- ====================================================================
+
+/-- Correctly rounded (round-to-nearest, ties-to-even) IEEE-754 encoding of
+the exact rational `num/den` (`den > 0`), computed in exact `Nat`/`Int`
+arithmetic -- no host floating point is involved. `p` is the precision in
+bits (24 single / 53 double), `ebits` the exponent-field width (8 / 11).
+Handles subnormals; values that round beyond the largest finite number
+become ±infinity (as in IEEE-754 and Java/GNU as). -/
+private def ratToIeee (p ebits : Nat) (neg : Bool) (num den : Nat) : Nat :=
+  let signBit := if neg then 2 ^ (p - 1 + ebits) else 0
+  if num == 0 then signBit
+  else
+    let bias : Int := 2 ^ (ebits - 1) - 1
+    -- exponent of the least-significant mantissa bit of the smallest normal
+    let qmin : Int := 1 - bias - ((p : Int) - 1)
+    let e0 : Int := (Nat.log2 num : Int) - (Nat.log2 den : Int)
+    -- is num/den ≥ 2^e ?
+    let ge (e : Int) : Bool :=
+      if e ≥ 0 then decide (num ≥ den * 2 ^ e.toNat) else decide (num * 2 ^ (-e).toNat ≥ den)
+    let e : Int := if ge e0 then e0 else e0 - 1      -- floor(log2(num/den))
+    let q : Int := max (e - ((p : Int) - 1)) qmin    -- exponent of one ulp
+    let n' := if q ≥ 0 then num else num * 2 ^ (-q).toNat
+    let d' := if q ≥ 0 then den * 2 ^ q.toNat else den
+    let fl := n' / d'
+    let rem := n' % d'
+    let m :=
+      if 2 * rem > d' then fl + 1
+      else if 2 * rem < d' then fl
+      else if fl % 2 == 1 then fl + 1 else fl
+    -- `m < 2^(p-1)` (subnormal) only when `q = qmin`, where the exponent
+    -- field is 0; otherwise the implicit leading 1 of `m` adds 1 to the
+    -- exponent field, and a carry to `m = 2^p` adds one more -- all three
+    -- cases fall out of this single addition.
+    let bits := (q - qmin).toNat * 2 ^ (p - 1) + m
+    let infBits := (2 ^ ebits - 1) * 2 ^ (p - 1)
+    signBit + (if bits ≥ infBits then infBits else bits)
+
+/-- Parse a `.float`/`.double` operand: `[+-]digits[.digits][e[+-]digits]`
+(at least one mantissa digit), or `inf`/`infinity`/`nan` (case-insensitive,
+optionally signed; `nan` is the quiet NaN `0x7fc00000`/`0x7ff8000000000000`).
+Returns the IEEE-754 bit pattern. -/
+private def parseFloatLit (p ebits : Nat) (tok : String) (line : Nat) : Except AsmError Nat := do
+  let bad : AsmError := .badImmediate s!"invalid floating-point literal: '{tok}'" line
+  let cs0 := tok.toList.map Char.toLower
+  let (neg, cs) : Bool × List Char :=
+    match cs0 with
+    | '-' :: r => (true, r)
+    | '+' :: r => (false, r)
+    | r => (false, r)
+  let signBit := if neg then 2 ^ (p - 1 + ebits) else 0
+  let infBits := (2 ^ ebits - 1) * 2 ^ (p - 1)
+  let s := String.ofList cs
+  if s == "inf" || s == "infinity" then return signBit + infBits
+  if s == "nan" then return signBit + infBits + 2 ^ (p - 2)
+  let intD := cs.takeWhile Char.isDigit
+  let r1 := cs.drop intD.length
+  let (fracD, r2) : List Char × List Char :=
+    match r1 with
+    | '.' :: r => (r.takeWhile Char.isDigit, r.dropWhile Char.isDigit)
+    | r => ([], r)
+  if intD.isEmpty && fracD.isEmpty then throw bad
+  let exp10 : Int ←
+    match r2 with
+    | [] => pure 0
+    | 'e' :: r =>
+      let (eneg, ds) : Bool × List Char :=
+        match r with
+        | '-' :: d => (true, d)
+        | '+' :: d => (false, d)
+        | d => (false, d)
+      match digitsToNat 10 ds with
+      | some e =>
+        if e > 5000 then
+          throw (.badImmediate s!"floating-point exponent too large in '{tok}'" line)
+        else pure (if eneg then -(e : Int) else (e : Int))
+      | none => throw bad
+    | _ => throw bad
+  let mant := (digitsToNat 10 (intD ++ fracD)).getD 0
+  let e : Int := exp10 - (fracD.length : Int)
+  let num := if e ≥ 0 then mant * 10 ^ e.toNat else mant
+  let den := if e ≥ 0 then 1 else 10 ^ (-e).toNat
+  pure (ratToIeee p ebits neg num den)
+
+-- ====================================================================
+-- Idiom expansion (pure text → text, shared by both passes)
+-- ====================================================================
+
+private def trapRegMnemonics : List String := ["teq", "tne", "tlt", "tge", "tltu", "tgeu"]
+
+/-- Validate an optional `code`/`stype` operand. The `Instruction`
+constructors (`.break`, `.syscall`, `.sync`, `.teq`…) carry no code field,
+so only code 0 can be represented faithfully: an in-range nonzero code is
+rejected with an explicit "not representable" error rather than dropped. -/
+private def checkZeroCode (name what : String) (maxCode : Int) (tok : String) (line : Nat) :
+    Except AsmError Unit := do
+  let c ← parseImmediate tok line
+  checkRange s!"{name} {what}" 0 maxCode c line
+  if c ≠ 0 then
+    throw (.badOperand
+      s!"{name}: {what} field not representable (the Instruction constructor carries no {what}; only 0 is accepted): {c}" line)
+
+/-- Rewrite one source statement into the list of table-level instructions
+it stands for. Anything that is not an idiom is returned unchanged. The
+result depends only on the text (never on label addresses), so pass 1 can
+use it to size the statement.
+
+Compare-and-branch idioms always use the general two-instruction form
+`slt/sltu $at, …` + `bne/beq $at, $0, target` (GNU as's and MARS's general
+expansion; GNU as's shorter special cases for a literal `$0` operand are
+not replicated -- the result is semantically identical). `abs` is GNU as's
+`bgez rs, 1f ; move rd, rs ; sub rd, $0, rs ; 1:` (the `move` sits in the
+`bgez` delay slot; `nop` instead when `rd = rs`). -/
+private def expandIdiom (name : String) (ops : List String) (line : Nat) :
+    Except AsmError (List (String × List String)) := do
+  let cmpBranch (setOp brOp : String) (swap : Bool) : Except AsmError (List (String × List String)) :=
+    match ops with
+    | [rs, rt, l] =>
+      pure [(setOp, if swap then ["$at", rt, rs] else ["$at", rs, rt]), (brOp, ["$at", "$0", l])]
+    | _ => throw (.badOperand s!"{name} expects 'rs, rt, target'" line)
+  match name with
+  | "b" =>
+    match ops with
+    | [l] => pure [("beq", ["$0", "$0", l])]
+    | _ => throw (.badOperand "b expects a single target operand" line)
+  | "bal" =>
+    match ops with
+    | [l] => pure [("bgezal", ["$0", l])]
+    | _ => throw (.badOperand "bal expects a single target operand" line)
+  | "beqz" =>
+    match ops with
+    | [rs, l] => pure [("beq", [rs, "$0", l])]
+    | _ => throw (.badOperand "beqz expects 'rs, target'" line)
+  | "bnez" =>
+    match ops with
+    | [rs, l] => pure [("bne", [rs, "$0", l])]
+    | _ => throw (.badOperand "bnez expects 'rs, target'" line)
+  | "neg" =>
+    match ops with
+    | [rd, rs] => pure [("sub", [rd, "$0", rs])]
+    | [rd] => pure [("sub", [rd, "$0", rd])]
+    | _ => throw (.badOperand "neg expects 'rd, rs'" line)
+  | "negu" =>
+    match ops with
+    | [rd, rs] => pure [("subu", [rd, "$0", rs])]
+    | [rd] => pure [("subu", [rd, "$0", rd])]
+    | _ => throw (.badOperand "negu expects 'rd, rs'" line)
+  | "not" =>
+    match ops with
+    | [rd, rs] => pure [("nor", [rd, rs, "$0"])]
+    | [rd] => pure [("nor", [rd, rd, "$0"])]
+    | _ => throw (.badOperand "not expects 'rd, rs'" line)
+  | "abs" =>
+    let build (rdT rsT : String) : Except AsmError (List (String × List String)) := do
+      let rd ← parseRegister rdT line
+      let rs ← parseRegister rsT line
+      pure [("bgez", [rsT, "2"]),
+            (if rd == rs then ("nop", []) else ("move", [rdT, rsT])),
+            ("sub", [rdT, "$0", rsT])]
+    match ops with
+    | [rd, rs] => build rd rs
+    | [rd] => build rd rd
+    | _ => throw (.badOperand "abs expects 'rd, rs'" line)
+  | "blt" => cmpBranch "slt" "bne" false
+  | "bge" => cmpBranch "slt" "beq" false
+  | "bgt" => cmpBranch "slt" "bne" true
+  | "ble" => cmpBranch "slt" "beq" true
+  | "bltu" => cmpBranch "sltu" "bne" false
+  | "bgeu" => cmpBranch "sltu" "beq" false
+  | "bgtu" => cmpBranch "sltu" "bne" true
+  | "bleu" => cmpBranch "sltu" "beq" true
+  | "ssnop" =>
+    match ops with
+    | [] => pure [("sll", ["$0", "$0", "1"])]
+    | _ => throw (.badOperand "ssnop takes no operands" line)
+  | "ehb" =>
+    match ops with
+    | [] => pure [("sll", ["$0", "$0", "3"])]
+    | _ => throw (.badOperand "ehb takes no operands" line)
+  | "break" =>
+    match ops with
+    | [c] => do checkZeroCode "break" "code" 1023 c line; pure [("break", [])]
+    | _ => pure [(name, ops)]
+  | "syscall" =>
+    match ops with
+    | [c] => do checkZeroCode "syscall" "code" 1048575 c line; pure [("syscall", [])]
+    | _ => pure [(name, ops)]
+  | "sync" =>
+    match ops with
+    | [c] => do checkZeroCode "sync" "stype" 31 c line; pure [("sync", [])]
+    | _ => pure [(name, ops)]
+  | _ =>
+    if trapRegMnemonics.contains name then
+      match ops with
+      | [rs, rt, c] => do checkZeroCode name "code" 1023 c line; pure [(name, [rs, rt])]
+      | _ => pure [(name, ops)]
+    else pure [(name, ops)]
 
 -- ====================================================================
 -- Pass 1: layout (addresses + labels), pass-1 word/byte counts only
 -- ====================================================================
 
+/-- The four assembly segments. Each has its own location counter; a
+segment directive without an operand resumes where that segment left off. -/
+private inductive Seg
+  | text | data | ktext | kdata
+
+private def Seg.isText : Seg → Bool
+  | .text => true
+  | .ktext => true
+  | _ => false
+
 /-- A line with real content (label-only lines are folded into the label
-table and otherwise dropped). -/
+table and otherwise dropped). `size` is the number of bytes the item
+occupies (used for overlap detection). -/
 private structure RawItem where
   lineNo : Nat
   addr : W32
+  size : Nat
   mnemonic : String
   operands : List String
 
+/-- Layout state. Location counters are `Nat`s so that running past
+`2^32` is detected instead of wrapping. `pending` holds labels seen but
+not yet bound: a label binds to the address of the *next item after
+alignment* (B2), not to the raw location counter at the label. -/
 private structure LState where
-  inText : Bool
-  textAddr : W32
-  dataAddr : W32
+  seg : Seg
+  textAddr : Nat
+  dataAddr : Nat
+  ktextAddr : Nat
+  kdataAddr : Nat
+  autoAlign : Bool
+  pending : List String
   labels : Std.HashMap String W32
   items : Array RawItem
 
-private def LState.curAddr (s : LState) : W32 := if s.inText then s.textAddr else s.dataAddr
-private def LState.setAddr (s : LState) (a : W32) : LState :=
-  if s.inText then { s with textAddr := a } else { s with dataAddr := a }
+private def LState.curAddr (s : LState) : Nat :=
+  match s.seg with
+  | .text => s.textAddr
+  | .data => s.dataAddr
+  | .ktext => s.ktextAddr
+  | .kdata => s.kdataAddr
 
-/-- Number of bytes a non-text-segment directive's data occupies, and any
-required alignment (applied to the segment pointer before recording the
-item's address). Does not include `.text`/`.data` (segment switches, handled
-separately) or real/pseudo instructions (handled by `wordsForMnemonic`). -/
+private def LState.setAddr (s : LState) (a : Nat) : LState :=
+  match s.seg with
+  | .text => { s with textAddr := a }
+  | .data => { s with dataAddr := a }
+  | .ktext => { s with ktextAddr := a }
+  | .kdata => { s with kdataAddr := a }
+
+/-- Bind every pending label to `addr`. -/
+private def LState.bindPending (s : LState) (addr : Nat) (line : Nat) : Except AsmError LState :=
+  if s.pending.isEmpty then pure s
+  else if addr ≥ 4294967296 then
+    throw (.badDirective "label address is beyond the 32-bit address space" line)
+  else
+    pure { s with
+      labels := s.pending.foldl (fun m l => m.insert l (natToW32 addr)) s.labels
+      pending := [] }
+
+private def stringDirectives : List String := [".ascii", ".asciiz", ".asciz", ".string"]
+
+/-- Alignment and byte count of a data directive (the alignment is applied
+to the location counter before the item -- and before binding its labels --
+unless `.align 0` switched automatic alignment off). -/
 private def directiveLayout (mnemonic : String) (operands : List String) (lineNo : Nat) :
-    Except AsmError (Nat × Nat) := -- (alignment, byteCount)
+    Except AsmError (Nat × Nat) := do -- (alignment, byteCount)
+  if operands.isEmpty then
+    throw (.badOperand s!"{mnemonic} needs at least one operand" lineNo)
   match mnemonic with
   | ".word" => pure (4, 4 * operands.length)
   | ".half" => pure (2, 2 * operands.length)
   | ".byte" => pure (1, operands.length)
-  | ".asciiz" =>
-    match operands with
-    | [s] => pure (1, s.length + 1)
-    | _ => throw (.badOperand s!".asciiz expects exactly one string operand" lineNo)
+  | ".float" => pure (4, 4 * operands.length)
+  | ".double" => pure (8, 8 * operands.length)
   | ".space" =>
     match operands with
     | [tok] => do
@@ -677,77 +1141,119 @@ private def directiveLayout (mnemonic : String) (operands : List String) (lineNo
         if n < 0 then throw (.badImmediate s!".space requires a non-negative count" lineNo)
         pure (1, n.toNat)
     | _ => throw (.badOperand s!".space expects exactly one operand" lineNo)
-  | _ => throw (.badDirective s!"unknown directive '{mnemonic}'" lineNo)
+  | _ =>
+    if stringDirectives.contains mnemonic then do
+      let nul := if mnemonic == ".ascii" then 0 else 1
+      let mut total := 0
+      for tok in operands do
+        let bytes ← parseStringTok tok lineNo
+        total := total + bytes.length + nul
+      pure (1, total)
+    else throw (.badDirective s!"unknown directive '{mnemonic}'" lineNo)
 
-/-- Word count (×4 = byte count) for a real or pseudo instruction mnemonic,
-without needing label resolution (see module docstring: `li`'s numeric
-literal determines its size directly; `la`'s label-address form is always
-the general 2-word case since every label address exceeds 16 bits). -/
-private def wordsForMnemonic (mnemonic : String) (operands : List String) (lineNo : Nat) :
+/-- Number of 32-bit words one table-level instruction emits, without
+needing label resolution: `li`'s numeric literal determines its size
+directly; `la` is always the two-word `lui`/`ori` form. -/
+private def wordsForSimple (mnemonic : String) (operands : List String) (lineNo : Nat) :
     Except AsmError Nat :=
   match mnemonic with
   | "li" =>
     match operands with
     | [_, valTok] => do
         let v ← parseImmediate valTok lineNo
+        checkRange "li value" (-2147483648) 4294967295 v lineNo
         pure (liWordCount v)
     | _ => throw (.badOperand s!"li expects 'li $reg, imm'" lineNo)
   | "la" =>
     match operands with
-    | [_, lbl] =>
-      if looksNumeric lbl then
-        throw (.badOperand s!"la requires a label operand (use li for numeric constants): '{lbl}'" lineNo)
-      else pure 2
+    | [_, lbl] => do
+        let (sym, _) ← parseExpr lbl lineNo
+        if sym.isNone then
+          throw (.badOperand s!"la requires a label operand (use li for numeric constants): '{lbl}'" lineNo)
+        pure 2
     | _ => throw (.badOperand s!"la expects 'la $reg, label'" lineNo)
-  | "move" =>
-    match operands with
-    | [_, _] => pure 1
-    | _ => throw (.badOperand s!"move expects 'move $dst, $src'" lineNo)
-  | "nop" =>
-    match operands with
-    | [] => pure 1
-    | _ => throw (.badOperand s!"nop takes no operands" lineNo)
-  | "syscall" =>
-    match operands with
-    | [] => pure 1
-    | _ => throw (.badOperand s!"syscall takes no operands" lineNo)
-  | "break" =>
-    match operands with
-    | [] => pure 1
-    | _ => throw (.badOperand s!"break takes no operands" lineNo)
-  | "sync" =>
-    match operands with
-    | [] => pure 1
-    | _ => throw (.badOperand s!"sync takes no operands" lineNo)
   | _ => pure 1
 
+/-- Place an item of `bytes` bytes at the current location rounded up to
+`align`, binding the pending labels to that aligned address. -/
+private def LState.place (s : LState) (pl : ParsedLine) (m : String) (align bytes : Nat) :
+    Except AsmError LState := do
+  let aligned := alignUpNat s.curAddr align
+  if aligned + bytes > 4294967296 then
+    throw (.badDirective s!"'{m}' runs past the end of the 32-bit address space" pl.lineNo)
+  let s ← s.bindPending aligned pl.lineNo
+  let item : RawItem :=
+    { lineNo := pl.lineNo, addr := natToW32 aligned, size := bytes, mnemonic := m, operands := pl.operands }
+  pure { (s.setAddr (aligned + bytes)) with items := s.items.push item }
+
 private def layoutLine (s : LState) (pl : ParsedLine) : Except AsmError LState := do
-  let s ←
-    match pl.label with
-    | none => pure s
-    | some lbl =>
-      if s.labels.contains lbl then
-        throw (.duplicateLabel s!"label '{lbl}' already defined" pl.lineNo)
-      else
-        pure { s with labels := s.labels.insert lbl s.curAddr }
+  let mut st := s
+  for lbl in pl.labels do
+    if st.labels.contains lbl || st.pending.contains lbl then
+      throw (.duplicateLabel s!"label '{lbl}' already defined" pl.lineNo)
+    st := { st with pending := lbl :: st.pending }
+  let s := st
   match pl.mnemonic with
   | none => pure s
-  | some ".text" => pure { s with inText := true }
-  | some ".data" => pure { s with inText := false }
   | some m =>
-    if directiveSet.contains m then do
+    let segOf : Option Seg :=
+      match m with
+      | ".text" => some .text
+      | ".data" => some .data
+      | ".ktext" => some .ktext
+      | ".kdata" => some .kdata
+      | _ => none
+    match segOf with
+    | some seg =>
+      -- A label still pending at a segment switch names the end of the
+      -- segment being left.
+      let s ← s.bindPending s.curAddr pl.lineNo
+      let s := { s with seg := seg, autoAlign := true }
+      match pl.operands with
+      | [] => pure s
+      | [tok] => do
+          let a ← parseImmediate tok pl.lineNo
+          checkRange s!"{m} address" 0 4294967295 a pl.lineNo
+          pure (s.setAddr a.toNat)
+      | _ => throw (.badOperand s!"{m} takes at most one address operand" pl.lineNo)
+    | none =>
+    if m == ".globl" || m == ".global" || m == ".extern" then
+      -- Accepted for source compatibility; this single-file assembler has
+      -- no symbol visibility, so they are no-ops (labels stay pending).
+      if pl.operands.isEmpty then throw (.badOperand s!"{m} expects a symbol name" pl.lineNo)
+      else pure s
+    else if m == ".align" then
+      match pl.operands with
+      | [tok] => do
+          let n ← parseImmediate tok pl.lineNo
+          checkRange ".align exponent" 0 16 n pl.lineNo
+          if n == 0 then
+            -- MARS/GNU as: `.align 0` turns off the automatic alignment of
+            -- `.half`/`.word`/`.float`/`.double` until the next segment
+            -- directive. Instructions are always word-aligned regardless.
+            pure { s with autoAlign := false }
+          else
+            let aligned := alignUpNat s.curAddr (2 ^ n.toNat)
+            if aligned > 4294967296 then
+              throw (.badDirective ".align runs past the end of the 32-bit address space" pl.lineNo)
+            let s ← s.bindPending aligned pl.lineNo
+            pure (s.setAddr aligned)
+      | _ => throw (.badOperand ".align expects exactly one operand" pl.lineNo)
+    else if directiveSet.contains m then do
       let (align, bytes) ← directiveLayout m pl.operands pl.lineNo
-      let aligned := alignUp s.curAddr align
-      let s := s.setAddr aligned
-      let item : RawItem := { lineNo := pl.lineNo, addr := aligned, mnemonic := m, operands := pl.operands }
-      let s := s.setAddr (aligned + natToW32 bytes)
-      pure { s with items := s.items.push item }
+      s.place pl m (if s.autoAlign then align else 1) bytes
     else if isKnownMnemonic m then do
-      let n ← wordsForMnemonic m pl.operands pl.lineNo
-      let addr := s.curAddr
-      let item : RawItem := { lineNo := pl.lineNo, addr, mnemonic := m, operands := pl.operands }
-      let s := s.setAddr (addr + natToW32 (4 * n))
-      pure { s with items := s.items.push item }
+      if !s.seg.isText then
+        throw (.badDirective s!"instruction '{m}' in a data segment (.data/.kdata)" pl.lineNo)
+      let simple ← expandIdiom m pl.operands pl.lineNo
+      let mut n := 0
+      for (sm, sops) in simple do
+        n := n + (← wordsForSimple sm sops pl.lineNo)
+      -- Instructions are always word-aligned (data directives are allowed
+      -- in `.text`, so the location counter may be unaligned here).
+      s.place pl m 4 (4 * n)
+    else if m.startsWith "." then
+      throw (.badDirective s!"unknown directive '{m}'" pl.lineNo)
     else
       throw (.unknownMnemonic s!"unknown mnemonic '{m}'" pl.lineNo)
 
@@ -755,14 +1261,22 @@ private def layoutLine (s : LState) (pl : ParsedLine) : Except AsmError LState :
 -- Pass 2: encode (labels now fully resolved)
 -- ====================================================================
 
-/-- Resolve a branch/jump target token: a numeric literal is used directly
-(as a word-granular value, i.e. already the field to encode); a label is
-looked up in the label table. -/
 private def resolveLabel (labels : Std.HashMap String W32) (tok : String) (lineNo : Nat) :
     Except AsmError W32 :=
   match labels.get? tok with
   | some addr => pure addr
   | none => throw (.undefinedLabel s!"undefined label '{tok}'" lineNo)
+
+/-- Evaluate a `label`, `label±const` or pure constant operand to an exact
+(unwrapped) integer. -/
+private def evalExpr (labels : Std.HashMap String W32) (tok : String) (lineNo : Nat) :
+    Except AsmError Int := do
+  let (sym, k) ← parseExpr tok lineNo
+  match sym with
+  | none => pure k
+  | some l => do
+      let a ← resolveLabel labels l lineNo
+      pure ((a.toNat : Int) + k)
 
 private def rtWord (rs rt rd shamt funct : Nat) : W32 :=
   mkRT (natToW32 rs) (natToW32 rt) (natToW32 rd) (natToW32 shamt) (natToW32 funct)
@@ -791,18 +1305,21 @@ convention as `cop1RtWord`, but opcode 0x10 (COP0). -/
 private def cop0RtWord (fmt rt rd shamt funct : Nat) : W32 :=
   (natToW32 0x10 <<< 26) ||| rtWord fmt rt rd shamt funct
 
-/-- Encode an `li $rt, v` expansion per `PseudoOps.txt` (see `liWordCount`). -/
+/-- The general two-word `lui $at, hi16 ; ori rt, $at, lo16` load of a
+32-bit value (used for large `li` and for every `la`). -/
+private def encodeLuiOri (rt : Nat) (w : W32) : List W32 :=
+  [itWord 0x0f 0 atReg (w >>> 16),                 -- lui $at, hi16
+   itWord 0x0d atReg rt (w &&& 0xffff#32)]         -- ori rt, $at, lo16
+
+/-- Encode an `li $rt, v` expansion per `PseudoOps.txt` (see `liWordCount`).
+`v` must already be range-checked to `-2^31 .. 2^32-1`. -/
 private def encodeLi (rt : Nat) (v : Int) : List W32 :=
   if (-32768 : Int) ≤ v ∧ v ≤ -1 then
-    [itWord 0x09 zeroReg rt (ofInt32 v)]           -- addiu rt, $zero, v
+    [itWord 0x09 zeroReg rt (ofInt32 v &&& 0xffff#32)]   -- addiu rt, $zero, v
   else if (0 : Int) ≤ v ∧ v ≤ 65535 then
     [itWord 0x0d zeroReg rt (ofInt32 v)]           -- ori rt, $zero, v
   else
-    let w := ofInt32 v
-    let hi16 := w >>> 16
-    let lo16 := w &&& 0xffff#32
-    [itWord 0x0f 0 atReg hi16,                     -- lui $at, hi16
-     itWord 0x0d atReg rt lo16]                    -- ori rt, $at, lo16
+    encodeLuiOri rt (ofInt32 v)
 
 private def encodeRForm (name : String) (funct : Nat) (form : RForm) (operands : List String)
     (lineNo : Nat) : Except AsmError W32 :=
@@ -846,6 +1363,10 @@ private def encodeRForm (name : String) (funct : Nat) (form : RForm) (operands :
         pure (rtWord 0 0 rd 0 funct)
     | _ => throw (.badOperand s!"{name} expects 'rd'" lineNo)
 
+/-- 16-bit immediate field of an in-range value (two's complement for
+negatives). -/
+private def imm16 (v : Int) : W32 := ofInt32 v &&& 0xffff#32
+
 private def encodeIForm (name : String) (opcode : Nat) (form : IForm) (operands : List String)
     (lineNo : Nat) : Except AsmError W32 :=
   match form with
@@ -855,58 +1376,84 @@ private def encodeIForm (name : String) (opcode : Nat) (form : IForm) (operands 
         let rt ← parseRegister rtT lineNo
         let rs ← parseRegister rsT lineNo
         let imm ← parseImmediate immT lineNo
-        pure (itWord opcode rs rt (ofInt32 imm))
+        -- andi/ori/xori (0x0c/0x0d/0x0e) zero-extend; addi/addiu/slti/sltiu
+        -- sign-extend. Out-of-range values are rejected, never truncated
+        -- or macro-expanded.
+        if opcode == 0x0c || opcode == 0x0d || opcode == 0x0e then
+          checkRange s!"{name} immediate" 0 65535 imm lineNo
+        else
+          checkRange s!"{name} immediate" (-32768) 32767 imm lineNo
+        pure (itWord opcode rs rt (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects 'rt, rs, imm'" lineNo)
   | .lui =>
     match operands with
     | [rtT, immT] => do
         let rt ← parseRegister rtT lineNo
         let imm ← parseImmediate immT lineNo
-        pure (itWord opcode 0 rt (ofInt32 imm))
+        checkRange s!"{name} immediate" 0 65535 imm lineNo
+        pure (itWord opcode 0 rt (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects 'rt, imm'" lineNo)
   | .mem =>
     match operands with
     | [rtT, memT] => do
         let rt ← parseRegister rtT lineNo
         let (imm, rs) ← parseMemOperand memT lineNo
-        pure (itWord opcode rs rt (ofInt32 imm))
+        pure (itWord opcode rs rt (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects 'rt, offset(rs)'" lineNo)
   | .trapImm rtField =>
     match operands with
     | [rsT, immT] => do
         let rs ← parseRegister rsT lineNo
         let imm ← parseImmediate immT lineNo
-        pure (itWord opcode rs rtField (ofInt32 imm))
+        checkRange s!"{name} immediate" (-32768) 32767 imm lineNo
+        pure (itWord opcode rs rtField (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects 'rs, imm'" lineNo)
   | .memNoRt rtField =>
     match operands with
     | [memT] => do
         let (imm, rs) ← parseMemOperand memT lineNo
-        pure (itWord opcode rs rtField (ofInt32 imm))
+        pure (itWord opcode rs rtField (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects 'offset(rs)'" lineNo)
 
+/-- `j`/`jal`: the operand is an absolute address (numeric, `label`, or
+`label±const`). It must be word-aligned and lie in the same 256MB region as
+the delay slot (`pc + 4`), since only the low 28 bits are encoded. -/
 private def encodeJForm (labels : Std.HashMap String W32) (opcode : Nat) (operands : List String)
-    (lineNo : Nat) : Except AsmError W32 :=
+    (instrAddr : W32) (lineNo : Nat) : Except AsmError W32 :=
   match operands with
   | [tgt] => do
-      let addr ←
-        if looksNumeric tgt then do
-          let v ← parseImmediate tgt lineNo
-          if v < 0 then throw (.badImmediate s!"jump target must be non-negative" lineNo)
-          pure (natToW32 v.toNat)
-        else resolveLabel labels tgt lineNo
-      if addr.toNat % 4 ≠ 0 then throw (.badOperand s!"jump target must be word-aligned" lineNo)
-      pure (jWord opcode (addr.toNat / 4))
+      let target ← evalExpr labels tgt lineNo
+      if target < 0 ∨ target ≥ 4294967296 then
+        throw (.badImmediate s!"jump target outside the 32-bit address space: {target}" lineNo)
+      let t := target.toNat
+      if t % 4 ≠ 0 then throw (.badOperand s!"jump target must be word-aligned: '{tgt}'" lineNo)
+      let slot := (instrAddr.toNat + 4) % 4294967296
+      if t / 268435456 ≠ slot / 268435456 then
+        throw (.badOperand
+          s!"jump target '{tgt}' is outside the 256MB region of the delay slot (not encodable in j/jal)" lineNo)
+      pure (jWord opcode ((t % 268435456) / 4))
   | _ => throw (.badOperand s!"jump expects a single target operand" lineNo)
 
+/-- Branch offset field (in words, relative to the delay slot). A purely
+numeric operand is the offset itself (MARS convention, unchanged); a
+`label`/`label±const` operand is an address, which must be a whole number
+of words away from `pc + 4` and within the signed 16-bit word range. -/
 private def branchOffset (labels : Std.HashMap String W32) (tgt : String) (instrAddr : W32)
-    (lineNo : Nat) : Except AsmError Int :=
-  if looksNumeric tgt then
-    parseImmediate tgt lineNo
-  else do
-    let target ← resolveLabel labels tgt lineNo
-    let nextPc := instrAddr.toNat + 4
-    pure (((target.toNat : Int) - (nextPc : Int)) / 4)
+    (lineNo : Nat) : Except AsmError Int := do
+  let (sym, k) ← parseExpr tgt lineNo
+  match sym with
+  | none => do
+      checkRange "branch offset" (-32768) 32767 k lineNo
+      pure k
+  | some l => do
+      let base ← resolveLabel labels l lineNo
+      let diff : Int := (base.toNat : Int) + k - ((instrAddr.toNat : Int) + 4)
+      if diff % 4 ≠ 0 then
+        throw (.badOperand s!"branch target '{tgt}' is not word-aligned relative to the branch" lineNo)
+      let w := diff / 4
+      if w < -32768 ∨ w > 32767 then
+        throw (.badOperand s!"branch target '{tgt}' out of range ({w} words; limit -32768..32767)" lineNo)
+      pure w
 
 private def encodeBForm (labels : Std.HashMap String W32) (name : String) (opcode : Nat)
     (form : BForm) (operands : List String) (instrAddr : W32) (lineNo : Nat) :
@@ -918,21 +1465,21 @@ private def encodeBForm (labels : Std.HashMap String W32) (name : String) (opcod
         let rs ← parseRegister rsT lineNo
         let rt ← parseRegister rtT lineNo
         let off ← branchOffset labels tgt instrAddr lineNo
-        pure (itWord opcode rs rt (ofInt32 off))
+        pure (itWord opcode rs rt (imm16 off))
     | _ => throw (.badOperand s!"{name} expects 'rs, rt, target'" lineNo)
   | .one =>
     match operands with
     | [rsT, tgt] => do
         let rs ← parseRegister rsT lineNo
         let off ← branchOffset labels tgt instrAddr lineNo
-        pure (itWord opcode rs 0 (ofInt32 off))
+        pure (itWord opcode rs 0 (imm16 off))
     | _ => throw (.badOperand s!"{name} expects 'rs, target'" lineNo)
   | .regimm rtField =>
     match operands with
     | [rsT, tgt] => do
         let rs ← parseRegister rsT lineNo
         let off ← branchOffset labels tgt instrAddr lineNo
-        pure (itWord opcode rs rtField (ofInt32 off))
+        pure (itWord opcode rs rtField (imm16 off))
     | _ => throw (.badOperand s!"{name} expects 'rs, target'" lineNo)
 
 /-- Encode a coprocessor-1 (FPU) mnemonic's operand list into its word, per
@@ -944,7 +1491,14 @@ private def encodeCop1Form (labels : Std.HashMap String W32) (name : String) (fo
     match operands with
     | [rtT, fsT] => do
         let rt ← parseRegister rtT lineNo
-        let fs ← parseFpRegister fsT lineNo
+        -- `cfc1`/`ctc1` (fmt 2/6) address an FPU *control* register, written
+        -- `$31` in standard syntax; the `$f31` spelling stays accepted.
+        let fs ←
+          if fmt == 2 || fmt == 6 then
+            match parseFpRegister fsT lineNo with
+            | .ok n => pure n
+            | .error _ => parseCopRegister "FPU control" fsT lineNo
+          else parseFpRegister fsT lineNo
         pure (cop1RtWord fmt rt fs 0 0)
     | _ => throw (.badOperand s!"{name} expects '$rt, $fs'" lineNo)
   | .mem opcode =>
@@ -952,7 +1506,7 @@ private def encodeCop1Form (labels : Std.HashMap String W32) (name : String) (fo
     | [ftT, memT] => do
         let ft ← parseFpRegister ftT lineNo
         let (imm, rs) ← parseMemOperand memT lineNo
-        pure (itWord opcode rs ft (ofInt32 imm))
+        pure (itWord opcode rs ft (imm16 imm))
     | _ => throw (.badOperand s!"{name} expects '$ft, offset($rs)'" lineNo)
   | .arith3 fmt funct =>
     match operands with
@@ -980,10 +1534,31 @@ private def encodeCop1Form (labels : Std.HashMap String W32) (name : String) (fo
     match operands with
     | [tgt] => do
         let off ← branchOffset labels tgt instrAddr lineNo
-        pure (itWord 0x11 0x08 tf (ofInt32 off))
+        pure (itWord 0x11 0x08 tf (imm16 off))
     | _ => throw (.badOperand s!"{name} expects a single target operand" lineNo)
 
-/-- Encode one real/pseudo instruction item into its emitted word(s). -/
+/-- `mfc0`/`mtc0` operands: `$rt, rd` or `$rt, rd, sel`, where `rd` is
+`$N` or a bare `N` and `sel` (if present) must be 0 -- the `Instruction`
+constructors carry no `sel` field. -/
+private def parseCp0Operands (name : String) (operands : List String) (lineNo : Nat) :
+    Except AsmError (Nat × Nat) := do
+  let two (rtT rdT : String) : Except AsmError (Nat × Nat) := do
+    let rt ← parseRegister rtT lineNo
+    let rd ← parseCopRegister "CP0" rdT lineNo
+    pure (rt, rd)
+  match operands with
+  | [rtT, rdT] => two rtT rdT
+  | [rtT, rdT, selT] => do
+      let r ← two rtT rdT
+      let sel ← parseImmediate selT lineNo
+      checkRange s!"{name} sel" 0 7 sel lineNo
+      if sel ≠ 0 then
+        throw (.badOperand s!"{name}: sel field not representable (only sel 0 is modelled): {sel}" lineNo)
+      pure r
+  | _ => throw (.badOperand s!"{name} expects '$rt, $rd[, sel]'" lineNo)
+
+/-- Encode one table-level real/pseudo instruction (after `expandIdiom`)
+into its emitted word(s). -/
 private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem) :
     Except AsmError (List W32) := do
   let name := item.mnemonic
@@ -994,7 +1569,7 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
   | some (_, opcode, form) => return [← encodeIForm name opcode form item.operands item.lineNo]
   | none =>
   match jTable.find? (·.1 == name) with
-  | some (_, opcode) => return [← encodeJForm labels opcode item.operands item.lineNo]
+  | some (_, opcode) => return [← encodeJForm labels opcode item.operands item.addr item.lineNo]
   | none =>
   match bTable.find? (·.1 == name) with
   | some (_, opcode, form) => return [← encodeBForm labels name opcode form item.operands item.addr item.lineNo]
@@ -1008,14 +1583,18 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
     | [rtT, valT] => do
         let rt ← parseRegister rtT item.lineNo
         let v ← parseImmediate valT item.lineNo
+        checkRange "li value" (-2147483648) 4294967295 v item.lineNo
         pure (encodeLi rt v)
     | _ => throw (.badOperand s!"li expects 'li $reg, imm'" item.lineNo)
   | "la" =>
     match item.operands with
     | [rtT, lbl] => do
         let rt ← parseRegister rtT item.lineNo
-        let addr ← resolveLabel labels lbl item.lineNo
-        pure (encodeLi rt (addr.toNat : Int))
+        let addr ← evalExpr labels lbl item.lineNo
+        checkRange "la address" 0 4294967295 addr item.lineNo
+        -- Always the two-word form, whatever the address (pass 1 reserved
+        -- exactly two words).
+        pure (encodeLuiOri rt (ofInt32 addr))
     | _ => throw (.badOperand s!"la expects 'la $reg, label'" item.lineNo)
   | "move" =>
     match item.operands with
@@ -1024,11 +1603,14 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
         let rs ← parseRegister rsT item.lineNo
         pure [rtWord 0 rs rd 0 0x21]              -- addu rd, $zero, rs
     | _ => throw (.badOperand s!"move expects 'move $dst, $src'" item.lineNo)
-  | "nop" => pure [0#32]
+  | "nop" =>
+    match item.operands with
+    | [] => pure [0#32]
+    | _ => throw (.badOperand s!"nop takes no operands" item.lineNo)
   | "syscall" =>
     match item.operands with
     | [] => pure [0x0000000C#32]              -- all fields zero except funct = 0x0c
-    | _ => throw (.badOperand s!"syscall takes no operands" item.lineNo)
+    | _ => throw (.badOperand s!"syscall expects at most one (code) operand" item.lineNo)
   -- SPECIAL2 bit-count (MIPS32): `clo $rd, $rs` / `clz $rd, $rs`. The raw
   -- encoding's rt-position field duplicates rd (real hardware quirk, see
   -- `Instruction.lean`'s `.clo`/`.clz` docstrings).
@@ -1210,32 +1792,45 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
         let rs ← parseRegister rsT item.lineNo
         pure [rtWord rs 0 0 0 0x13]
     | _ => throw (.badOperand s!"mtlo expects 'rs'" item.lineNo)
+  -- `jr.hb $rs` / `jalr.hb [$rd,] $rs` (MIPS32r2 hazard-barrier jumps):
+  -- `jr`/`jalr` with the hint bit (bit 10, i.e. `shamt` = 0x10) set.
+  -- `Instruction.decode` ignores `shamt` for funct 0x08/0x09, so these
+  -- words decode to (and execute as) plain `.jr`/`.jalr` -- exact in a
+  -- model with no pipeline hazards (see the `#guard`s in the test section).
+  | "jr.hb" =>
+    match item.operands with
+    | [rsT] => do
+        let rs ← parseRegister rsT item.lineNo
+        pure [rtWord rs 0 0 0x10 0x08]
+    | _ => throw (.badOperand s!"jr.hb expects 'rs'" item.lineNo)
+  | "jalr.hb" =>
+    match item.operands with
+    | [rdT, rsT] => do
+        let rd ← parseRegister rdT item.lineNo
+        let rs ← parseRegister rsT item.lineNo
+        pure [rtWord rs 0 rd 0x10 0x09]
+    | [rsT] => do
+        let rs ← parseRegister rsT item.lineNo
+        pure [rtWord rs 0 31 0x10 0x09]
+    | _ => throw (.badOperand s!"jalr.hb expects 'rd, rs' or 'rs'" item.lineNo)
   | "break" =>
     match item.operands with
     | [] => pure [0x0000000D#32]              -- all fields zero except funct = 0x0d
-    | _ => throw (.badOperand s!"break takes no operands" item.lineNo)
+    | _ => throw (.badOperand s!"break expects at most one (code) operand" item.lineNo)
   | "sync" =>
     match item.operands with
     | [] => pure [0x0000000F#32]              -- all fields zero except funct = 0x0f (stype = 0)
-    | _ => throw (.badOperand s!"sync takes no operands" item.lineNo)
+    | _ => throw (.badOperand s!"sync expects at most one (stype) operand" item.lineNo)
   -- Coprocessor-0 (CP0) register move / execution control (real MIPS32
-  -- ISA, docs/spec/MIPS-COVERAGE-GAPS.md \u00a73.10A; see `Instruction.lean`/
-  -- `Step.lean`). `rd` is a plain numeric CP0 register reference (0-31);
+  -- ISA, docs/spec/MIPS-COVERAGE-GAPS.md §3.10A; see `Instruction.lean`/
+  -- `Step.lean`). `rd` is a CP0 register number (`$12` or `12`, 0-31);
   -- only 12/13/14 (Status/Cause/EPC) are meaningful in this model.
-  | "mfc0" =>
-    match item.operands with
-    | [rtT, rdT] => do
-        let rt ← parseRegister rtT item.lineNo
-        let rd ← parseCp0Register rdT item.lineNo
-        pure [cop0RtWord 0x00 rt rd 0 0]
-    | _ => throw (.badOperand s!"mfc0 expects '$rt, rd'" item.lineNo)
-  | "mtc0" =>
-    match item.operands with
-    | [rtT, rdT] => do
-        let rt ← parseRegister rtT item.lineNo
-        let rd ← parseCp0Register rdT item.lineNo
-        pure [cop0RtWord 0x04 rt rd 0 0]
-    | _ => throw (.badOperand s!"mtc0 expects '$rt, rd'" item.lineNo)
+  | "mfc0" => do
+      let (rt, rd) ← parseCp0Operands name item.operands item.lineNo
+      pure [cop0RtWord 0x00 rt rd 0 0]
+  | "mtc0" => do
+      let (rt, rd) ← parseCp0Operands name item.operands item.lineNo
+      pure [cop0RtWord 0x04 rt rd 0 0]
   | "eret" =>
     match item.operands with
     | [] => pure [cop0RtWord 0x10 0 0 0 0x18]
@@ -1250,65 +1845,101 @@ private def applyItem (labels : Std.HashMap String W32) (prog : Program) (item :
     Except AsmError Program :=
   match item.mnemonic with
   | ".word" => do
-      let mut p := prog
-      let mut a := item.addr
+      let mut bytes : List Nat := []
       for tok in item.operands do
-        let v ←
-          if looksNumeric tok then parseImmediate tok item.lineNo
-          else do
-            let addr ← resolveLabel labels tok item.lineNo
-            pure ((addr.toNat : Int))
-        p := putWord p a (ofInt32 v)
-        a := a + 4#32
-      pure p
+        let v ← evalExpr labels tok item.lineNo
+        checkRange ".word value" (-2147483648) 4294967295 v item.lineNo
+        bytes := bytes ++ beBytes 4 (ofInt32 v).toNat
+      pure (putBytes prog item.addr bytes)
   | ".half" => do
-      let mut p := prog
-      let mut a := item.addr
+      let mut bytes : List Nat := []
       for tok in item.operands do
         let v ← parseImmediate tok item.lineNo
-        p := putHalf p a (ofInt32 v).toNat
-        a := a + 2#32
-      pure p
+        checkRange ".half value" (-32768) 65535 v item.lineNo
+        bytes := bytes ++ beBytes 2 (ofInt32 v).toNat
+      pure (putBytes prog item.addr bytes)
   | ".byte" => do
-      let mut p := prog
-      let mut a := item.addr
+      let mut bytes : List Nat := []
       for tok in item.operands do
         let v ← parseImmediate tok item.lineNo
-        p := putByte p a (ofInt32 v).toNat
-        a := a + 1#32
-      pure p
-  | ".asciiz" =>
-    match item.operands with
-    | [s] => pure (putString prog item.addr s)
-    | _ => throw (.badOperand s!".asciiz expects exactly one string operand" item.lineNo)
+        checkRange ".byte value" (-128) 255 v item.lineNo
+        bytes := bytes ++ beBytes 1 (ofInt32 v).toNat
+      pure (putBytes prog item.addr bytes)
+  | ".float" => do
+      let mut bytes : List Nat := []
+      for tok in item.operands do
+        bytes := bytes ++ beBytes 4 (← parseFloatLit 24 8 tok item.lineNo)
+      pure (putBytes prog item.addr bytes)
+  | ".double" => do
+      -- Big-endian doubleword: most-significant word at the lower address,
+      -- the layout `ldc1`/`sdc1` use (`Step.lean`).
+      let mut bytes : List Nat := []
+      for tok in item.operands do
+        bytes := bytes ++ beBytes 8 (← parseFloatLit 53 11 tok item.lineNo)
+      pure (putBytes prog item.addr bytes)
   | ".space" => pure prog  -- reserved bytes default to 0 (sparse map, unread = 0)
-  | _ => do
-      let words ← encodeInstruction labels item
+  | m =>
+    if stringDirectives.contains m then do
+      let mut bytes : List Nat := []
+      for tok in item.operands do
+        let b ← parseStringTok tok item.lineNo
+        bytes := bytes ++ b ++ (if m == ".ascii" then [] else [0])
+      pure (putBytes prog item.addr bytes)
+    else do
+      let simple ← expandIdiom m item.operands item.lineNo
       let mut p := prog
       let mut a := item.addr
-      for w in words do
-        p := putWord p a w
-        a := a + 4#32
+      for (sm, sops) in simple do
+        let words ← encodeInstruction labels
+          { lineNo := item.lineNo, addr := a, size := 0, mnemonic := sm, operands := sops }
+        for w in words do
+          p := putWord p a w
+          a := a + 4#32
+      if a.toNat ≠ (item.addr.toNat + item.size) % 4294967296 then
+        throw (.badOperand s!"internal error: '{m}' emitted a different size in pass 2 than pass 1 reserved" item.lineNo)
       pure p
+
+/-- Reject two items occupying the same bytes (possible once segment
+directives take explicit addresses) -- the later one would otherwise
+silently overwrite the earlier. -/
+private def checkOverlap (items : Array RawItem) : Except AsmError Unit := do
+  let spans := (items.filter (fun it => it.size > 0)).qsort (fun a b => a.addr.toNat < b.addr.toNat)
+  let mut prev : Option RawItem := none
+  for it in spans do
+    match prev with
+    | some p =>
+      if p.addr.toNat + p.size > it.addr.toNat then
+        let (first, second) := if p.lineNo ≤ it.lineNo then (p, it) else (it, p)
+        throw (.badDirective
+          s!"'{second.mnemonic}' overlaps the bytes emitted by '{first.mnemonic}' on line {first.lineNo}" second.lineNo)
+    | none => pure ()
+    prev := some it
+  pure ()
 
 -- ====================================================================
 -- Top level
 -- ====================================================================
 
-/-- Assemble v1 MIPS subset source text into a `Program` (PC → instruction
-word map covering both `.text` and `.data` contents). See module docstring
-for supported syntax and layout conventions. -/
+/-- Assemble MIPS32 source text into a `Program` (address → word map
+covering every segment's contents). See module docstring for supported
+syntax and layout conventions. -/
 def assemble (src : String) : AsmResult := do
   let rawLines := src.splitOn "\n"
   let numbered := rawLines.zipIdx.map (fun (l, i) => (i + 1, l))
   let initial : LState :=
-    { inText := true, textAddr := textBase, dataAddr := dataBase, labels := ∅, items := #[] }
-  let final ← numbered.foldlM
+    { seg := .text, textAddr := textBase.toNat, dataAddr := dataBase.toNat,
+      ktextAddr := ktextBase.toNat, kdataAddr := kdataBase.toNat,
+      autoAlign := true, pending := [], labels := ∅, items := #[] }
+  let laidOut ← numbered.foldlM
     (fun s (lineNo, line) => do
       let pl ← parseLine lineNo line
       layoutLine s pl)
     initial
+  -- Labels at the very end of the source name the final location counter.
+  let final ← laidOut.bindPending laidOut.curAddr rawLines.length
+  checkOverlap final.items
   final.items.foldlM (fun prog item => applyItem final.labels prog item) (∅ : Program)
+
 
 -- ====================================================================
 -- ## Tests
@@ -1952,7 +2583,7 @@ def cop0Prog : Program :=
 #guard decode (cop0Prog.getD (textBase + 28#32) 0) = some .wait
 -- operand errors: wrong operand count, and a non-numeric `rd` token
 -- (`mfc0`/`mtc0`'s second operand is a raw register number, not a `$`-named
--- register -- `parseCp0Register` has no label/register fallback).
+-- register -- `parseCopRegister` accepts only `$N`/`N`, not GPR aliases).
 #guard (assemble "mfc0 $t0\n").isOk = false
 #guard (assemble "mfc0 $t0, $t1\n").isOk = false
 #guard (assemble "mfc0 $t0, 32\n").isOk = false
@@ -2020,3 +2651,366 @@ def syncProg : Program :=
 #guard (assemble "add $t0, $t1\n").isOk = false
 
 #guard (assemble "foo: add $t0,$zero,$zero\nfoo: add $t1,$zero,$zero\n").isOk = false
+
+-- ====================================================================
+-- ## Audit-fix tests (B1-B9) and syntax additions
+-- ====================================================================
+-- Every expected word below was produced by this assembler and, wherever
+-- MARS 4.5 accepts the same source, cross-checked against
+-- `java -jar vendor/mars/Mars4_5.jar a dump .text HexText` (differences are
+-- noted inline).
+
+/-- Source text from lines. -/
+private def srcLines (ls : List String) : String := String.intercalate "\n" ls ++ "\n"
+
+/-- The `n` consecutive words at `addr` (absent words read as 0); `none`
+if assembly fails. -/
+private def asmWords (src : String) (addr : W32) (n : Nat) : Option (List W32) :=
+  match assemble src with
+  | .ok p => some ((List.range n).map (fun i => p.getD (addr + natToW32 (4 * i)) 0))
+  | .error _ => none
+
+/-- The contiguous run of words starting at `textBase`; `none` if assembly
+fails. -/
+private def asmText (src : String) : Option (List W32) :=
+  match assemble src with
+  | .ok p =>
+    some (((List.range p.size).map (fun i => p.get? (textBase + natToW32 (4 * i)))).takeWhile
+      Option.isSome |>.filterMap id)
+  | .error _ => none
+
+private def asmFails (src : String) : Bool := !(assemble src).isOk
+
+/-- Line number carried by the error (`none` if assembly succeeds). -/
+private def asmErrLine (src : String) : Option Nat :=
+  match assemble src with
+  | .ok _ => none
+  | .error (.unknownMnemonic _ l) | .error (.badRegister _ l) | .error (.undefinedLabel _ l)
+  | .error (.badImmediate _ l) | .error (.badDirective _ l) | .error (.badOperand _ l)
+  | .error (.duplicateLabel _ l) => some l
+
+-- --------------------------------------------------------------------
+-- B1: immediates are range-checked, never truncated
+-- --------------------------------------------------------------------
+#guard asmFails "addiu $a0,$t0,70000\n"
+#guard asmFails "addiu $a0,$t0,-32769\n"
+#guard asmFails "addi $a0,$t0,32768\n"
+#guard asmFails "slti $a0,$t0,0xffff\n"
+#guard asmFails "sltiu $a0,$t0,65535\n"
+#guard asmText "addiu $a0,$t0,32767\naddiu $a0,$t0,-32768\nsltiu $a0,$t0,-1\n"
+  = some [0x25047fff#32, 0x25048000#32, 0x2d04ffff#32]
+#guard asmFails "andi $a0,$t0,-1\n"
+#guard asmFails "ori $a0,$t0,65536\n"
+#guard asmFails "xori $a0,$t0,-1\n"
+#guard asmText "andi $a0,$t0,65535\nxori $a0,$t0,0xffff\nori $a0,$t0,0\n"
+  = some [0x3104ffff#32, 0x3904ffff#32, 0x35040000#32]
+#guard asmFails "lui $t0,0x12345\n"
+#guard asmFails "lui $t0,-1\n"
+#guard asmText "lui $t0,0xffff\n" = some [0x3c08ffff#32]
+#guard asmFails "lw $t0,32768($sp)\n"
+#guard asmFails "sw $t0,-32769($sp)\n"
+#guard asmFails "lwc1 $f2,32768($sp)\n"
+#guard asmFails "sdc1 $f2,-32769($sp)\n"
+#guard asmFails "synci 32768($t0)\n"
+#guard asmText "lw $t0,-32768($sp)\nlw $t0,32767($sp)\nldc1 $f2,-32768($sp)\n"
+  = some [0x8fa88000#32, 0x8fa87fff#32, 0xd7a28000#32]
+#guard asmFails "teqi $t0,40000\n"
+#guard asmFails "tltiu $t0,-32769\n"
+#guard asmText "teqi $t0,-5\n" = some [0x050cfffb#32]
+#guard asmFails "li $a0,0x100000001\n"
+#guard asmFails "li $a0,4294967296\n"
+#guard asmFails "li $a0,-2147483649\n"
+#guard asmText "li $a0,0xffffffff\nli $a0,-2147483648\n"
+  = some [0x3c01ffff#32, 0x3424ffff#32, 0x3c018000#32, 0x34240000#32]
+#guard asmFails ".byte 300\n"
+#guard asmFails ".byte -129\n"
+#guard asmFails ".half 65536\n"
+#guard asmFails ".half -32769\n"
+#guard asmFails ".word 0x100000000\n"
+#guard asmFails ".word -2147483649\n"
+#guard asmWords ".data\n.byte 255, -128\n.half 65535, -32768\n.word 0xffffffff, -2147483648\n" dataBase 4
+  = some [0xff80ffff#32, 0x80000000#32, 0xffffffff#32, 0x80000000#32]
+-- errors carry the line number of the offending statement
+#guard asmErrLine "nop\nnop\naddiu $a0,$t0,70000\n" = some 3
+#guard asmErrLine ".data\n.word 1\n.byte 300\n" = some 3
+
+-- --------------------------------------------------------------------
+-- B2: a label names the *aligned* address of the item that follows it
+-- --------------------------------------------------------------------
+def alignLabelSrc : String := srcLines
+  [".data", "b: .byte 1", "w: .word 77", "h: .half 5", ".text", "la $t0, w", "lw $a0, 0($t0)", "la $t1, h"]
+-- w = dataBase+4 (not +1): `la` loads 0x10010004, where the 77 is.
+#guard asmText alignLabelSrc
+  = some [0x3c011001#32, 0x34280004#32, 0x8d040000#32, 0x3c011001#32, 0x34290008#32]
+#guard asmWords alignLabelSrc dataBase 3 = some [0x01000000#32, 77#32, 0x00050000#32]
+-- label on its own line(s) before `.word` / `.half`; trailing label = end address
+#guard asmWords (srcLines [".data", ".byte 1", "w:", "x: .word w, x, e", ".byte 2", "h:", "", ".half 5", "e:"])
+    dataBase 4
+  = some [0x01000000#32, 0x10010004#32, 0x10010004#32, 0x10010014#32]
+#guard asmWords (srcLines [".data", ".byte 1", "w:", "x: .word w, x, e", ".byte 2", "h:", "", ".half 5", "e:"])
+    (dataBase + 16#32) 1
+  = some [0x02000005#32]    -- .byte 2, pad byte, .half 5 (h = +0x12, e = +0x14)
+-- a label pending at a segment switch names the end of the segment being left
+#guard asmWords (srcLines [".data", ".byte 1", "endd:", ".text", "nop", ".data", ".word endd"]) (dataBase + 4#32) 1
+  = some [0x10010001#32]
+-- instructions are word-aligned too, and their labels follow
+#guard asmText (srcLines [".byte 1", "L: nop", "j L"]) = some [0x01000000#32, 0#32, 0x08100001#32]
+
+-- --------------------------------------------------------------------
+-- B3: branch / jump targets are validated
+-- --------------------------------------------------------------------
+#guard asmFails "beq $0,$0,40000\n"
+#guard asmFails "beq $0,$0,-32769\n"
+#guard asmText "beq $0,$0,-32768\nbeq $0,$0,32767\n" = some [0x10008000#32, 0x10007fff#32]
+-- forward: +32767 words is the limit
+#guard asmWords (srcLines ["beq $0,$0,L", ".space 131068", "L: nop"]) textBase 1 = some [0x10007fff#32]
+#guard asmFails (srcLines ["beq $0,$0,L", ".space 131072", "L: nop"])
+-- backward: -32768 words is the limit
+#guard asmWords (srcLines ["L: nop", ".space 131064", "beq $0,$0,L"]) (textBase + 131068#32) 1 = some [0x10008000#32]
+#guard asmFails (srcLines ["L: nop", ".space 131068", "beq $0,$0,L"])
+#guard asmFails (srcLines ["L: nop", ".space 131068", "bc1t L"])
+-- data label / unaligned target
+#guard asmFails (srcLines [".data", "d: .word 1", ".text", "beq $0,$0,d"])
+#guard asmFails (srcLines ["beq $0,$0,L", "nop", ".byte 1", "L: .byte 2"])
+#guard asmFails (srcLines ["L: nop", "beq $0,$0,L+2"])
+-- j/jal: 256MB region of the delay slot, word alignment
+#guard asmFails "j 0x10000000\n"
+#guard asmFails "j 0x00400002\n"
+#guard asmFails "jal -4\n"
+#guard asmFails (srcLines [".data", "d: .word 1", ".text", "j d"])
+#guard asmText "j 0x0ffffffc\n" = some [0x0bffffff#32]
+-- the region is that of pc+4: a `j` in the last word of a region targets the next one
+#guard asmWords (srcLines [".text 0x0ffffffc", "j 0x10000000"]) 0x0ffffffc#32 1 = some [0x08000000#32]
+#guard asmFails (srcLines [".text 0x0ffffffc", "j 0x00400000"])
+
+-- --------------------------------------------------------------------
+-- B4: label splitting respects quotes; label names are validated
+-- --------------------------------------------------------------------
+#guard asmText (r#".asciiz "a: b""# ++ "\n") = some [0x613a2062#32, 0#32]
+#guard asmText (r#".asciiz "x#y:z"  # com: ment"# ++ "\n") = some [0x7823793a#32, 0x7a000000#32]
+#guard asmFails "addi $a0,$a0,5 :\n"
+#guard asmFails "1bad: nop\n"
+#guard asmFails "a b: nop\n"
+#guard asmFails ": nop\n"
+#guard asmFails ":\n"
+#guard asmText "a: b: .word 1\n.word a, b\n" = some [1#32, 0x00400000#32, 0x00400000#32]
+#guard asmText "x:nop\n_y.z$: j x\nj _y.z$\n" = some [0#32, 0x08100000#32, 0x08100001#32]
+#guard asmText "li $t0, ':'\nli $t0, '#'  # c\n" = some [0x3408003a#32, 0x34080023#32]
+
+-- --------------------------------------------------------------------
+-- B5: string lists, trailing junk, escapes
+-- --------------------------------------------------------------------
+#guard asmText (r#".asciiz "ab", "cd""# ++ "\n") = some [0x61620063#32, 0x64000000#32]
+#guard asmFails (r#".asciiz "ab" junk"# ++ "\n")
+#guard asmFails (r#".asciiz "ab" "cd""# ++ "\n")
+#guard asmFails (r#".asciiz "abc"# ++ "\n")
+#guard asmFails ".asciiz\n"
+#guard asmFails ".asciiz 5\n"
+-- a \r b \b \f \' \x41 \101 \0 \" \\ \n \t NUL
+#guard asmText (r#".asciiz "a\rb\b\f\'\x41\101\0\"\\\n\t""# ++ "\n")
+  = some [0x610d6208#32, 0x0c274141#32, 0x00225c0a#32, 0x09000000#32]
+-- `\xHH` takes at most two hex digits; octal at most three
+#guard asmText (r#".ascii "\x41b\1010""# ++ "\n") = some [0x41624130#32]
+#guard asmFails (r#".asciiz "\q""# ++ "\n")
+#guard asmFails (r#".asciiz "\a""# ++ "\n")
+#guard asmFails (r#".asciiz "\x""# ++ "\n")
+#guard asmFails (r#".asciiz "\400""# ++ "\n")
+#guard asmFails (r#".asciiz "abc\"# ++ "\n")
+
+-- --------------------------------------------------------------------
+-- B6: numeric literals and register numbers
+-- --------------------------------------------------------------------
+-- leading 0 = octal (GNU as; MARS agrees: `li $t0, 010` loads 8)
+#guard asmText "li $t0, 010\nli $t0, 0b101\nli $t0, +5\nli $t0, -0x10\nli $t0, 0\nli $t0, 00\nli $t0, 0X1f\n"
+  = some [0x34080008#32, 0x34080005#32, 0x34080005#32, 0x2408fff0#32, 0x34080000#32, 0x34080000#32, 0x3408001f#32]
+#guard asmFails "li $t0, 08\n"
+#guard asmFails "li $t0, 1_000\n"
+#guard asmFails "li $t0, 0x\n"
+#guard asmFails "li $t0, 0b2\n"
+#guard asmFails "li $t0, 12a\n"
+#guard asmFails "add $1_0, $1, $1\n"
+#guard asmFails "add $08, $1, $1\n"
+#guard asmFails "add $32, $1, $1\n"
+#guard asmFails "add $0x1, $1, $1\n"
+#guard asmText "add $31, $1, $0\n" = some [0x0020f820#32]
+
+-- --------------------------------------------------------------------
+-- B7: segment address operands are honoured (and overlaps rejected)
+-- --------------------------------------------------------------------
+def segAddrSrc : String := srcLines
+  [".data 0x10000000", "x: .word 5", ".text 0x00400100", "la $t0, x", ".data", "y: .word y"]
+#guard asmWords segAddrSrc 0x10000000#32 2 = some [5#32, 0x10000004#32]
+#guard asmWords segAddrSrc 0x00400100#32 2 = some [0x3c011000#32, 0x34280000#32]
+#guard (match assemble segAddrSrc with | .ok p => p.size == 4 | .error _ => false)
+#guard asmFails (srcLines [".text 0x00400000", "nop", ".text 0x00400000", "nop"])
+#guard asmErrLine (srcLines [".data 0x00400000", ".word 1", ".text", "nop"]) = some 4
+#guard asmFails ".text 0x100000000\n"
+#guard asmFails ".data -4\n"
+#guard asmFails ".data 1, 2\n"
+#guard asmFails (srcLines [".text 0xfffffffc", "nop", "nop"])      -- runs past 2^32
+#guard asmFails (srcLines [".text 0xfffffffc", "nop", "e:"])       -- label at 2^32
+-- `la` is two words whatever the address (a low address must not shrink it)
+#guard asmText (srcLines ["la $t0, x", ".text 0x100", "x: nop"]) = some [0x3c010000#32, 0x34280100#32]
+
+-- --------------------------------------------------------------------
+-- B8: data in `.text` is allowed and never misaligns code; no code in `.data`
+-- --------------------------------------------------------------------
+#guard asmText (srcLines ["nop", ".byte 1", "L: nop", "j L"]) = some [0#32, 0x01000000#32, 0#32, 0x08100002#32]
+#guard asmFails ".data\nnop\n"
+#guard asmFails ".kdata\nadd $1,$1,$1\n"
+#guard asmFails ".data\nli $t0, 1\n"
+
+-- --------------------------------------------------------------------
+-- B9: empty operands
+-- --------------------------------------------------------------------
+#guard asmFails "add $t0,, $t1, $t2,\n"
+#guard asmFails "add $t0, $t1, $t2,\n"
+#guard asmFails "add ,$t0, $t1, $t2\n"
+#guard asmFails ".word 1,,2\n"
+#guard asmFails "nop ,\n"
+
+-- --------------------------------------------------------------------
+-- Syntax additions: registers, coprocessor register operands, codes
+-- --------------------------------------------------------------------
+#guard asmText "add $s8, $fp, $30\n" = some [0x03def020#32]
+#guard asmText "mfc0 $t0, $12\nmfc0 $t0, 12\nmtc0 $t0, $14, 0\n"
+  = some [encode (.mfc0 8#32 12#32), encode (.mfc0 8#32 12#32), encode (.mtc0 8#32 14#32)]
+#guard asmFails "mtc0 $t0, $14, 1\n"     -- sel not representable
+#guard asmFails "mfc0 $t0, $12, 8\n"
+#guard asmFails "mfc0 $t0, $t4\n"
+#guard asmFails "mfc0 $t0, $32\n"
+#guard asmFails "mfc0 $t0, $012\n"
+#guard asmText "cfc1 $t0, $31\nctc1 $t0, $31\ncfc1 $t0, $f31\n" = some [0x4448f800#32, 0x44c8f800#32, 0x4448f800#32]
+#guard asmFails "mfc1 $t0, $31\n"        -- data FP registers stay `$fN` only
+#guard asmText "break\nbreak 0\nsyscall 0\nsync 0\nteq $t0, $t1, 0\ntgeu $t0, $t1, 0\n"
+  = some [0x0000000d#32, 0x0000000d#32, 0x0000000c#32, 0x0000000f#32, 0x01090034#32, 0x01090031#32]
+-- nonzero codes: the constructors cannot carry them -> explicit error
+#guard asmFails "break 7\n"
+#guard asmFails "break 1024\n"
+#guard asmFails "syscall 1\n"
+#guard asmFails "teq $t0, $t1, 5\n"
+#guard asmFails "tne $t0, $t1, 2000\n"
+#guard asmFails "sync 4\n"
+#guard asmFails "sync 32\n"
+#guard asmFails "break 0, 0\n"
+
+-- --------------------------------------------------------------------
+-- Syntax additions: directives
+-- --------------------------------------------------------------------
+#guard asmText ".globl main\n.global foo\n.extern bar 4\nmain: nop\n" = some [0#32]
+#guard asmFails ".globl\n"
+-- `.align n`; a label before `.align` moves with it
+#guard asmWords (srcLines [".data", ".byte 1", ".align 2", "x: .word 5", ".byte 1", "y: .align 3", ".byte 9", ".word y, x"])
+    dataBase 7
+  = some [0x01000000#32, 5#32, 0x01000000#32, 0#32, 0x09000000#32, 0x10010010#32, 0x10010004#32]
+-- `.align 0`: no automatic alignment until the next segment directive
+#guard asmWords (srcLines [".data", ".byte 1", ".align 0", "x: .word 0x11223344", ".half 0x5566", "y: .byte 7",
+    ".word y, x", ".data", ".byte 1", "z: .word z"]) dataBase 6
+  = some [0x01112233#32, 0x44556607#32, 0x10010007#32, 0x10010001#32, 0x01000000#32, 0x10010014#32]
+#guard asmFails ".data\n.align 17\n"
+#guard asmFails ".data\n.align\n"
+-- `.ascii` (no NUL), `.asciz`/`.string` aliases
+#guard asmWords (srcLines [".data", r#"s: .ascii "ab""#, r#"t: .asciz "cd""#, r#".string "e""#, ".word s, t"]) dataBase 4
+  = some [0x61626364#32, 0x00650000#32, 0x10010000#32, 0x10010002#32]
+-- `.float`: exact, correctly rounded (ties-to-even), subnormals, overflow to inf
+#guard asmWords (".data\n.float 1.0, -2.5, 0.1, 1e10, 3.4028235e38, 1e39, 1e-45, 7e-46, 0, -0.0, inf, " ++
+    "-Infinity, NaN, 16777217, 16777219, .5, 5., 1E+2\n") dataBase 18
+  = some [0x3f800000#32, 0xc0200000#32, 0x3dcccccd#32, 0x501502f9#32, 0x7f7fffff#32, 0x7f800000#32,
+          0x00000001#32, 0x00000000#32, 0x00000000#32, 0x80000000#32, 0x7f800000#32, 0xff800000#32,
+          0x7fc00000#32, 0x4b800000#32, 0x4b800002#32, 0x3f000000#32, 0x40a00000#32, 0x42c80000#32]
+-- `.double`: most-significant word first, aligned to 8
+#guard asmWords (".data\n.byte 1\nd: .double 1.0, 0.1, -2.5e-3, 1.7976931348623157e308, 1e309, 4.9e-324, " ++
+    "2.4e-324, 9007199254740993, nan, -inf\n.word d\n") (dataBase + 8#32) 21
+  = some [0x3ff00000#32, 0#32, 0x3fb99999#32, 0x9999999a#32, 0xbf647ae1#32, 0x47ae147b#32,
+          0x7fefffff#32, 0xffffffff#32, 0x7ff00000#32, 0#32, 0#32, 1#32, 0#32, 0#32,
+          0x43400000#32, 0#32, 0x7ff80000#32, 0#32, 0xfff00000#32, 0#32, 0x10010008#32]
+#guard asmFails ".data\n.float abc\n"
+#guard asmFails ".data\n.float 1e\n"
+#guard asmFails ".data\n.float .\n"
+#guard asmFails ".data\n.float 0x10\n"
+#guard asmFails ".data\n.double 1.5x\n"
+#guard asmFails ".data\n.float\n"
+-- `.ktext` / `.kdata`: an exception handler assembled at the exception vector
+def ktextSrc : String := srcLines
+  [".ktext", "h: mfc0 $k0, $13", "eret", ".kdata", "kd: .word h, kd", ".text", "nop", ".ktext", "j h"]
+#guard asmWords ktextSrc 0x80000180#32 3 = some [encode (.mfc0 26#32 13#32), 0x42000018#32, 0x08000060#32]
+#guard asmWords ktextSrc 0x90000000#32 2 = some [0x80000180#32, 0x90000000#32]
+#guard asmWords ktextSrc textBase 1 = some [0#32]
+#guard asmWords ".ktext 0x80000200\nnop\n.kdata 0x90001000\n.word 1\n" 0x90001000#32 1 = some [1#32]
+#guard ktextBase = 0x80000180#32 ∧ kdataBase = 0x90000000#32
+#guard asmFails (srcLines [".ktext", "h: nop", ".text", "j h"])   -- kernel text is out of `j` range from .text
+
+-- --------------------------------------------------------------------
+-- Syntax additions: operands
+-- --------------------------------------------------------------------
+#guard asmText (r#"li $t0, 'a'"# ++ "\n" ++ r#"li $t0, '\n'"# ++ "\n" ++ r#"li $t0, '\''"# ++ "\n" ++
+    r#"li $t0, '\x7f'"# ++ "\n" ++ "li $t0, 'a'+1\naddi $t0, $t0, 'A'\n.byte 'a', 'b', '\\0', ','\n")
+  = some [0x34080061#32, 0x3408000a#32, 0x34080027#32, 0x3408007f#32, 0x34080062#32, 0x21080041#32, 0x6162002c#32]
+#guard asmFails "li $t0, 'ab'\n"
+#guard asmFails "li $t0, ''\n"
+#guard asmFails "li $t0, 'a\n"
+-- label±const in `.word`, `la`, branch and jump targets
+#guard asmWords (srcLines [".data", "x: .word 1, 2, 3", ".word x+4, x-4, x + 8, 4+x"]) (dataBase + 12#32) 4
+  = some [0x10010004#32, 0x1000fffc#32, 0x10010008#32, 0x10010004#32]
+#guard asmText (srcLines [".data", "x: .word 1, 2, 3", ".text", "la $t0, x+8", "la $t1, x-4", "la $t2, 4+x"])
+  = some [0x3c011001#32, 0x34280008#32, 0x3c011000#32, 0x3429fffc#32, 0x3c011001#32, 0x342a0004#32]
+#guard asmText (srcLines ["L: nop", "nop", "beq $0,$0,L+4", "j L+4", "bne $0,$0,L-4"])
+  = some [0#32, 0#32, 0x1000fffe#32, 0x08100001#32, 0x1400fffa#32]
+#guard asmFails (srcLines ["la $t0, x-y", "x: nop", "y: nop"])
+#guard asmFails (srcLines ["la $t0, x+y", "x: nop", "y: nop"])
+#guard asmFails "la $t0, 5\n"
+#guard asmFails (srcLines ["li $t0, x", "x: nop"])
+#guard asmFails (srcLines [".half x", "x: nop"])
+#guard asmFails (srcLines ["lw $t0, x($sp)", "x: nop"])
+-- whitespace around the parts of a memory operand
+#guard asmText "lw $t0, 4 ($sp)\nlw $t0, ( $sp )\nlw $t0, -4 ( $sp )\nlw $t0, 4+4($sp)\n"
+  = some [0x8fa80004#32, 0x8fa80000#32, 0x8fa8fffc#32, 0x8fa80008#32]
+
+-- --------------------------------------------------------------------
+-- Syntax additions: idioms (GNU as expansions; no nops inserted)
+-- --------------------------------------------------------------------
+#guard asmText "L: b L\nbal L\nbeqz $t0, L\nbnez $t0, L\n"
+  = some [encode (.beq 0#32 0#32 0xffff#32), encode (.bgezal 0#32 0xfffe#32),
+          encode (.beq 8#32 0#32 0xfffd#32), encode (.bne 8#32 0#32 0xfffc#32)]
+#guard asmText "neg $t0, $t1\nnegu $t0, $t1\nnot $t0, $t1\nneg $t0\n"
+  = some [encode (.sub 0#32 9#32 8#32), encode (.subu 0#32 9#32 8#32), encode (.nor 9#32 0#32 8#32),
+          encode (.sub 0#32 8#32 8#32)]
+-- slt/sltu into $at, then bne/beq $at,$0 -- the branch sits one word later,
+-- so its offset to `L` is -2
+#guard asmText "L: blt $t0, $t1, L\n" = some [encode (.slt 8#32 9#32 1#32), encode (.bne 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bge $t0, $t1, L\n" = some [encode (.slt 8#32 9#32 1#32), encode (.beq 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bgt $t0, $t1, L\n" = some [encode (.slt 9#32 8#32 1#32), encode (.bne 1#32 0#32 0xfffe#32)]
+#guard asmText "L: ble $t0, $t1, L\n" = some [encode (.slt 9#32 8#32 1#32), encode (.beq 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bltu $t0, $t1, L\n" = some [encode (.sltu 8#32 9#32 1#32), encode (.bne 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bgeu $t0, $t1, L\n" = some [encode (.sltu 8#32 9#32 1#32), encode (.beq 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bgtu $t0, $t1, L\n" = some [encode (.sltu 9#32 8#32 1#32), encode (.bne 1#32 0#32 0xfffe#32)]
+#guard asmText "L: bleu $t0, $t1, L\n" = some [encode (.sltu 9#32 8#32 1#32), encode (.beq 1#32 0#32 0xfffe#32)]
+-- forward target, and the label after a two-word idiom is laid out correctly
+#guard asmText "blt $t0, $t1, F\nnop\nF: j F\n" = some [0x0109082a#32, 0x14200001#32, 0#32, 0x08100003#32]
+#guard asmFails "blt $t0, 5, L\nL: nop\n"
+#guard asmFails "blt $t0, $t1\n"
+#guard asmFails "b\n"
+#guard asmFails "neg\n"
+#guard asmText "ssnop\nehb\n" = some [0x00000040#32, 0x000000c0#32]
+#guard decode 0x00000040#32 = some (.sll 0#32 0#32 1#32) ∧ decode 0x000000c0#32 = some (.sll 0#32 0#32 3#32)
+-- jr.hb / jalr.hb: hint bit 10 set; `decode` accepts these words as plain jr/jalr
+#guard asmText "jr.hb $ra\njalr.hb $t9\njalr.hb $t0, $t9\n" = some [0x03e00408#32, 0x0320fc09#32, 0x03204409#32]
+#guard decode 0x03e00408#32 = some (.jr 31#32)
+#guard decode 0x0320fc09#32 = some (.jalr 25#32 31#32)
+#guard decode 0x03204409#32 = some (.jalr 25#32 8#32)
+-- abs: bgez rs, +2 ; move rd, rs (delay slot; nop if rd = rs) ; sub rd, $0, rs
+#guard asmText "abs $t0, $t1\n"
+  = some [encode (.bgez 9#32 2#32), encode (.addu 0#32 9#32 8#32), encode (.sub 0#32 9#32 8#32)]
+#guard asmText "abs $t0, $8\n" = some [encode (.bgez 8#32 2#32), 0#32, encode (.sub 0#32 8#32 8#32)]
+-- case-insensitive mnemonics and directives; registers stay case-sensitive
+#guard asmText "ADD $t0, $t1, $t2\nAdd $t0, $t1, $t2\nLI $t0, 5\n.WORD 7\nSyscall\n"
+  = some [0x012a4020#32, 0x012a4020#32, 0x34080005#32, 7#32, 0x0000000c#32]
+#guard asmFails "ADD $T0, $t1, $t2\n"
+-- misc: duplicate labels (also across a pending label), unknown directive, missing operands
+#guard asmFails "x:\nx: nop\n"
+#guard asmFails ".frob 1\n"
+#guard asmFails ".word\n"
+#guard asmFails ".data\n.space 4, 1\n"
+#guard asmFails ".data\n.space -1\n"
+-- `sb` is not assembled: `Instruction` has no `.sb` constructor
+#guard asmFails "sb $t0, 0($t1)\n"
