@@ -16,7 +16,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=${GATE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}
 GATE_DIR=${GATE_DIR:-$ROOT/.gate}
 STAMP=$GATE_DIR/green
-CO_AUTHOR='Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>'
+CO_AUTHOR='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 
 die() { echo "gate-commit: REFUSED: $*" >&2; exit 1; }
 

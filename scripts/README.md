@@ -130,6 +130,7 @@ Not observable on QEMU: the LL bit (reported by MipsRun, not compared; `ll_sc_*`
 | `known-model-bug <field> <manual citation> <one-line description>` | the MODEL is wrong per the manual: reported as `KNOWN-MODEL-BUG`, counted separately, does not fail; FAILs when the mismatch stops occurring |
 | `expect <field>=<value> ...` | assertion on the MODEL's value taken from the manual (a failing model is reported as `model != manual expectation`) |
 | `max-steps N` | model step budget |
+| `bare` | run the model with `MipsRun --bare` (no hosted syscall services); requires a `.ktext` handler, which then services every exception |
 Fields: `gpr:t0` (or `gpr`), `fpr:f4` (or `fpr`), `hi lo fcsr status cause epc badvaddr errorepc pc output term`, `mem:0x10010004` (or `mem`).
 
 ### Encoding oracle (`--encodings`)

@@ -19,7 +19,6 @@ example : (initialState textBase).fpRegs.size = 32 := by decide
 example : (initialState textBase).fpRegs[0]! = 0#32 := by decide
 example : (initialState textBase).fpRegs[31]! = 0#32 := by decide
 example : (initialState textBase).fcsr = 0#32 := by decide
-example : (initialState textBase).out = "" := by decide
 example : (initialState textBase).pendingBranch = none := by decide
 example : (initialState textBase).llBit = false := by decide
 -- `Std.HashMap` has no `DecidableEq`, and its operations are not kernel-reducible
@@ -60,15 +59,17 @@ example :
 example : readFpReg (writeFpReg (initialState textBase) 8 0x12345678#32) 9 = 0#32 := by decide
 #guard readFpReg (writeFpReg (initialState textBase) 0 0x3f800000#32) 0 = 0x3f800000#32
 
--- `fetchWord`: alignment failure, hit, miss
-def testProg : Program := (∅ : Program).insert textBase 0xdeadbeef#32
+-- Instruction fetch is `readMemWord s s.pc`: alignment failure, a loaded word, unloaded memory
+-- (reads as 0). The word is placed big-endian with `writeMemWord`.
+def testFetchState : State :=
+  (writeMemWord (initialState textBase) textBase 0xdeadbeef#32).getD (initialState textBase)
 -- alignment failure short-circuits before touching the map, so `decide` works;
--- hit/miss require evaluating the (cbv_opaque) `Std.HashMap`, so those are
+-- the others require evaluating the (cbv_opaque) `Std.HashMap`, so they are
 -- checked only with `#guard` (compiled evaluation).
-example : fetchWord testProg (textBase + 1#32) = none := by decide
-#guard fetchWord testProg (textBase + 1#32) = none
-#guard fetchWord testProg textBase = some 0xdeadbeef#32
-#guard fetchWord testProg (textBase + 4#32) = none
+example : readMemWord (initialState textBase) (textBase + 1#32) = none := by decide
+#guard readMemWord testFetchState (textBase + 1#32) = none
+#guard readMemWord testFetchState textBase = some 0xdeadbeef#32
+#guard readMemWord testFetchState (textBase + 4#32) = some 0#32
 
 -- `readMemByte`: absent bytes read as 0
 #guard readMemByte (initialState textBase) 0x10010000#32 = some 0

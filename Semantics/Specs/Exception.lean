@@ -18,7 +18,7 @@ set_option maxRecDepth 4000
 
 /-! ## Exception entry (MD00090 "General Exception Processing")
 
-`takeException s code` is `StepResult.next (exceptionEntry s code)`;
+`takeException s code` is `(exceptionEntry s code)`;
 `takeAddressException s code addr` additionally sets `BadVAddr := addr`
 first. The theorems below say what `exceptionEntry` does in each of the
 cases `Status.EXL = 0/1` × in a delay slot / not, and with `Status.BEV`. -/
@@ -30,7 +30,7 @@ base with offset `0x180` — `0x80000180` at reset — or `0xBFC00380` when
 pending branch is abandoned**; **`LLbit ← 0`** (MD00086 Rev 6.06 "SC",
 programming notes: "Exceptions between the LL and SC cause SC to fail");
 and nothing else outside `EPC`/`Cause` is touched — no general register,
-`hi`/`lo`, memory, output, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
+`hi`/`lo`, memory, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
 `EBase` or the LL address. -/
 theorem exceptionEntry_always (s : State) (code ce : W32) :
     (exceptionEntry s code ce).pc =
@@ -41,7 +41,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
       (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
-      (exceptionEntry s code ce).mem = s.mem ∧ (exceptionEntry s code ce).out = s.out ∧
+      (exceptionEntry s code ce).mem = s.mem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
       (exceptionEntry s code ce).llBit = false ∧
@@ -49,7 +49,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).cp0ErrorEpc = s.cp0ErrorEpc ∧
       (exceptionEntry s code ce).cp0EBase = s.cp0EBase ∧
       (exceptionEntry s code ce).llAddr = s.llAddr :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-- With `EBase` at its reset value the general vector is the classic
 `0x80000180`. -/
@@ -62,10 +62,10 @@ fails even if the handler returns without `eret` (MD00086 Rev 6.06 "SC",
 programming notes, p. 350: "Exceptions between the LL and SC cause SC to
 fail"). Stated for both exception forms `step` uses. -/
 theorem exception_clears_llBit (s s' : State) (code addr : W32)
-    (h : takeException s code = StepResult.next s' ∨
-      takeAddressException s code addr = StepResult.next s') :
+    (h : takeException s code = s' ∨
+      takeAddressException s code addr = s') :
     s'.llBit = false := by
-  rcases h with h | h <;> (injection h with h; rw [← h]; rfl)
+  rcases h with h | h <;> (have h := h; rw [← h]; rfl)
 
 /-- **`EXL = 0`, not in a delay slot**: `EPC ← PC` (the faulting
 instruction), `Cause.BD ← 0`, `Cause.ExcCode ← code`, `Cause.CE ← ce`. -/

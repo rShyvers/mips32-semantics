@@ -38,7 +38,6 @@ def sampleState : State :=
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
     mem := ∅
-    out := ""
     cp0Status := 0#32
     cp0Cause := 0#32
     cp0Epc := 0#32 }
@@ -49,17 +48,12 @@ example : sampleState.regs[29]! = spInit := by decide
 example : sampleState.fpRegs.size = 32 := by decide
 example : sampleState.fpRegs[0]! = 0#32 := by decide
 example : sampleState.fcsr = 0#32 := by decide
-example : sampleState.out = "" := by decide
 #guard sampleState.pc = textBase
 #guard sampleState.regs.size = 32
 #guard sampleState.regs[29]! = spInit
 #guard sampleState.fpRegs.size = 32
 #guard sampleState.fcsr = 0#32
 
--- `HaltReason` / `StepResult` sanity
-example : HaltReason.exit ≠ HaltReason.branchInDelaySlot := by decide
-example : HaltReason.unhandledException 12#32 0#32 0#32 ≠ HaltReason.noInstruction 0#32 := by decide
-example : (StepResult.halt HaltReason.exit) = (StepResult.halt HaltReason.exit) := by rfl
 
 -- `State.pendingBranch` defaults to `none` when omitted from a literal
 example : sampleState.pendingBranch = none := by decide

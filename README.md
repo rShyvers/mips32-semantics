@@ -11,9 +11,12 @@ dependency on anything else in that project.
 
 ## What this is
 
-- `Semantics/Step.lean`: `step : Program → State → StepResult` executes **one instruction** (fetch, strict
-  decode, execute, commit) and returns the next `State` or a halt reason. `run` is `step` iterated under a fuel
-  bound. `step` is total.
+- `Semantics/Step.lean`: `step : State → State` is **one instruction time** of the processor (fetch from memory,
+  strict decode, execute, commit) and nothing else: it never halts, and every exception is a state transition.
+  `run : State → Nat → State` is `step` iterated `n` times.
+- `Semantics/Env.lean`: the environment, **explicitly outside the architecture**: the loader `load : Program →
+  State` (writes the assembled image into memory), the MARS-style `syscall` services (1, 4, 10, 11) and the
+  conventions for stopping a run (`runHosted`). `MipsRun` and the harnesses use the hosted run.
 - `Semantics/Instruction.lean`: the `Instruction` type (178 constructors), `decode` (strict) and `encode`.
 - `Semantics/Asm.lean`: an assembler from source text to a `Program` (labels, directives, idioms, range checks).
 - `Semantics/FpOps.lean`: the floating-point unit, defined on bit patterns without host floats.
@@ -47,14 +50,14 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1027 lines) states **66 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1038 lines) states **73 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
-`Instruction`, `FpOps`, `Step`) and the statement vocabulary `Semantics/Specs/Defs.lean` and
-`WellFormed.lean`. The 66 statements are a selection: every global theorem below and at least one per-instruction
+`Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 73 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
 **(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 178
@@ -73,11 +76,13 @@ The results that are genuinely global, or independent of how an individual instr
 | Result | Where | In the trusted surface |
 |---|---|---|
 | `decode (encode i) = some i` for every constructor, under `WellFormed` | `Specs/DecodeSpec.lean` | `decode_encode` |
-| `$zero` is unchanged by every `step` and by every `run`; a write to `$zero` is never observable | `Specs/Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable` |
+| `$zero` is unchanged by every `step`, every `run` and every hosted run; a write to `$zero` is never observable | `Specs/Invariants.lean`, `Specs/Hosted.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable`, `runHosted_preserves_zero_register` |
 | register files keep size 32 under `step`; `run` from `initialState` is well-formed | `Specs/RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed` |
 | exception entry: vector, `EXL`, pending branch abandoned, `LLbit` cleared, `EPC`/`Cause.BD` with and without delay slot, `ExcCode`, `CE` | `Specs/Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode` (`_ce` is in `Exception.lean` only) |
-| fetch/decode failure: misaligned `pc`, no instruction, undecodable word, Reserved Instruction | `Specs/Fetch.lean` | `step_misaligned_pc`, `step_no_instruction`, `step_undecodable`, `step_reserved_instruction` |
-| general delay-slot theorem | `Specs/DelaySlot.lean` | `delay_slot_commits_target`; `branch_in_delay_slot_halts` |
+| fetch from memory; fetch/decode failure: misaligned `pc`, undecodable word, Reserved Instruction | `Specs/Fetch.lean` | `step_fetches_from_memory`, `step_misaligned_pc`, `step_undecodable`, `step_reserved_instruction` |
+| self-modifying code: a store to the next instruction is what executes next | `Specs/SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
+| general delay-slot theorem; a control transfer in a delay slot raises Reserved Instruction (pin) | `Specs/DelaySlot.lean` | `delay_slot_commits_target`; `branch_in_delay_slot_reserved_instruction` |
+| the hosted run is `step` whenever it neither stops nor performs a service; the services | `Specs/Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run`, `hosted_print_int`, `hosted_exit` |
 | Coprocessor Unusable | `Specs/FpuCommon.lean` | `fp_coprocessor_unusable` |
 | FP trap: an enabled FP exception takes ExcCode 15 and writes no FP register | `Specs/FpuCommon.lean` | `fpCompletesS_trap` (single-precision finish helper; the double and compare analogues `fpCompletesD_trap`, `fpCompletesCmp_trap` are in `FpuCommon.lean`) |
 | FCSR round trip through `ctc1`/`cfc1` | `Specs/FpuControl.lean` | `fcsr_ctc1_cfc1_roundtrip` |
@@ -101,8 +106,8 @@ order equals the order of the rational values is tested, not proved (`FpCompareF
   uses endian-invariant patterns and covers the original instruction subset best (SPEC-NOTES §9).
 - *QEMU* (`qemu-system-mips -M malta -cpu 24Kf`, `tests/oracle`, `scripts/oracle.py`): the same machine code at the
   same addresses runs on QEMU and on the model, and registers, `HI`/`LO`, FPRs, FCSR, CP0 state, memory, output and
-  termination are compared. The last gate run (`.gate/last-run.json`) reports 135 tests (126 programs in
-  `tests/oracle`, 9 runnable programs of `tests/asm`): 126 pass, 9 are **declared deviations where QEMU departs
+  termination are compared. The last gate run (`.gate/last-run.json`) reports 139 tests (130 programs in
+  `tests/oracle`, 9 runnable programs of `tests/asm`): 130 pass, 9 are **declared deviations where QEMU departs
   from the manual** (the manual wins), 0 known model bugs. The deviations, with the citations from the tests'
   own `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the table):
   misaligned `sc` (MD00086 Vol II-A Rev 6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`, QEMU performs
@@ -184,7 +189,6 @@ Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md
 - State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB and
   mapped address translation, caches, `WatchLo`/`WatchHi`, user mode (`Status.UM`/`KSU`/`CU0`; everything runs as
   kernel), EJTAG, coprocessor 2, `Config2`..`Config5`.
-- Self-modifying code: instruction fetch reads the immutable `Program`, not memory.
 - The manuals themselves are inconsistent about the L format with `FR = 0` (`FIR.L = 1` is required, the L-format
   instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 0` (SPEC-NOTES §9 item 13).
 
@@ -220,13 +224,15 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 66 trusted theorem names, challenge and solution modules
+comparator.json                the 73 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
+Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
 Semantics/Specs/               the specification: Defs, WellFormed (vocabulary); Lemmas, Tactics, Fixtures (plumbing);
-                               DecodeSpec, Exception, Fetch, DelaySlot, Invariants, RegFileSize (global theorems);
+                               DecodeSpec, Exception, Fetch, SelfModifying, DelaySlot, Invariants, RegFileSize,
+                               Hosted (global theorems);
                                one file per instruction family (Arith, Shift, MulDiv, ..., FpuArith, ...); StepSpec (index)
-Semantics/Statements.lean      the trusted surface (66 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (73 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables
@@ -244,10 +250,11 @@ vendor/mars/                   the MARS 4.5 jar, used by DiffHarness only
 ## How to review this project
 
 1. `docs/PROOF-NOTES.md` (135 lines): reading order and the comparator arrangement.
-2. The model (4418 lines in all): `Semantics/Word.lean` (32), `Types.lean` (268), `State.lean` (144),
-   `Instruction.lean` (1370), `FpOps.lean` (1172), `Step.lean` (1432). `DESIGN.md` is the map.
-3. The statements: `Semantics/Specs/Defs.lean` (115), `WellFormed.lean` (194), then `Semantics/Statements.lean` (1027).
-4. For any instruction family: `Semantics/Specs/<Family>.lean`; the index and table is `Specs/StepSpec.lean` (109).
+2. The model (4344 lines in all): `Semantics/Word.lean` (32), `Types.lean` (240), `State.lean` (148),
+   `Instruction.lean` (1370), `FpOps.lean` (1172), `Step.lean` (1382). `DESIGN.md` is the map. The environment
+   around it (not the architecture): `Env.lean` (195).
+3. The statements: `Semantics/Specs/Defs.lean` (109), `WellFormed.lean` (194), then `Semantics/Statements.lean` (1038).
+4. For any instruction family: `Semantics/Specs/<Family>.lean`; the index and table is `Specs/StepSpec.lean` (114).
 5. `docs/TRACE.md` (486 lines, generated): one row per instruction, from manual page to tests.
 6. `docs/spec/SPEC-NOTES.md`: every pin and divergence; `docs/spec/MIPS-COVERAGE-GAPS.md`: what is missing;
    `docs/AUDIT.md`: what was checked against the manuals.
@@ -256,13 +263,17 @@ vendor/mars/                   the MARS 4.5 jar, used by DiffHarness only
 
 ## MipsRun
 
-`lake exe MipsRun [--max-steps N] [prog.asm]` assembles a program (file or stdin) and runs it (default bound
-1000000 steps), printing one JSON object. Exit code 0: assembled and ran to a halt or the step limit; 1: assembly
-failed (`"assembled": false`, `"error"` set, other fields `null`); 2: usage or I/O error (no JSON).
+`lake exe MipsRun [--max-steps N] [--bare] [prog.asm]` assembles a program (file or stdin), loads it (`Env.load`)
+and runs it hosted (`Env.runHosted`; default bound 1000000 steps), printing one JSON object. The hosted run
+performs the MARS-style `syscall` services 1/4/10/11 and stops by the environment's conventions (exit, an
+exception vector the loaded image does not cover, `pc` outside the image); `--bare` performs no service, so every
+`syscall` is the architectural System Call exception (the stopping conventions still apply). Exit code 0:
+assembled and ran to a stop or the step limit; 1: assembly failed (`"assembled": false`, `"error"` set, other
+fields `null`); 2: usage or I/O error (no JSON).
 
 Fields (success): `assembled`, `halted`, `halt_reason`, `steps`, `output`, `registers` (by ABI name), `error`
 (`null`); then `halt` (`{"kind": ...}`: `exit`, `unhandled_exception` with `code`/`epc`/`badvaddr`, `no_instruction`
-with `pc`, `branch_in_delay_slot` with `pc`, or `limit`), `initial` and `final` (each: `pc`, `gpr`, `hi`, `lo`,
+with `pc`, or `limit`), `initial` (the loader's start state, before the image is written) and `final` (each: `pc`, `gpr`, `hi`, `lo`,
 `fpr` as raw 32-bit values, `fcsr`, `fp_cond_flag` (= FCSR bit 23, kept for compatibility), `ll_bit`, `ll_addr`,
 `pending_branch`, `cp0` with `status`, `cause`, `epc`, `badvaddr`, `errorepc`, `ebase`), `fcsr_mask`, `image`
 (`[address, word]` for every assembled word) and `memory` (every nonzero aligned word of the final memory).
@@ -272,8 +283,9 @@ with `pc`, `branch_in_delay_slot` with `pc`, or `limit`), `initial` and `final` 
 instructions, `break`, traps and unknown syscalls are now architectural exceptions, so the strings are `exit`,
 `unhandled_exception:<name>:epc=0x<EPC>` (address errors append `:badvaddr=0x<BadVAddr>`; `<name>` is
 `address_error_load`, `address_error_store`, `syscall`, `breakpoint`, `reserved_instruction`, `coprocessor_unusable`,
-`arithmetic_overflow`, `trap` or `exccode_N`), `no_instruction:0x<pc>` and `branch_in_delay_slot`; `halt_reason` is
-`null` when the step limit is reached.
+`arithmetic_overflow`, `trap` or `exccode_N`) and `no_instruction:0x<pc>`; `halt_reason` is `null` when the step
+limit is reached. `branch_in_delay_slot` no longer occurs: a control transfer in a delay slot is the Reserved
+Instruction exception (`unhandled_exception:reserved_instruction:...` when no handler is loaded).
 
 ## License / provenance
 

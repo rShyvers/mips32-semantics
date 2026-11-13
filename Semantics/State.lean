@@ -6,8 +6,8 @@ import Semantics.Types
 # State — hardware operations on `State`
 
 Initial-state construction, register
-read/write (with the `$zero`-is-write-ignored rule), instruction fetch, and
-byte/halfword/word memory access with MIPS/MARS alignment and big-endian
+read/write (with the `$zero`-is-write-ignored rule), and
+byte/halfword/word memory access (instruction fetch is a word read, `Step.lean`'s `step`) with MIPS/MARS alignment and big-endian
 composition rules (SPEC-NOTES §1,§4,§7; INSTRUCTION-REF Global rules §2,§4,§5).
 
 Depends only on the foundation (`Word`, `Types`); read-only there.
@@ -15,13 +15,14 @@ Depends only on the foundation (`Word`, `Types`); read-only there.
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
-`hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; memory is empty;
-accumulated output is empty; `llBit` is `false` (no `ll` has executed yet);
-`pendingBranch` is `none` (not in a delay slot).
+`hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; memory is empty
+(the loader, `Semantics/Env.lean`'s `load`, then writes the program image into it);
+`llBit` is `false` (no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot).
 
 **Environment conventions** (the state a program finds when it starts, as if
 boot code / an operating system had set the machine up; none of these is the
-architectural reset state):
+architectural reset state, MD00090 Vol III Rev 6.02 §6.2.5, p.89-90; the hosted environment's
+start state is `Env.lean`'s `hostedStart`):
 
 * `Status = 0x2000_0000`: only `CU1` set, so user programs can use the FPU
   (clear it with `mtc0` to get Coprocessor Unusable exceptions). Reset would
@@ -39,7 +40,6 @@ def initialState (pc : W32) : State :=
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
     mem := ∅
-    out := ""
     pendingBranch := none
     llBit := false
     cp0Status := statusCu1Mask
@@ -77,15 +77,19 @@ the write. -/
 def writeFpReg (s : State) (i : Fin 32) (v : W32) : State :=
   { s with fpRegs := s.fpRegs.set! i.val v }
 
-/-- Fetch the instruction word at `pc` from program `p`. Returns `none` if
-`pc` is not word-aligned (a multiple of 4) or if no instruction is recorded
-at that address (SPEC-NOTES §1; INSTRUCTION-REF Global rule §4). -/
-def fetchWord (p : Program) (pc : W32) : Option W32 :=
-  if pc.toNat % 4 ≠ 0 then none else p.get? pc
+/-! ## Memory access
+
+Every memory access of the processor — instruction fetch (`readMemWord s s.pc`, `Step.lean`),
+loads and stores, including `lwl`/`lwr`/`swl`/`swr` byte by byte — goes through the six functions
+below, which index `State.mem` by the virtual address directly (no MMU: the model has no address
+translation, `Config.MT = 0`, `configValue`). An address translation (e.g. the Fixed Mapping MMU)
+would be inserted in these six functions and nowhere else. (The loader, `Env.lean`, writes `mem`
+directly: it places the image, it is not the processor.) -/
 
 /-- Read a single byte from memory at `addr`. Bytes that have never been
-written read as `0` (MARS memory is zero-filled); byte access has no
-alignment requirement. -/
+written read as `0` (a pin: what memory holds where nothing was loaded or
+stored is a property of the system, not of the processor architecture; MARS
+and the QEMU harness also zero-fill); byte access has no alignment requirement. -/
 def readMemByte (s : State) (addr : W32) : Option UInt8 :=
   some (s.mem.get? addr |>.getD 0)
 
@@ -103,7 +107,7 @@ def readMemHalf (s : State) (addr : W32) : Option W32 :=
 /-- Read a big-endian word (4 bytes) starting at `addr`. The byte at `addr`
 is the most-significant byte, down to `addr + 3` as the least-significant.
 Returns `none` if `addr` is not word-aligned (a multiple of 4). Unwritten
-bytes read as `0`. -/
+bytes read as `0`. Instruction fetch is `readMemWord s s.pc` (`Step.lean`). -/
 def readMemWord (s : State) (addr : W32) : Option W32 :=
   if addr.toNat % 4 ≠ 0 then none
   else

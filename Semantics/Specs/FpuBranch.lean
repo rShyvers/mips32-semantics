@@ -22,48 +22,44 @@ set_option maxRecDepth 4000
 
 /-- **`bc1f`**: branch if `FCC[cc] = 0`, with the ordinary delay slot (MD00086 Vol II-A Rev 6.06,
 BC1F, p.56) -/
-theorem bc1f_spec_raw (p : Program) (s : State) (w cc imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.bc1f cc imm))
+theorem bc1f_spec_raw (s : State) (w cc imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1f cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
-      if readFcc s cc then StepResult.next { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }
+    step s =
+      if readFcc s cc then { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }
       else
-        StepResult.next
-          { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) } := by
   fp_step_spec
 
 /-- **`bc1t`**: branch if `FCC[cc] = 1`, with the ordinary delay slot (MD00086 Vol II-A Rev 6.06,
 BC1T, p.60) -/
-theorem bc1t_spec_raw (p : Program) (s : State) (w cc imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.bc1t cc imm))
+theorem bc1t_spec_raw (s : State) (w cc imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1t cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
+    step s =
       if readFcc s cc then
-        StepResult.next
-          { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
-      else StepResult.next { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
+      else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
   fp_step_spec
 
 /-- **`bc1fl`**: branch-likely if `FCC[cc] = 0`; **when not taken the delay slot is nullified**
 (`pc ← pc + 8`, nothing pending) (MD00086 Vol II-A Rev 6.06, BC1FL, p.58) -/
-theorem bc1fl_spec_raw (p : Program) (s : State) (w cc imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.bc1fl cc imm))
+theorem bc1fl_spec_raw (s : State) (w cc imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1fl cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
-      if readFcc s cc then StepResult.next { s with pc := s.pc + 8#32 }
+    step s =
+      if readFcc s cc then { s with pc := s.pc + 8#32 }
       else
-        StepResult.next
-          { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) } := by
   fp_step_spec
 
 /-- **`bc1tl`**: branch-likely if `FCC[cc] = 1`; when not taken the delay slot is nullified
 (MD00086 Vol II-A Rev 6.06, BC1TL, p.62) -/
-theorem bc1tl_spec_raw (p : Program) (s : State) (w cc imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.bc1tl cc imm))
+theorem bc1tl_spec_raw (s : State) (w cc imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1tl cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
+    step s =
       if readFcc s cc then
-        StepResult.next
-          { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
-      else StepResult.next { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
+      else { s with pc := s.pc + 8#32 } := by
   fp_step_spec

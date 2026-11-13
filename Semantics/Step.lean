@@ -20,25 +20,31 @@ Pinned conventions and divergences from the MARS test oracle are in
 
 ## What `step` does
 
-1. **Fetch** the word at `pc` from the immutable `Program` (not from
-   `State.mem` — SPEC-NOTES §9: self-modifying code is not modeled).
-   A misaligned `pc` raises Address Error (AdEL, `BadVAddr = pc`). An aligned
-   `pc` with no instruction halts: `unhandledException` if the machine is
-   sitting at the exception vector with `Status.EXL = 1` (an exception was
-   taken and no handler is installed), `noInstruction` otherwise.
-2. **Decode** it (`Instruction.decode`, strict). A word that does not decode
-   raises Reserved Instruction.
+`step : State → State` is one instruction time of the processor and nothing else. It is total by
+its type: the manual has no halting state, and every behaviour the model implements is a state
+transition (possibly to the exception vector). Loading a program, the MARS-style `syscall`
+services and the conventions for stopping a run are the environment's, not the processor's; they
+are in `Semantics/Env.lean`.
+
+1. **Fetch** the big-endian word at `pc` from `State.mem` (`readMemWord s s.pc`). A misaligned
+   `pc` raises Address Error (AdEL, `BadVAddr = pc`). Memory that was never written reads as 0
+   (`State.lean`; 0 encodes `sll $0, $0, 0`, a no-op).
+2. **Decode** it (`Instruction.decode`, strict). A word that does not decode raises Reserved
+   Instruction (or Coprocessor Unusable for an unusable coprocessor's encoding space).
 3. **Execute** it (`execInstr`).
+
+Because fetch reads `mem`, a store to the instruction stream changes what is executed (MD00086
+Vol II-A Rev 6.06, SYNCI, p.412). The model has no caches, so `synci` has nothing to synchronize.
 
 ## Branch delay slots
 
 `State.pendingBranch = some t` means "the instruction at `pc` is in a delay
 slot; control goes to `t` after it". Every branch/jump sets it (taken: the
 target; not taken: `pc + 8`). Every non-control-flow instruction goes
-through `mkNext`/`advance`, which commits a pending target. A branch, jump or
-`eret` in a delay slot halts with `branchInDelaySlot` (UNPREDICTABLE in the
-architecture). A not-taken branch-likely nullifies its delay slot: its own
-step goes straight to `pc + 8`.
+through `mkNext`/`advance`, which commits a pending target. A control-transfer
+instruction in a delay slot (UNPREDICTABLE, or UNDEFINED for `eret`/`wait`, in the
+architecture) raises Reserved Instruction (pin; `execInstr`). A not-taken branch-likely
+nullifies its delay slot: its own step goes straight to `pc + 8`.
 
 ## Exceptions
 
@@ -49,8 +55,7 @@ selects which; `EBase` supplies the base when `BEV = 0`), and the pending
 branch is abandoned. Raised here: Integer Overflow (`add`/`addi`/`sub`),
 Address Error (misaligned load/store/fetch; sets `BadVAddr`), Reserved
 Instruction, Coprocessor Unusable (`Cause.CE` = the unit), Floating Point,
-Syscall (service numbers outside the environment-call convention),
-Breakpoint, Trap.
+System Call (`syscall`, always), Breakpoint, Trap.
 
 ## Floating point
 
@@ -62,20 +67,11 @@ checks `Status.CU1` (`usesCop1`); arithmetic instructions finish through
 `Mips.Fp.fpUpdate` and take the Floating Point exception instead of writing
 the destination when an enabled exception was raised.
 
-## Environment calls
-
-`syscall` with `$v0 ∈ {1, 4, 10, 11}` is serviced by the model itself, as a
-documented environment-call convention borrowed from MARS/SPIM (print int,
-print string, exit, print char). `exit` is the one clean `HaltReason`. Any
-other `$v0` raises the architectural Syscall exception.
-
 ## Not modeled
 
 User/kernel mode (`Status.UM`/`KSU`): everything runs as kernel, so CP0
 instructions never raise Coprocessor Unusable. Interrupts, timer, TLB,
 caches, shadow register sets (see `docs/spec/SPEC-NOTES.md`).
-
-`step` is total: every `(p, s)` yields a `StepResult`.
 -/
 
 /-- Convert a raw 5-bit register-field value (as extracted by `decode`, hence
@@ -98,8 +94,8 @@ def advance (orig result : State) : State :=
   | some target => { result with pc := target, pendingBranch := none }
   | none => { result with pc := result.pc + 4#32 }
 
-/-- Package `result` (the ordinary, non-control-flow effect of the current
-instruction) as a successful step, resolving any delay-slot transfer
+/-- Complete the current instruction with the ordinary, non-control-flow
+effect `result`, resolving any delay-slot transfer
 pending on `orig` -- the state `execInstr` was called with, i.e. *before*
 this instruction's own effect -- via `advance`. Taking `orig` and `result`
 as two separate arguments (rather than just the already-updated state)
@@ -110,18 +106,19 @@ register-index/alignment check, which matters for `StepSpec.lean`'s
 itself irreducible, which would otherwise make its `.pendingBranch` field
 irreducible too, even though `writeReg`/`writeMem*` never actually change
 it). -/
-def mkNext (orig result : State) : StepResult :=
-  StepResult.next (advance orig result)
+def mkNext (orig result : State) : State :=
+  advance orig result
 
 /-- Whether `instr` is a control-transfer instruction that may not appear in
 a branch delay slot: the 12 ordinary branches/jumps (`beq`,`bne`,`blez`,
 `bgtz`,`bltz`,`bgez`,`bltzal`,`bgezal`,`j`,`jal`,`jr`,`jalr`), the 8
 branch-likely instructions, the FP branches `bc1f`/`bc1t`/`bc1fl`/`bc1tl`,
-`eret` and `wait` (26 in all). `execInstr` halts with `HaltReason.branchInDelaySlot` when one
-of these is reached with `s.pendingBranch = some _` — i.e. directly after
-*any* branch/jump, taken or not. The architecture makes these cases
-UNPREDICTABLE (branches/jumps) or UNDEFINED (`eret`, `wait`); the halt is
-a model pin. -/
+`eret` and `wait` (26 in all): the control transfer instructions (CTIs) that
+MD00082 Vol I-A Rev 6.01 §5.3.2.1 (p.62) forbids in a branch delay slot ("any
+CTI, including branches and jumps, ERET, ERETNC, DERET, WAIT, and PAUSE";
+`ERETNC`, `DERET`, `PAUSE` and `NAL` are not modeled). `execInstr` raises
+Reserved Instruction when one of these is reached with `s.pendingBranch = some _`,
+i.e. directly after *any* branch/jump, taken or not (pin; see `execInstr`). -/
 def isBranchLike (instr : Instruction) : Bool :=
   match instr with
   | .beq _ _ _ | .bne _ _ _ | .blez _ _ | .bgtz _ _
@@ -259,51 +256,25 @@ def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) : State :=
       pendingBranch := none
       llBit := false }
 
-/-- Raise a general exception: a real state transition (`StepResult.next`)
-to the exception vector, not a halt. -/
-def takeException (s : State) (excCode : W32) : StepResult :=
-  StepResult.next (exceptionEntry s excCode)
+/-- Raise a general exception: the state after exception entry (the
+processor continues at the exception vector). -/
+def takeException (s : State) (excCode : W32) : State :=
+  exceptionEntry s excCode
 
 /-- Raise Coprocessor Unusable for coprocessor 1: `Cause.ExcCode = CpU` (11),
 `Cause.CE = 1` (MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
-def takeCoprocessorUnusable (s : State) : StepResult :=
-  StepResult.next (exceptionEntry s excCodeCpU 1#32)
+def takeCoprocessorUnusable (s : State) : State :=
+  exceptionEntry s excCodeCpU 1#32
 
 /-- Raise an Address Error exception (`excCodeAdEL` for a load or fetch,
 `excCodeAdES` for a store): as `takeException`, and additionally
 `BadVAddr ← addr`, the failing address. -/
-def takeAddressException (s : State) (excCode addr : W32) : StepResult :=
-  StepResult.next (exceptionEntry { s with cp0BadVAddr := addr } excCode)
-
-/-- "An exception was taken and no handler is installed": `Status.EXL = 1`
-and `pc` is the general exception vector. `step` consults this only when the
-fetch at `pc` finds no instruction. -/
-def atUnhandledVector (s : State) : Bool :=
-  s.cp0Status &&& statusExlMask != 0#32 && s.pc == exceptionVector s
+def takeAddressException (s : State) (excCode addr : W32) : State :=
+  exceptionEntry { s with cp0BadVAddr := addr } excCode
 
 /-- The `ExcCode` field (bits 6..2) of `Cause`, as a number. -/
 def causeExcCode (s : State) : W32 :=
   (s.cp0Cause &&& causeExcCodeMask) >>> 2
-
-/-- Maximum number of bytes scanned by syscall 4 (`PrintString`) before
-giving up. This is a simulator limitation (needed for `step` to remain a
-total function without assuming anything about how "long" a null-terminated
-string in sparse memory can be): any realistic test-corpus string is many
-orders of magnitude shorter than this. Documented in case a corpus program
-relies on a longer unterminated scan. -/
-def printStringFuel : Nat := 65536
-
-/-- Scan up to `fuel` bytes starting at `addr`, stopping at the first `0x00`
-byte (exclusive) or when fuel runs out, decoding each byte as ASCII. Absent
-bytes read as `0` (`State.readMemByte`'s zero-fill convention), so any scan
-over memory that is not deliberately padded with a long run of distinct
-nonzero bytes terminates well within `printStringFuel`. -/
-def readCString (s : State) (addr : W32) : Nat → String
-  | 0 => ""
-  | fuel + 1 =>
-    let b := (s.mem.get? addr).getD 0
-    if b == 0 then ""
-    else String.singleton (Char.ofNat b.toNat) ++ readCString s (addr + 1#32) fuel
 
 /-- `Status.CU1`: coprocessor 1 is usable. -/
 def cu1Enabled (s : State) : Bool := s.cp0Status &&& statusCu1Mask != 0#32
@@ -383,13 +354,13 @@ of them is enabled the Floating Point exception is taken (ExcCode 15) with
 the destination **not written** and FCSR.Flags unchanged; otherwise `r.2` is
 ORed into FCSR.Flags, the result is written and execution continues
 (MD00082 Vol I-A Rev 6.01 §6.7.1 p.98-99; Table 6.8 `Flags`, p.94). -/
-def fpFinishS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : StepResult :=
+def fpFinishS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : State :=
   let u := Mips.Fp.fpUpdate s.fcsr r.2
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s (writeFpReg { s with fcsr := u.1 } (regIdx fd) r.1)
 
 /-- As `fpFinishS`, for a 64-bit (double) result written to the pair `fd`. -/
-def fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : StepResult :=
+def fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   let u := Mips.Fp.fpUpdate s.fcsr r.2
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s (writeFpD { s with fcsr := u.1 } fd r.1)
@@ -399,7 +370,7 @@ written to condition code `cc` ("If the Invalid Operation Enable bit is set
 in the FCSR, no result is written and an Invalid Operation exception is taken
 immediately. Otherwise, the Boolean result is written into condition code
 CC" — MD00086 Vol II-A Rev 6.06, C.cond.fmt, p.110). -/
-def fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) : StepResult :=
+def fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) : State :=
   let u := Mips.Fp.fpUpdate s.fcsr r.2
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s { s with fcsr := Mips.Fp.setCC u.1 (ccIdx cc) r.1 }
@@ -428,9 +399,8 @@ def config1Value : W32 := 0x00000001
 /-- The effect of the already-fetched, already-decoded instruction `instr`
 in state `s`, **after** `execInstr`'s two guards (no control transfer in a
 delay slot; coprocessor 1 usable for the instructions that need it). Total:
-every case yields a next state (possibly the exception vector) or a defined
-`HaltReason`. -/
-def execBody (s : State) (instr : Instruction) : StepResult :=
+every case yields the next state (possibly at the exception vector). -/
+def execBody (s : State) (instr : Instruction) : State :=
   match instr with
   -- R-type reg/reg/reg arithmetic
   | .add rs rt rd =>
@@ -526,7 +496,7 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
     let a := asSigned (readReg s (regIdx rs))
     let b := asSigned (readReg s (regIdx rt))
     if b == 0 then
-      -- SPEC-NOTES §9.2: hi/lo unchanged, no halt.
+      -- SPEC-NOTES §9.2: hi/lo unchanged.
       mkNext s s
     else
       mkNext s { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b) }
@@ -730,15 +700,15 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   -- not cause addressing-related exceptions" (MD00086 Vol II-A Rev 6.06,
   -- PREF, p.321). A no-op; in particular it does not touch `llBit`.
   | .pref _ _ _ => mkNext s s
-  -- `synci`: real MIPS32 instruction-cache-flush hint (REGIMM opcode 0x01,
-  -- `rt` field 0x1f; MIPS32r2, `docs/spec/MIPS-COVERAGE-GAPS.md` §3.7),
-  -- used by self-modifying code / JIT compilers to flush a stale
-  -- instruction-cache line after writing new code bytes. Computes the same
-  -- effective address as `lw`/`sw` for architectural fidelity, but this
-  -- simulator has no instruction-cache model at all, so the address is
-  -- never read from or written to memory -- a documented no-op that falls
-  -- through to `pc + 4` via `mkNext`, touching no state at all (not even a
-  -- memory read).
+  -- `synci` (MD00086 Vol II-A Rev 6.06, SYNCI, p.412-413): Operation
+  -- `vaddr ← GPR[base] + sign_extend(offset); SynchronizeCacheLines(vaddr)`.
+  -- The model has no caches (`Config1.IL = DL = 0`, `config1Value`) and
+  -- fetches instructions straight from `mem`, so every store is already
+  -- visible to instruction fetch and there is no cache line to synchronize:
+  -- the operation has no effect on architectural state. Its exceptions are
+  -- TLB, Cache Error and an implementation-dependent AdEL for kernel
+  -- addresses ("It is implementation dependent whether such an exception does
+  -- occur", p.412); the model has no TLB or cache and raises none (pin).
   | .synci rs imm =>
     let _addr := readReg s (regIdx rs) + signExt16 imm
     mkNext s s
@@ -746,7 +716,7 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   -- load/store pair (MD00086 Rev 2.50 §3.2, Table 3-4; `docs/spec/
   -- MIPS-COVERAGE-GAPS.md` §3.6). Unlike `lw`/`sw`, `addr` has no alignment
   -- requirement -- `readMemByte`/`writeMemByte` are already total, so none
-  -- of these four cases can halt. `off = addr.toNat % 4` selects how many
+  -- of these four cases can fault. `off = addr.toNat % 4` selects how many
   -- bytes straddle the word boundary; the `.getD` fallback on every
   -- `readMemByte`/`writeMemByte` result is never actually exercised (those
   -- helpers always return `some`), it just discharges the `Option` they
@@ -850,27 +820,27 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   | .beq rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bne rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .blez rs imm =>
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) ≤ 0 then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bgtz rs imm =>
     let pcNext := s.pc + 4#32
     if 0 < asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   -- REGIMM zero-comparison branches (opcode 0x01; MD00086 Rev 2.50 §3.2,
   -- Table 3-2). `bltz`/`bgez` are plain conditional branches, same shape as
   -- `blez`/`bgtz` above. `bltzal`/`bgezal` additionally link `$ra` to
@@ -881,29 +851,29 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   | .bltz rs imm =>
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) < 0 then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bgez rs imm =>
     let pcNext := s.pc + 4#32
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bltzal rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if asSigned (readReg s (regIdx rs)) < 0 then
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bgezal rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   -- "Branch likely" family (deprecated in MIPS32, removed in Release 6 --
   -- MD00086 Rev 2.50 Table 3-10). **Taken**: exactly like the non-likely
   -- counterpart (delay slot executes, then the target). **Not taken**: the
@@ -914,57 +884,56 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   | .beql rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
   | .bnel rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .blezl rs imm =>
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) ≤ 0 then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
   | .bgtzl rs imm =>
     let pcNext := s.pc + 4#32
     if 0 < asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
   | .bltzl rs imm =>
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) < 0 then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
   | .bgezl rs imm =>
     let pcNext := s.pc + 4#32
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
   | .bltzall rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if asSigned (readReg s (regIdx rs)) < 0 then
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s' with pc := s.pc + 8#32 }
+      { s' with pc := s.pc + 8#32 }
   | .bgezall rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
-      StepResult.next { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s' with pc := s.pc + 8#32 }
+      { s' with pc := s.pc + 8#32 }
   | .j target =>
     let pcNext := s.pc + 4#32
-    StepResult.next
-      { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
+    { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
   | .jal target =>
     -- `$ra` links to `pc + 8` — past the delay slot — not `pcNext` (`pc + 4`):
     -- real MIPS32's `jal` link value is the address of the instruction
@@ -973,8 +942,7 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
     let pcNext := s.pc + 4#32
     let linkVal := pcNext + 4#32
     let s' := writeReg s 31 linkVal
-    StepResult.next
-      { s' with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
+    { s' with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
   -- Register-indirect jump/call (real MIPS32 `jr`/`jalr`, MD00086 §3.2):
   -- same one-instruction delay-slot scheduling as `j`/`jal` above, but the
   -- target is the raw 32-bit value read from `$rs` instead of composed from
@@ -984,7 +952,7 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   -- `EPC = BadVAddr =` that target -- as the architecture specifies.
   | .jr rs =>
     let pcNext := s.pc + 4#32
-    StepResult.next { s with pc := pcNext, pendingBranch := some (readReg s (regIdx rs)) }
+    { s with pc := pcNext, pendingBranch := some (readReg s (regIdx rs)) }
   | .jalr rs rd =>
     -- `$rd` links to `pc + 8` — past the delay slot — the same `jal` link-value
     -- convention as above. The link target is read before `$rd` is written,
@@ -993,7 +961,7 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
     let linkVal := pcNext + 4#32
     let target := readReg s (regIdx rs)
     let s' := writeReg s (regIdx rd) linkVal
-    StepResult.next { s' with pc := pcNext, pendingBranch := some target }
+    { s' with pc := pcNext, pendingBranch := some target }
   -- Coprocessor 1 (FPU). Every arm below is reached only with
   -- `Status.CU1 = 1` (the `usesCop1` check above).
   -- Raw moves between GPRs and FPRs: no conversion, FCSR untouched.
@@ -1210,47 +1178,34 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   | .bc1f cc imm =>
     let pcNext := s.pc + 4#32
     if readFcc s cc then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .bc1t cc imm =>
     let pcNext := s.pc + 4#32
     if readFcc s cc then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
   | .bc1fl cc imm =>
     let pcNext := s.pc + 4#32
     if readFcc s cc then
-      StepResult.next { s with pc := s.pc + 8#32 }
+      { s with pc := s.pc + 8#32 }
     else
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .bc1tl cc imm =>
     let pcNext := s.pc + 4#32
     if readFcc s cc then
-      StepResult.next { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
+      { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      StepResult.next { s with pc := s.pc + 8#32 }
-  -- `syscall`. Architecturally this always raises the Syscall exception
-  -- (ExcCode 8). The model pins an explicit **environment-call convention**
-  -- (MARS/SPIM service numbers, SPEC-NOTES §5/§9): when `$v0` is 1 (print
-  -- int), 4 (print string), 10 (exit) or 11 (print char) the model performs
-  -- the service itself, as if an operating system had handled the exception
-  -- and returned; `exit` halts the machine. Any other `$v0` raises the real
-  -- Syscall exception.
-  | .syscall _ =>
-    match (readReg s 2).toNat with
-    | 1 =>
-      let n := asSigned (readReg s 4)
-      mkNext s { s with out := s.out ++ toString n }
-    | 4 =>
-      let str := readCString s (readReg s 4) printStringFuel
-      mkNext s { s with out := s.out ++ str }
-    | 10 => StepResult.halt .exit
-    | 11 =>
-      let c := Char.ofNat ((readReg s 4 &&& 0xff#32).toNat)
-      mkNext s { s with out := s.out ++ String.singleton c }
-    | _ => takeException s excCodeSys
+      { s with pc := s.pc + 8#32 }
+  -- `syscall`: "A system call exception occurs, immediately and
+  -- unconditionally transferring control to the exception handler";
+  -- Operation: `SignalException(SystemCall)` (MD00086 Vol II-A Rev 6.06,
+  -- SYSCALL, p.415). The MARS-style print/exit services are not the
+  -- processor's: the hosted run (`Semantics/Env.lean`) performs them *instead
+  -- of* stepping when it sees a `syscall` selecting one.
+  | .syscall _ => takeException s excCodeSys
   -- Trap-on-condition (coprocessor-0 exception model, real MIPS32 ISA; see
   -- `takeException` above and `docs/spec/INSTRUCTION-REF.md`). Trap-not-taken
   -- behaves like an ordinary instruction: `mkNext s` falls through to
@@ -1348,85 +1303,80 @@ def execBody (s : State) (instr : Instruction) : StepResult :=
   --   else                   PC ← EPC;      Status.EXL ← 0
   --   LLbit ← 0
   -- It has no delay slot: `pc` is set directly. (`eret` *in* a delay slot
-  -- never reaches this arm -- `isBranchLike` halts it above.)
+  -- never reaches this arm: `execInstr` raises Reserved Instruction for it.)
   | .eret =>
     if s.cp0Status &&& statusErlMask != 0#32 then
-      StepResult.next
-        { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
+      { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
     else
-      StepResult.next
-        { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }
-  -- `wait`: real hardware halts the pipeline until an interrupt arrives;
-  -- this simulator has no interrupt/timer model at all, so the only
-  -- sensible behavior is a documented no-op that falls through to `pc + 4`
-  -- via `mkNext`, the same as any other non-control-flow instruction.
+      { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }
+  -- `wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442-443): "The WAIT instruction
+  -- performs an implementation-dependent operation, involving a lower power
+  -- mode"; "The pipeline is restarted when an external event, such as an
+  -- interrupt or external request occurs, and execution continues with the
+  -- instruction following the WAIT instruction". The pre-Release-6 Operation
+  -- is "I: Enter implementation dependent lower power mode / I+1: Potential
+  -- interrupt taken here". The model has no interrupts and no power modes; it
+  -- pins the restart event as immediate, so the only architectural effect is
+  -- the one the manual states for the restart without an enabled interrupt:
+  -- `PC ← PC + 4` (p.443, "continue execution at instruction after wait").
   | .wait _ => mkNext s s
 
 /-- Execute the already-fetched, already-decoded instruction `instr` in
 state `s`.
 
 First check: if `s` is in a delay slot (`s.pendingBranch = some _`) and
-`instr` is a control-transfer instruction (`isBranchLike`), halt with
-`HaltReason.branchInDelaySlot` (UNPREDICTABLE in the architecture). (The
-test is written `isBranchLike instr && …` in that order so that it reduces
+`instr` is a control-transfer instruction (`isBranchLike`), raise Reserved
+Instruction. **Pin.** For a pre-Release-6 processor the manual makes this
+UNPREDICTABLE ("Pre-Release 6: Processor operation is UNPREDICTABLE if a
+control transfer instruction (CTI) is placed in the delay slot of a branch or
+jump", MD00086 Vol II-A Rev 6.06, BEQ, p.72; MD00082 Vol I-A Rev 6.01 §5.3.2.1,
+p.62) or UNDEFINED (`eret`: ERET, p.177; `wait`: WAIT, p.442), and
+"UNPREDICTABLE operations may cause arbitrary exceptions" while they "must not
+halt or hang the processor" (MD00086 §1.2.1, p.3-4; UNDEFINED operations "must
+not cause the processor to hang", §1.2.2, p.4). Reserved Instruction is also
+exactly what Release 6 requires here ("implementations are required to signal
+a Reserved Instruction exception", MD00082 §5.3.2.1, p.62). The exception is
+taken in the delay slot: `EPC` = the branch, `Cause.BD = 1` (`exceptionEntry`).
+(The test is written `isBranchLike instr && …` in that order so that it reduces
 to `false` by computation for any non-branch instruction, whatever `s` is.)
 
 Second check: a coprocessor-1 instruction (`usesCop1`) with `Status.CU1 = 0`
 raises Coprocessor Unusable and does nothing else.
 
 Otherwise the instruction's effect is `execBody s instr`. -/
-def execInstr (s : State) (instr : Instruction) : StepResult :=
+def execInstr (s : State) (instr : Instruction) : State :=
   if isBranchLike instr && s.pendingBranch.isSome then
-    StepResult.halt .branchInDelaySlot
+    takeException s excCodeRI
   else if usesCop1 instr && !cu1Enabled s then
     takeCoprocessorUnusable s
   else execBody s instr
 
-/-- Execute a single instruction: fetch at `s.pc`, decode, execute.
+/-- One instruction time: fetch the word at `s.pc` from memory, decode, execute.
 
-* Misaligned `pc`: Address Error (AdEL) with `BadVAddr = pc`.
-* Aligned `pc` holding no instruction in `p`: a halt. If the machine is at
-  the exception vector with `Status.EXL = 1` (`atUnhandledVector`) the halt
-  is `unhandledException ExcCode EPC BadVAddr` -- the model-level convention
-  for "an exception was taken and no handler is installed"; otherwise it is
-  `noInstruction pc`.
+* Fetch is `readMemWord s s.pc`, a big-endian word read from `State.mem`; it fails only for a
+  misaligned `pc`, which raises Address Error (AdEL) with `BadVAddr = pc`.
 * A word that does not decode: Reserved Instruction — except that a word
   in coprocessor 1's encoding space (`isCop1Word`) raises Coprocessor
   Unusable (`CE = 1`) when `Status.CU1 = 0`, and a word in coprocessor 2's
   (`isCop2Word`) always raises Coprocessor Unusable (`CE = 2`): the model has
   no coprocessor 2 and `Status.CU2` reads 0.
-* Otherwise `execInstr`. -/
-def step (p : Program) (s : State) : StepResult :=
-  match fetchWord p s.pc with
-  | none =>
-    if s.pc.toNat % 4 ≠ 0 then takeAddressException s excCodeAdEL s.pc
-    else if atUnhandledVector s then
-      StepResult.halt (.unhandledException (causeExcCode s) s.cp0Epc s.cp0BadVAddr)
-    else StepResult.halt (.noInstruction s.pc)
+* Otherwise `execInstr`.
+
+There is no halting case: the result is always the next architectural state. -/
+def step (s : State) : State :=
+  match readMemWord s s.pc with
+  | none => takeAddressException s excCodeAdEL s.pc
   | some w =>
     match decode w with
     | none =>
       if isCop1Word w && !cu1Enabled s then takeCoprocessorUnusable s
-      else if isCop2Word w then StepResult.next (exceptionEntry s excCodeCpU 2#32)
+      else if isCop2Word w then exceptionEntry s excCodeCpU 2#32
       else takeException s excCodeRI
     | some instr => execInstr s instr
 
-/-- Outcome of running a bounded number of steps: either the program halted
-(carrying the reason, the final state, and how many steps were taken
-including the halting one), or the step budget was exhausted first. -/
-inductive RunResult where
-  | halted (r : HaltReason) (s : State) (steps : Nat)
-  | limitReached (s : State) (steps : Nat)
-
-/-- `step` iterated: run from `s₀` until `step` halts or `maxSteps` steps have
-been taken. Nothing else happens here -- every piece of instruction
-semantics, including delay slots, branch-likely nullification and exception
-entry, is in `step`. Total by structural recursion on the fuel. -/
-def run (p : Program) (s₀ : State) (maxSteps : Nat) : RunResult :=
-  let rec go : Nat → State → Nat → RunResult
-    | 0, s, steps => .limitReached s steps
-    | fuel + 1, s, steps =>
-      match step p s with
-      | .halt r => .halted r s (steps + 1)
-      | .next s' => go fuel s' (steps + 1)
-  go maxSteps s₀ 0
+/-- The bare machine run: `step` iterated `n` times from `s`. It knows nothing about programs,
+services or halting (those are `Semantics/Env.lean`'s `runHosted`). Total by structural
+recursion on `n`. -/
+def run (s : State) : Nat → State
+  | 0 => s
+  | n + 1 => run (step s) n

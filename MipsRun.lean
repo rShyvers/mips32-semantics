@@ -5,6 +5,7 @@ import Semantics.State
 import Semantics.Instruction
 import Semantics.Asm
 import Semantics.Step
+import Semantics.Env
 
 /-!
 # MipsRun — thin "assemble and run one `.asm` program" executable
@@ -12,7 +13,7 @@ import Semantics.Step
 Issue #1: the VibeCheck demo (`rShyvers/VibeCheck`) lets a user paste MIPS
 assembly into a web page; a small server there shells out to this binary and
 renders its output. Everything this needs already exists as pure functions
-(`Asm.assemble`, `initialState`, `Step.run`) — this file is only the CLI/IO
+(`Asm.assemble`, `Env.load`, `Env.runHosted`) — this file is only the CLI/IO
 wrapper and JSON emission around them, in `DiffHarness.lean`'s style of
 composing strings directly (no external JSON-library dependency; none is
 present in `lake-manifest.json`'s packages to reuse).
@@ -20,9 +21,15 @@ present in `lake-manifest.json`'s packages to reuse).
 ## CLI
 
 ```
-MipsRun [--max-steps N] [path.asm]
+MipsRun [--max-steps N] [--bare] [path.asm]
 ```
-`--max-steps N` bounds the run (default 1000000). Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
+`--max-steps N` bounds the run (default 1000000). The program is loaded (`Env.load`) and run
+*hosted* (`Env.runHosted`): the MARS-style `syscall` services 1/4/10/11 are performed by the
+environment, and the run stops by the environment's conventions (exit, an exception vector the
+image does not cover, `pc` outside the image). `--bare` turns the services off: every
+instruction, `syscall` included, is executed by the processor (`step`), so a `syscall` is the
+System Call exception; the stopping conventions still apply (they are how this observer decides
+the run is over; the processor itself never halts). Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
 one JSON object to stdout and nothing else. Exit codes:
 - `0` — assembled and ran to completion or to the step limit (a *program*
   runtime error, e.g. an illegal instruction, is reported as data in the
@@ -31,42 +38,13 @@ one JSON object to stdout and nothing else. Exit codes:
 - `2` — usage/IO error (unreadable file, etc.) — no JSON is printed (there is
   nothing to report: we never even got a `.asm` to try).
 
-## `.data` materialization (issue #12)
+## Loading (issue #12)
 
-`Asm.assemble` places `.data` segment words into the same `Program` map as
-`.text` (word-addressed); `run`'s `lw`/`lb`/`sh`/etc. instructions read from
-`State.mem` instead, which `initialState` always starts empty. Without a
-materialization step, a submitted program that loads from `.data` (e.g.
-`la $a0, msg` then `syscall 4` to print a string) would see all-zero memory
-at that address rather than the declared bytes — this was flagged and
-deliberately left unfixed as the original scope of this file (see
-issue #1), and is now fixed per issue #12: `materializeSpec` below (copied
-from `DiffHarness.lean`'s `materialize`, not imported, since `DiffHarness`
-and this file each define their own `main` and Lean can't combine two `main`
-definitions into one import graph — see `lakefile.toml`'s `defaultTargets`
-note) is run once, right after `assemble` and before `run`, exactly the way
-`DiffHarness` already does on every one of its 12/12 MARS-agreement corpus
-programs — so this is reusing an already-proven-correct code path, not new
-logic.
+`Asm.assemble` returns the whole image (text, `.data`, `.ktext`, `.kdata`) as one `Program`; the
+loader `Env.load` writes all of it into `State.mem`, from which the processor fetches
+instructions and loads data. (This replaces the former `materializeSpec` copy, which had the same
+byte layout.)
 -/
-
-/-- Copies every `.data` word `Asm.assemble` placed in `Program` into
-`State.mem`, one byte at a time, big-endian (matching `readMemWord`/
-`writeMemWord`'s convention elsewhere in this project). Byte-for-byte
-identical to `DiffHarness.lean`'s `materialize` (duplicated rather than
-imported — see the module docstring above for why); run once before `run`
-so `.data`-based programs (e.g. `la $a0, msg` + `syscall 4`) see the bytes
-they declared instead of zeroed memory. -/
-def materializeSpec (p : Program) (s0 : State) : State :=
-  p.fold (fun (acc : State) (addr word : W32) =>
-    let b0 : UInt8 := ((word >>> 24) &&& 0xff#32).toNat.toUInt8
-    let b1 : UInt8 := ((word >>> 16) &&& 0xff#32).toNat.toUInt8
-    let b2 : UInt8 := ((word >>> 8) &&& 0xff#32).toNat.toUInt8
-    let b3 : UInt8 := (word &&& 0xff#32).toNat.toUInt8
-    { acc with
-        mem := (((acc.mem.insert addr b0).insert (addr + 1#32) b1).insert
-                  (addr + 2#32) b2).insert (addr + 3#32) b3 })
-    s0
 
 /-- Convert a word to its full-width (zero-padded), lowercase hex digits,
 without the `0x` prefix. Used for `illegal_instruction`/`address_error`
@@ -154,9 +132,12 @@ def excCodeName (code : W32) : String :=
   `reserved_instruction`, `syscall`, `breakpoint`, `trap`, …). Address errors
   (`address_error_load`/`address_error_store`) append
   `:badvaddr=0x<BadVAddr>`.
-* `no_instruction:0x<pc>` — control reached an aligned address holding no
-  instruction (ran off the program).
-* `branch_in_delay_slot` — a branch, jump or `eret` in a delay slot. -/
+* `no_instruction:0x<pc>` — control reached an aligned address outside the
+  loaded image (ran off the program).
+
+(The former `branch_in_delay_slot` no longer occurs: a control transfer in a
+delay slot is now the Reserved Instruction exception, reported as
+`unhandled_exception:reserved_instruction:…` when no handler is loaded.) -/
 def renderHaltReason (r : HaltReason) : String :=
   match r with
   | .exit => "exit"
@@ -165,7 +146,6 @@ def renderHaltReason (r : HaltReason) : String :=
     if code == excCodeAdEL || code == excCodeAdES then s!"{base}:badvaddr=0x{toHexDigits badVAddr}"
     else base
   | .noInstruction pc => s!"no_instruction:0x{toHexDigits pc}"
-  | .branchInDelaySlot => "branch_in_delay_slot"
 
 /-- Raw FCSR as the model holds it (`State.fcsr`). `scripts/oracle.py` compares
 exactly the bits in `fcsrMask` and nothing else. -/
@@ -191,8 +171,8 @@ def imageJson (p : Program) : String :=
   jsonPairs (p.toArray.map (fun (a, w) => (a.toNat, w.toNat)))
 
 /-- Every nonzero aligned memory word of the final state, `[addr, word]`,
-sorted. (Includes the materialised program image, since `materializeSpec`
-copies it into `State.mem`.) -/
+sorted. (Includes the loaded program image, which `Env.load` writes into
+`State.mem`, and any store the program made to it.) -/
 def memoryJson (s : State) : String :=
   let addrs : Std.HashMap Nat Unit :=
     s.mem.fold (fun acc a _ => acc.insert (a.toNat / 4 * 4) ()) {}
@@ -201,7 +181,7 @@ def memoryJson (s : State) : String :=
     if w == 0#32 then acc else acc.push (a, w.toNat)) #[]
   jsonPairs ws
 
-/-- The registers an `initialState`-faithful loader needs, as JSON. Emitted
+/-- The registers a loader faithful to `Env.hostedStart` needs, as JSON. Emitted
 for the *initial* state so that other executors (QEMU harness) are
 data-driven from this binary rather than hard-coding its conventions. -/
 def stateJson (s : State) : String :=
@@ -222,29 +202,29 @@ def stateJson (s : State) : String :=
   "}"
 
 /-- Structured halt reason (`halt` field). -/
-def haltJson (r : Option HaltReason) (s : State) : String :=
+def haltJson (r : Option HaltReason) : String :=
   match r with
   | none => "{\"kind\": \"limit\"}"
   | some .exit => "{\"kind\": \"exit\"}"
   | some (.unhandledException code epc bad) =>
     s!"\{\"kind\": \"unhandled_exception\", \"code\": {code.toNat}, \"epc\": {epc.toNat}, \"badvaddr\": {bad.toNat}}"
   | some (.noInstruction pc) => s!"\{\"kind\": \"no_instruction\", \"pc\": {pc.toNat}}"
-  | some .branchInDelaySlot => s!"\{\"kind\": \"branch_in_delay_slot\", \"pc\": {s.pc.toNat}}"
 
 /-- The full success-path JSON object (`assembled: true`), for either a
-`halted` or `limitReached` `RunResult`. The first block of fields is the
+`halted` or `limitReached` `HostedResult`. The first block of fields is the
 original contract (unchanged); the second block is the oracle extension. -/
-def renderRunResult (prog : Program) (init : State) (r : RunResult) : String :=
-  let (halted, haltReasonJson, haltObj, steps, s) :=
+def renderRunResult (prog : Program) (init : State) (r : HostedResult) : String :=
+  let (halted, haltReasonJson, haltObj, steps, h) :=
     match r with
-    | .halted reason s steps =>
-      (true, jsonStr (renderHaltReason reason), haltJson (some reason) s, steps, s)
-    | .limitReached s steps => (false, "null", haltJson none s, steps, s)
+    | .halted reason h steps =>
+      (true, jsonStr (renderHaltReason reason), haltJson (some reason), steps, h)
+    | .limitReached h steps => (false, "null", haltJson none, steps, h)
+  let s := h.machine
   "{\"assembled\": true, " ++
   s!"\"halted\": {halted}, " ++
   s!"\"halt_reason\": {haltReasonJson}, " ++
   s!"\"steps\": {steps}, " ++
-  s!"\"output\": {jsonStr s.out}, " ++
+  s!"\"output\": {jsonStr h.out}, " ++
   s!"\"registers\": {registersJson s}, " ++
   "\"error\": null, " ++
   -- oracle extension
@@ -273,10 +253,12 @@ def readSource (path : Option String) : IO (Except String String) := do
     | none => pure (Except.ok (← (← IO.getStdin).readToEnd))
   catch e => pure (Except.error (toString e))
 
-/-- Command line: `MipsRun [--max-steps N] [path.asm]`. -/
+/-- Command line: `MipsRun [--max-steps N] [--bare] [path.asm]`. -/
 structure Cli where
   path : Option String := none
   maxSteps : Nat := 1000000
+  /-- `--bare`: no hosted `syscall` services. -/
+  bare : Bool := false
 
 def parseArgs : List String → Except String Cli
   | [] => .ok {}
@@ -286,6 +268,10 @@ def parseArgs : List String → Except String Cli
     | none, _ => .error s!"--max-steps expects a number, got '{n}'"
     | _, .error e => .error e
   | ["--max-steps"] => .error "--max-steps expects a number"
+  | "--bare" :: rest =>
+    match parseArgs rest with
+    | .ok c => .ok { c with bare := true }
+    | .error e => .error e
   | p :: rest =>
     match parseArgs rest with
     | .ok c => .ok { c with path := some p }
@@ -307,9 +293,8 @@ def main (args : List String) : IO UInt32 := do
       IO.println (renderAsmFailure e)
       return 1
     | .ok prog =>
-      let init := materializeSpec prog (initialState textBase)
-      let result := run prog init cli.maxSteps
-      IO.println (renderRunResult prog (initialState textBase) result)
+      let result := runProgram prog cli.maxSteps (services := !cli.bare)
+      IO.println (renderRunResult prog hostedStart result)
       return 0
 
 -- ====================================================================
@@ -320,7 +305,7 @@ def main (args : List String) : IO UInt32 := do
 -- the same `assemble`/`run` pipeline `main` drives, covering the four
 -- cases the issue calls out: a clean exit with output, an assembly error,
 -- an illegal-instruction halt, and the step-limit-exhausted case. These
--- check the underlying `RunResult`/`AsmResult` classification (what
+-- check the underlying `HostedResult`/`AsmResult` classification (what
 -- `renderRunResult`/`renderAsmFailure` then render into JSON); the actual
 -- rendered JSON shape for each of these four cases was additionally
 -- eyeballed against the issue's example by running the built binary
@@ -340,18 +325,18 @@ private def cleanExitSrc : String :=
 "    li   $v0, 10\n" ++
 "    syscall\n"
 
-private def cleanExitResult : RunResult :=
+private def cleanExitResult : HostedResult :=
   match assemble cleanExitSrc with
-  | .ok prog => run prog (materializeSpec prog (initialState textBase)) 1000000
-  | .error _ => .limitReached (initialState textBase) 0 -- unreachable: assembles fine
+  | .ok prog => runProgram prog 1000000
+  | .error _ => .limitReached { machine := hostedStart } 0 -- unreachable: assembles fine
 
 #guard (match cleanExitResult with | .halted .exit _ _ => true | _ => false)
-#guard (match cleanExitResult with | .halted .exit s _ => s.out == "42" | _ => false)
+#guard (match cleanExitResult with | .halted .exit h _ => h.out == "42" | _ => false)
 
 /-- Regression test for issue #12: a `.data`-declared string, loaded via
 `la` + `syscall 4` (print string), must read the declared bytes rather
-than `initialState`'s all-zero memory. Before `materializeSpec` was wired
-in, this produced an empty/garbage `out` instead of `"hi"`. -/
+than all-zero memory: the loader writes the `.data` image (before issue #12
+this produced an empty/garbage output instead of `"hi"`). -/
 private def dataSegmentSrc : String :=
 ".data\n" ++
 "msg: .asciiz \"hi\"\n" ++
@@ -362,30 +347,30 @@ private def dataSegmentSrc : String :=
 "    li   $v0, 10\n" ++
 "    syscall\n"
 
-private def dataSegmentResult : RunResult :=
+private def dataSegmentResult : HostedResult :=
   match assemble dataSegmentSrc with
-  | .ok prog => run prog (materializeSpec prog (initialState textBase)) 1000000
-  | .error _ => .limitReached (initialState textBase) 0 -- unreachable: assembles fine
+  | .ok prog => runProgram prog 1000000
+  | .error _ => .limitReached { machine := hostedStart } 0 -- unreachable: assembles fine
 
-#guard (match dataSegmentResult with | .halted .exit s _ => s.out == "hi" | _ => false)
+#guard (match dataSegmentResult with | .halted .exit h _ => h.out == "hi" | _ => false)
 
 /-- Not MIPS at all — `assemble` must reject it with an error, not throw. -/
 private def notMipsSrc : String := "not mips at all"
 
 #guard (match assemble notMipsSrc with | .error _ => true | .ok _ => false)
 
-/-- A `syscall` whose `$v0` (99) is outside the environment-call convention
-raises the Syscall exception (ExcCode 8); with no handler installed the run
-halts with `unhandledException 8 …`. -/
+/-- A `syscall` whose `$v0` (99) selects no hosted service is executed by the
+processor: the System Call exception (ExcCode 8); with no handler loaded the
+hosted run stops with `unhandledException 8 …`. -/
 private def illegalInstrSrc : String :=
 "main:\n" ++
 "    li   $v0, 99\n" ++
 "    syscall\n"
 
-private def illegalInstrResult : RunResult :=
+private def illegalInstrResult : HostedResult :=
   match assemble illegalInstrSrc with
-  | .ok prog => run prog (materializeSpec prog (initialState textBase)) 1000000
-  | .error _ => .limitReached (initialState textBase) 0 -- unreachable: assembles fine
+  | .ok prog => runProgram prog 1000000
+  | .error _ => .limitReached { machine := hostedStart } 0 -- unreachable: assembles fine
 
 #guard (match illegalInstrResult with | .halted (.unhandledException c _ _) _ _ => c == excCodeSys | _ => false)
 #guard renderHaltReason (.unhandledException 12#32 0x00400008#32 0#32)
@@ -402,10 +387,10 @@ Includes an explicit `nop` delay-slot instruction after the `j`: real MIPS32
 branches/jumps never transfer control immediately (SPEC-NOTES §9 item 1) --
 `j main`'s own step falls through to `pc + 4` and only *schedules* `main` as
 the target (`State.pendingBranch`), which is committed by whichever
-instruction retires next. Without a delay-slot instruction physically
-present at `pc + 4`, that next fetch has nothing to read (this program's
-only assembled word is the `j` itself) and the run halts on `noInstruction`
-after 2 steps instead of ever reaching the step limit. The `nop` fills that
+instruction retires next. Without a delay-slot instruction in the loaded
+image at `pc + 4` (this program's only assembled word is the `j` itself),
+the hosted run stops there with `noInstruction` instead of ever reaching
+the step limit. The `nop` fills that
 slot so the loop is genuinely infinite (2 steps per iteration: the `j`, then
 its delay slot, which is where the jump actually lands), matching this
 test's intent of exercising the step-limit/`"halted": false` path -- it
@@ -415,11 +400,22 @@ private def infiniteLoopSrc : String :=
 "    j main\n" ++
 "    nop\n"
 
-private def infiniteLoopResult : RunResult :=
+private def infiniteLoopResult : HostedResult :=
   match assemble infiniteLoopSrc with
-  | .ok prog => run prog (materializeSpec prog (initialState textBase)) 50
-  | .error _ => .halted .exit (initialState textBase) 0 -- unreachable: assembles fine
+  | .ok prog => runProgram prog 50
+  | .error _ => .halted .exit { machine := hostedStart } 0 -- unreachable: assembles fine
 
 #guard (match infiniteLoopResult with | .limitReached _ steps => steps == 50 | _ => false)
 
 end GoldenTests
+
+/-- `--bare`: the same `syscall 1` is the System Call exception (no hosted services); with no
+handler loaded the observer stops with `unhandledException 8`, and nothing is printed. -/
+private def bareResult : HostedResult :=
+  match assemble cleanExitSrc with
+  | .ok prog => runProgram prog 1000000 (services := false)
+  | .error _ => .limitReached { machine := hostedStart } 0 -- unreachable: assembles fine
+
+#guard (match bareResult with
+        | .halted (.unhandledException c _ _) h _ => c == excCodeSys && h.out == ""
+        | _ => false)

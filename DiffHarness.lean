@@ -5,6 +5,7 @@ import Semantics.State
 import Semantics.Instruction
 import Semantics.Asm
 import Semantics.Step
+import Semantics.Env
 
 /-!
 # DiffHarness — differential testing executable (Wave 3, DESIGN.md §2/§6)
@@ -60,57 +61,37 @@ every MARS runtime-exception report begins with (`ProcessingException`'s
 
 open IO.Process (output SpawnArgs Output)
 
-/-- Convert an assembled `Program` (word-addressable: both `.text` and
-`.data` entries, per `Asm.lean`) into byte-addressable `State.mem` entries,
-using the **same big-endian convention `State.lean`'s `readMemWord`/
-`writeMemWord` already use** (`addr` = most-significant byte). This is pure
-plumbing — `Step.run` only ever fetches instructions from the `Program`
-directly (`fetchWord`), but `lw`/`lb`/`sh`/etc. all read from `State.mem`,
-which starts empty in `initialState`. Without this step, any corpus program
-that loads from `.data` would see all-zero memory. -/
-def materialize (p : Program) (s0 : State) : State :=
-  p.fold (fun (acc : State) (addr word : W32) =>
-    let b0 : UInt8 := ((word >>> 24) &&& 0xff#32).toNat.toUInt8
-    let b1 : UInt8 := ((word >>> 16) &&& 0xff#32).toNat.toUInt8
-    let b2 : UInt8 := ((word >>> 8) &&& 0xff#32).toNat.toUInt8
-    let b3 : UInt8 := (word &&& 0xff#32).toNat.toUInt8
-    { acc with
-        mem := (((acc.mem.insert addr b0).insert (addr + 1#32) b1).insert
-                  (addr + 2#32) b2).insert (addr + 3#32) b3 })
-    s0
-
 /-- Classification of our simulator's outcome for one corpus program. -/
 inductive OurOutcome where
   /-- `assemble` failed: can't even build a `Program`. -/
   | asmFailed (msg : String)
   /-- Halted via `syscall 10` (normal exit). Carries the accumulated output. -/
   | clean (out : String)
-  /-- A `syscall` whose `$v0` is outside the environment-call convention
-  (1/4/10/11) raised the Syscall exception (ExcCode 8) and no handler is
-  installed. -/
+  /-- A `syscall` whose `$v0` selects no hosted service (1/4/10/11) was
+  executed by the processor (System Call exception, ExcCode 8) and no handler
+  is loaded. -/
   | unsupportedSyscall (out : String)
   /-- Halted for any other reason: an unhandled exception other than Syscall
   (reserved instruction, address error, integer overflow, breakpoint, trap),
-  running off the program, or a branch in a delay slot — a runtime error. -/
+  running off the program — a runtime error. -/
   | error (out : String) (reason : String)
   /-- Ran out of the fuel budget without halting (a bug, or a genuinely
   non-terminating program — neither of which this corpus should produce). -/
   | limitReached (out : String)
 
-/-- Run one assembled program through our `Step.run`, `fuel` steps max. -/
+/-- Load one assembled program (`Env.load`) and run it hosted (`Env.runHosted`, the MARS-style
+services on), `fuel` steps max. -/
 def runOurs (src : String) (fuel : Nat) : OurOutcome :=
   match assemble src with
   | .error e => .asmFailed (toString (repr e))
   | .ok prog =>
-    let s0 := materialize prog (initialState textBase)
-    match run prog s0 fuel with
-    | .halted .exit s _ => .clean s.out
-    | .halted (.unhandledException code epc bad) s _ =>
-      if code == excCodeSys then .unsupportedSyscall s.out
-      else .error s.out s!"unhandledException code={code.toNat} epc={epc} badVAddr={bad}"
-    | .halted (.noInstruction pc) s _ => .error s.out s!"noInstruction {pc}"
-    | .halted .branchInDelaySlot s _ => .error s.out "branchInDelaySlot"
-    | .limitReached s _ => .limitReached s.out
+    match runProgram prog fuel with
+    | .halted .exit h _ => .clean h.out
+    | .halted (.unhandledException code epc bad) h _ =>
+      if code == excCodeSys then .unsupportedSyscall h.out
+      else .error h.out s!"unhandledException code={code.toNat} epc={epc} badVAddr={bad}"
+    | .halted (.noInstruction pc) h _ => .error h.out s!"noInstruction {pc}"
+    | .limitReached h _ => .limitReached h.out
 
 /-- Strip the version banner, **and any assembler-diagnostic blocks that
 follow it**, from raw MARS stdout.

@@ -4,14 +4,21 @@ import Semantics.Word
 /-!
 # Types — core simulator datatypes
 
-Foundation module (DESIGN.md §3): `Program`, `State`, `HaltReason`, `StepResult`,
-instruction-word constructors, and environment constants. Depends only on `Word`.
+Foundation module (DESIGN.md §3): `Program` (assembler output), `State` (the processor),
+instruction-word constructors, and constants. Depends only on `Word`.
 -/
 
-/-- A program is a sparse map from program-counter words to raw instruction words. -/
+/-- An assembled program image: a sparse map from word addresses to 32-bit words (text, data,
+`.ktext`, `.kdata`). This is **not** processor state: it is what the assembler (`Asm.lean`)
+produces and what the loader (`Semantics/Env.lean`, `load`) writes into `State.mem` before
+execution starts. The processor fetches instructions from `State.mem` only. -/
 abbrev Program := Std.HashMap W32 W32
 
-/-- The full machine state of the simulator between steps. -/
+/-- The architectural state of the modeled processor between instructions. It is
+self-contained: instructions are fetched from `mem` (`Step.lean`, `step`), so a store to the
+instruction stream changes what is executed (MD00086 Vol II-A Rev 6.06, SYNCI, p.412). Anything
+that belongs to the environment rather than to the processor (the loaded image, the output of the
+hosted services, halting) lives in `Semantics/Env.lean`. -/
 structure State where
   /-- Program counter. -/
   pc : W32
@@ -39,10 +46,10 @@ structure State where
   `FIR.Has2008 = 0`) read as zero and ignore writes. `FCCR`/`FEXR`/`FENR` are
   views of this one register (`cfc1`/`ctc1`). -/
   fcsr : W32
-  /-- Byte-addressable, sparse memory. -/
+  /-- Byte-addressable, sparse memory; instructions are fetched from here too. A byte that was
+  never written reads as `0` (`State.lean`): a pin of what the model's memory system returns for
+  locations nothing was loaded into, which the architecture leaves to the system. -/
   mem : Std.HashMap W32 UInt8
-  /-- Accumulated syscall output. -/
-  out : String
   /-- The delay-slot marker. `some t` means **the instruction at `pc` is in a
   branch delay slot**, and control goes to `t` once it has executed; `none`
   means it is not in a delay slot.
@@ -53,8 +60,9 @@ structure State where
   step then (a) executes the delay-slot instruction and commits `t` to `pc`
   (`Step.lean`'s `advance`), or (b) if that instruction raises an exception,
   abandons `t` and records `EPC = pc - 4`, `Cause.BD = 1`
-  (`exceptionEntry`), or (c) if that instruction is itself a branch, jump
-  or `eret`, halts with `HaltReason.branchInDelaySlot`.
+  (`exceptionEntry`), or (c) if that instruction is itself a control
+  transfer (`Step.lean`'s `isBranchLike`), raises Reserved Instruction
+  (UNPREDICTABLE / UNDEFINED in the architecture; the pin is in `execInstr`).
 
   Representing "not taken" as a pending fall-through target (rather than a
   separate Boolean) keeps one field for one fact: `pendingBranch.isSome` *is*
@@ -131,42 +139,6 @@ structure State where
   exception vector base when `Status.BEV = 0`. Reset value `0x8000_0000`. -/
   cp0EBase : W32 := 0x80000000#32
 
-/-- Reasons the simulator halts instead of producing a next state.
-
-Architectural exceptions (Reserved Instruction, Address Error, Integer
-Overflow, Syscall, Breakpoint, Trap) are **not** halts: they are ordinary
-state transitions to the exception vector (`Step.lean`'s `exceptionEntry`).
-The halts below are model-level conventions for where the modeled machine
-stops. -/
-inductive HaltReason where
-  /-- Clean exit via the environment-call convention's service 10
-  (`syscall` with `$v0 = 10`). -/
-  | exit
-  /-- An exception was taken and there is no handler: the fetch at the
-  exception vector found no instruction in the `Program` while
-  `Status.EXL = 1`. Carries the `Cause.ExcCode`, the `EPC` and the
-  `BadVAddr` register values at that point (`badVAddr` is meaningful only
-  for address errors, `code` 4 or 5). This is a model-level convention that
-  keeps the reason for an unhandled exception visible instead of reporting
-  a bare fetch failure at the vector address. -/
-  | unhandledException (code epc badVAddr : W32)
-  /-- The word-aligned `pc` holds no instruction in the `Program` (control
-  ran outside the program text) and the machine is not at the exception
-  vector with `EXL = 1`. A model boundary, not an architectural exception:
-  real memory always holds *some* word. -/
-  | noInstruction (pc : W32)
-  /-- A branch, jump or `eret` was fetched in a branch delay slot
-  (`State.pendingBranch = some _`). The architecture makes this
-  UNPREDICTABLE; `step` halts with this reason so the condition stays
-  diagnosable (SPEC-NOTES §9 item 1; INSTRUCTION-REF Global rule 3). -/
-  | branchInDelaySlot
-  deriving Repr, DecidableEq
-
-/-- Result of a single simulation step: either a new state, or a halt. -/
-inductive StepResult where
-  | next (s : State)
-  | halt (r : HaltReason)
-
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
 def field (n shift : Nat) (w : W32) : W32 :=
@@ -188,7 +160,7 @@ Layout: `target` in bits 25..0 (opcode is left as 0; callers combine as needed).
 def mkJT (target : W32) : W32 :=
   field 26 0 target
 
-/-- Base address of the `.text` segment (MARS default configuration). -/
+/-- Base address of the `.text` segment (MARS default configuration; used by the loader). -/
 def textBase : W32 := 0x00400000
 
 /-- Initial value of `$sp` (MARS default configuration). -/

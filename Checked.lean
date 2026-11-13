@@ -17,6 +17,8 @@ import Semantics.FpOps
 import Semantics.FpOpsFacts
 import Semantics.FpCompareFacts
 import Semantics.Step
+-- The environment layer (loader, hosted run): not part of the architecture.
+import Semantics.Env
 -- All spec files (the index imports every `Semantics/Specs/*.lean`, including `DecodeSpec`).
 import Semantics.Specs.StepSpec
 -- The `lake comparator` solution module (one-line proofs of the statements in `Semantics/Statements.lean`).
@@ -34,3 +36,4 @@ import Semantics.Tests.StepMemoryTests
 import Semantics.Tests.StepControlTests
 import Semantics.Tests.StepExceptionTests
 import Semantics.Tests.StepFpTests
+import Semantics.Tests.EnvTests

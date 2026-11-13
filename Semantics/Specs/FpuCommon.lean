@@ -36,12 +36,12 @@ the `Mips.Fp` function applied to the operands. -/
 (`usesCop1`: every COP1/COP1X instruction, `lwc1`/`swc1`/`ldc1`/`sdc1`,
 `movf`/`movt`) executed with `Status.CU1 = 0` raises Coprocessor Unusable and
 does nothing else (MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
-theorem fp_coprocessor_unusable (p : Program) (s : State) (w : W32) (instr : Instruction)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some instr)
+theorem fp_coprocessor_unusable (s : State) (w : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (huses : usesCop1 instr = true)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
     (hcu : cu1Enabled s = false) :
-    step p s = takeCoprocessorUnusable s := by
+    step s = takeCoprocessorUnusable s := by
   have h1 : (isBranchLike instr && s.pendingBranch.isSome) = false := by
     rcases hnb with h | h <;> simp [h]
   unfold step; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
@@ -54,11 +54,12 @@ theorem fp_coprocessor_unusable (p : Program) (s : State) (w : W32) (instr : Ins
 exception vector — and **no FP register, no FCSR bit, no general register and
 no memory changes**. -/
 theorem takeCoprocessorUnusable_spec (s s' : State)
-    (h : takeCoprocessorUnusable s = StepResult.next s') :
+    (h : takeCoprocessorUnusable s = s') :
     causeExcCode s' = 11#32 ∧ s'.cp0Cause &&& causeCeMask = 0x10000000#32 ∧
       s'.fpRegs = s.fpRegs ∧ s'.fcsr = s.fcsr ∧ s'.regs = s.regs ∧ s'.mem = s.mem ∧
       s'.pc = exceptionVector s ∧ s'.cp0Status = s.cp0Status ||| statusExlMask := by
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   refine ⟨?_, ?_, rfl, rfl, rfl, rfl, rfl, rfl⟩
   · rw [exceptionEntry_excCode]; decide
@@ -71,12 +72,13 @@ exceptions with FCSR.Flags untouched (`fcsrTrapped`) — and **no FP register is
 written** (nor any general register or memory). -/
 theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
-    (h : fpCompletesS s fd r = StepResult.next s') :
+    (h : fpCompletesS s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
       s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s := by
   unfold fpCompletesS at h
   rw [ite_of_pos hen] at h
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   refine ⟨?_, rfl, rfl, rfl, rfl, rfl⟩
   rw [exceptionEntry_excCode]; decide
@@ -84,12 +86,13 @@ theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Fl
 /-- The FP trap, for a double result: neither register of the pair is written. -/
 theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
-    (h : fpCompletesD s fd r = StepResult.next s') :
+    (h : fpCompletesD s fd r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
       s'.regs = s.regs ∧ s'.mem = s.mem ∧ s'.pc = exceptionVector s := by
   unfold fpCompletesD at h
   rw [ite_of_pos hen] at h
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   refine ⟨?_, rfl, rfl, rfl, rfl, rfl⟩
   rw [exceptionEntry_excCode]; decide
@@ -97,12 +100,13 @@ theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Fl
 /-- The FP trap, for a compare: no condition code is written. -/
 theorem fpCompletesCmp_trap (s s' : State) (cc : W32) (r : Bool × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
-    (h : fpCompletesCmp s cc r = StepResult.next s') :
+    (h : fpCompletesCmp s cc r = s') :
     causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
       s'.pc = exceptionVector s := by
   unfold fpCompletesCmp at h
   rw [ite_of_pos hen] at h
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   refine ⟨?_, rfl, rfl, rfl⟩
   rw [exceptionEntry_excCode]; decide
@@ -113,12 +117,13 @@ the instruction completes: `FPR[fd]` holds exactly the result bits (given a
 this operation's exceptions, Flags accumulated), and `pc` advances. -/
 theorem fpCompletesS_ok (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = false) (hsize : s.fpRegs.size = 32)
-    (h : fpCompletesS s fd r = StepResult.next s') :
+    (h : fpCompletesS s fd r = s') :
     readFpReg s' (regIdx fd) = r.1 ∧ s'.fcsr = Mips.Fp.raiseFlags s.fcsr r.2 ∧
       s'.pc = s.pc + 4#32 ∧ s'.regs = s.regs := by
   unfold fpCompletesS at h
   rw [ite_of_neg (by simp [hen])] at h
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   refine ⟨?_, rfl, rfl, rfl⟩
   exact writeFpReg_reads_back s (regIdx fd) r.1 hsize
@@ -128,12 +133,13 @@ code `cc` becomes the comparison result and every other condition code keeps
 its value; no FP register changes. -/
 theorem fpCompletesCmp_ok (s s' : State) (cc : W32) (r : Bool × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = false)
-    (h : fpCompletesCmp s cc r = StepResult.next s') (cc' : Fin 8) :
+    (h : fpCompletesCmp s cc r = s') (cc' : Fin 8) :
     Mips.Fp.getCC s'.fcsr cc' = (if cc' = ccIdx cc then r.1 else Mips.Fp.getCC s.fcsr cc') ∧
       s'.fpRegs = s.fpRegs ∧ s'.pc = s.pc + 4#32 := by
   unfold fpCompletesCmp at h
   rw [ite_of_neg (by simp [hen])] at h
-  injection h with h
+  try unfold takeException at h
+  try unfold takeCoprocessorUnusable at h
   subst h
   exact ⟨Mips.Fp.getCC_setCC_raiseFlags _ _ _ _ _, rfl, rfl⟩
 
@@ -142,8 +148,7 @@ FCSR.Flags, the condition codes, the enables and the rounding mode alone
 (it clears FCSR.Cause). -/
 theorem fpCompletesS_exact (s : State) (fd : W32) (v : BitVec 32) :
     fpCompletesS s fd (v, Mips.Fp.Flags.none) =
-      StepResult.next
-        { s with fpRegs := s.fpRegs.set! (regIdx fd).val v,
+      { s with fpRegs := s.fpRegs.set! (regIdx fd).val v,
                  fcsr := Mips.Fp.raiseFlags s.fcsr Mips.Fp.Flags.none, pc := s.pc + 4#32 } := by
   unfold fpCompletesS
   rw [ite_of_neg (by simp [Mips.Fp.fpeEnabled_none])]

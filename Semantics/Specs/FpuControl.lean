@@ -23,11 +23,11 @@ set_option maxRecDepth 4000
 /-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25),
 FEXR (26), FENR (28), FCSR (31); any other number reads 0 (pin for UNPREDICTABLE)
 (MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
-theorem cfc1_spec_raw (p : Program) (s : State) (w rt fs : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
+theorem cfc1_spec_raw (s : State) (w rt fs : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
-      StepResult.next { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 } := by
+    step s =
+      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 } := by
   fp_step_spec
 
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
@@ -35,15 +35,15 @@ theorem cfc1_spec_raw (p : Program) (s : State) (w rt fs : W32)
 Floating Point exception is taken **with the register already written**. A register
 number the manual leaves UNPREDICTABLE is a no-op (pin)
 (MD00086 Vol II-A Rev 6.06, CTC1, p.149-151) -/
-theorem ctc1_spec_raw (p : Program) (s : State) (w rt fs : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
+theorem ctc1_spec_raw (s : State) (w rt fs : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
+    step s =
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none => StepResult.next { s with pc := s.pc + 4#32 }
+      | none => { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
-        else StepResult.next { s with fcsr := f, pc := s.pc + 4#32 } := by
+        else { s with fcsr := f, pc := s.pc + 4#32 } := by
   fp_step_spec
 
 /-- **FCSR round trip through `ctc1 $rt, $31` / `cfc1 $rt, $31`.** Writing `v`
@@ -60,25 +60,23 @@ theorem fcsr_ctc1_cfc1_roundtrip (fcsr v : W32) :
 /-- The round trip at the level of `step`: after `ctc1 $rt, $31` completes
 without a pending FP exception, the state's FCSR is `$rt` masked to the
 writable bits. -/
-theorem ctc1_fcsr_spec (p : Program) (s : State) (w rt : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.ctc1 rt 31#32))
+theorem ctc1_fcsr_spec (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt 31#32))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
     (hnt : Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = false) :
-    step p s =
-      StepResult.next
-        { s with fcsr := readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask, pc := s.pc + 4#32 } := by
-  rw [ctc1_spec_raw p s w rt 31#32 hfetch hdecode hpb hcu]
+    step s =
+      { s with fcsr := readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask, pc := s.pc + 4#32 } := by
+  rw [ctc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu]
   show (if Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = true
     then _ else _) = _
   rw [ite_of_neg (by simp [hnt])]
   rfl
 
 /-- … and `cfc1 $rt, $31` reads the FCSR back (its reserved bits as zero). -/
-theorem cfc1_fcsr_spec (p : Program) (s : State) (w rt : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.cfc1 rt 31#32))
+theorem cfc1_fcsr_spec (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt 31#32))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step p s =
-      StepResult.next
-        { (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)) with
+    step s =
+      { (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)) with
           pc := (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)).pc + 4#32 } :=
-  cfc1_spec_raw p s w rt 31#32 hfetch hdecode hpb hcu
+  cfc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu

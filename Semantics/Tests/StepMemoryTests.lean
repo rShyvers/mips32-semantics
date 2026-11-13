@@ -17,15 +17,15 @@ private def memTestState : State :=
                 |>.insert 0x10010006#32 0xff).insert 0x10010007#32 0x00 }
 
 -- lw: full big-endian word
-#guard nextRegEq (step (prog1 (.lw 8#32 9#32 4#32)) memTestState) 9 0x8001ff00#32
+#guard nextRegEq (hstep (prog1 (.lw 8#32 9#32 4#32)) memTestState) 9 0x8001ff00#32
 -- lb/lbu at the same address: sign-extend vs zero-extend a high-bit byte
-#guard nextRegEq (step (prog1 (.lb 8#32 9#32 4#32)) memTestState) 9 0xffffff80#32
-#guard nextRegEq (step (prog1 (.lbu 8#32 9#32 4#32)) memTestState) 9 0x00000080#32
+#guard nextRegEq (hstep (prog1 (.lb 8#32 9#32 4#32)) memTestState) 9 0xffffff80#32
+#guard nextRegEq (hstep (prog1 (.lbu 8#32 9#32 4#32)) memTestState) 9 0x00000080#32
 -- lh/lhu at offset 4 (0x8001) and offset 6 (0xff00)
-#guard nextRegEq (step (prog1 (.lh 8#32 9#32 4#32)) memTestState) 9 0xffff8001#32
-#guard nextRegEq (step (prog1 (.lhu 8#32 9#32 4#32)) memTestState) 9 0x00008001#32
-#guard nextRegEq (step (prog1 (.lh 8#32 9#32 6#32)) memTestState) 9 0xffffff00#32
-#guard nextRegEq (step (prog1 (.lhu 8#32 9#32 6#32)) memTestState) 9 0x0000ff00#32
+#guard nextRegEq (hstep (prog1 (.lh 8#32 9#32 4#32)) memTestState) 9 0xffff8001#32
+#guard nextRegEq (hstep (prog1 (.lhu 8#32 9#32 4#32)) memTestState) 9 0x00008001#32
+#guard nextRegEq (hstep (prog1 (.lh 8#32 9#32 6#32)) memTestState) 9 0xffffff00#32
+#guard nextRegEq (hstep (prog1 (.lhu 8#32 9#32 6#32)) memTestState) 9 0x0000ff00#32
 -- sw then read back
 #guard (stepState (prog1 (.sw 8#32 9#32 4#32)) (setRegs regs0 [(8, 0x10010000#32), (9, 0x12345678#32)])).bind
         (fun s' => readMemWord s' 0x10010004#32) = some 0x12345678#32
@@ -33,11 +33,11 @@ private def memTestState : State :=
 #guard (stepState (prog1 (.sh 8#32 9#32 4#32)) (setRegs regs0 [(8, 0x10010000#32), (9, 0xffff1234#32)])).bind
         (fun s' => readMemHalf s' 0x10010004#32) = some 0x1234#32
 -- misaligned lw/lh → AdEL, sw/sh → AdES (BadVAddr = the address); lb/lbu/sb never misalign
-#guard raisesAddr (step (prog1 (.lw 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
-#guard raisesAddr (step (prog1 (.sw 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
-#guard raisesAddr (step (prog1 (.lh 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
-#guard raisesAddr (step (prog1 (.sh 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
-#guard isNext (step (prog1 (.lb 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
+#guard raisesAddr (hstep (prog1 (.lw 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
+#guard raisesAddr (hstep (prog1 (.sw 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
+#guard raisesAddr (hstep (prog1 (.lh 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
+#guard raisesAddr (hstep (prog1 (.sh 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
+#guard isNext (hstep (prog1 (.lb 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
 -- effective address uses the sign-extended offset (SPEC-NOTES §9.3): a
 -- negative offset must subtract, not add as a huge positive number.
 #guard (stepState (prog1 (.sw 8#32 9#32 0xfffc#32)) (setRegs regs0 [(8, 0x10010010#32), (9, 0x2a#32)])).bind
@@ -49,11 +49,11 @@ private def memTestState : State :=
 
 
 -- `ll`: loads like `lw` and sets `llBit`.
-#guard nextRegEq (step (prog1 (.ll 8#32 9#32 4#32)) memTestState) 9 0x8001ff00#32
-#guard nextLlBitEq (step (prog1 (.ll 8#32 9#32 4#32)) memTestState) true
+#guard nextRegEq (hstep (prog1 (.ll 8#32 9#32 4#32)) memTestState) 9 0x8001ff00#32
+#guard nextLlBitEq (hstep (prog1 (.ll 8#32 9#32 4#32)) memTestState) true
 -- misaligned ll → AdEL, sc → AdES, same as lw/sw
-#guard raisesAddr (step (prog1 (.ll 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
-#guard raisesAddr (step (prog1 (.sc 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
+#guard raisesAddr (hstep (prog1 (.ll 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdEL 0x10010001#32
+#guard raisesAddr (hstep (prog1 (.sc 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)])) excCodeAdES 0x10010001#32
 
 -- `sc` right after a matching `ll` succeeds: writes 1 to `$rt` and the store
 -- commits.
@@ -114,31 +114,31 @@ private def unalignedTestState : State :=
                 |>.insert (unalignedBase + 7#32) 0x88 }
 
 -- `lwl`: addr % 4 == 0 loads the full word, exactly matching plain `lw`.
-#guard nextRegEq (step (prog1 (.lwl 8#32 9#32 0#32)) unalignedTestState) 9 0x11223344#32
-#guard nextRegEq (step (prog1 (.lw  8#32 9#32 0#32)) unalignedTestState) 9 0x11223344#32
+#guard nextRegEq (hstep (prog1 (.lwl 8#32 9#32 0#32)) unalignedTestState) 9 0x11223344#32
+#guard nextRegEq (hstep (prog1 (.lw  8#32 9#32 0#32)) unalignedTestState) 9 0x11223344#32
 -- `lwl`: the three misaligned offsets, `$rt`'s untouched low bytes coming
 -- from its prior value.
-#guard nextRegEq (step (prog1 (.lwl 8#32 9#32 1#32)) (setRegs unalignedTestState [(9, 0x000000ff#32)]))
+#guard nextRegEq (hstep (prog1 (.lwl 8#32 9#32 1#32)) (setRegs unalignedTestState [(9, 0x000000ff#32)]))
   9 0x223344ff#32
-#guard nextRegEq (step (prog1 (.lwl 8#32 9#32 2#32)) (setRegs unalignedTestState [(9, 0x0000abcd#32)]))
+#guard nextRegEq (hstep (prog1 (.lwl 8#32 9#32 2#32)) (setRegs unalignedTestState [(9, 0x0000abcd#32)]))
   9 0x3344abcd#32
-#guard nextRegEq (step (prog1 (.lwl 8#32 9#32 3#32)) (setRegs unalignedTestState [(9, 0x00112233#32)]))
+#guard nextRegEq (hstep (prog1 (.lwl 8#32 9#32 3#32)) (setRegs unalignedTestState [(9, 0x00112233#32)]))
   9 0x44112233#32
--- `lwl` never halts on a misaligned address (contrast `lw`).
-#guard isNext (step (prog1 (.lwl 8#32 9#32 1#32)) unalignedTestState)
+-- `lwl` never faults on a misaligned address (contrast `lw`).
+#guard isNext (hstep (prog1 (.lwl 8#32 9#32 1#32)) unalignedTestState)
 
 -- `lwr`: addr % 4 == 3 loads the full word, exactly matching plain `lw`.
-#guard nextRegEq (step (prog1 (.lwr 8#32 9#32 3#32)) unalignedTestState) 9 0x11223344#32
+#guard nextRegEq (hstep (prog1 (.lwr 8#32 9#32 3#32)) unalignedTestState) 9 0x11223344#32
 -- `lwr`: the three misaligned offsets, `$rt`'s untouched high bytes coming
 -- from its prior value.
-#guard nextRegEq (step (prog1 (.lwr 8#32 9#32 0#32)) (setRegs unalignedTestState [(9, 0xaabbcc00#32)]))
+#guard nextRegEq (hstep (prog1 (.lwr 8#32 9#32 0#32)) (setRegs unalignedTestState [(9, 0xaabbcc00#32)]))
   9 0xaabbcc11#32
-#guard nextRegEq (step (prog1 (.lwr 8#32 9#32 1#32)) (setRegs unalignedTestState [(9, 0xaabb0000#32)]))
+#guard nextRegEq (hstep (prog1 (.lwr 8#32 9#32 1#32)) (setRegs unalignedTestState [(9, 0xaabb0000#32)]))
   9 0xaabb1122#32
-#guard nextRegEq (step (prog1 (.lwr 8#32 9#32 2#32)) (setRegs unalignedTestState [(9, 0xaa000000#32)]))
+#guard nextRegEq (hstep (prog1 (.lwr 8#32 9#32 2#32)) (setRegs unalignedTestState [(9, 0xaa000000#32)]))
   9 0xaa112233#32
--- `lwr` never halts on a misaligned address (contrast `lw`).
-#guard isNext (step (prog1 (.lwr 8#32 9#32 1#32)) unalignedTestState)
+-- `lwr` never faults on a misaligned address (contrast `lw`).
+#guard isNext (hstep (prog1 (.lwr 8#32 9#32 1#32)) unalignedTestState)
 
 -- Complementary-pair idiom: `lwl $rt, 1($rs)` then `lwr $rt, 4($rs)`
 -- (addresses `A+1` and `A+4`, both unaligned/aligned-boundary-straddling)
@@ -167,9 +167,9 @@ private def swTestState : State := setRegs regs0 [(8, unalignedBase), (9, 0xaabb
   = some (some 0xaa, some 0xbb)
 #guard (stepState (prog1 (.swl 8#32 9#32 3#32)) swTestState).bind
     (fun s => readMemByte s (unalignedBase+3#32)) = some 0xaa
--- `swl` never halts on a misaligned address (contrast `sw`), and clears
+-- `swl` never faults on a misaligned address (contrast `sw`), and clears
 -- `llBit` like every other store-class instruction.
-#guard isNext (step (prog1 (.swl 8#32 9#32 1#32)) swTestState)
+#guard isNext (hstep (prog1 (.swl 8#32 9#32 1#32)) swTestState)
 #guard (stepState (prog1 (.swl 8#32 9#32 1#32)) { swTestState with llBit := true }).bind
     (fun s => some s.llBit) = some false
 
@@ -187,9 +187,9 @@ private def swTestState : State := setRegs regs0 [(8, unalignedBase), (9, 0xaabb
     (fun s => some (readMemByte s unalignedBase, readMemByte s (unalignedBase+1#32),
                      readMemByte s (unalignedBase+2#32)))
   = some (some 0xbb, some 0xcc, some 0xdd)
--- `swr` never halts on a misaligned address (contrast `sw`), and clears
+-- `swr` never faults on a misaligned address (contrast `sw`), and clears
 -- `llBit` like every other store-class instruction.
-#guard isNext (step (prog1 (.swr 8#32 9#32 1#32)) swTestState)
+#guard isNext (hstep (prog1 (.swr 8#32 9#32 1#32)) swTestState)
 #guard (stepState (prog1 (.swr 8#32 9#32 1#32)) { swTestState with llBit := true }).bind
     (fun s => some s.llBit) = some false
 
@@ -226,7 +226,7 @@ private def swlSwrIdiomProg : Program :=
 
 -- wait: a documented no-op (no interrupt/timer model exists to wait for),
 -- falls through to `pc + 4` with all state otherwise untouched.
-#guard nextPcEq (step (prog1 (.wait 0#32)) regs0) (textBase + 4#32)
+#guard nextPcEq (hstep (prog1 (.wait 0#32)) regs0) (textBase + 4#32)
 #guard (match stepState (prog1 (.wait 0#32)) regs0 with
         | some s' => s'.cp0Status == regs0.cp0Status && s'.cp0Cause == regs0.cp0Cause
                        && s'.cp0Epc == regs0.cp0Epc
@@ -236,9 +236,9 @@ private def swlSwrIdiomProg : Program :=
 -- order), falls through to `pc + 4` with *every* other field of `State`
 -- left exactly as it was (`sameStateExceptPc`, not just a handful of
 -- hand-picked fields the way the `wait` check above does).
-#guard nextPcEq (step (prog1 (.sync 0#32)) regs0) (textBase + 4#32)
+#guard nextPcEq (hstep (prog1 (.sync 0#32)) regs0) (textBase + 4#32)
 #guard (match stepState (prog1 (.sync 0#32)) regs0 with
-        | some s' => sameStateExceptPc regs0 s'
+        | some s' => sameStateExceptPc (loadImage (prog1 (.sync 0#32)) regs0) s'
         | none => false)
 
 -- synci: a documented no-op (no instruction-cache model exists to flush),
@@ -246,16 +246,16 @@ private def swlSwrIdiomProg : Program :=
 -- nonzero base register so the (unused) address computation actually reads
 -- something -- confirms the computation itself has no observable effect.
 private def synciTestState : State := setRegs regs0 [(8, 0x10010000#32)]
-#guard nextPcEq (step (prog1 (.synci 8#32 4#32)) synciTestState) (textBase + 4#32)
+#guard nextPcEq (hstep (prog1 (.synci 8#32 4#32)) synciTestState) (textBase + 4#32)
 #guard (match stepState (prog1 (.synci 8#32 4#32)) synciTestState with
-        | some s' => sameStateExceptPc synciTestState s'
+        | some s' => sameStateExceptPc (loadImage (prog1 (.synci 8#32 4#32)) synciTestState) s'
         | none => false)
 
 
 -- ### sc compares its address with the preceding ll's
 #guard (match stepState (prog1 (.ll 8#32 9#32 0#32)) (setRegs regs0 [(8, 0x10010000#32)]) with
         | some s1 => s1.llBit && s1.llAddr == 0x10010000#32 &&
-            (match step (prog1 (.sc 8#32 10#32 4#32))
+            (match hstep (prog1 (.sc 8#32 10#32 4#32))
                 (setRegs { s1 with pc := textBase } [(10, 0xdeadbeef#32)]) with
              | .next s2 => readReg s2 10 == 0#32 && !s2.llBit &&
                  readMemWord s2 0x10010004#32 == some 0#32

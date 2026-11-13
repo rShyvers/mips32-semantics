@@ -129,6 +129,7 @@ class Directives:
         self.model_bug = {}       # field -> "<manual citation> <description>"
         self.expect = []          # (field, value)
         self.max_steps = None
+        self.bare = False         # run the model without hosted syscall services (MipsRun --bare)
         self.errors = []
         self.raw = []
 
@@ -181,6 +182,13 @@ class Directives:
                     d.expect.append((cls.field_norm(mm.group(1)), int(mm.group(2), 0)))
             elif key == "max-steps":
                 d.max_steps = int(args[0])
+            elif key == "bare":
+                # The model runs without the hosted MARS-style services, so every syscall is the
+                # architectural System Call exception.  On QEMU that is only so when the test brings
+                # its own .ktext handler (otherwise the harness's default handler emulates the services).
+                d.bare = True
+                if not re.search(r"^\s*\.ktext\b", text, re.M):
+                    d.errors.append("bare needs a .ktext handler (without one the QEMU harness emulates the hosted services)")
             else:
                 d.errors.append(f"unknown directive '{key}'")
         return d
@@ -192,8 +200,8 @@ def field_matches(pat, field):
 
 
 # ----------------------------------------------------------------------------- model side
-def run_model(env, path, max_steps):
-    cmd = [env.mipsrun, "--max-steps", str(max_steps), path]
+def run_model(env, path, max_steps, bare=False):
+    cmd = [env.mipsrun, "--max-steps", str(max_steps)] + (["--bare"] if bare else []) + [path]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if r.returncode not in (0, 1):
         raise HarnessError(f"MipsRun exit {r.returncode}: {r.stderr[-400:]}")
@@ -482,8 +490,6 @@ def judge(model, mrec, qrec, d):
         return "FAIL", ["QEMU timed out but the model terminated: %s" % mrec["term"]]
     if mrec["kind"] == "limit":
         fails.append("model hit the step limit but QEMU terminated (%s)" % qrec["term"])
-    if mrec["kind"] == "branch_in_delay_slot":
-        fails.append("model halted with branch_in_delay_slot (UNPREDICTABLE input; test is invalid)")
     seen_dev, seen_bug = set(), set()
     for f, (mv, qv) in diffs.items():
         if any(field_matches(p, f) for p in d.ignore):
@@ -588,7 +594,7 @@ def run_one(env, name, path=None):
     res = {"name": name, "verdict": "FAIL", "details": [], "model_term": None, "qemu_term": None}
     tdir = tempfile.mkdtemp(prefix="o_" + name.replace("/", "_") + "_", dir=env.work)
     try:
-        model = run_model(env, path, d.max_steps or 100000)
+        model = run_model(env, path, d.max_steps or 100000, d.bare)
         mrec = model_record(model)
         res["model_term"] = mrec["term"]
         qrec = qemu_record(env, model, tdir)

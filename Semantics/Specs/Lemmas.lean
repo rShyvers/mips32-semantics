@@ -7,16 +7,16 @@ import Semantics.Specs.Defs
 Nothing here is a headline statement: these are small facts about `if`, bit masks, `writeReg`,
 `readCString`, `mkNext` and the `fpFinish*` helpers, used by the proofs in the family files.
 
-## Theorems in this file (48)
+## Theorems in this file (46)
 
   `ite_of_pos` `ite_of_neg` `mask_field_written` `mask_field_kept` `two_fields_first`
   `two_fields_second` `two_fields_kept` `bit_of_31` `bit_of_124` `excCode_field_roundtrip`
   `readCString_mem` `readCString_eq_ofMem` `writeReg_proj_pc` `writeReg_proj_hi` `writeReg_proj_lo`
-  `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem` `writeReg_proj_out`
+  `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem`
   `writeReg_proj_pendingBranch` `writeReg_proj_llBit` `writeReg_proj_cp0Status`
   `writeReg_proj_cp0Cause` `writeReg_proj_cp0Epc` `writeReg_proj_cp0BadVAddr`
   `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_regs`
-  `writeReg_pc` `writeReg_hi` `writeReg_lo` `writeReg_out` `writeReg_reads_back`
+  `writeReg_pc` `writeReg_hi` `writeReg_lo` `writeReg_reads_back`
   `readReg_zero_of_regs_eq` `writeMemWord_regs` `writeMemHalf_regs` `writeMemByte_regs`
   `writeFpReg_reads_back` `mkNext_of_none` `execInstr_eq_body` `fpFinishS_eq` `fpFinishD_eq`
   `fpFinishCmp_eq` `readMemWord_misaligned` `writeMemWord_misaligned`
@@ -101,11 +101,11 @@ def readCStringOfMem (m : Std.HashMap W32 UInt8) (a : W32) (f : Nat) : String :=
   readCString { initialState 0#32 with mem := m } a f
 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
-    (fcsr : W32) (mem : Std.HashMap W32 UInt8) (out : String) (pb : Option W32) (llBit : Bool)
+    (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
     (st ca epc bva eepc lla eb a : W32) (f : Nat) :
-    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, out, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩ a f
+    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩ a f
       = readCStringOfMem mem a f :=
-  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, out, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩
+  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩
     { initialState 0#32 with mem := mem } rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
@@ -124,9 +124,6 @@ theorem writeReg_proj_fcsr (s : State) (i : Fin 32) (v : W32) : (writeReg s i v)
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_mem (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).mem = s.mem := by
-  unfold writeReg; split <;> rfl
-
-theorem writeReg_proj_out (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).out = s.out := by
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_pendingBranch (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pendingBranch = s.pendingBranch := by
@@ -166,15 +163,11 @@ the register file. Used throughout to simplify the "next state" shape that
 theorem writeReg_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
   unfold writeReg; split <;> rfl
 
-/-- A `writeReg` call never changes `hi`, `lo`, `mem`, or `out` — only the
-register file. -/
+/-- A `writeReg` call never changes `hi` or `lo` — only the register file. -/
 theorem writeReg_hi (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).hi = s.hi := by
   unfold writeReg; split <;> rfl
 
 theorem writeReg_lo (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).lo = s.lo := by
-  unfold writeReg; split <;> rfl
-
-theorem writeReg_out (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).out = s.out := by
   unfold writeReg; split <;> rfl
 
 /-- Writing `v` to a nonzero register `i` and immediately reading `i` back
@@ -188,7 +181,7 @@ theorem writeReg_reads_back (s : State) (i : Fin 32) (v : W32) (hne : i ≠ 0)
 
 /-- Two states with the same `regs` field read `$zero` the same —
 the register-file-only half of `readReg`: any state change that leaves
-`regs` alone (`pc`/`pendingBranch`/`hi`/`lo`/`mem`/`out`/…) cannot disturb
+`regs` alone (`pc`/`pendingBranch`/`hi`/`lo`/`mem`/…) cannot disturb
 `$zero`. -/
 theorem readReg_zero_of_regs_eq {s1 s2 : State} (h : s1.regs = s2.regs) :
     readReg s1 0 = readReg s2 0 := by
@@ -237,7 +230,7 @@ theorem writeFpReg_reads_back (s : State) (i : Fin 32) (v : W32)
 
 /-- Outside a delay slot, completing normally means `pc ← pc + 4`. -/
 theorem mkNext_of_none (s x : State) (h : s.pendingBranch = none) :
-    mkNext s x = StepResult.next { x with pc := x.pc + 4#32 } := by
+    mkNext s x = { x with pc := x.pc + 4#32 } := by
   unfold mkNext advance; rw [h]
 
 /-- `execInstr` is `execBody` once its two guards are passed: the instruction

@@ -18,30 +18,30 @@ open StepTest
 -- Flags = 6..2, RM = 1..0, FCC0 = bit 23, FCC1..7 = bits 25..31.
 
 private def fp1 (instr : Instruction) (fprs : List (Fin 32 × W32)) (fcsr : W32 := 0#32)
-    (gprs : List (Fin 32 × W32) := []) : StepResult :=
-  step (prog1 instr) { (setFpRegs (setRegs regs0 gprs) fprs) with fcsr := fcsr }
+    (gprs : List (Fin 32 × W32) := []) : Outcome :=
+  hstep (prog1 instr) { (setFpRegs (setRegs regs0 gprs) fprs) with fcsr := fcsr }
 
 /-- `r` completed normally with `FPR[i] = v` and `FCSR = fcsr`. -/
-private def fpIs (r : StepResult) (i : Fin 32) (v fcsr : W32) : Bool :=
+private def fpIs (r : Outcome) (i : Fin 32) (v fcsr : W32) : Bool :=
   match r with
   | .next s => readFpReg s i == v && s.fcsr == fcsr && s.pc == textBase + 4#32
   | .halt _ => false
 
 /-- `r` is a Floating Point exception entry (ExcCode 15, `CE` = 0) with
 `FCSR = fcsr` and `FPR[i]` still `v`. -/
-private def fpTraps (r : StepResult) (i : Fin 32) (v fcsr : W32) : Bool :=
+private def fpTraps (r : Outcome) (i : Fin 32) (v fcsr : W32) : Bool :=
   raises r excCodeFPE &&
     (match r with
      | .next s => readFpReg s i == v && s.fcsr == fcsr && s.cp0Cause &&& causeCeMask == 0#32
      | .halt _ => false)
 
-private def nextFcsrEq (r : StepResult) (v : W32) : Bool :=
+private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   match r with
   | .next s => s.fcsr == v
   | .halt _ => false
 
 -- mtc1 then mfc1 round-trips an arbitrary bit pattern through $f3
-#guard nextFpRegEq (step (prog1 (.mtc1 8#32 3#32)) (setRegs regs0 [(8, 0x12345678#32)])) 3
+#guard nextFpRegEq (hstep (prog1 (.mtc1 8#32 3#32)) (setRegs regs0 [(8, 0x12345678#32)])) 3
   0x12345678#32
 #guard nextRegEq (fp1 (.mfc1 9#32 3#32) [(3, 0x12345678#32)]) 9 0x12345678#32
 -- mfhc1/mthc1 address the high word of the double in $f4, i.e. FPR[5]
@@ -226,34 +226,34 @@ private def nextFcsrEq (r : StepResult) (v : W32) : Bool :=
   0x08000000#32
 
 -- bc1t/bc1f test the selected condition code; ordinary delay slot
-#guard nextPendingEq (step (prog1 (.bc1t 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
+#guard nextPendingEq (hstep (prog1 (.bc1t 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
   (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (step (prog1 (.bc1t 0#32 4#32)) regs0) (some (textBase + 8#32))
-#guard nextPendingEq (step (prog1 (.bc1f 0#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (step (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x80000000#32 })
+#guard nextPendingEq (hstep (prog1 (.bc1t 0#32 4#32)) regs0) (some (textBase + 8#32))
+#guard nextPendingEq (hstep (prog1 (.bc1f 0#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
+#guard nextPendingEq (hstep (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x80000000#32 })
   (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (step (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x7e800000#32 })
+#guard nextPendingEq (hstep (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x7e800000#32 })
   (some (textBase + 8#32))
 -- bc1tl/bc1fl: taken → as bc1t; not taken → delay slot nullified (pc + 8, nothing pending)
-#guard nextPendingEq (step (prog1 (.bc1tl 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
+#guard nextPendingEq (hstep (prog1 (.bc1tl 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
   (some (textBase + 4#32 + 16#32))
-#guard (match step (prog1 (.bc1tl 0#32 4#32)) regs0 with
+#guard (match hstep (prog1 (.bc1tl 0#32 4#32)) regs0 with
         | .next s => s.pc == textBase + 8#32 && s.pendingBranch.isNone
         | .halt _ => false)
-#guard (match step (prog1 (.bc1fl 1#32 4#32)) { regs0 with fcsr := 0x02000000#32 } with
+#guard (match hstep (prog1 (.bc1fl 1#32 4#32)) { regs0 with fcsr := 0x02000000#32 } with
         | .next s => s.pc == textBase + 8#32 && s.pendingBranch.isNone
         | .halt _ => false)
-#guard nextPendingEq (step (prog1 (.bc1fl 1#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
--- an FP branch in a delay slot halts like any other branch
-#guard isHaltBranchInDelaySlot
-  (step (prog1 (.bc1tl 0#32 4#32)) { regs0 with pendingBranch := some textBase })
+#guard nextPendingEq (hstep (prog1 (.bc1fl 1#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
+-- an FP branch in a delay slot raises Reserved Instruction like any other branch
+#guard isRiInDelaySlot
+  (hstep (prog1 (.bc1tl 0#32 4#32)) { regs0 with pendingBranch := some textBase })
 
 -- movf/movt (GPR) and movf.s/movt.s/movn.s/movz.s
-#guard nextRegEq (step (prog1 (.movf 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
+#guard nextRegEq (hstep (prog1 (.movf 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
   0x55#32
-#guard nextRegEq (step (prog1 (.movt 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
+#guard nextRegEq (hstep (prog1 (.movt 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
   0x11#32
-#guard nextRegEq (step (prog1 (.movt 8#32 5#32 9#32))
+#guard nextRegEq (hstep (prog1 (.movt 8#32 5#32 9#32))
   { (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)]) with fcsr := 0x20000000#32 }) 9 0x55#32
 #guard fpIs (fp1 (.movfS 2#32 4#32 0#32) [(2, 0x11#32), (4, 0x7fc00000#32)]) 2 0x7fc00000#32 0#32
 #guard fpIs (fp1 (.movtS 2#32 4#32 0#32) [(2, 0x11#32), (4, 0x7fc00000#32)]) 2 0x11#32 0#32
@@ -322,7 +322,7 @@ private def noCu1 (s : State) : State := { s with cp0Status := 0#32 }
 
 /-- `r` is a Coprocessor Unusable entry with `Cause.CE = ce`, and the FP
 registers and FCSR are those of `s`. -/
-private def cpuRaised (r : StepResult) (s : State) (ce : W32) : Bool :=
+private def cpuRaised (r : Outcome) (s : State) (ce : W32) : Bool :=
   raises r excCodeCpU &&
     (match r with
      | .next s' => (s'.cp0Cause &&& causeCeMask) == ce <<< 28 && s'.fpRegs == s.fpRegs &&
@@ -342,29 +342,29 @@ private def cuState : State :=
     .movfS 2#32 4#32 0#32, .movnD 2#32 4#32 9#32, .movf 9#32 0#32 10#32, .movt 9#32 0#32 10#32,
     .maddS 2#32 2#32 4#32 6#32, .nmsubD 2#32 2#32 4#32 6#32, .recipS 2#32 4#32, .rsqrtD 2#32 4#32,
     .roundWD 2#32 4#32, .bc1f 0#32 4#32, .bc1t 0#32 4#32, .bc1fl 0#32 4#32, .bc1tl 0#32 4#32].all
-  fun i => cpuRaised (step (prog1 i) cuState) cuState 1#32
+  fun i => cpuRaised (hstep (prog1 i) cuState) cuState 1#32
 -- … and none of them raises it when CU1 = 1
-#guard !(raises (step (prog1 (.addS 2#32 4#32 6#32)) { cuState with cp0Status := statusCu1Mask })
+#guard !(raises (hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with cp0Status := statusCu1Mask })
   excCodeCpU)
 -- integer instructions and `pref` are unaffected by CU1
-#guard isNext (step (prog1 (.addu 8#32 9#32 10#32)) cuState)
-#guard isNext (step (prog1 (.pref 8#32 0#32 0#32)) cuState)
+#guard isNext (hstep (prog1 (.addu 8#32 9#32 10#32)) cuState)
+#guard isNext (hstep (prog1 (.pref 8#32 0#32 0#32)) cuState)
 -- a reserved COP1 encoding: Coprocessor Unusable when CU1 = 0, Reserved Instruction when 1
-#guard cpuRaised (step ((∅ : Program).insert textBase 0x47e00000#32) cuState) cuState 1#32
-#guard raises (step ((∅ : Program).insert textBase 0x47e00000#32) regs0) excCodeRI
+#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x47e00000#32) cuState) cuState 1#32
+#guard raises (hstep ((∅ : Program).insert textBase 0x47e00000#32) regs0) excCodeRI
 -- reserved COP1X (luxc1) and MOVCI (bit 17 set) words likewise
-#guard cpuRaised (step ((∅ : Program).insert textBase 0x4c000005#32) cuState) cuState 1#32
-#guard cpuRaised (step ((∅ : Program).insert textBase 0x00020001#32) cuState) cuState 1#32
-#guard raises (step ((∅ : Program).insert textBase 0x00020001#32) regs0) excCodeRI
+#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x4c000005#32) cuState) cuState 1#32
+#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x00020001#32) cuState) cuState 1#32
+#guard raises (hstep ((∅ : Program).insert textBase 0x00020001#32) regs0) excCodeRI
 -- coprocessor 2 does not exist: COP2 / LWC2 words raise Coprocessor Unusable with CE = 2
-#guard cpuRaised (step ((∅ : Program).insert textBase 0x48000000#32) regs0) regs0 2#32
-#guard cpuRaised (step ((∅ : Program).insert textBase 0xc8000000#32) regs0) regs0 2#32
+#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x48000000#32) regs0) regs0 2#32
+#guard cpuRaised (hstep ((∅ : Program).insert textBase 0xc8000000#32) regs0) regs0 2#32
 -- CpU in a delay slot: EPC = branch, BD set
-#guard (match step (prog1 (.addS 2#32 4#32 6#32)) { cuState with pendingBranch := some 0x1000#32 } with
+#guard (match hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with pendingBranch := some 0x1000#32 } with
         | .next s => s.cp0Epc == textBase - 4#32 && s.cp0Cause == 0x9000002c#32
         | .halt _ => false)
 -- a later exception reloads CE with 0
-#guard (match step (prog1 (.break 0#32)) { regs0 with cp0Cause := 0x10000000#32 } with
+#guard (match hstep (prog1 (.break 0#32)) { regs0 with cp0Cause := 0x10000000#32 } with
         | .next s => s.cp0Cause == 0x00000024#32
         | .halt _ => false)
 
@@ -373,17 +373,17 @@ private def fpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 4#32)]) with
       mem := (((∅ : Std.HashMap W32 UInt8).insert 0x10010004#32 0x3f).insert 0x10010005#32 0x80)
                |>.insert 0x10010006#32 0x00 |>.insert 0x10010007#32 0x00 }  -- 1.0 at offset 4
-#guard nextFpRegEq (step (prog1 (.lwc1 8#32 9#32 4#32)) fpMemTestState) 9 0x3f800000#32
-#guard nextFpRegEq (step (prog1 (.lwxc1 3#32 9#32 8#32)) fpMemTestState) 3 0x3f800000#32
+#guard nextFpRegEq (hstep (prog1 (.lwc1 8#32 9#32 4#32)) fpMemTestState) 9 0x3f800000#32
+#guard nextFpRegEq (hstep (prog1 (.lwxc1 3#32 9#32 8#32)) fpMemTestState) 3 0x3f800000#32
 #guard (stepState (prog1 (.swc1 8#32 9#32 4#32))
           (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(9, 0x3f800000#32)])).bind
         (fun s' => readMemWord s' 0x10010004#32) = some 0x3f800000#32
 #guard (stepState (prog1 (.swxc1 9#32 10#32 8#32))
           (setFpRegs (setRegs regs0 [(8, 0x10010000#32), (10, 8#32)]) [(9, 0x3f800000#32)])).bind
         (fun s' => readMemWord s' 0x10010008#32) = some 0x3f800000#32
-#guard raisesAddr (step (prog1 (.lwc1 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
+#guard raisesAddr (hstep (prog1 (.lwc1 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
   excCodeAdEL 0x10010001#32
-#guard raisesAddr (step (prog1 (.swxc1 9#32 10#32 8#32))
+#guard raisesAddr (hstep (prog1 (.swxc1 9#32 10#32 8#32))
   (setRegs regs0 [(8, 0x10010000#32), (10, 2#32)])) excCodeAdES 0x10010002#32
 
 -- ldc1/sdc1: big-endian doubleword (high word at the lower address), doubleword-aligned
@@ -391,10 +391,10 @@ private def dpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 8#32)]) with
       mem := ((((∅ : Std.HashMap W32 UInt8).insert 0x10010008#32 0x3f).insert 0x10010009#32 0xf0)
                |>.insert 0x1001000f#32 0x01) }  -- 0x3ff0000000000001 at offset 8
-#guard (match step (prog1 (.ldc1 8#32 2#32 8#32)) dpMemTestState with
+#guard (match hstep (prog1 (.ldc1 8#32 2#32 8#32)) dpMemTestState with
         | .next s => readFpD s 2#32 == 0x3ff0000000000001#64 && readFpReg s 3 == 0x3ff00000#32
         | .halt _ => false)
-#guard (match step (prog1 (.ldxc1 2#32 9#32 8#32)) dpMemTestState with
+#guard (match hstep (prog1 (.ldxc1 2#32 9#32 8#32)) dpMemTestState with
         | .next s => readFpD s 2#32 == 0x3ff0000000000001#64
         | .halt _ => false)
 #guard (stepState (prog1 (.sdc1 8#32 2#32 16#32))
@@ -407,11 +407,11 @@ private def dpMemTestState : State :=
             [(2, 0x89abcdef#32), (3, 0x01234567#32)])).bind
         (fun s' => readMemWord s' 0x10010010#32) = some 0x01234567#32
 -- word-aligned but not doubleword-aligned: Address Error
-#guard raisesAddr (step (prog1 (.ldc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdEL 0x10010004#32
-#guard raisesAddr (step (prog1 (.sdc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdES 0x10010004#32
-#guard raisesAddr (step (prog1 (.ldxc1 2#32 9#32 8#32))
+#guard raisesAddr (hstep (prog1 (.ldc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdEL 0x10010004#32
+#guard raisesAddr (hstep (prog1 (.sdc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdES 0x10010004#32
+#guard raisesAddr (hstep (prog1 (.ldxc1 2#32 9#32 8#32))
   (setRegs regs0 [(8, 0x10010000#32), (9, 12#32)])) excCodeAdEL 0x1001000c#32
-#guard raisesAddr (step (prog1 (.sdxc1 2#32 9#32 8#32))
+#guard raisesAddr (hstep (prog1 (.sdxc1 2#32 9#32 8#32))
   (setRegs regs0 [(8, 0x10010000#32), (9, 12#32)])) excCodeAdES 0x1001000c#32
 -- a store clears LLbit; a failed (misaligned) one does not get that far
-#guard nextLlBitEq (step (prog1 (.sdc1 8#32 2#32 8#32)) { dpMemTestState with llBit := true }) false
+#guard nextLlBitEq (hstep (prog1 (.sdc1 8#32 2#32 8#32)) { dpMemTestState with llBit := true }) false

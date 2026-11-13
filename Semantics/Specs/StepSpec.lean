@@ -31,6 +31,8 @@ import Semantics.Specs.FpuArith
 import Semantics.Specs.FpuConvert
 import Semantics.Specs.FpuCompare
 import Semantics.Specs.FpuBranch
+import Semantics.Specs.SelfModifying
+import Semantics.Specs.Hosted
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -41,13 +43,14 @@ module that `lake comparator` judges against the statements-only `Semantics/Stat
 
 ## How to read the statements
 
-Each per-instruction theorem `<ctor>_spec_raw` is an equation `step p s = …` whose right-hand
+Each per-instruction theorem `<ctor>_spec_raw` is an equation `step s = …` whose right-hand
 side is written out with the state primitives (`readReg`, `writeReg`, `readMemWord`, …) and
 `Step.lean`'s small helpers. Names ending in `Spec` (`regIdxSpec`, `addOverflowsSpec`, …) are
 abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
 
-* `hfetch : fetchWord p s.pc = some w` and `hdecode : decode w = some instr` say "the next
-  instruction the simulator runs is `instr`".
+* `hfetch : readMemWord s s.pc = some w` and `hdecode : decode w = some instr` say "the word in
+  memory at `pc` is `w`, and it decodes to `instr`": `step` fetches from `State.mem`, so this is
+  the fetch itself (there is no separate program). A misaligned `pc` makes `readMemWord` `none`.
 * `hpb : s.pendingBranch = none` restricts a theorem to an instruction that is not in a branch
   delay slot. `delay_slot_commits_target` (`DelaySlot.lean`) lifts any such equation to the
   delay-slot case; `exceptionEntry_*` (`Exception.lean`) describe exception entry in both cases.
@@ -58,8 +61,8 @@ abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
   covers the other case.
 
 Besides the general statement, most files contain **satisfiable examples** (`#guard`s that run
-`step` on a concrete program and state built with `Fixtures.lean`, showing the hypotheses are not
-vacuous) and **bad-output rejection** theorems (an outcome a buggy implementation might
+`step` on a concrete program loaded into a state with `Fixtures.lean`, showing the hypotheses are
+not vacuous) and **bad-output rejection** theorems (an outcome a buggy implementation might
 plausibly produce, which `step` provably does not). `#guard` rather than `decide` is used
 wherever a `Program`/`State.mem` hash map is involved, because those do not reduce in the kernel.
 
@@ -76,8 +79,9 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Example fixtures | `Fixtures.lean` | the three builders used by `#guard`s |
 | Decode / encode | `WellFormed.lean`, `DecodeSpec.lean` | `Instruction.WellFormed` (field ranges), `decode_encode` (round trip) |
 | Exception entry | `Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode`, `_ce` |
-| Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_no_instruction`, `step_undecodable`, `step_reserved_instruction` |
-| Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_halts` (the rest is proof device) |
+| Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_fetches_from_memory`, `step_undecodable`, `step_reserved_instruction` |
+| Self-modifying code | `SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
+| Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
 | Register-file sizes | `RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed`: the `regs.size = 32` / `fpRegs.size = 32` side conditions are invariants (the rest is proof device) |
 | R-type arithmetic / logic | `Arith.lean` | the `_spec_raw` statements; overflow corollaries; `movn`/`movz` not-taken |
@@ -92,7 +96,8 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Branch-likely | `BranchLikely.lean` | `beql_not_taken_squashes_delay_slot` and the statements |
 | Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd` |
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
-| `syscall` | `Syscall.lean` | `syscall_spec_raw` (service dispatch) |
+| `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
+| Hosted run (environment, not architecture) | `Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run` (where the hosted run differs from `step`); `hostStep_syscall_spec`, `hosted_print_int`, `hosted_exit` (the MARS-style services) |
 | Coprocessor 0 | `Cp0.lean` | `mfc0`/`mtc0` register map and write masks; `eret` |
 | FPU, common | `FpuCommon.lean` | `fp_coprocessor_unusable`; `fpCompletes*_trap` / `_ok` |
 | FPU moves | `FpuMove.lean` | statements (FCSR untouched) |

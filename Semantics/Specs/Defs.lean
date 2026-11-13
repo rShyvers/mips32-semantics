@@ -1,4 +1,5 @@
 import Semantics.Step
+import Semantics.Env
 import Semantics.Specs.WellFormed
 
 /-!
@@ -10,7 +11,8 @@ A reviewer must read these to know what the statements say; `Semantics/Statement
 
 * `Instruction.WellFormed` (re-exported from `WellFormed.lean`): the side condition of `decode_encode`.
 * `…Spec` abbreviations: other names for `Step.lean` definitions (the same definition, not a copy).
-* `RunResult.finalState`: the state a `run` ended in.
+* The environment layer (`Semantics/Env.lean`: `load`, `hostStep`, `runHosted`) is imported so
+  that the statements about the hosted run can be stated; it is not part of the processor.
 * `State.RegFilesWF`: both register files have 32 entries.
 * `fcsrTrapped`, `fpCompletesS`/`D`/`Cmp`: how an FP arithmetic instruction completes (result written
   and flags accumulated, or Floating Point exception with the destination untouched).
@@ -58,15 +60,10 @@ abbrev lowBitsMaskSpec := lowBitsMask
 satisfied by `initialState`). -/
 def State.RegFilesWF (s : State) : Prop := s.regs.size = 32 ∧ s.fpRegs.size = 32
 
-/-- The state a `run` ended in (halted or out of step budget). -/
-def RunResult.finalState : RunResult → State
-  | .halted _ s _ => s
-  | .limitReached s _ => s
-
-/-- Spec-side name for `Step.lean`'s `readCString` — the same definition, not a copy. -/
+/-- Spec-side name for `Env.lean`'s `readCString` — the same definition, not a copy. -/
 abbrev readCStringSpec := readCString
 
-/-- Spec-side name for `Step.lean`'s `printStringFuel` — the same definition, not a copy. -/
+/-- Spec-side name for `Env.lean`'s `printStringFuel` — the same definition, not a copy. -/
 abbrev printStringFuelSpec := printStringFuel
 
 /-- FCSR after an FP instruction that traps: `Cause` (bits 17..12) becomes
@@ -83,22 +80,20 @@ changed — **the destination is not written**. Otherwise the result is
 written, FCSR.Cause is set to `r.2` and `r.2` is ORed into FCSR.Flags
 (`Mips.Fp.raiseFlags`), and `pc` advances
 (MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99; Table 6.8, p.94). -/
-def fpCompletesS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : StepResult :=
+def fpCompletesS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : State :=
   if Mips.Fp.fpeEnabled s.fcsr r.2 then
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
-    StepResult.next
-      { s with fpRegs := s.fpRegs.set! (regIdx fd).val r.1, fcsr := Mips.Fp.raiseFlags s.fcsr r.2,
+    { s with fpRegs := s.fpRegs.set! (regIdx fd).val r.1, fcsr := Mips.Fp.raiseFlags s.fcsr r.2,
                pc := s.pc + 4#32 }
 
 /-- As `fpCompletesS`, for a 64-bit result: the low word goes to `FPR[fd]`,
 the high word to `FPR[fd+1]` (the `Status.FR = 0` register pair). -/
-def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : StepResult :=
+def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   if Mips.Fp.fpeEnabled s.fcsr r.2 then
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
-    StepResult.next
-      { s with
+    { s with
           fpRegs := (s.fpRegs.set! (regIdx fd).val (r.1.extractLsb' 0 32)).set!
             (regIdx (fd + 1#32)).val (r.1.extractLsb' 32 32)
           fcsr := Mips.Fp.raiseFlags s.fcsr r.2
@@ -106,10 +101,9 @@ def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : StepR
 
 /-- As `fpCompletesS`, for a compare: the "result" is the Boolean `r.1`
 written to condition code `cc`; no FP register changes. -/
-def fpCompletesCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) : StepResult :=
+def fpCompletesCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) : State :=
   if Mips.Fp.fpeEnabled s.fcsr r.2 then
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
-    StepResult.next
-      { s with fcsr := Mips.Fp.setCC (Mips.Fp.raiseFlags s.fcsr r.2) (ccIdx cc) r.1,
+    { s with fcsr := Mips.Fp.setCC (Mips.Fp.raiseFlags s.fcsr r.2) (ccIdx cc) r.1,
                pc := s.pc + 4#32 }

@@ -5,13 +5,13 @@ import Semantics.Specs.Lemmas
 
 Almost every `<ctor>_spec_raw` theorem has the same shape
 
-    theorem add_spec_raw (p : Program) (s : State) (w rs rt rd : W32)
-        (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
+    theorem add_spec_raw (s : State) (w rs rt rd : W32)
+        (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
         (hpb : s.pendingBranch = none) :
-        step p s = <right-hand side written with the public state primitives> := by
+        step s = <right-hand side written with the public state primitives> := by
       step_spec
 
-and the same proof: `step` fetches `w` (`hfetch`), decodes it (`hdecode`), and the arm of
+and the same proof: `step` fetches `w` from memory (`hfetch`), decodes it (`hdecode`), and the arm of
 `execInstr` for that constructor is, by computation, the right-hand side. The two macros below
 are that proof, written once. They prove nothing by themselves: every use is elaborated and
 kernel-checked at the theorem that calls it (`lake check` replays all of them).
@@ -24,9 +24,9 @@ There are no statements in this file.
 -/
 
 set_option hygiene false in
-/-- `step_spec` proves `step p s = rhs` for an instruction that is not in a delay slot, given
+/-- `step_spec` proves `step s = rhs` for an instruction that is not in a delay slot, given
 
-* `hfetch  : fetchWord p s.pc = some w`,
+* `hfetch  : readMemWord s s.pc = some w` (the fetch: the word in memory at `pc`),
 * `hdecode : decode w = some (.ctor …)`,
 * `hpb     : s.pendingBranch = none`.
 
@@ -34,7 +34,7 @@ Steps: (1) split `s` into its fields and substitute `pendingBranch := none`, so 
 / `mkNext` compute; (2) unfold `step`, rewrite the fetch and the decode; (3) both sides are now
 the same term up to computation: `rfl`. -/
 macro "step_spec" : tactic => `(tactic| (
-  obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, out, pb, llBit, cp0Status, cp0Cause, cp0Epc,
+  obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
     cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase⟩ := s
   simp only at hpb
   subst hpb
@@ -69,7 +69,7 @@ macro "fp_step_spec" : tactic => `(tactic| (
     | (rw [← fpFinishS_eq s _ _ hpb]; rfl)
     | (rw [← fpFinishD_eq s _ _ hpb]; rfl)
     | (rw [← fpFinishCmp_eq s _ _ hpb]; rfl)
-    | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, out, pb, llBit, cp0Status, cp0Cause, cp0Epc,
+    | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
          cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase⟩ := s
        simp only at hpb
        subst hpb

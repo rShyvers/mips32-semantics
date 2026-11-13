@@ -5,6 +5,7 @@ import Semantics.State
 import Semantics.Instruction
 import Semantics.Asm
 import Semantics.Step
+import Semantics.Env
 
 /-!
 # EquivHarness — arithmetic equivalence corpus (thin interpreter, no MARS)
@@ -121,16 +122,16 @@ inductive RunOutcome where
   | otherHalt (reason : String)      -- halted some other way (not `.exit`)
   | limitReached
 
+/-- Load `prog` (`Env.load`), set `$a0`/`$a1`, and run it hosted. -/
 def runOne (prog : Program) (a0 a1 : Int) (fuel : Nat) : RunOutcome :=
-  let s0 := initialState textBase
+  let s0 := load prog
   let s0 := writeReg s0 4 (ofInt32 a0)
   let s0 := writeReg s0 5 (ofInt32 a1)
-  match run prog s0 fuel with
-  | .halted .exit s _ => .result (asSigned (readReg s 25))
+  match runHosted { image := prog } fuel { machine := s0 } with
+  | .halted .exit h _ => .result (asSigned (readReg h.machine 25))
   | .halted (.unhandledException code epc bad) _ _ =>
     .otherHalt s!"unhandledException code={code.toNat} epc={epc} badVAddr={bad}"
   | .halted (.noInstruction pc) _ _ => .otherHalt s!"noInstruction {pc}"
-  | .halted .branchInDelaySlot _ _ => .otherHalt "branchInDelaySlot"
   | .limitReached _ _ => .limitReached
 
 instance : ToString RunOutcome where
@@ -177,22 +178,9 @@ Release 2 instructions, …) carry their expectation in a comment:
 ```
 
 Everything between the first and the last `"` on the `Expected output` line
-is the expected text. Each such program is assembled, its image copied into
-memory, and run from `initialState textBase`; the accumulated output and the
-halt reason must match. A program without an `Expected output` line is not
+is the expected text. Each such program is assembled, loaded (`Env.load`) and run hosted
+(`Env.runProgram`); the accumulated output and the stop reason must match. A program without an `Expected output` line is not
 checked (and is reported as such). -/
-
-/-- Copy the assembled image into `State.mem`, big-endian (as `MipsRun`). -/
-def materializeImage (p : Program) (s0 : State) : State :=
-  p.fold (fun (acc : State) (addr word : W32) =>
-    let b0 : UInt8 := ((word >>> 24) &&& 0xff#32).toNat.toUInt8
-    let b1 : UInt8 := ((word >>> 16) &&& 0xff#32).toNat.toUInt8
-    let b2 : UInt8 := ((word >>> 8) &&& 0xff#32).toNat.toUInt8
-    let b3 : UInt8 := (word &&& 0xff#32).toNat.toUInt8
-    { acc with
-        mem := (((acc.mem.insert addr b0).insert (addr + 1#32) b1).insert
-                  (addr + 2#32) b2).insert (addr + 3#32) b3 })
-    s0
 
 /-- The text after `prefix` on the first source line that starts with it. -/
 def expectationLine (src pfx : String) : Option String :=
@@ -218,12 +206,11 @@ def checkAsmProgram (path : String) : IO (Option (Bool × String)) := do
     | .error e => pure (some (false, s!"assemble failed: {repr e}"))
     | .ok prog =>
       let (halt, out) :=
-        match run prog (materializeImage prog (initialState textBase)) 1000000 with
-        | .halted .exit s _ => ("exit", s.out)
-        | .halted (.unhandledException code _ _) s _ => (s!"unhandledException {code.toNat}", s.out)
-        | .halted (.noInstruction _) s _ => ("noInstruction", s.out)
-        | .halted .branchInDelaySlot s _ => ("branchInDelaySlot", s.out)
-        | .limitReached s _ => ("limitReached", s.out)
+        match runProgram prog 1000000 with
+        | .halted .exit h _ => ("exit", h.out)
+        | .halted (.unhandledException code _ _) h _ => (s!"unhandledException {code.toNat}", h.out)
+        | .halted (.noInstruction _) h _ => ("noInstruction", h.out)
+        | .limitReached h _ => ("limitReached", h.out)
       if out == expected && halt == expectedHalt then pure (some (true, s!"output {repr out}, halt {halt}"))
       else pure (some (false,
         s!"expected output {repr expected} halt {expectedHalt}; got output {repr out} halt {halt}"))

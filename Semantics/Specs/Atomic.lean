@@ -23,16 +23,15 @@ and records its effective address in `llAddr`** — the link state that a
 later `sc` checks (INSTRUCTION-REF "ll" section; MD00086 Vol II-A Rev 6.06,
 LL, p.223-224). It raises Address Error on a word-misaligned effective
 address, exactly like `lw`. -/
-theorem ll_spec_raw (p : Program) (s : State) (w rs rt imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
+theorem ll_spec_raw (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step p s =
+    step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
-        StepResult.next
-          { ({ (writeReg s (regIdxSpec rt) v) with llBit := true, llAddr := addr }) with
+        { ({ (writeReg s (regIdxSpec rt) v) with llBit := true, llAddr := addr }) with
             pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
   step_spec
 
@@ -50,61 +49,52 @@ ends up `false`. This single theorem states both outcomes together
 (mirroring how `beq_spec_raw` states taken/not-taken as one `if`), because
 the whole point of `ll`/`sc` is this exact atomic-primitive contract, not
 just "some memory operation happened" (INSTRUCTION-REF "sc" section). -/
-theorem sc_spec_raw (p : Program) (s : State) (w rs rt imm : W32)
-    (hfetch : fetchWord p s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
+theorem sc_spec_raw (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step p s =
+    step s =
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some stored =>
         if s.llBit && s.llAddr == addr then
-          StepResult.next
-            { ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }) with
+          { ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }) with
               pc := ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }).pc + 4#32 }
         else
-          StepResult.next
-            { ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }) with
+          { ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }) with
               pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 } := by
   step_spec
 
 -- `ll_spec_raw`: loads like `lw` and sets `llBit`.
 #guard (match (writeMemWord (setRegsSpec (initialState textBase) [(8, 0x10010000#32)])
           0x10010000#32 0x2a#32).bind
-          (fun s => some (step (prog1Spec (.ll 8#32 9#32 0#32)) s)) with
-        | some (.next s) => readReg s 9 == 0x2a#32 && s.llBit == true
+          (fun s => some (stepIn (prog1Spec (.ll 8#32 9#32 0#32)) s)) with
+        | some s => readReg s 9 == 0x2a#32 && s.llBit == true
         | _ => false) = true
 
 -- `sc_spec_raw`, success case: `llBit` set means the store commits and
 -- `$rt` becomes `1`.
-#guard (match step (prog1Spec (.sc 8#32 9#32 0#32))
+#guard (let s := stepIn (prog1Spec (.sc 8#32 9#32 0#32))
           { (setRegsSpec (initialState textBase) [(8, 0x10010000#32), (9, 0x99#32)]) with
-            llBit := true, llAddr := 0x10010000#32 } with
-        | .next s =>
-          readReg s 9 == 1#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0x99#32
-        | .halt _ => false) = true
+            llBit := true, llAddr := 0x10010000#32 }
+        readReg s 9 == 1#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0x99#32) = true
 
 -- `sc_spec_raw`, address mismatch: `llBit` is set but the preceding `ll` was
 -- to another address, so the store does NOT commit and `$rt` becomes `0`.
-#guard (match step (prog1Spec (.sc 8#32 9#32 0#32))
+#guard (let s := stepIn (prog1Spec (.sc 8#32 9#32 0#32))
           { (setRegsSpec (initialState textBase) [(8, 0x10010000#32), (9, 0x99#32)]) with
-            llBit := true, llAddr := 0x10010004#32 } with
-        | .next s =>
-          readReg s 9 == 0#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0#32
-        | .halt _ => false) = true
+            llBit := true, llAddr := 0x10010004#32 }
+        readReg s 9 == 0#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0#32) = true
 
 -- `sc_spec_raw`, failure case: `llBit` clear means the store does NOT
 -- commit (memory stays `0`) and `$rt` becomes `0`.
-#guard (match step (prog1Spec (.sc 8#32 9#32 0#32))
+#guard (let s := stepIn (prog1Spec (.sc 8#32 9#32 0#32))
           { (setRegsSpec (initialState textBase) [(8, 0x10010000#32), (9, 0x99#32)]) with
-            llBit := false } with
-        | .next s =>
-          readReg s 9 == 0#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0#32
-        | .halt _ => false) = true
+            llBit := false }
+        readReg s 9 == 0#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0#32) = true
 
 -- `sc_spec_raw`: a misaligned `sc` raises Address Error regardless of
 -- `llBit` (the alignment check is unconditional).
-#guard (match step (prog1Spec (.sc 8#32 9#32 1#32))
-          { (setRegsSpec (initialState textBase) [(8, 0x10010000#32)]) with llBit := true } with
-        | .next s' => s'.cp0BadVAddr == 0x10010001#32 && s'.pc == exceptionVectorAddr
-        | .halt _ => false) = true
+#guard (let s' := stepIn (prog1Spec (.sc 8#32 9#32 1#32))
+          { (setRegsSpec (initialState textBase) [(8, 0x10010000#32)]) with llBit := true }
+        s'.cp0BadVAddr == 0x10010001#32 && s'.pc == exceptionVectorAddr) = true
