@@ -433,11 +433,12 @@ def scan_asm_tests():
 
 
 def guard_statements():
-    """Top-level `#guard` / `example` statements of Semantics/*.lean, as
+    """Top-level `#guard` / `example` statements of Semantics/*.lean and Semantics/Tests/*.lean, as
     (file, text) with comments stripped.  A statement runs until the next
     column-0 line.  Counted once per statement (not per line)."""
     out = []
-    for path in sorted(glob.glob(os.path.join(ROOT, "Semantics/*.lean"))):
+    for path in sorted(glob.glob(os.path.join(ROOT, "Semantics/*.lean"))
+                       + glob.glob(os.path.join(ROOT, "Semantics/Tests/*.lean"))):
         rel = os.path.relpath(path, ROOT)
         code = strip_comments(read_lines(rel))
         i = 0
@@ -632,7 +633,7 @@ def render(rows, theorems, have_manual):
          f"- `{REF_MD}`; Semantics/Specs/**/*.lean ({len(spec_files())} files, {len(theorems)} theorems)",
          "- Manual: MD00086 Vol II-A Rev 6.06 via `docs/spec/manuals/mipsdoc.py`"
          + ("" if have_manual else " -- **manual not fetched** (run `docs/spec/manuals/fetch.sh`)"),
-         "- Tests: " + ", ".join(f"`{d}/*.asm`" for d in TEST_DIRS) + "; `#guard`/`example` statements in Semantics/*.lean",
+         "- Tests: " + ", ".join(f"`{d}/*.asm`" for d in TEST_DIRS) + "; `#guard`/`example` statements in Semantics/*.lean and Semantics/Tests/*.lean",
          "", "## Summary", "", "| Measure | Count |", "|---|---|"]
     o += [f"| {k} | {v} |" for k, v in summarize(rows, theorems)]
     o += ["", "Legend: mnemonic marked `?` is a naming-rule guess; **bold** theorem = primary "

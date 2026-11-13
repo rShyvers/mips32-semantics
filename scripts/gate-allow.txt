@@ -1,0 +1,1 @@
+Semantics/Statements.lean:sorry  # statements-only challenge module for `lake comparator`; proofs elided on purpose; not imported by Semantics.lean/Checked.lean (see the file header and docs/PROOF-NOTES.md)
