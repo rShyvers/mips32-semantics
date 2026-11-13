@@ -1065,6 +1065,14 @@ def ktextSrc : String := srcLines
 #guard asmFails "b\n"
 #guard asmFails "neg\n"
 #guard asmText "ssnop\nehb\n" = some [0x00000040#32, 0x000000c0#32]
+-- `pause` = `sll $0,$0,5` (0x00000140), `nal` = `bltzal $0, 0` (0x04100000)
+-- (MD00086 Vol II-A Rev 6.06, PAUSE p.317, NAL p.306)
+#guard asmText "pause\n" = some [0x00000140#32]
+#guard asmText "nal\n" = some [0x04100000#32]
+#guard (asmText "pause $t0\n").isNone
+#guard (asmText "nal L\nL: nop\n").isNone
+#guard decode 0x00000140#32 = some (.sll 0#32 0#32 5#32)
+#guard decode 0x04100000#32 = some (.bltzal 0#32 0#32)
 #guard decode 0x00000040#32 = some (.sll 0#32 0#32 1#32) ∧ decode 0x000000c0#32 = some (.sll 0#32 0#32 3#32)
 -- jr.hb / jalr.hb: hint bit 10 set; `decode` accepts these words as plain jr/jalr
 #guard asmText "jr.hb $ra\njalr.hb $t9\njalr.hb $t0, $t9\n" = some [0x03e00408#32, 0x0320fc09#32, 0x03204409#32]

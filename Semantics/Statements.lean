@@ -731,7 +731,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read 0x80008402#32
+      | 16, 0 => read (0x80008400#32 ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI := by
@@ -743,8 +743,8 @@ EXL, ERL, IM7..0, BEV, CU1; every other bit reads as zero). `Cause` (13,0)
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
 writable. `EBase` (15,1) takes bits 29..12 of the written value under the
-fixed bits 31..30 = `10`. `BadVAddr` (8,0), `PRId` (15,0), `Config` (16,0)
-and `Config1` (16,1) are read-only: the write is ignored. Any other pair
+fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
+`BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
@@ -765,7 +765,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
         { s with
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
-      | 16, 0 => { s with pc := s.pc + 4#32 }
+      | 16, 0 =>
+        { s with cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3, pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }

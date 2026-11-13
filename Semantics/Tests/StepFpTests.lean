@@ -268,7 +268,7 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 
 -- #### Control registers: cfc1 / ctc1
 -- FIR (0) is a constant; FCSR (31) round-trips its non-reserved bits
-#guard nextRegEq (fp1 (.cfc1 9#32 0#32) []) 9 0x00130000#32
+#guard nextRegEq (fp1 (.cfc1 9#32 0#32) []) 9 0x00330000#32
 #guard fpTraps (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0xffffffff#32)]) 0 0#32 0xff83ffff#32
 #guard nextFcsrEq (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0x00800003#32)]) 0x00800003#32
 #guard nextRegEq (fp1 (.cfc1 9#32 31#32) [] 0x00800003#32) 9 0x00800003#32

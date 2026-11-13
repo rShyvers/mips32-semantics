@@ -384,10 +384,13 @@ def prIdValue : W32 := 0x00010000
 /-- `Config` (CP0 register 16, select 0; MD00090 Vol III Rev 6.02 §9.45,
 Table 9.64, p.233-235): `M` = 1 (Config1 present), `BE` = 1 (big-endian),
 `AT` = 0 (MIPS32), `AR` = 1 (Release 2), `MT` = 0 (no MMU), `VI` = 0,
-`K0` = 2 (uncached, Table 9.12 p.133), everything else 0. The register is
-read-only in this model (the architecture makes `K0` writable; there is no
-cache for it to control). -/
-def configValue : W32 := 0x80008402
+everything else 0 except `K0` (bits 2..0), which is `s.cp0ConfigK0`: Read/Write,
+reset 2 (Uncached, Table 9.12 p.133). `mtc0` stores bits 2..0 of the written value
+into it unchanged (every 3-bit value is accepted; pre-Release 6 the manual does not
+say what a write of an unsupported attribute does: "For Release 6, writes of
+unsupported values are ignored", Table 9.64 p.235). The model has no cache, so
+`K0` has no effect on anything else. The other fields are read-only. -/
+def configValue (s : State) : W32 := 0x80008400#32 ||| (s.cp0ConfigK0.setWidth 32)
 
 /-- `Config1` (CP0 register 16, select 1; MD00090 Vol III Rev 6.02 §9.46,
 Table 9.65): `FP` = 1 (FPU implemented) and nothing else — `M` = 0 (no
@@ -1265,12 +1268,12 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 14, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Epc)
     | 15, 0 => mkNext s (writeReg s (regIdx rt) prIdValue)
     | 15, 1 => mkNext s (writeReg s (regIdx rt) (ebaseValue s))
-    | 16, 0 => mkNext s (writeReg s (regIdx rt) configValue)
+    | 16, 0 => mkNext s (writeReg s (regIdx rt) (configValue s))
     | 16, 1 => mkNext s (writeReg s (regIdx rt) config1Value)
     | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
     | _, _ => takeException s excCodeRI
-  -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config`, `Config1` are
-  -- read-only (the write is ignored); `Status` keeps only `statusWriteMask`
+  -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1` are
+  -- read-only (the write is ignored); `Config` takes only `K0` (bits 2..0); `Status` keeps only `statusWriteMask`
   -- bits (others read as zero); `Cause` changes only `causeWriteMask` bits
   -- (DC, IV, IP1..0), keeping `BD`/`CE`/`ExcCode`/everything else; `EPC`/
   -- `ErrorEPC` are fully writable; `EBase` takes the Exception Base field
@@ -1285,7 +1288,7 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 15, 0 => mkNext s s
     | 15, 1 => mkNext s { s with cp0EBase :=
               (readReg s (regIdx rt) &&& ebaseWriteMask) ||| ebaseFixedBits }
-    | 16, 0 => mkNext s s
+    | 16, 0 => mkNext s { s with cp0ConfigK0 := (readReg s (regIdx rt)).setWidth 3 }
     | 16, 1 => mkNext s s
     | 30, 0 => mkNext s { s with cp0ErrorEpc := readReg s (regIdx rt) }
     | _, _ => takeException s excCodeRI

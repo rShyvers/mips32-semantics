@@ -370,10 +370,20 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0x80008402#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x00000001#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 1#32)) regs0) 9 0x80000000#32
--- the read-only registers ignore writes
+-- `Config` (16,0): only `K0` (bits 2..0) is writable (MD00090 Vol III Rev 6.02 Table 9.64, p.235);
+-- writing all ones changes K0 to 7 and leaves every other bit alone
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
         | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-            0x80008402#32
+            0x80008407#32
+        | .halt _ => false)
+-- every 3-bit K0 value reads back; bits 31..3 of the written value are ignored; nothing else changes
+#guard (List.range 8).all fun k =>
+  (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xfffffff8#32 ||| BitVec.ofNat 32 k)]) with
+    | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
+        (0x80008400#32 ||| BitVec.ofNat 32 k)
+    | .halt _ => false)
+#guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0#32)]) with
+        | .next s => s.cp0ConfigK0 == 0#3 && s.cp0Status == regs0.cp0Status && s.cp0EBase == regs0.cp0EBase
         | .halt _ => false)
 -- EBase: only bits 29..12 are writable; bits 31..30 stay `10`
 #guard (match hstep (prog1 (.mtc0 9#32 15#32 1#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with

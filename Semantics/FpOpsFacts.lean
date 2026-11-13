@@ -482,7 +482,7 @@ theorem raiseFlags_frame (fcsr : BitVec 32) (f : Flags) :
   rw [BitVec.or_assoc, BitVec.and_or_distrib_right, hk, BitVec.or_zero, BitVec.and_assoc, hm]
 
 theorem control_register_cases :
-    readControl 0xFFFFFFFF#32 0 = some 0x00130000#32 ∧                  -- FIR
+    readControl 0xFFFFFFFF#32 0 = some 0x00330000#32 ∧                  -- FIR
     readControl 0xFFFFFFFF#32 31 = some 0xFF83FFFF#32 ∧                 -- FCSR
     readControl 0xFFFFFFFF#32 25 = some 0x000000FF#32 ∧                 -- FCCR
     readControl 0xFFFFFFFF#32 26 = some 0x0003F07C#32 ∧                 -- FEXR

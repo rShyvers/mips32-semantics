@@ -821,19 +821,22 @@ def fcsrTrapPending (fcsr : BitVec 32) : Bool :=
 
 /-- The value read from FIR (control register 0), a read-only constant
 (MD00082 Vol I-A Rev 6.01 §6.5.1, Figure 6.11 / Table 6.5, p.88-90):
-`0x00130000` = `S` (bit 16), `D` (bit 17) and `W` (bit 20) implemented;
+`0x00330000` = `S` (bit 16), `D` (bit 17), `W` (bit 20) and `L` (bit 21) implemented;
 `F64` (22) = 0, a 32-bit FPU; `Has2008` (23) = 0, legacy NaN encoding and
 arithmetic `ABS`/`NEG`; `PS` (18) = `3D` (19) = 0; `UFRP` = `FREP` = 0;
 `Impl`, `ProcessorID` and `Revision` zero.
 
-`L` (bit 21) is **0**. The manual is inconsistent here: Table 6.4 (p.85) says
-a Release 2 32-bit FPU requires "FIR.D=1 and FIR.L=1", while every L-format
-instruction page (e.g. MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154) says the
-result "is UNPREDICTABLE if the processor is executing in the FR=0 32-bit FPU
-register model". The model does not implement the L format (no instruction
-could have predictable results), so it reports `L = 0` rather than advertise a
-data type it lacks. -/
-def firValue : BitVec 32 := 0x00130000#32
+`L` = 1 is forced by the manual: every allowed pre-Release 6 FPU subset that has `D`
+also has `L` (MD00086 Vol II-A Rev 6.06 §3.1, p.30: "FIR.S=FIR.L=FIR.D=FIR.L=1";
+MD00082 Vol I-A Rev 6.01 Table 6.4, p.85: Release 2, 32-bit FPU: "FIRD=1 and FIRL=1
+required"). The manual is inconsistent with itself here: the L-format instruction
+pages (e.g. CVT.L.fmt, MD00086 p.154) say the result "is UNPREDICTABLE if the
+processor is executing in the FR=0 32-bit FPU register model". The model's reading
+(SPEC-NOTES, item `FIR.L`): `FIR.L = 1` as the subsets require, and the L-format
+instructions (`CVT.L.fmt`, `CVT.fmt.L`, `ROUND/TRUNC/CEIL/FLOOR.L.fmt`) are
+not implemented: they decode as Reserved Instruction, a pin of their UNPREDICTABLE
+result with `FR` = 0. -/
+def firValue : BitVec 32 := 0x00330000#32
 
 /-- FCSR as read through register 31: reserved bits 22..18 read as zero. -/
 def readFCSR (fcsr : BitVec 32) : BitVec 32 := fcsr &&& fcsrWritableMask

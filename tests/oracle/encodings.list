@@ -403,6 +403,8 @@ sync
 nop
 ssnop
 ehb
+pause
+nal
 j @T
 jal @T
 j @B

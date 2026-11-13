@@ -48,7 +48,8 @@ def initialState (pc : W32) : State :=
     cp0BadVAddr := 0#32
     cp0ErrorEpc := 0#32
     llAddr := 0#32
-    cp0EBase := ebaseFixedBits }
+    cp0EBase := ebaseFixedBits
+    cp0ConfigK0 := 2#3 }
 
 /-- Read general-purpose register `i`. Register `0` (`$zero`) always reads as
 `0` by construction of `initialState`/`writeReg`, but this also tolerates any

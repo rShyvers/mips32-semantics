@@ -74,7 +74,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
     DelaySlotRel (s.pc + 4#32) t
       (execInstr { s with pendingBranch := none } instr)
       (execInstr { s with pendingBranch := some t } instr) := by
-  obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase⟩ := s
+  obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0⟩ := s
   cases instr <;> first | exact Bool.noConfusion (hnb : true = false) | skip
   all_goals (
     unfold execInstr execBody
@@ -87,7 +87,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       writeReg_proj_fpRegs, writeReg_proj_fcsr, writeReg_proj_mem,
       writeReg_proj_pendingBranch, writeReg_proj_llBit, writeReg_proj_cp0Status,
       writeReg_proj_cp0Cause, writeReg_proj_cp0Epc, writeReg_proj_cp0BadVAddr,
-      writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_regs]
+      writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_cp0ConfigK0, writeReg_proj_regs]
     repeat' (first
       | (show (_ : State).pc = _ → _ = _
          intro hnorm

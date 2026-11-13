@@ -138,6 +138,13 @@ structure State where
   read/write, bits 11..10 and `CPUNum` (9..0) read zero. It supplies the
   exception vector base when `Status.BEV = 0`. Reset value `0x8000_0000`. -/
   cp0EBase : W32 := 0x80000000#32
+  /-- Coprocessor 0 `Config.K0` (register 16, select 0, bits 2..0; MD00090 Vol III
+  Rev 6.02 §9.45, Table 9.64, p.235: "Kseg0 cacheability and coherency attribute",
+  Read/Write, Reset State "Undefined", Compliance "Required"). The model has no cache,
+  so the value is stored and read back and has no other effect. Reset value `2`
+  (Uncached, the "Required" encoding of Table 9.12, p.133; a pin of the undefined
+  reset state). -/
+  cp0ConfigK0 : BitVec 3 := 2#3
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/

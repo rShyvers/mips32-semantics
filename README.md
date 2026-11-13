@@ -185,12 +185,12 @@ Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md
   coprocessor-2 family (`cop2`, `mfc2`, `mtc2`, `cfc2`, `ctc2`, `lwc2`, `swc2`, `ldc2`, `sdc2`, `bc2f`/`bc2t`/
   `bc2fl`/`bc2tl`), `luxc1`, `suxc1`, the L format (`cvt.l`, `round.l`, `trunc.l`, `ceil.l`, `floor.l`,
   `cvt.s.l`, `cvt.d.l`) and paired-single (`*.ps`, `alnv.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu`).
-  `pause` and `nal` decode (as `sll $0,$0,5` and `bltzal $0`) but have no assembler mnemonic.
+  `pause` and `nal` assemble and decode as `sll $0,$0,5` and `bltzal $0` (`PAUSE` executes as the NOP the manual permits).
 - State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB and
   mapped address translation, caches, `WatchLo`/`WatchHi`, user mode (`Status.UM`/`KSU`/`CU0`; everything runs as
   kernel), EJTAG, coprocessor 2, `Config2`..`Config5`.
 - The manuals themselves are inconsistent about the L format with `FR = 0` (`FIR.L = 1` is required, the L-format
-  instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 0` (SPEC-NOTES §9 item 13).
+  instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 1` and leaves the L format undecoded (SPEC-NOTES §9 item 13).
 
 ## Building and the gate
 

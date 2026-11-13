@@ -38,7 +38,7 @@ words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
   none inserts a `nop` -- this assembler always behaves like GNU as under
   `.set noreorder`, every branch keeps its real delay slot): `b`, `bal`,
   `beqz`, `bnez`, `neg`, `negu`, `not`, `abs`, `blt`/`bge`/`bgt`/`ble`,
-  `bltu`/`bgeu`/`bgtu`/`bleu` (via `$at`), `ssnop`, `ehb`, `jr.hb`,
+  `bltu`/`bgeu`/`bgtu`/`bleu` (via `$at`), `ssnop`, `ehb`, `pause`, `nal`, `jr.hb`,
   `jalr.hb` -- see `expandIdiom`.
 - Optional code operands, in GNU as operand syntax: `break [code[, code2]]`
   (each 0..1023: `code` goes to bits 25..16 and `code2` to bits 15..6 of the
@@ -773,7 +773,7 @@ private def pseudoSet : List String :=
    -- assembler idioms (see `expandIdiom` / `encodeInstruction`)
    "b", "bal", "beqz", "bnez", "neg", "negu", "not", "abs",
    "blt", "bge", "bgt", "ble", "bltu", "bgeu", "bgtu", "bleu",
-   "ssnop", "ehb", "jr.hb", "jalr.hb"]
+   "ssnop", "ehb", "pause", "nal", "jr.hb", "jalr.hb"]
 /-- Data-emitting directives (laid out by `directiveLayout`). Segment
 directives, `.align` and the no-op `.globl`/`.global`/`.extern` are handled
 directly in `layoutLine`. -/
@@ -1060,6 +1060,17 @@ private def expandIdiom (name : String) (ops : List String) (line : Nat) :
     match ops with
     | [] => pure [("sll", ["$0", "$0", "3"])]
     | _ => throw (.badOperand "ehb takes no operands" line)
+  -- `pause` = `sll $0,$0,5` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317).
+  | "pause" =>
+    match ops with
+    | [] => pure [("sll", ["$0", "$0", "5"])]
+    | _ => throw (.badOperand "pause takes no operands" line)
+  -- `nal` = `bltzal $0, 0`: REGIMM, rs = 0, rt = 10000, offset ignored
+  -- (written as 0) (MD00086 Vol II-A Rev 6.06, NAL, p.306).
+  | "nal" =>
+    match ops with
+    | [] => pure [("bltzal", ["$0", "0"])]
+    | _ => throw (.badOperand "nal takes no operands" line)
   | _ => pure [(name, ops)]
 
 -- ====================================================================

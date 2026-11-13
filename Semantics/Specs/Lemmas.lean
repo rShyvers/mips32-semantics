@@ -15,7 +15,7 @@ Nothing here is a headline statement: these are small facts about `if`, bit mask
   `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem`
   `writeReg_proj_pendingBranch` `writeReg_proj_llBit` `writeReg_proj_cp0Status`
   `writeReg_proj_cp0Cause` `writeReg_proj_cp0Epc` `writeReg_proj_cp0BadVAddr`
-  `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_regs`
+  `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_cp0ConfigK0` `writeReg_proj_regs`
   `writeReg_pc` `writeReg_hi` `writeReg_lo` `writeReg_reads_back`
   `readReg_zero_of_regs_eq` `writeMemWord_regs` `writeMemHalf_regs` `writeMemByte_regs`
   `writeFpReg_reads_back` `mkNext_of_none` `execInstr_eq_body` `fpFinishS_eq` `fpFinishD_eq`
@@ -102,10 +102,10 @@ def readCStringOfMem (m : Std.HashMap W32 UInt8) (a : W32) (f : Nat) : String :=
 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
-    (st ca epc bva eepc lla eb a : W32) (f : Nat) :
-    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩ a f
+    (st ca epc bva eepc lla eb a : W32) (k0 : BitVec 3) (f : Nat) :
+    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0⟩ a f
       = readCStringOfMem mem a f :=
-  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb⟩
+  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0⟩
     { initialState 0#32 with mem := mem } rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
@@ -151,6 +151,9 @@ theorem writeReg_proj_llAddr (s : State) (i : Fin 32) (v : W32) : (writeReg s i 
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_cp0EBase (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0EBase = s.cp0EBase := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0ConfigK0 (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0ConfigK0 = s.cp0ConfigK0 := by
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :

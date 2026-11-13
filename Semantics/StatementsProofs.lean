@@ -465,7 +465,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read 0x80008402#32
+      | 16, 0 => read (0x80008400#32 ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI :=
@@ -490,7 +490,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
         { s with
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
-      | 16, 0 => { s with pc := s.pc + 4#32 }
+      | 16, 0 =>
+        { s with cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3, pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
