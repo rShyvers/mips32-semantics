@@ -166,6 +166,68 @@ def runCase (c : EquivCase) (fuel : Nat) : IO CaseResult := do
     if outcomesMatch rb rv then none else some (a0, a1, rb, rv)
   pure { name := c.name, mismatches := mismatches, actuallyEquivalent := mismatches.isEmpty }
 
+/-! ## Expected-output programs (`tests/asm/*.asm`)
+
+Programs that MARS cannot run (FCSR, exceptions with a `.ktext` handler,
+Release 2 instructions, …) carry their expectation in a comment:
+
+```
+# Expected output: "<exact text the program prints>"
+# Expected halt: exit | unhandledException <ExcCode> | noInstruction      (optional; default exit)
+```
+
+Everything between the first and the last `"` on the `Expected output` line
+is the expected text. Each such program is assembled, its image copied into
+memory, and run from `initialState textBase`; the accumulated output and the
+halt reason must match. A program without an `Expected output` line is not
+checked (and is reported as such). -/
+
+/-- Copy the assembled image into `State.mem`, big-endian (as `MipsRun`). -/
+def materializeImage (p : Program) (s0 : State) : State :=
+  p.fold (fun (acc : State) (addr word : W32) =>
+    let b0 : UInt8 := ((word >>> 24) &&& 0xff#32).toNat.toUInt8
+    let b1 : UInt8 := ((word >>> 16) &&& 0xff#32).toNat.toUInt8
+    let b2 : UInt8 := ((word >>> 8) &&& 0xff#32).toNat.toUInt8
+    let b3 : UInt8 := (word &&& 0xff#32).toNat.toUInt8
+    { acc with
+        mem := (((acc.mem.insert addr b0).insert (addr + 1#32) b1).insert
+                  (addr + 2#32) b2).insert (addr + 3#32) b3 })
+    s0
+
+/-- The text after `prefix` on the first source line that starts with it. -/
+def expectationLine (src pfx : String) : Option String :=
+  (src.splitOn "\n").findSome? fun l =>
+    if l.startsWith pfx then some ((l.drop pfx.length).toString) else none
+
+/-- The text between the first and the last double quote of `s`. -/
+def quoted (s : String) : Option String :=
+  match s.splitOn "\"" with
+  | _ :: rest@(_ :: _) => some (String.intercalate "\"" rest.dropLast)
+  | _ => none
+
+/-- Run one expected-output program; `none` if it has no expectation,
+otherwise `some (ok, description)`. -/
+def checkAsmProgram (path : String) : IO (Option (Bool × String)) := do
+  let src ← IO.FS.readFile path
+  match (expectationLine src "# Expected output:").bind quoted with
+  | none => pure none
+  | some expected =>
+    let expectedHalt :=
+      ((expectationLine src "# Expected halt:").map (·.trimAscii.toString)).getD "exit"
+    match assemble src with
+    | .error e => pure (some (false, s!"assemble failed: {repr e}"))
+    | .ok prog =>
+      let (halt, out) :=
+        match run prog (materializeImage prog (initialState textBase)) 1000000 with
+        | .halted .exit s _ => ("exit", s.out)
+        | .halted (.unhandledException code _ _) s _ => (s!"unhandledException {code.toNat}", s.out)
+        | .halted (.noInstruction _) s _ => ("noInstruction", s.out)
+        | .halted .branchInDelaySlot s _ => ("branchInDelaySlot", s.out)
+        | .limitReached s _ => ("limitReached", s.out)
+      if out == expected && halt == expectedHalt then pure (some (true, s!"output {repr out}, halt {halt}"))
+      else pure (some (false,
+        s!"expected output {repr expected} halt {expectedHalt}; got output {repr out} halt {halt}"))
+
 def main : IO UInt32 := do
   let fuel := 1000
   let mut allOk := true
@@ -188,6 +250,22 @@ def main : IO UInt32 := do
         IO.println s!"     ... and {r.mismatches.length - 8} more"
     let status := if verdictOk then "PASS" else "FAIL (unexpected!)"
     IO.println s!"   verdict: {status}"
+  IO.println ""
+  -- expected-output programs
+  let entries ← System.FilePath.readDir "tests/asm"
+  let paths := (entries.map (·.path.toString)).filter (·.endsWith ".asm") |>.qsort (· < ·)
+  let mut checked := 0
+  for path in paths do
+    match ← checkAsmProgram path with
+    | none => IO.println s!"SKIP  {path} (no '# Expected output:' line)"
+    | some (ok, msg) =>
+      checked := checked + 1
+      allOk := allOk && ok
+      IO.println s!"{if ok then "PASS" else "FAIL"}  {path}: {msg}"
+  IO.println s!"expected-output programs checked: {checked} of {paths.size}"
+  if checked == 0 then
+    IO.println "FAIL  no expected-output program found under tests/asm"
+    allOk := false
   IO.println ""
   if allOk then
     IO.println s!"SUMMARY: all {corpus.length} equivalence cases behaved as claimed"

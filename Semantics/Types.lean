@@ -25,14 +25,20 @@ structure State where
   register number. Each holds a raw 32-bit pattern (same raw-bit-pattern
   storage convention as `regs`): an IEEE-754 single, or one half of a double.
   Double-precision values occupy an even/odd register pair (`$fN` = low word,
-  `$f(N+1)` = high word; the MIPS32 FR=0 convention). Conversion to/from
-  Lean's floats happens only where arithmetic is done (`Step.lean`). -/
+  `$f(N+1)` = high word; the 32-bit FPU register model, `Status.FR = 0`:
+  MD00082 Vol I-A Rev 6.01 §6.4.1, p.84). All arithmetic is done on these bit
+  patterns by `Semantics/FpOps.lean`; no host float is involved. -/
   fpRegs : Array W32
-  /-- The single FPU condition flag set by `c.eq.s`/`c.lt.s`/`c.le.s` and
-  tested by `bc1t`/`bc1f`. Real MIPS32 has 8 FP condition-code registers
-  (`cc` field); this v1.x addition models only `cc = 0`, matching the
-  single-flag subset in `docs/spec/INSTRUCTION-REF.md`. -/
-  fpCondFlag : Bool
+  /-- The Floating Point Control and Status Register (FCSR, CP1 control
+  register 31; MD00082 Vol I-A Rev 6.01 §6.5.4, Figure 6.14 / Table 6.8,
+  p.92-95), as a raw word with the layout and accessors of `Mips.Fp`
+  (`Semantics/FpOps.lean` §9): the eight condition codes `FCC7..1` (bits
+  31..25) and `FCC0` (bit 23), `FS` (24), `Cause` (17..12, `E V Z O U I`),
+  `Enables` (11..7), `Flags` (6..2), `RM` (1..0). Bits 22..18 (`Impl`, the
+  reserved bit 20, and `ABS2008`/`NAN2008`, which do not exist because
+  `FIR.Has2008 = 0`) read as zero and ignore writes. `FCCR`/`FEXR`/`FENR` are
+  views of this one register (`cfc1`/`ctc1`). -/
+  fcsr : W32
   /-- Byte-addressable, sparse memory. -/
   mem : Std.HashMap W32 UInt8
   /-- Accumulated syscall output. -/
@@ -81,8 +87,9 @@ structure State where
   * `ERL` (bit 2) — selects `ErrorEPC` in `eret`; never set by the model
     itself (no Reset/NMI/Cache-Error exception), only by `mtc0`.
   * `BEV` (bit 22) — selects the bootstrap exception vector.
-  * `CU1` (bit 29) — stored and read back only (reserved for the FPU's
-    Coprocessor Unusable check).
+  * `CU1` (bit 29) — coprocessor 1 usable. When it is 0 every COP1/COP1X
+    instruction, `lwc1`/`swc1`/`ldc1`/`sdc1` and `movf`/`movt` raises
+    Coprocessor Unusable (MD00090 Vol III Rev 6.02 §6.2.22, p.100).
 
   **Not modeled:** `UM`/`KSU` (no user/kernel mode distinction — every
   instruction, including `mfc0`/`mtc0`/`eret`, executes as if in kernel
@@ -90,11 +97,12 @@ structure State where
   `RE`, `MX`, `PX`, `TS`, `SR`, `NMI`. -/
   cp0Status : W32
   /-- Coprocessor 0 `Cause` (register 13, sel 0). Exception entry writes
-  `ExcCode` (bits 6..2) and, when `Status.EXL` was 0, `BD` (bit 31); it
-  leaves every other bit alone (`CE` included: the architecture makes it
-  UNPREDICTABLE except for Coprocessor Unusable, which the model never
-  raises). `mtc0` can write only `IV` (23) and `IP1..IP0` (9..8)
-  (`causeWriteMask`). `DC`, `WP`, `IP7..IP2`, `TI`, `PCI` are never set. -/
+  `ExcCode` (bits 6..2), `CE` (bits 29..28: the coprocessor unit number for
+  Coprocessor Unusable; "loaded, but not defined" for every other exception —
+  MD00090 Vol III Rev 6.02 §6.2.3, p.87 — pinned to 0) and, when `Status.EXL`
+  was 0, `BD` (bit 31); it leaves every other bit alone. `mtc0` can write
+  only `DC` (27), `IV` (23) and `IP1..IP0` (9..8) (`causeWriteMask`). `WP`,
+  `IP7..IP2`, `TI`, `PCI` are never set. -/
   cp0Cause : W32
   /-- Coprocessor 0 `EPC` (register 14, sel 0): the restart address recorded
   by exception entry when `Status.EXL` was 0 — the faulting instruction's
@@ -109,6 +117,19 @@ structure State where
   when `Status.ERL = 1`. Only ever written by `mtc0` (the model raises no
   error-level exception). -/
   cp0ErrorEpc : W32 := 0#32
+  /-- The aligned effective address of the most recent `ll` (the address the
+  RMW sequence monitors). `sc` fails unless its own address equals it:
+  "an SC must always compare its address against that of the LL. An SC will
+  fail if the aligned address of the SC does not match that of the preceding
+  LL" (MD00086 Vol II-A Rev 6.06, SC, p.347). Meaningful only while `llBit`
+  is set. Defaults `0`. -/
+  llAddr : W32 := 0#32
+  /-- Coprocessor 0 `EBase` (register 15, sel 1; MD00090 Vol III Rev 6.02
+  §9.41, Figure 9.42 / Table 9.58, p.223-224), without the optional write
+  gate: bits 31..30 read `10`, the Exception Base field (bits 29..12) is
+  read/write, bits 11..10 and `CPUNum` (9..0) read zero. It supplies the
+  exception vector base when `Status.BEV = 0`. Reset value `0x8000_0000`. -/
+  cp0EBase : W32 := 0x80000000#32
 
 /-- Reasons the simulator halts instead of producing a next state.
 
@@ -173,9 +194,19 @@ def textBase : W32 := 0x00400000
 /-- Initial value of `$sp` (MARS default configuration). -/
 def spInit : W32 := 0x7fffeffc
 
-/-- General exception vector when `Status.BEV = 0` (MD00090, "Exception
-Vectors": base `0x8000_0000`, offset `0x180`). -/
+/-- General exception vector when `Status.BEV = 0` and `EBase` holds its
+reset value (MD00090 Vol III Rev 6.02 §6.2.2 "Exception Vector Locations":
+base `0x8000_0000`, offset `0x180`). -/
 def exceptionVectorAddr : W32 := 0x80000180
+
+/-- Offset of the general exception vector from the vector base. -/
+def exceptionVectorOffset : W32 := 0x180
+
+/-- The read/write Exception Base field of `EBase`, bits 29..12. -/
+def ebaseWriteMask : W32 := 0x3ffff000
+
+/-- The fixed bits 31..30 = `10` of `EBase`. -/
+def ebaseFixedBits : W32 := 0x80000000
 
 /-- General exception vector when `Status.BEV = 1` (bootstrap vectors: base
 `0xBFC0_0200`, offset `0x180`). -/
@@ -191,14 +222,17 @@ def excCodeSys : W32 := 8
 def excCodeBp : W32 := 9
 /-- Reserved Instruction. -/
 def excCodeRI : W32 := 10
-/-- Coprocessor Unusable (defined for completeness; nothing in the integer
-core raises it — user mode is not modeled). -/
+/-- Coprocessor Unusable: a coprocessor-1 instruction with `Status.CU1 = 0`
+(user mode is not modeled, so coprocessor 0 is always usable). -/
 def excCodeCpU : W32 := 11
 /-- Integer Overflow (`add`/`addi`/`sub`). -/
 def excCodeOv : W32 := 12
 /-- Trap (`teq`/`tne`/`tlt`/`tge`/`tltu`/`tgeu` and their immediate forms).
 All share this one code; `Cause` does not say which condition fired. -/
 def excCodeTr : W32 := 13
+/-- Floating Point exception (MD00090 Vol III Rev 6.02 §6.2.23, p.100;
+Table 9.53 `FPE`): an enabled IEEE exception, or FCSR `Cause.E`. -/
+def excCodeFPE : W32 := 15
 
 /-- `Status.IE` (bit 0). -/
 def statusIeMask : W32 := 0x1
@@ -220,12 +254,18 @@ def statusWriteMask : W32 := 0x2040ff07
 def causeBdMask : W32 := 0x80000000
 /-- `Cause.ExcCode` (bits 6..2). -/
 def causeExcCodeMask : W32 := 0x7c
-/-- The `Cause` bits `mtc0` can write: `IV` (23) and `IP1..IP0` (9..8).
-MD00090 Rev 6.02 Table 9.52 also marks `DC` (27) and `WP` (22) R/W, but
-`WP` "must be ignored on write and read as zero" when watch registers are
-not implemented, and `DC` controls the `Count` register, which the model
-does not have; neither is writable here. -/
-def causeWriteMask : W32 := 0x00800300
+/-- `Cause.CE` (bits 29..28): coprocessor unit number of a Coprocessor
+Unusable exception. -/
+def causeCeMask : W32 := 0x30000000
+/-- The `Cause` bits `mtc0` can write: `DC` (27), `IV` (23) and `IP1..IP0`
+(9..8). MD00090 Vol III Rev 6.02 §9.36 (p.209): "With the exception of the
+IP1..0, DC, IV, and WP fields, all fields in the Cause register are
+read-only"; Table 9.52 (p.210) makes `DC` R/W and Required in Release 2. `DC`
+("Disable Count register") is stored and read back but has no effect: the
+model has no `Count` register. `WP` (22) is not writable here: it is
+"Required if watch registers are implemented", and the model has none
+(`Config1.WR = 0`). -/
+def causeWriteMask : W32 := 0x08800300
 
 -- ## Tests
 
@@ -258,7 +298,7 @@ def sampleState : State :=
     hi := 0#32
     lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
-    fpCondFlag := false
+    fcsr := 0#32
     mem := ∅
     out := ""
     cp0Status := 0#32
@@ -270,13 +310,13 @@ example : sampleState.regs.size = 32 := by decide
 example : sampleState.regs[29]! = spInit := by decide
 example : sampleState.fpRegs.size = 32 := by decide
 example : sampleState.fpRegs[0]! = 0#32 := by decide
-example : sampleState.fpCondFlag = false := by decide
+example : sampleState.fcsr = 0#32 := by decide
 example : sampleState.out = "" := by decide
 #guard sampleState.pc = textBase
 #guard sampleState.regs.size = 32
 #guard sampleState.regs[29]! = spInit
 #guard sampleState.fpRegs.size = 32
-#guard sampleState.fpCondFlag = false
+#guard sampleState.fcsr = 0#32
 
 -- `HaltReason` / `StepResult` sanity
 example : HaltReason.exit ≠ HaltReason.branchInDelaySlot := by decide
@@ -292,6 +332,11 @@ example : sampleState.llBit = false := by decide
 -- the two CP0 registers with defaults
 example : sampleState.cp0BadVAddr = 0#32 := by decide
 example : sampleState.cp0ErrorEpc = 0#32 := by decide
+example : sampleState.llAddr = 0#32 := by decide
+example : sampleState.cp0EBase = 0x80000000#32 := by decide
+example : excCodeFPE = 15#32 := by decide
+example : causeCeMask = 3#32 <<< 28 := by decide
+example : ebaseFixedBits ||| exceptionVectorOffset = exceptionVectorAddr := by decide
 -- CP0 fields: `sampleState` reads back the zero-initialized fields; the
 -- exception constants are distinct small values as documented.
 example : sampleState.cp0Status = 0#32 := by decide
@@ -306,5 +351,5 @@ example : statusExlMask = 2#32 := by decide
 example : exceptionVectorBevAddr = 0xbfc00380#32 := by decide
 example : statusWriteMask = statusIeMask ||| statusExlMask ||| statusErlMask ||| statusImMask
     ||| statusBevMask ||| statusCu1Mask := by decide
-example : causeWriteMask = (1#32 <<< 23) ||| (3#32 <<< 8) := by decide
+example : causeWriteMask = (1#32 <<< 27) ||| (1#32 <<< 23) ||| (3#32 <<< 8) := by decide
 example : causeExcCodeMask = 0x1f#32 <<< 2 := by decide

@@ -9,9 +9,8 @@ kernel evaluates natively).  No `Float`/`Float32` appears in any definition
 (they appear only in the differential-test block at the very end, as an
 oracle), so every fact below can be proved by `decide`/`rfl`/`simp`.
 
-It replaces the parts of the FPU model that were either logically opaque
-(`Float32.round/ceil/floor`, `Float32.toFloat`, `Float.toFloat32`) or wrong
-with respect to the MIPS manuals:
+`Semantics/Step.lean` uses nothing else for floating point: the whole FPU
+model is these definitions.
 
 | Section | Content | Manual |
 |---|---|---|
@@ -24,6 +23,7 @@ with respect to the MIPS manuals:
 | §7 | NaN policy, `abs`/`neg` | MD00086 `ABS.fmt`, `NEG.fmt`; MD00082 default QNaN |
 | §8 | comparison | MD00086 `C.cond.fmt` |
 | §9 | FCSR and the `CFC1`/`CTC1` control-register views | MD00086 `CFC1`, `CTC1`; MD00082 Vol I FCSR/FIR/FCCR/FEXR/FENR |
+| §9a | arithmetic: `add`/`sub`/`mul`/`div`/`sqrt`, multiply-add family, `recip`/`rsqrt` (exact result, one rounding; NaN rules) | MD00082 Vol I §6.3, §6.7; MD00086 `ADD.fmt` … `MADD.fmt` |
 | §10 | kernel-checked theorems | |
 | §11 | differential tests against Lean's `Float32`/`Float` | |
 
@@ -280,21 +280,57 @@ def toExact (f : Format) (n : Nat) : Exact :=
 
 /-! ## §4  Correctly rounded packing -/
 
-/-- Round the exact value `v` to format `f` in direction `rm` and report
-Overflow / Underflow / Inexact (IEEE-754 §4.3, §7.4, §7.5).
+/-- The raw outcome of rounding an exact value to a format: the packed bit
+pattern plus the three conditions from which the IEEE flags are derived
+(`Rounded.flags`). Keeping them separate lets the flags depend on FCSR.Enables
+the way MD00082 Vol I-A Rev 6.01 §6.7.2.3 / §6.7.2.6 (p.101-102) specify. -/
+structure Rounded where
+  /-- The delivered (default) result. -/
+  bits : Nat
+  /-- The result rounded with unbounded exponent range exceeds the largest
+  finite number (§6.7.2.5). -/
+  overflow : Bool
+  /-- Tininess: detected **after rounding** (§6.7.2.3), or before rounding
+  when the result was flushed to zero (FCSR.FS = 1, §6.7.2.4). -/
+  tiny : Bool
+  /-- The rounded result (unbounded exponent range in the overflow case)
+  differs from the exact value. -/
+  inexact : Bool
+  deriving DecidableEq, Repr, Inhabited
+
+/-- IEEE flags of a rounding outcome, given FCSR.Enables `en`
+(MD00082 Vol I-A Rev 6.01):
+
+* Underflow (§6.7.2.3, p.101): "When an underflow trap is not enabled,
+  underflow is signaled only when both tininess and loss of accuracy have
+  been detected. … When an underflow trap is enabled …, underflow is signaled
+  when tininess is detected regardless of loss of accuracy."
+* Inexact (§6.7.2.6, p.102): "The rounded result of an operation is not
+  exact", or "The rounded result of an operation overflows without an
+  overflow trap". -/
+def Rounded.flags (r : Rounded) (en : Flags) : Flags where
+  overflow := r.overflow
+  underflow := r.tiny && (r.inexact || en.underflow)
+  inexact := r.inexact || (r.overflow && !en.overflow)
+
+/-- Round the exact value `v` to format `f` in direction `rm`
+(IEEE-754 §4.3, §7.4, §7.5; MD00082 Vol I-A Rev 6.01 Table 6.14, p.100).
 
 * Overflow delivers ±∞ or ± the largest finite number as the rounding
-  direction dictates, with Overflow and Inexact flagged.
-* Results below the normal range are denormalized (gradual underflow).
-  Underflow is flagged when the result is tiny (detected *after* rounding,
-  i.e. the result rounded with unbounded exponent range would be below the
-  smallest normal) **and** inexact.
+  direction dictates (Table 6.14).
+* Results below the normal range are denormalized (gradual underflow);
+  `tiny` is tininess detected *after* rounding (the result rounded with
+  unbounded exponent range would be below the smallest normal).
+* With `flush` (FCSR.FS = 1; §6.7.2.4, p.101-102) "every tiny non-zero result
+  is replaced with zero of the same sign", tininess being "detected before
+  rounding", and the flush is reported as tiny and inexact.
 * A zero significand gives a zero carrying `v.sign`. -/
-def round (f : Format) (rm : RoundingMode) (v : Exact) : Nat × Flags :=
-  if v.sig = 0 then (f.zero v.sign, Flags.none) else
+def roundCore (f : Format) (rm : RoundingMode) (flush : Bool) (v : Exact) : Rounded :=
+  if v.sig = 0 then ⟨f.zero v.sign, false, false, false⟩ else
   let p := f.fracBits + 1
   -- exponent at which the significand has exactly `p` bits
   let q0 : Int := v.exp + (bitLen v.sig : Int) - (p : Int)
+  if flush && decide (q0 < f.qMin) then ⟨f.zero v.sign, false, true, true⟩ else
   -- … clamped to the subnormal exponent
   let q : Int := if q0 < f.qMin then f.qMin else q0
   let dropped : Nat := (q - v.exp).toNat
@@ -311,8 +347,7 @@ def round (f : Format) (rm : RoundingMode) (v : Exact) : Nat × Flags :=
       | .RZ => false
       | .RP => !v.sign
       | .RM => v.sign
-    (if toInf then f.inf v.sign else f.maxFinite v.sign,
-      { overflow := true, inexact := true })
+    ⟨if toInf then f.inf v.sign else f.maxFinite v.sign, true, false, inexact⟩
   else
     -- tininess after rounding: rounded with unbounded exponent, still < 2^emin
     let tiny : Bool :=
@@ -322,19 +357,82 @@ def round (f : Format) (rm : RoundingMode) (v : Exact) : Nat × Flags :=
     let bits :=
       if m' < 2 ^ f.fracBits then f.pack v.sign 0 m'
       else f.pack v.sign (q' - f.qMin + 1).toNat (m' - 2 ^ f.fracBits)
-    (bits, { underflow := tiny && inexact, inexact := inexact })
+    ⟨bits, false, tiny, inexact⟩
+
+/-- `roundCore` with no trap enabled and no flushing: the delivered result
+and the untrapped IEEE flags (Overflow ⇒ Inexact; Underflow only when tiny
+and inexact). -/
+def round (f : Format) (rm : RoundingMode) (v : Exact) : Nat × Flags :=
+  let r := f.roundCore rm false v
+  (r.bits, r.flags Flags.none)
+
+end Format
+
+/-- The FCSR state an arithmetic operation consults (MD00082 Vol I-A Rev 6.01
+§6.5.4, Table 6.8, p.92-95): the rounding mode `RM`, the `Enables` field
+(which changes *which* conditions are signaled, see `Rounded.flags`) and the
+flush-to-zero bit `FS`. `envOf` (§9) extracts it from an FCSR value. The
+default is round-to-nearest, nothing enabled, no flushing. -/
+structure Env where
+  /-- FCSR.RM. -/
+  rm : RoundingMode := .RN
+  /-- FCSR.Enables. -/
+  enables : Flags := {}
+  /-- FCSR.FS. -/
+  flush : Bool := false
+  deriving DecidableEq, Repr, Inhabited
+
+namespace Env
+/-- Round to nearest even, nothing enabled, no flushing. -/
+def RN : Env := {}
+/-- Round toward zero, nothing enabled, no flushing. -/
+def RZ : Env := { rm := .RZ }
+/-- Round toward +∞, nothing enabled, no flushing. -/
+def RP : Env := { rm := .RP }
+/-- Round toward −∞, nothing enabled, no flushing. -/
+def RM : Env := { rm := .RM }
+/-- The environment with rounding mode `rm`, nothing enabled, no flushing. -/
+def ofRM (rm : RoundingMode) : Env := { rm := rm }
+end Env
+
+instance : Coe RoundingMode Env := ⟨Env.ofRM⟩
+
+namespace Format
+
+/-- Round the exact value `v` to format `f` under the FCSR environment `e`:
+the default result and the exceptions signaled (`roundCore`, `Rounded.flags`). -/
+def roundEnv (f : Format) (e : Env) (v : Exact) : Nat × Flags :=
+  let r := f.roundCore e.rm e.flush v
+  (r.bits, r.flags e.enables)
 
 /-- Convert a signed integer to format `f` (correctly rounded; `0 ↦ +0`). -/
-def ofInt (f : Format) (rm : RoundingMode) (i : Int) : Nat × Flags :=
-  f.round rm ⟨decide (i < 0), i.natAbs, 0⟩
+def ofInt (f : Format) (e : Env) (i : Int) : Nat × Flags :=
+  f.roundEnv e ⟨decide (i < 0), i.natAbs, 0⟩
 
-/-- Convert between formats: NaN ↦ the destination's default QNaN (Invalid if
-the source is a signaling NaN), ±∞ ↦ ±∞, otherwise correctly rounded. -/
-def convert (src dst : Format) (rm : RoundingMode) (n : Nat) : Nat × Flags :=
-  if src.isNaN n then
-    (dst.defaultQNaN, if src.isSNaN n then Flags.invalidOnly else Flags.none)
+/-- NaN operand of a format conversion (MD00082 Vol I-A Rev 6.01 §6.3.1.4,
+§6.3.1.5, p.81-82). A signaling NaN signals Invalid Operation and the default
+result is a new QNaN (Table 6.3, p.82). A quiet NaN is propagated: "Propagation
+of the diagnostic information requires information contained in a QNaN to be
+preserved through arithmetic operations and floating-point format
+conversions" — the sign and the most significant fraction bits are kept
+(widening appends zeros, narrowing drops low bits). If narrowing leaves a zero
+fraction — the pattern would be an infinity, so "no input operand QNaN value
+can be copied" — the destination's default QNaN is supplied (model pin). The
+fraction MSB is preserved either way, so the result is again quiet. -/
+def convertNaN (src dst : Format) (n : Nat) : Nat × Flags :=
+  if src.isSNaN n then (dst.defaultQNaN, Flags.invalidOnly) else
+  let frac :=
+    if src.fracBits ≤ dst.fracBits then src.fracField n * 2 ^ (dst.fracBits - src.fracBits)
+    else src.fracField n / 2 ^ (src.fracBits - dst.fracBits)
+  if frac = 0 then (dst.defaultQNaN, Flags.none)
+  else (dst.pack (src.signBit n) dst.expMax frac, Flags.none)
+
+/-- Convert between formats: NaN per `convertNaN`, ±∞ ↦ ±∞, otherwise
+correctly rounded under `e`. -/
+def convert (src dst : Format) (e : Env) (n : Nat) : Nat × Flags :=
+  if src.isNaN n then convertNaN src dst n
   else if src.isInf n then (dst.inf (src.signBit n), Flags.none)
-  else dst.round rm (src.toExact n)
+  else dst.roundEnv e (src.toExact n)
 
 /-! ## §5  Float → 32-bit word (generic) -/
 
@@ -422,27 +520,29 @@ def f64ToW32 (rm : RoundingMode) (x : BitVec 64) : BitVec 32 × Flags :=
 /-! ## §6  Format conversions -/
 
 /-- `CVT.D.S`: single → double.  Exact for every non-NaN input (no rounding
-mode needed); NaN ↦ `defaultQNaN64`, Invalid iff the input is signaling. -/
+mode needed); NaN per `Format.convertNaN` (QNaN payload widened, SNaN ↦
+`defaultQNaN64` with Invalid). -/
 def f32ToF64 (x : BitVec 32) : BitVec 64 × Flags :=
-  let r := Format.convert binary32 binary64 .RN x.toNat
+  let r := Format.convert binary32 binary64 Env.RN x.toNat
   (BitVec.ofNat 64 r.1, r.2)
 
-/-- `CVT.S.D`: double → single, correctly rounded in direction `rm`, with
-Overflow / Underflow / Inexact (see `Format.round`); NaN ↦ `defaultQNaN32`,
-Invalid iff the input is signaling. -/
-def f64ToF32 (rm : RoundingMode) (x : BitVec 64) : BitVec 32 × Flags :=
-  let r := Format.convert binary64 binary32 rm x.toNat
+/-- `CVT.S.D`: double → single, correctly rounded under `e`, with
+Overflow / Underflow / Inexact (see `Format.roundCore`); NaN per
+`Format.convertNaN` (QNaN payload truncated, SNaN ↦ `defaultQNaN32` with
+Invalid). -/
+def f64ToF32 (e : Env) (x : BitVec 64) : BitVec 32 × Flags :=
+  let r := Format.convert binary64 binary32 e x.toNat
   (BitVec.ofNat 32 r.1, r.2)
 
-/-- `CVT.S.W`: signed 32-bit word → single, correctly rounded in direction
-`rm` (Inexact when `|x| > 2^24` needs rounding). -/
-def w32ToF32 (rm : RoundingMode) (x : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.ofInt rm x.toInt
+/-- `CVT.S.W`: signed 32-bit word → single, correctly rounded under `e`
+(Inexact when `|x| > 2^24` needs rounding). -/
+def w32ToF32 (e : Env) (x : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.ofInt e x.toInt
   (BitVec.ofNat 32 r.1, r.2)
 
 /-- `CVT.D.W`: signed 32-bit word → double.  Always exact, never raises. -/
 def w32ToF64 (x : BitVec 32) : BitVec 64 :=
-  BitVec.ofNat 64 (binary64.ofInt .RN x.toInt).1
+  BitVec.ofNat 64 (binary64.ofInt Env.RN x.toInt).1
 
 /-! ## §7  NaN policy, `abs` and `neg` -/
 
@@ -460,27 +560,32 @@ def canonNaN32 (x : BitVec 32) : BitVec 32 := if isNaN32 x then defaultQNaN32 el
 /-- Map every NaN pattern to `defaultQNaN64`; leave everything else alone. -/
 def canonNaN64 (x : BitVec 64) : BitVec 64 := if isNaN64 x then defaultQNaN64 else x
 
-/-- `ABS.S` (MD00086 Rev 2.50: "this operation is arithmetic; a NaN operand
-signals invalid operation"): NaN ↦ default QNaN with Invalid; otherwise clear
-the sign bit. -/
+/-- `ABS.S`. With `FIR.Has2008 = 0` "this operation is arithmetic. For this
+case, any NaN operand signals invalid operation" (MD00086 Vol II-A Rev 6.06,
+ABS.fmt, p.32). The untrapped default result of Invalid Operation is a quiet
+NaN (MD00082 Vol I-A Rev 6.01 Table 6.14, p.100), and "when possible, this
+QNaN result is one of the operand QNaN values" (§6.3.1.5, p.82): a quiet NaN
+operand is returned unchanged, a signaling one gives the default QNaN.
+Otherwise the sign bit is cleared. -/
 def f32Abs (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then (defaultQNaN32, Flags.invalidOnly)
+  if isNaN32 x then (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly)
   else (x &&& 0x7FFFFFFF#32, Flags.none)
 
-/-- `NEG.S` (arithmetic, as `f32Abs`): NaN ↦ default QNaN with Invalid;
-otherwise flip the sign bit. -/
+/-- `NEG.S` (arithmetic, as `f32Abs`; MD00086 Vol II-A Rev 6.06, NEG.fmt,
+p.307): any NaN signals Invalid (quiet NaN operand returned unchanged,
+signaling ↦ default QNaN); otherwise flip the sign bit. -/
 def f32Neg (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then (defaultQNaN32, Flags.invalidOnly)
+  if isNaN32 x then (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly)
   else (x ^^^ 0x80000000#32, Flags.none)
 
 /-- `ABS.D`: as `f32Abs`, for doubles. -/
 def f64Abs (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then (defaultQNaN64, Flags.invalidOnly)
+  if isNaN64 x then (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly)
   else (x &&& 0x7FFFFFFFFFFFFFFF#64, Flags.none)
 
 /-- `NEG.D`: as `f32Neg`, for doubles. -/
 def f64Neg (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then (defaultQNaN64, Flags.invalidOnly)
+  if isNaN64 x then (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly)
   else (x ^^^ 0x8000000000000000#64, Flags.none)
 
 /-! ## §8  Comparison (MD00086 `C.cond.fmt`) -/
@@ -670,10 +775,20 @@ is set whose Enable bit is also set, or if Cause.E (always enabled) is set
 def fcsrTrapPending (fcsr : BitVec 32) : Bool :=
   getCauseE fcsr || (fcsr.extractLsb' 12 5 &&& fcsr.extractLsb' 7 5) != 0#5
 
-/-- The value read from FIR (control register 0), a read-only constant:
-`0x00130000` = S (bit 16), D (bit 17) and W (bit 20) implemented; no PS
-(18), 3D (19), L (21) or F64 (22); ProcessorID and Revision (bits 15..0)
-zero. -/
+/-- The value read from FIR (control register 0), a read-only constant
+(MD00082 Vol I-A Rev 6.01 §6.5.1, Figure 6.11 / Table 6.5, p.88-90):
+`0x00130000` = `S` (bit 16), `D` (bit 17) and `W` (bit 20) implemented;
+`F64` (22) = 0, a 32-bit FPU; `Has2008` (23) = 0, legacy NaN encoding and
+arithmetic `ABS`/`NEG`; `PS` (18) = `3D` (19) = 0; `UFRP` = `FREP` = 0;
+`Impl`, `ProcessorID` and `Revision` zero.
+
+`L` (bit 21) is **0**. The manual is inconsistent here: Table 6.4 (p.85) says
+a Release 2 32-bit FPU requires "FIR.D=1 and FIR.L=1", while every L-format
+instruction page (e.g. MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154) says the
+result "is UNPREDICTABLE if the processor is executing in the FR=0 32-bit FPU
+register model". The model does not implement the L format (no instruction
+could have predictable results), so it reports `L = 0` rather than advertise a
+data type it lacks. -/
 def firValue : BitVec 32 := 0x00130000#32
 
 /-- FCSR as read through register 31: reserved bits 22..18 read as zero. -/
@@ -732,6 +847,283 @@ def writeControl (fcsr : BitVec 32) (reg : Nat) (v : BitVec 32) : Option (BitVec
   | 28 => some (writeFENR fcsr v)
   | 31 => some (writeFCSR fcsr v)
   | _ => none
+
+/-- The arithmetic environment selected by an FCSR value: `RM`, `Enables`
+and `FS`. -/
+def envOf (fcsr : BitVec 32) : Env :=
+  { rm := getRM fcsr, enables := getEnables fcsr, flush := getFS fcsr }
+
+/-! ## §9a  Arithmetic: add, subtract, multiply, divide, square root
+
+Every operation computes the **exact** result as an `Exact` (a dyadic
+rational; for division and square root a quotient/root with enough extra bits
+plus a sticky bit, which rounds identically) and rounds it **once** with
+`Format.roundEnv`. Special operands follow MD00082 Vol I-A Rev 6.01:
+
+* §6.3.1.4 (p.81): "SNaN operands cause the Invalid Operation exception for
+  arithmetic operations."
+* §6.3.1.5 (p.82): "QNaN operands do not cause arithmetic operations to signal
+  an exception. When a floating-point result is to be delivered, a QNaN
+  operand causes an arithmetic operation to supply a QNaN result. When
+  possible, this QNaN result is one of the operand QNaN values." and
+  "Table 6.3 shows the QNaN value generated when no input operand QNaN value
+  can be copied."
+* §6.7.2.1 (p.100): the invalid operations (∞ − ∞, 0 × ∞, 0/0, ∞/∞, square
+  root of a value less than 0); §6.7.2.2 (p.100): Division By Zero "if the
+  divisor is zero and the dividend is a finite nonzero number", result "a
+  correctly signed infinity".
+
+`nanResult` implements the NaN rule: the result is the **first quiet NaN
+operand, in the instruction's operand order** (`fs` before `ft`), returned
+unchanged; if no operand is a quiet NaN (all NaN operands are signaling) the
+default QNaN is created. The manual does not say which operand wins when two
+are quiet NaNs; "first operand" is a model pin.
+
+Subnormal *operands* are never flushed (with FCSR.FS = 1 this is
+"implementation-dependent" before Release 5, §6.7.2.4 p.102; pinned: not
+flushed). The model never raises Unimplemented Operation. -/
+
+/-- Integer square root by binary digit recurrence, structural on the bit
+index: `isqrtAux n i r` extends the partial root `r` with bits `i-1 … 0`. -/
+def isqrtAux (n : Nat) : Nat → Nat → Nat
+  | 0, r => r
+  | i + 1, r =>
+    let c := r + 2 ^ i
+    if c * c ≤ n then isqrtAux n i c else isqrtAux n i r
+
+/-- `⌊√n⌋` (the root has at most `⌈bitLen n / 2⌉` bits). -/
+def isqrt (n : Nat) : Nat := isqrtAux n ((bitLen n + 1) / 2) 0
+
+namespace Exact
+
+/-- Exact sum. An exact zero sum of operands with opposite signs is `+0`,
+except `−0` when rounding toward −∞; equal-signed zeros keep their sign
+(IEEE-754 §6.3). -/
+def add (rm : RoundingMode) (a b : Exact) : Exact :=
+  let e : Int := if a.exp ≤ b.exp then a.exp else b.exp
+  let ma : Int := ((a.sig * 2 ^ (a.exp - e).toNat : Nat) : Int)
+  let mb : Int := ((b.sig * 2 ^ (b.exp - e).toNat : Nat) : Int)
+  let s : Int := (if a.sign then -ma else ma) + (if b.sign then -mb else mb)
+  if s = 0 then ⟨if a.sign == b.sign then a.sign else decide (rm = .RM), 0, e⟩
+  else ⟨decide (s < 0), s.natAbs, e⟩
+
+/-- Exact product. -/
+def mul (a b : Exact) : Exact := ⟨a.sign != b.sign, a.sig * b.sig, a.exp + b.exp⟩
+
+/-- Quotient `a / b` (`b.sig ≠ 0`) to at least `prec + 2` significant bits,
+with a sticky least-significant bit recording a nonzero remainder: it rounds
+to `prec` (or fewer) bits exactly as the true quotient does. -/
+def div (prec : Nat) (a b : Exact) : Exact :=
+  let k := prec + 2 + bitLen b.sig
+  let n := a.sig * 2 ^ k
+  ⟨a.sign != b.sign, 2 * (n / b.sig) + (if n % b.sig = 0 then 0 else 1),
+    a.exp - b.exp - (k : Int) - 1⟩
+
+/-- Square root of a positive value to at least `prec + 2` significant bits,
+with a sticky least-significant bit recording inexactness of the integer
+root. -/
+def sqrt (prec : Nat) (a : Exact) : Exact :=
+  let sh : Nat := 2 * (prec + 2) + (if a.exp % 2 = 0 then 0 else 1)
+  let n := a.sig * 2 ^ sh
+  let r := isqrt n
+  ⟨false, 2 * r + (if r * r = n then 0 else 1), (a.exp - (sh : Int)) / 2 - 1⟩
+
+end Exact
+
+namespace Format
+
+/-- The NaN delivered by an arithmetic operation with operands `ops` (in
+operand order): the first quiet NaN operand, else the default QNaN. -/
+def nanResult (f : Format) (ops : List Nat) : Nat :=
+  match ops.find? (fun x => f.isQNaN x) with
+  | some q => q
+  | none => f.defaultQNaN
+
+/-- Flags of an arithmetic operation with a NaN operand: Invalid iff some
+operand is a signaling NaN. -/
+def nanFlags (f : Format) (ops : List Nat) : Flags :=
+  { invalid := ops.any (fun x => f.isSNaN x) }
+
+/-- Flip the sign bit of an in-range bit pattern. -/
+def negBits (f : Format) (n : Nat) : Nat :=
+  if f.signBit n then n - 2 ^ (f.expBits + f.fracBits) else n + 2 ^ (f.expBits + f.fracBits)
+
+/-- The pattern of `+1.0`. -/
+def one (f : Format) : Nat := f.pack false f.bias 0
+
+/-- Sum of two non-NaN operands. -/
+def addCore (f : Format) (e : Env) (a b : Nat) : Nat × Flags :=
+  if f.isInf a then
+    if f.isInf b && (f.signBit a != f.signBit b) then (f.defaultQNaN, Flags.invalidOnly)
+    else (a, Flags.none)
+  else if f.isInf b then (b, Flags.none)
+  else f.roundEnv e (Exact.add e.rm (f.toExact a) (f.toExact b))
+
+/-- `ADD.fmt`: `a + b`. -/
+def add (f : Format) (e : Env) (a b : Nat) : Nat × Flags :=
+  if f.isNaN a || f.isNaN b then (f.nanResult [a, b], f.nanFlags [a, b])
+  else f.addCore e a b
+
+/-- `SUB.fmt`: `a − b`. -/
+def sub (f : Format) (e : Env) (a b : Nat) : Nat × Flags :=
+  if f.isNaN a || f.isNaN b then (f.nanResult [a, b], f.nanFlags [a, b])
+  else f.addCore e a (f.negBits b)
+
+/-- `MUL.fmt`: `a × b`. -/
+def mul (f : Format) (e : Env) (a b : Nat) : Nat × Flags :=
+  if f.isNaN a || f.isNaN b then (f.nanResult [a, b], f.nanFlags [a, b])
+  else if (f.isInf a && f.isZero b) || (f.isZero a && f.isInf b) then
+    (f.defaultQNaN, Flags.invalidOnly)
+  else if f.isInf a || f.isInf b then (f.inf (f.signBit a != f.signBit b), Flags.none)
+  else f.roundEnv e (Exact.mul (f.toExact a) (f.toExact b))
+
+/-- `DIV.fmt`: `a / b`. -/
+def div (f : Format) (e : Env) (a b : Nat) : Nat × Flags :=
+  if f.isNaN a || f.isNaN b then (f.nanResult [a, b], f.nanFlags [a, b])
+  else if (f.isInf a && f.isInf b) || (f.isZero a && f.isZero b) then
+    (f.defaultQNaN, Flags.invalidOnly)
+  else if f.isInf a then (f.inf (f.signBit a != f.signBit b), Flags.none)
+  else if f.isInf b then (f.zero (f.signBit a != f.signBit b), Flags.none)
+  else if f.isZero b then (f.inf (f.signBit a != f.signBit b), { divZero := true })
+  else if f.isZero a then (f.zero (f.signBit a != f.signBit b), Flags.none)
+  else f.roundEnv e (Exact.div (f.fracBits + 1) (f.toExact a) (f.toExact b))
+
+/-- `SQRT.fmt`: `√a`. "If the value in FPR fs corresponds to −0, the result is
+−0"; "If the value in FPR fs is less than 0, an Invalid Operation condition is
+raised" (MD00086 Vol II-A Rev 6.06, SQRT.fmt, p.382). -/
+def sqrt (f : Format) (e : Env) (a : Nat) : Nat × Flags :=
+  if f.isNaN a then (f.nanResult [a], f.nanFlags [a])
+  else if f.isZero a then (a, Flags.none)
+  else if f.signBit a then (f.defaultQNaN, Flags.invalidOnly)
+  else if f.isInf a then (a, Flags.none)
+  else f.roundEnv e (Exact.sqrt (f.fracBits + 1) (f.toExact a))
+
+end Format
+
+/-! ### Single precision -/
+
+/-- `ADD.S`. -/
+def f32Add (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.add e a.toNat b.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `SUB.S`. -/
+def f32Sub (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.sub e a.toNat b.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `MUL.S`. -/
+def f32Mul (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.mul e a.toNat b.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `DIV.S`. -/
+def f32Div (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.div e a.toNat b.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `SQRT.S`. -/
+def f32Sqrt (e : Env) (a : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.sqrt e a.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+
+/-! ### Double precision -/
+
+/-- `ADD.D`. -/
+def f64Add (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.add e a.toNat b.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+/-- `SUB.D`. -/
+def f64Sub (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.sub e a.toNat b.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+/-- `MUL.D`. -/
+def f64Mul (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.mul e a.toNat b.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+/-- `DIV.D`. -/
+def f64Div (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.div e a.toNat b.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+/-- `SQRT.D`. -/
+def f64Sqrt (e : Env) (a : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.sqrt e a.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+
+/-! ### Multiply-add family, reciprocal, reciprocal square root
+
+MD00086 Vol II-A Rev 6.06, MADD.fmt (p.256): "The intermediate product is
+rounded according to the current rounding mode in FCSR. The value in FPR fr is
+added to the product. The result sum is calculated to infinite precision,
+rounded according to the current rounding mode in FCSR … The results and
+flags are as if separate floating-point multiply and add instructions were
+executed." — i.e. **unfused**, two roundings; the flags of both steps are
+ORed. NMADD.fmt (p.308) / NMSUB.fmt: "… as if separate floating-point multiply
+and add and negate instructions were executed", so the final negation is the
+(legacy, arithmetic) `NEG.fmt`, which signals Invalid for a NaN.
+
+RECIP.fmt (p.336) and RSQRT.fmt (p.343) leave the accuracy
+implementation-dependent (within 1 resp. 2 ulp) and "it is implementation
+dependent whether the result is affected by the current rounding mode". Model
+pin: `recip x = 1.0 / x` by `DIV.fmt`, and `rsqrt x = 1.0 / sqrt x` by
+`SQRT.fmt` then `DIV.fmt` (flags ORed), both under the current FCSR
+environment. -/
+
+/-- `MADD.S`: `(fs × ft) + fr`, unfused. -/
+def f32Madd (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
+  let m := f32Mul e fs ft
+  let r := f32Add e m.1 fr
+  (r.1, m.2.or r.2)
+/-- `MSUB.S`: `(fs × ft) − fr`, unfused. -/
+def f32Msub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
+  let m := f32Mul e fs ft
+  let r := f32Sub e m.1 fr
+  (r.1, m.2.or r.2)
+/-- `NMADD.S`: `−((fs × ft) + fr)`. -/
+def f32Nmadd (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
+  let r := f32Madd e fr fs ft
+  let n := f32Neg r.1
+  (n.1, r.2.or n.2)
+/-- `NMSUB.S`: `−((fs × ft) − fr)`. -/
+def f32Nmsub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
+  let r := f32Msub e fr fs ft
+  let n := f32Neg r.1
+  (n.1, r.2.or n.2)
+/-- `RECIP.S`: `1.0 / x`. -/
+def f32Recip (e : Env) (x : BitVec 32) : BitVec 32 × Flags := f32Div e 0x3F800000#32 x
+/-- `RSQRT.S`: `1.0 / sqrt x`. -/
+def f32Rsqrt (e : Env) (x : BitVec 32) : BitVec 32 × Flags :=
+  let q := f32Sqrt e x
+  let r := f32Div e 0x3F800000#32 q.1
+  (r.1, q.2.or r.2)
+
+/-- `MADD.D`. -/
+def f64Madd (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
+  let m := f64Mul e fs ft
+  let r := f64Add e m.1 fr
+  (r.1, m.2.or r.2)
+/-- `MSUB.D`. -/
+def f64Msub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
+  let m := f64Mul e fs ft
+  let r := f64Sub e m.1 fr
+  (r.1, m.2.or r.2)
+/-- `NMADD.D`. -/
+def f64Nmadd (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
+  let r := f64Madd e fr fs ft
+  let n := f64Neg r.1
+  (n.1, r.2.or n.2)
+/-- `NMSUB.D`. -/
+def f64Nmsub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
+  let r := f64Msub e fr fs ft
+  let n := f64Neg r.1
+  (n.1, r.2.or n.2)
+/-- `RECIP.D`. -/
+def f64Recip (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
+  f64Div e 0x3FF0000000000000#64 x
+/-- `RSQRT.D`. -/
+def f64Rsqrt (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
+  let q := f64Sqrt e x
+  let r := f64Div e 0x3FF0000000000000#64 q.1
+  (r.1, q.2.or r.2)
+
+/-- `CVT.D.W` with flags (always exact: no flag is ever raised). -/
+def w32ToF64F (x : BitVec 32) : BitVec 64 × Flags := (w32ToF64 x, Flags.none)
 
 /-! ## §10  Kernel-checked facts -/
 
@@ -815,10 +1207,11 @@ theorem f32ToW32_flags (rm : RoundingMode) (x : BitVec 32) :
     · simp
     · split <;> simp
 
-/-- `abs`/`neg` of a NaN: default QNaN, Invalid. -/
+/-- `abs`/`neg` of a NaN signal Invalid; a quiet NaN is returned unchanged, a
+signaling NaN gives the default QNaN. -/
 theorem f32Abs_of_nan (x : BitVec 32) (h : isNaN32 x = true) :
-    f32Abs x = (defaultQNaN32, Flags.invalidOnly) ∧
-      f32Neg x = (defaultQNaN32, Flags.invalidOnly) := by
+    f32Abs x = (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly) ∧
+      f32Neg x = (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly) := by
   simp [f32Abs, f32Neg, h]
 
 /-- `abs`/`neg` of a non-NaN only touch the sign bit and raise nothing. -/
@@ -827,10 +1220,11 @@ theorem f32Abs_of_not_nan (x : BitVec 32) (h : isNaN32 x = false) :
       f32Neg x = (x ^^^ 0x80000000#32, Flags.none) := by
   simp [f32Abs, f32Neg, h]
 
-/-- `abs`/`neg` of a double NaN: default QNaN, Invalid. -/
+/-- `abs`/`neg` of a double NaN signal Invalid; a quiet NaN is returned
+unchanged, a signaling NaN gives the default QNaN. -/
 theorem f64Abs_of_nan (x : BitVec 64) (h : isNaN64 x = true) :
-    f64Abs x = (defaultQNaN64, Flags.invalidOnly) ∧
-      f64Neg x = (defaultQNaN64, Flags.invalidOnly) := by
+    f64Abs x = (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly) ∧
+      f64Neg x = (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly) := by
   simp [f64Abs, f64Neg, h]
 
 /-- Any NaN operand makes the relation "unordered". -/
@@ -947,7 +1341,9 @@ theorem f32ToF64_cases :
     f32ToF64 0xFF800000#32 = (0xFFF0000000000000#64, Flags.none) ∧      -- −∞
     f32ToF64 0x80000000#32 = (0x8000000000000000#64, Flags.none) ∧      -- −0
     f32ToF64 0x7F7FFFFF#32 = (0x47EFFFFFE0000000#64, Flags.none) ∧      -- max finite
-    f32ToF64 0x7FBFFFFF#32 = (defaultQNaN64, Flags.none) ∧              -- QNaN
+    -- QNaN: sign and payload preserved (widened with zeros)
+    f32ToF64 0x7FBFFFFF#32 = (0x7FF7FFFFE0000000#64, Flags.none) ∧
+    f32ToF64 0xFF800001#32 = (0xFFF0000020000000#64, Flags.none) ∧
     f32ToF64 0x7FC00000#32 = (defaultQNaN64, Flags.invalidOnly) := by decide  -- SNaN
 
 /-- Constants: `0x3FF0000010000000` = 1 + 2^−24 (exactly halfway between 1.0
@@ -987,7 +1383,11 @@ theorem f64ToF32_cases :
     -- specials
     f64ToF32 .RN 0xFFF0000000000000#64 = (0xFF800000#32, Flags.none) ∧
     f64ToF32 .RN 0x8000000000000000#64 = (0x80000000#32, Flags.none) ∧
+    -- QNaN: sign and the top 23 payload bits preserved …
     f64ToF32 .RN 0x7FF7FFFFFFFFFFFF#64 = (defaultQNaN32, Flags.none) ∧
+    f64ToF32 .RN 0xFFF4000000000000#64 = (0xFFA00000#32, Flags.none) ∧
+    -- … unless they are all zero (would be ∞): default QNaN
+    f64ToF32 .RN 0xFFF0000000000001#64 = (defaultQNaN32, Flags.none) ∧
     f64ToF32 .RN 0x7FF8000000000000#64 = (defaultQNaN32, Flags.invalidOnly) := by decide +kernel
 
 theorem w32ToF32_cases :
@@ -1032,11 +1432,13 @@ theorem absNeg_cases :
     f32Neg 0x3F800000#32 = (0xBF800000#32, Flags.none) ∧
     f32Neg 0x00000000#32 = (0x80000000#32, Flags.none) ∧
     f32Abs 0xFF800000#32 = (0x7F800000#32, Flags.none) ∧
-    f32Abs 0xFFBFFFFF#32 = (defaultQNaN32, Flags.invalidOnly) ∧
-    f32Neg 0x7FC00000#32 = (defaultQNaN32, Flags.invalidOnly) ∧
+    f32Abs 0xFFBFFFFF#32 = (0xFFBFFFFF#32, Flags.invalidOnly) ∧          -- QNaN: unchanged
+    f32Neg 0x7FC00000#32 = (defaultQNaN32, Flags.invalidOnly) ∧          -- SNaN
+
     f64Abs 0xBFF0000000000000#64 = (0x3FF0000000000000#64, Flags.none) ∧
     f64Neg 0x3FF0000000000000#64 = (0xBFF0000000000000#64, Flags.none) ∧
-    f64Neg 0x7FF0000000000001#64 = (defaultQNaN64, Flags.invalidOnly) := by decide
+    f64Neg 0x7FF0000000000001#64 = (0x7FF0000000000001#64, Flags.invalidOnly) ∧  -- QNaN
+    f64Abs 0xFFF8000000000000#64 = (defaultQNaN64, Flags.invalidOnly) := by decide
 
 /-! ### Comparison -/
 
@@ -1234,6 +1636,303 @@ theorem control_read_write (fcsr v : BitVec 32) :
     rw [BitVec.and_or_distrib_right, BitVec.and_assoc, hm, BitVec.and_zero, BitVec.zero_or,
       BitVec.and_assoc, BitVec.and_self]
 
+/-! ### `fpUpdate`, condition codes -/
+
+/-- `fpUpdate` reports a trap exactly when an enabled exception was raised. -/
+theorem fpUpdate_snd (fcsr : BitVec 32) (f : Flags) :
+    (fpUpdate fcsr f).2 = fpeEnabled fcsr f := by
+  unfold fpUpdate; split <;> simp_all
+
+/-- Without a trap, `fpUpdate` is `raiseFlags`: Cause := this operation's
+exceptions, Flags accumulate. -/
+theorem fpUpdate_fst_of_not_enabled (fcsr : BitVec 32) (f : Flags)
+    (h : fpeEnabled fcsr f = false) : (fpUpdate fcsr f).1 = raiseFlags fcsr f := by
+  unfold fpUpdate; simp [h]
+
+/-- With a trap, `fpUpdate` writes only Cause (Flags are not updated). -/
+theorem fpUpdate_fst_of_enabled (fcsr : BitVec 32) (f : Flags)
+    (h : fpeEnabled fcsr f = true) :
+    (fpUpdate fcsr f).1 =
+      (fcsr &&& ~~~fcsrCauseMask) ||| ((f.toBits.zeroExtend 32 : BitVec 32) <<< 12) := by
+  unfold fpUpdate; simp [h]
+
+/-- An operation raising nothing never traps. -/
+theorem fpeEnabled_none (fcsr : BitVec 32) : fpeEnabled fcsr Flags.none = false := by
+  simp [fpeEnabled, Flags.none, Flags.toBits]
+
+/-- Recording an operation's exceptions leaves every condition code alone. -/
+theorem getCC_raiseFlags (fcsr : BitVec 32) (f : Flags) (cc : Fin 8) :
+    getCC (raiseFlags fcsr f) cc = getCC fcsr cc := by
+  have hbit : (~~~(fcsrCauseMask ||| fcsrFlagsMask)).getLsbD (ccBit cc) = true := by
+    revert cc; decide
+  have h := congrArg (fun x => x.getLsbD (ccBit cc)) (raiseFlags_frame fcsr f)
+  simp only [BitVec.getLsbD_and, hbit, Bool.and_true] at h
+  exact h
+
+/-- **A compare writes exactly its condition code.** After recording the
+flags `f` and storing `b` in condition code `cc`, `cc` reads `b` and every
+other condition code is unchanged. -/
+theorem getCC_setCC_raiseFlags (fcsr : BitVec 32) (f : Flags) (cc cc' : Fin 8) (b : Bool) :
+    getCC (setCC (raiseFlags fcsr f) cc b) cc' = if cc' = cc then b else getCC fcsr cc' := by
+  by_cases h : cc' = cc
+  · subst h; simp [getCC_setCC]
+  · rw [getCC_setCC_ne _ _ _ _ (fun h' => h h'.symm), getCC_raiseFlags]; simp [h]
+
+/-- `CTC1`/`CFC1` on register 31 round-trip every non-reserved FCSR bit. -/
+theorem readControl_writeControl_fcsr (fcsr v : BitVec 32) :
+    (writeControl fcsr 31 v).bind (fun x => readControl x 31) = some (v &&& fcsrWritableMask) := by
+  simp only [writeControl, readControl, Option.bind_some, (control_read_write fcsr v).1]
+
+/-! ### Arithmetic: NaN rules (general) -/
+
+private theorem ofNat_toNat32 (a : BitVec 32) : BitVec.ofNat 32 a.toNat = a := by simp
+private theorem ofNat_toNat64 (a : BitVec 64) : BitVec.ofNat 64 a.toNat = a := by simp
+
+private theorem isNaN_of_isQNaN (f : Format) (n : Nat) (h : f.isQNaN n = true) :
+    f.isNaN n = true := by
+  simp only [Format.isQNaN, Bool.and_eq_true] at h; exact h.1
+
+private theorem isSNaN_false_of_isQNaN (f : Format) (n : Nat) (h : f.isQNaN n = true) :
+    f.isSNaN n = false := by
+  simp only [Format.isQNaN, Format.isSNaN, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  simp [h.1, h.2]
+
+/-- **A quiet NaN first operand is the result** of `add`/`sub`/`mul`/`div`,
+unchanged; Invalid is signaled iff the other operand is a signaling NaN
+(MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82). -/
+theorem f32_arith_qnan_left (e : Env) (a b : BitVec 32) (h : isQNaN32 a = true) :
+    f32Add e a b = (a, { invalid := isSNaN32 b }) ∧ f32Sub e a b = (a, { invalid := isSNaN32 b }) ∧
+    f32Mul e a b = (a, { invalid := isSNaN32 b }) ∧ f32Div e a b = (a, { invalid := isSNaN32 b }) := by
+  have h1 := isNaN_of_isQNaN binary32 a.toNat h
+  have h2 := isSNaN_false_of_isQNaN binary32 a.toNat h
+  have hq : binary32.isQNaN a.toNat = true := h
+  simp [f32Add, f32Sub, f32Mul, f32Div, Format.add, Format.sub, Format.mul, Format.div,
+    Format.nanResult, Format.nanFlags, h1, h2, hq, isSNaN32]
+
+/-- Double-precision form of `f32_arith_qnan_left`. -/
+theorem f64_arith_qnan_left (e : Env) (a b : BitVec 64) (h : isQNaN64 a = true) :
+    f64Add e a b = (a, { invalid := isSNaN64 b }) ∧ f64Sub e a b = (a, { invalid := isSNaN64 b }) ∧
+    f64Mul e a b = (a, { invalid := isSNaN64 b }) ∧ f64Div e a b = (a, { invalid := isSNaN64 b }) := by
+  have h1 := isNaN_of_isQNaN binary64 a.toNat h
+  have h2 := isSNaN_false_of_isQNaN binary64 a.toNat h
+  have hq : binary64.isQNaN a.toNat = true := h
+  simp [f64Add, f64Sub, f64Mul, f64Div, Format.add, Format.sub, Format.mul, Format.div,
+    Format.nanResult, Format.nanFlags, h1, h2, hq, isSNaN64]
+
+/-- **A signaling NaN operand signals Invalid Operation** in `add`/`sub`/
+`mul`/`div`, whatever the other operand and the rounding mode
+(MD00082 Vol I-A Rev 6.01 §6.3.1.4, p.81). -/
+theorem f32_arith_snan_invalid (e : Env) (a b : BitVec 32)
+    (h : isSNaN32 a = true ∨ isSNaN32 b = true) :
+    (f32Add e a b).2.invalid = true ∧ (f32Sub e a b).2.invalid = true ∧
+    (f32Mul e a b).2.invalid = true ∧ (f32Div e a b).2.invalid = true := by
+  have hn : binary32.isNaN a.toNat = true ∨ binary32.isNaN b.toNat = true := by
+    rcases h with h | h
+    · left; simp only [isSNaN32, Format.isSNaN, Bool.and_eq_true] at h; exact h.1
+    · right; simp only [isSNaN32, Format.isSNaN, Bool.and_eq_true] at h; exact h.1
+  have hs : (binary32.isSNaN a.toNat || binary32.isSNaN b.toNat) = true := by
+    rcases h with h | h
+    · simp [show binary32.isSNaN a.toNat = true from h]
+    · simp [show binary32.isSNaN b.toNat = true from h]
+  have hn' : (binary32.isNaN a.toNat || binary32.isNaN b.toNat) = true := by
+    rcases hn with h | h <;> simp [h]
+  simp [f32Add, f32Sub, f32Mul, f32Div, Format.add, Format.sub, Format.mul, Format.div,
+    Format.nanFlags, hn', hs]
+
+/-! ### Arithmetic: concrete cases in every rounding mode
+
+Constants: `0x3F800000` = 1.0, `0x33800000` = 2^−24 (half an ulp of 1.0),
+`0x7F7FFFFF` = largest finite single, `0x00800000` = 2^−126 (smallest
+normal), `0x00000001` = 2^−149 (smallest subnormal), `0x40400000` = 3.0. -/
+
+/-- 1 + 2^−24 is exactly halfway between 1 and its successor: ties-to-even
+keeps 1, only RP goes up; the negated sum mirrors it with RM. -/
+theorem f32Add_tie :
+    f32Add .RN 0x3F800000#32 0x33800000#32 = (0x3F800000#32, Flags.inexactOnly) ∧
+    f32Add .RZ 0x3F800000#32 0x33800000#32 = (0x3F800000#32, Flags.inexactOnly) ∧
+    f32Add .RP 0x3F800000#32 0x33800000#32 = (0x3F800001#32, Flags.inexactOnly) ∧
+    f32Add .RM 0x3F800000#32 0x33800000#32 = (0x3F800000#32, Flags.inexactOnly) ∧
+    f32Add .RN 0xBF800000#32 0xB3800000#32 = (0xBF800000#32, Flags.inexactOnly) ∧
+    f32Add .RP 0xBF800000#32 0xB3800000#32 = (0xBF800000#32, Flags.inexactOnly) ∧
+    f32Add .RM 0xBF800000#32 0xB3800000#32 = (0xBF800001#32, Flags.inexactOnly) := by
+  decide +kernel
+
+/-- Overflow default results (MD00082 Vol I-A Rev 6.01 Table 6.14, p.100):
+RN ±∞; RZ ± largest finite; RP +∞ / −largest; RM +largest / −∞. -/
+theorem f32Add_overflow :
+    f32Add .RN 0x7F7FFFFF#32 0x7F7FFFFF#32 = (0x7F800000#32, { overflow := true, inexact := true }) ∧
+    f32Add .RZ 0x7F7FFFFF#32 0x7F7FFFFF#32 = (0x7F7FFFFF#32, { overflow := true, inexact := true }) ∧
+    f32Add .RP 0x7F7FFFFF#32 0x7F7FFFFF#32 = (0x7F800000#32, { overflow := true, inexact := true }) ∧
+    f32Add .RM 0x7F7FFFFF#32 0x7F7FFFFF#32 = (0x7F7FFFFF#32, { overflow := true, inexact := true }) ∧
+    f32Add .RN 0xFF7FFFFF#32 0xFF7FFFFF#32 = (0xFF800000#32, { overflow := true, inexact := true }) ∧
+    f32Add .RZ 0xFF7FFFFF#32 0xFF7FFFFF#32 = (0xFF7FFFFF#32, { overflow := true, inexact := true }) ∧
+    f32Add .RP 0xFF7FFFFF#32 0xFF7FFFFF#32 = (0xFF7FFFFF#32, { overflow := true, inexact := true }) ∧
+    f32Add .RM 0xFF7FFFFF#32 0xFF7FFFFF#32 = (0xFF800000#32, { overflow := true, inexact := true }) := by
+  decide +kernel
+
+/-- Signs of exact zero sums: `x − x` is `+0` except under RM; `(−0) + (−0)`
+is `−0` in every mode; `(+0) + (−0)` is `+0` except under RM. -/
+theorem f32_zero_sums :
+    f32Sub .RN 0x3F800000#32 0x3F800000#32 = (0x00000000#32, Flags.none) ∧
+    f32Sub .RZ 0x3F800000#32 0x3F800000#32 = (0x00000000#32, Flags.none) ∧
+    f32Sub .RP 0x3F800000#32 0x3F800000#32 = (0x00000000#32, Flags.none) ∧
+    f32Sub .RM 0x3F800000#32 0x3F800000#32 = (0x80000000#32, Flags.none) ∧
+    f32Add .RN 0x80000000#32 0x80000000#32 = (0x80000000#32, Flags.none) ∧
+    f32Add .RP 0x80000000#32 0x80000000#32 = (0x80000000#32, Flags.none) ∧
+    f32Add .RN 0x00000000#32 0x80000000#32 = (0x00000000#32, Flags.none) ∧
+    f32Add .RM 0x00000000#32 0x80000000#32 = (0x80000000#32, Flags.none) := by
+  decide +kernel
+
+/-- 1/3 in the four modes, and division's special cases (MD00082 Vol I-A
+Rev 6.01 §6.7.2.1, §6.7.2.2, p.100). -/
+theorem f32Div_cases :
+    f32Div .RN 0x3F800000#32 0x40400000#32 = (0x3EAAAAAB#32, Flags.inexactOnly) ∧
+    f32Div .RZ 0x3F800000#32 0x40400000#32 = (0x3EAAAAAA#32, Flags.inexactOnly) ∧
+    f32Div .RP 0x3F800000#32 0x40400000#32 = (0x3EAAAAAB#32, Flags.inexactOnly) ∧
+    f32Div .RM 0x3F800000#32 0x40400000#32 = (0x3EAAAAAA#32, Flags.inexactOnly) ∧
+    -- finite nonzero / 0: correctly signed ∞, Divide by Zero
+    f32Div .RN 0x3F800000#32 0x80000000#32 = (0xFF800000#32, { divZero := true }) ∧
+    -- 0/0 and ∞/∞: Invalid, default QNaN; ∞/0: ∞, no exception
+    f32Div .RN 0x00000000#32 0x80000000#32 = (defaultQNaN32, Flags.invalidOnly) ∧
+    f32Div .RN 0x7F800000#32 0xFF800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧
+    f32Div .RN 0x7F800000#32 0x00000000#32 = (0x7F800000#32, Flags.none) ∧
+    f32Div .RN 0x3F800000#32 0xFF800000#32 = (0x80000000#32, Flags.none) := by
+  decide +kernel
+
+/-- Underflow (MD00082 Vol I-A Rev 6.01 §6.7.2.3, p.101): half the smallest
+subnormal is tiny and inexact in every mode; 2^−126 × 0.5 is tiny but exact,
+so it signals Underflow only when the Underflow trap is enabled; with
+FCSR.FS = 1 (§6.7.2.4) a tiny result is flushed to a same-signed zero with
+Underflow and Inexact. -/
+theorem f32_underflow_cases :
+    f32Div .RN 0x00000001#32 0x40000000#32 = (0x00000000#32, { underflow := true, inexact := true }) ∧
+    f32Div .RZ 0x00000001#32 0x40000000#32 = (0x00000000#32, { underflow := true, inexact := true }) ∧
+    f32Div .RP 0x00000001#32 0x40000000#32 = (0x00000001#32, { underflow := true, inexact := true }) ∧
+    f32Div .RM 0x00000001#32 0x40000000#32 = (0x00000000#32, { underflow := true, inexact := true }) ∧
+    f32Mul .RN 0x00800000#32 0x3F000000#32 = (0x00400000#32, Flags.none) ∧
+    f32Mul { enables := { underflow := true } } 0x00800000#32 0x3F000000#32 =
+      (0x00400000#32, { underflow := true }) ∧
+    f32Mul { flush := true } 0x00800000#32 0x3F000000#32 =
+      (0x00000000#32, { underflow := true, inexact := true }) ∧
+    f32Mul { flush := true } 0x80800000#32 0x3F000000#32 =
+      (0x80000000#32, { underflow := true, inexact := true }) := by
+  decide +kernel
+
+/-- Inexact on overflow (MD00082 Vol I-A Rev 6.01 §6.7.2.6, p.102): signaled
+"if the rounded result of an operation overflows without an overflow trap";
+with the Overflow trap enabled, only if the rounding itself was inexact. -/
+theorem f32Mul_overflow_inexact :
+    f32Mul .RN 0x7F7FFFFF#32 0x40000000#32 = (0x7F800000#32, { overflow := true, inexact := true }) ∧
+    f32Mul { enables := { overflow := true } } 0x7F7FFFFF#32 0x40000000#32 =
+      (0x7F800000#32, { overflow := true }) ∧
+    f32Mul { enables := { overflow := true } } 0x7F7FFFFF#32 0x7F7FFFFF#32 =
+      (0x7F800000#32, { overflow := true, inexact := true }) := by
+  decide +kernel
+
+/-- Invalid operations with no NaN operand create the default QNaN
+(MD00082 Vol I-A Rev 6.01 §6.7.2.1, p.100; Table 6.3, p.82). -/
+theorem f32_invalid_cases :
+    f32Sub .RN 0x7F800000#32 0x7F800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧   -- ∞ − ∞
+    f32Add .RN 0x7F800000#32 0xFF800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧   -- ∞ + −∞
+    f32Add .RN 0x7F800000#32 0x7F800000#32 = (0x7F800000#32, Flags.none) ∧          -- ∞ + ∞
+    f32Mul .RN 0x00000000#32 0xFF800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧   -- 0 × ∞
+    f32Sqrt .RN 0xBF800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧                -- √−1
+    f32Sqrt .RN 0xFF800000#32 = (defaultQNaN32, Flags.invalidOnly) := by            -- √−∞
+  decide +kernel
+
+/-- NaN operands (legacy encoding: `0x7F800123` quiet, `0x7FC00000`
+signaling): a quiet NaN is copied — the first one in operand order if both
+are quiet, and also when the other operand is signaling (then with Invalid);
+a signaling NaN with no quiet NaN to copy gives the default QNaN. -/
+theorem f32_nan_cases :
+    f32Add .RN 0x7F800123#32 0x3F800000#32 = (0x7F800123#32, Flags.none) ∧
+    f32Add .RN 0x3F800000#32 0xFF800123#32 = (0xFF800123#32, Flags.none) ∧
+    f32Add .RN 0x7FC00000#32 0x7F800123#32 = (0x7F800123#32, Flags.invalidOnly) ∧
+    f32Add .RN 0x7FC00000#32 0x3F800000#32 = (defaultQNaN32, Flags.invalidOnly) ∧
+    f32Mul .RN 0x7F800001#32 0x7F800002#32 = (0x7F800001#32, Flags.none) ∧
+    f32Div .RN 0x7F800002#32 0x7F800001#32 = (0x7F800002#32, Flags.none) ∧
+    f32Sqrt .RN 0xFF800077#32 = (0xFF800077#32, Flags.none) ∧
+    f32Sqrt .RN 0xFFC00077#32 = (defaultQNaN32, Flags.invalidOnly) := by
+  decide +kernel
+
+/-- Square root: √2 in the four modes; √4 exact; `√−0 = −0`; `√+∞ = +∞`;
+the smallest subnormal. -/
+theorem f32Sqrt_cases :
+    f32Sqrt .RN 0x40000000#32 = (0x3FB504F3#32, Flags.inexactOnly) ∧
+    f32Sqrt .RZ 0x40000000#32 = (0x3FB504F3#32, Flags.inexactOnly) ∧
+    f32Sqrt .RP 0x40000000#32 = (0x3FB504F4#32, Flags.inexactOnly) ∧
+    f32Sqrt .RM 0x40000000#32 = (0x3FB504F3#32, Flags.inexactOnly) ∧
+    f32Sqrt .RN 0x40800000#32 = (0x40000000#32, Flags.none) ∧
+    f32Sqrt .RN 0x80000000#32 = (0x80000000#32, Flags.none) ∧
+    f32Sqrt .RN 0x7F800000#32 = (0x7F800000#32, Flags.none) ∧
+    f32Sqrt .RN 0x00000001#32 = (0x1A3504F3#32, Flags.inexactOnly) := by
+  decide +kernel
+
+/-- The multiply-add family is **unfused**: (1 + 2^−23)² = 1 + 2^−22 + 2^−46
+is first rounded to 1 + 2^−22 (`0x3F800002`, Inexact), so adding
+−(1 + 2^−22) gives +0, where a fused operation would give 2^−46.
+`nmadd`/`nmsub` negate with the arithmetic `NEG`: 2 × 3 + 1 ↦ −7,
+2 × 3 − 1 ↦ −5, and a quiet NaN addend comes back unchanged with Invalid. -/
+theorem f32_madd_cases :
+    f32Mul .RN 0x3F800001#32 0x3F800001#32 = (0x3F800002#32, Flags.inexactOnly) ∧
+    f32Madd .RN 0xBF800002#32 0x3F800001#32 0x3F800001#32 = (0x00000000#32, Flags.inexactOnly) ∧
+    f32Msub .RN 0x3F800002#32 0x3F800001#32 0x3F800001#32 = (0x00000000#32, Flags.inexactOnly) ∧
+    f32Nmadd .RN 0x3F800000#32 0x40000000#32 0x40400000#32 = (0xC0E00000#32, Flags.none) ∧
+    f32Nmsub .RN 0x3F800000#32 0x40000000#32 0x40400000#32 = (0xC0A00000#32, Flags.none) ∧
+    f32Nmadd .RN 0x7F800001#32 0x40000000#32 0x40400000#32 = (0x7F800001#32, Flags.invalidOnly) := by
+  decide +kernel
+
+/-- `recip` and `rsqrt` (model pin: `1.0 / x`, `1.0 / sqrt x`). -/
+theorem f32_recip_rsqrt_cases :
+    f32Recip .RN 0x40400000#32 = (0x3EAAAAAB#32, Flags.inexactOnly) ∧
+    f32Recip .RZ 0x40400000#32 = (0x3EAAAAAA#32, Flags.inexactOnly) ∧
+    f32Recip .RN 0x00000000#32 = (0x7F800000#32, { divZero := true }) ∧
+    f32Recip .RN 0x7F800000#32 = (0x00000000#32, Flags.none) ∧
+    f32Rsqrt .RN 0x40800000#32 = (0x3F000000#32, Flags.none) ∧
+    f32Rsqrt .RN 0x40000000#32 = (0x3F3504F3#32, Flags.inexactOnly) ∧
+    f32Rsqrt .RN 0x00000000#32 = (0x7F800000#32, { divZero := true }) ∧
+    f32Rsqrt .RN 0x80000000#32 = (0xFF800000#32, { divZero := true }) ∧
+    f32Rsqrt .RN 0xBF800000#32 = (defaultQNaN32, Flags.invalidOnly) := by
+  decide +kernel
+
+/-- Double precision in the four modes: 1 + 2^−53 (a tie), 1/3, √2, overflow
+of 2 × largest, underflow of half the smallest subnormal, and specials. -/
+theorem f64_arith_cases :
+    f64Add .RN 0x3FF0000000000000#64 0x3CA0000000000000#64 = (0x3FF0000000000000#64, Flags.inexactOnly) ∧
+    f64Add .RP 0x3FF0000000000000#64 0x3CA0000000000000#64 = (0x3FF0000000000001#64, Flags.inexactOnly) ∧
+    f64Div .RN 0x3FF0000000000000#64 0x4008000000000000#64 = (0x3FD5555555555555#64, Flags.inexactOnly) ∧
+    f64Div .RP 0x3FF0000000000000#64 0x4008000000000000#64 = (0x3FD5555555555556#64, Flags.inexactOnly) ∧
+    f64Sqrt .RN 0x4000000000000000#64 = (0x3FF6A09E667F3BCD#64, Flags.inexactOnly) ∧
+    f64Sqrt .RZ 0x4000000000000000#64 = (0x3FF6A09E667F3BCC#64, Flags.inexactOnly) ∧
+    f64Sqrt .RP 0x4000000000000000#64 = (0x3FF6A09E667F3BCD#64, Flags.inexactOnly) ∧
+    f64Sqrt .RM 0x4000000000000000#64 = (0x3FF6A09E667F3BCC#64, Flags.inexactOnly) ∧
+    f64Mul .RN 0x7FEFFFFFFFFFFFFF#64 0x4000000000000000#64 =
+      (0x7FF0000000000000#64, { overflow := true, inexact := true }) ∧
+    f64Mul .RZ 0x7FEFFFFFFFFFFFFF#64 0x4000000000000000#64 =
+      (0x7FEFFFFFFFFFFFFF#64, { overflow := true, inexact := true }) ∧
+    f64Mul .RN 0x0000000000000001#64 0x3FE0000000000000#64 =
+      (0x0000000000000000#64, { underflow := true, inexact := true }) ∧
+    f64Mul .RP 0x0000000000000001#64 0x3FE0000000000000#64 =
+      (0x0000000000000001#64, { underflow := true, inexact := true }) ∧
+    f64Sub .RN 0x7FF0000000000000#64 0x7FF0000000000000#64 = (defaultQNaN64, Flags.invalidOnly) ∧
+    f64Div .RN 0x3FF0000000000000#64 0x0000000000000000#64 =
+      (0x7FF0000000000000#64, { divZero := true }) ∧
+    f64Add .RN 0x7FF8000000000000#64 0x7FF0000000000001#64 =
+      (0x7FF0000000000001#64, Flags.invalidOnly) ∧
+    f64Madd .RN 0xBFF0000000000002#64 0x3FF0000000000001#64 0x3FF0000000000001#64 =
+      (0x0000000000000000#64, Flags.inexactOnly) ∧
+    f64Rsqrt .RN 0x4010000000000000#64 = (0x3FE0000000000000#64, Flags.none) ∧
+    f64Recip .RN 0x4000000000000000#64 = (0x3FE0000000000000#64, Flags.none) ∧
+    f64Sub .RM 0x4000000000000000#64 0x4000000000000000#64 = (0x8000000000000000#64, Flags.none) := by
+  decide +kernel
+
+/-- `isqrt` on small inputs and at perfect-square boundaries. -/
+theorem isqrt_cases :
+    (List.range 17).map isqrt = [0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4] ∧
+    isqrt (2 ^ 64) = 2 ^ 32 ∧ isqrt (2 ^ 64 - 1) = 2 ^ 32 - 1 ∧
+    isqrt (10 ^ 40) = 10 ^ 20 ∧ isqrt (10 ^ 40 + 2 * 10 ^ 20) = 10 ^ 20 := by
+  decide +kernel
+
 end Theorems
 
 /-! ## §11  Differential tests against Lean's `Float32` / `Float`
@@ -1405,7 +2104,8 @@ def overflowOracle (rm : RoundingMode) (src : Float) : Bool :=
   isNaN32 x || f32ToF64 x == (ofF64 (toF32 x).toFloat, Flags.none)
 
 #guard pats32.all fun x =>
-  !isNaN32 x || (f32ToF64 x).1 == defaultQNaN64 && (toF32 x).toFloat.isNaN
+  !isNaN32 x || isQNaN64 (f32ToF64 x).1 && (toF32 x).toFloat.isNaN &&
+    (f32ToF64 x).2.invalid == isSNaN32 x
 
 /-! ### `f64ToF32` vs `Float.toFloat32` -/
 
@@ -1527,6 +2227,93 @@ def rzOracle (f : Float) : Float := if f < 0.0 then f.ceil else f.floor
   canonNaN32 (ofF32 (toF32 0x7F800000#32 - toF32 0x7F800000#32)) == defaultQNaN32 &&
   canonNaN64 (ofF64 ((0.0 : Float) / 0.0)) == defaultQNaN64 &&
   canonNaN64 (ofF64 (Float.sqrt (-1.0))) == defaultQNaN64
+
+/-! ### `add` / `sub` / `mul` / `div` / `sqrt` vs the host's IEEE arithmetic
+
+Under round-to-nearest the model must agree **bit for bit** with the host on
+every non-NaN result, and produce a NaN exactly when the host does (the NaN
+*pattern* is MIPS-legacy and deliberately differs). -/
+
+/-- Operand pairs: every pair of hand-picked edge patterns (≈ 3 700), random
+pairs, and moderate × random pairs. -/
+def pairs32 : List (BitVec 32 × BitVec 32) :=
+  (edge32.flatMap fun a => edge32.map fun b => (a, b)) ++
+  ((lcg32 400 77).zip (lcg32 400 78)) ++ (moderate32.zip (lcg32 200 5)) ++
+  (moderate32.zip (moderate32.drop 7))
+
+/-- Double operand pairs (≈ 5 500 edge pairs + random + moderate). -/
+def pairs64 : List (BitVec 64 × BitVec 64) :=
+  (edge64.flatMap fun a => edge64.map fun b => (a, b)) ++
+  ((lcg64 400 77).zip (lcg64 400 78)) ++ (moderate64.zip (moderate64.drop 13))
+
+/-- Agreement of a model single result with a host result. -/
+def agree32 (m : BitVec 32) (h : Float32) : Bool :=
+  if h.isNaN then isQNaN32 m else m == ofF32 h
+/-- Agreement of a model double result with a host result. -/
+def agree64 (m : BitVec 64) (h : Float) : Bool :=
+  if h.isNaN then isQNaN64 m else m == ofF64 h
+
+#guard pairs32.all fun (a, b) =>
+  agree32 (f32Add .RN a b).1 (toF32 a + toF32 b) && agree32 (f32Sub .RN a b).1 (toF32 a - toF32 b) &&
+  agree32 (f32Mul .RN a b).1 (toF32 a * toF32 b) && agree32 (f32Div .RN a b).1 (toF32 a / toF32 b)
+
+#guard pairs64.all fun (a, b) =>
+  agree64 (f64Add .RN a b).1 (toF64 a + toF64 b) && agree64 (f64Sub .RN a b).1 (toF64 a - toF64 b) &&
+  agree64 (f64Mul .RN a b).1 (toF64 a * toF64 b) && agree64 (f64Div .RN a b).1 (toF64 a / toF64 b)
+
+#guard pats32.all fun a => agree32 (f32Sqrt .RN a).1 (toF32 a).sqrt
+#guard pats64.all fun a => agree64 (f64Sqrt .RN a).1 (toF64 a).sqrt
+
+-- `recip` / `rsqrt` are `1/x` and `1/sqrt x` computed with two host operations
+#guard pats32.all fun a =>
+  agree32 (f32Recip .RN a).1 (1.0 / toF32 a) && agree32 (f32Rsqrt .RN a).1 (1.0 / (toF32 a).sqrt)
+#guard (edge64 ++ moderate64).all fun a =>
+  agree64 (f64Recip .RN a).1 (1.0 / toF64 a) && agree64 (f64Rsqrt .RN a).1 (1.0 / (toF64 a).sqrt)
+
+-- unfused multiply-add = two host operations
+#guard (pairs32.zip (lcg32 5000 4242)).all fun ((a, b), c) =>
+  agree32 (f32Madd .RN c a b).1 (toF32 a * toF32 b + toF32 c) &&
+  agree32 (f32Msub .RN c a b).1 (toF32 a * toF32 b - toF32 c)
+#guard (pairs64.zip (lcg64 6000 4242)).all fun ((a, b), c) =>
+  agree64 (f64Madd .RN c a b).1 (toF64 a * toF64 b + toF64 c) &&
+  agree64 (f64Msub .RN c a b).1 (toF64 a * toF64 b - toF64 c)
+
+-- Single multiply, directed modes and flags: the product of two singles is
+-- exact in double precision (48 significant bits, exponent well in range), so
+-- `dirOracle` applies; Inexact iff the delivered single differs from it;
+-- Overflow as for double → single; Invalid iff 0 × ∞ or a signaling NaN.
+#guard pairs32.all fun (a, b) =>
+  isNaN32 a || isNaN32 b || (isInf32 a || isInf32 b) ||
+  [RoundingMode.RN, .RZ, .RP, .RM].all fun rm =>
+    let exact := (toF32 a).toFloat * (toF32 b).toFloat
+    let r := f32Mul rm a b
+    r.1 == dirOracle rm (ofF32 (toF32 a * toF32 b)) exact (sign32 a != sign32 b) &&
+      r.2.inexact == ((toF32 r.1).toFloat != exact) &&
+      r.2.overflow == overflowOracle rm exact && !r.2.invalid && !r.2.divZero
+
+-- Single add/sub, directed modes: whenever the double-precision sum is exact
+-- (checked with the error term of Knuth's TwoSum) and nonzero.
+#guard pairs32.all fun (a, b) =>
+  isNaN32 a || isNaN32 b || isInf32 a || isInf32 b ||
+  let x := (toF32 a).toFloat
+  let y := (toF32 b).toFloat
+  let s := x + y
+  let bb := s - x
+  let err := (x - (s - bb)) + (y - bb)
+  err != 0.0 || s == 0.0 ||
+  [RoundingMode.RN, .RZ, .RP, .RM].all fun rm =>
+    let r := f32Add rm a b
+    r.1 == dirOracle rm (ofF32 (toF32 a + toF32 b)) s (s < 0.0) &&
+      r.2.inexact == ((toF32 r.1).toFloat != s)
+
+-- Flags of invalid / divide-by-zero cases against the host's NaN / ∞ results
+#guard pairs32.all fun (a, b) =>
+  isNaN32 a || isNaN32 b ||
+  ((f32Div .RN a b).2.invalid == (toF32 a / toF32 b).isNaN &&
+   (f32Div .RN a b).2.divZero == ((toF32 a).isFinite && (toF32 a / toF32 b).isInf && isZero32 b) &&
+   (f32Mul .RN a b).2.invalid == (toF32 a * toF32 b).isNaN &&
+   (f32Add .RN a b).2.invalid == (toF32 a + toF32 b).isNaN &&
+   (f32Sub .RN a b).2.invalid == (toF32 a - toF32 b).isNaN)
 
 end Test
 

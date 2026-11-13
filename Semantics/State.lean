@@ -15,29 +15,40 @@ Depends only on the foundation (`Word`, `Types`); read-only there.
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
-`hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; `fpCondFlag` is
-`false`; memory is empty; accumulated output is empty; `llBit` is `false`
-(no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot);
-the five modeled coprocessor-0 registers (`cp0Status`, `cp0Cause`, `cp0Epc`,
-`cp0BadVAddr`, `cp0ErrorEpc`) are all `0`. Note `Status = 0` is *not* the
-architectural reset value (reset sets `BEV` and `ERL`): the model starts as
-if boot code had already cleared them. -/
+`hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; memory is empty;
+accumulated output is empty; `llBit` is `false` (no `ll` has executed yet);
+`pendingBranch` is `none` (not in a delay slot).
+
+**Environment conventions** (the state a program finds when it starts, as if
+boot code / an operating system had set the machine up; none of these is the
+architectural reset state):
+
+* `Status = 0x2000_0000`: only `CU1` set, so user programs can use the FPU
+  (clear it with `mtc0` to get Coprocessor Unusable exceptions). Reset would
+  set `BEV` and `ERL`; the model starts as if boot code had cleared them.
+* `FCSR = 0`: round to nearest, no exception enabled, flags and cause clear,
+  all eight condition codes 0, `FS = 0`. The manual makes every FCSR field's
+  reset state "Undefined" (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95).
+* `Cause`, `EPC`, `BadVAddr`, `ErrorEPC` are `0`; `EBase` holds its reset
+  value `0x8000_0000` (MD00090 Vol III Rev 6.02 §9.41, p.223). -/
 def initialState (pc : W32) : State :=
   { pc := pc
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
     hi := 0#32
     lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
-    fpCondFlag := false
+    fcsr := 0#32
     mem := ∅
     out := ""
     pendingBranch := none
     llBit := false
-    cp0Status := 0#32
+    cp0Status := statusCu1Mask
     cp0Cause := 0#32
     cp0Epc := 0#32
     cp0BadVAddr := 0#32
-    cp0ErrorEpc := 0#32 }
+    cp0ErrorEpc := 0#32
+    llAddr := 0#32
+    cp0EBase := ebaseFixedBits }
 
 /-- Read general-purpose register `i`. Register `0` (`$zero`) always reads as
 `0` by construction of `initialState`/`writeReg`, but this also tolerates any
@@ -145,7 +156,7 @@ example : (initialState textBase).lo = 0#32 := by decide
 example : (initialState textBase).fpRegs.size = 32 := by decide
 example : (initialState textBase).fpRegs[0]! = 0#32 := by decide
 example : (initialState textBase).fpRegs[31]! = 0#32 := by decide
-example : (initialState textBase).fpCondFlag = false := by decide
+example : (initialState textBase).fcsr = 0#32 := by decide
 example : (initialState textBase).out = "" := by decide
 example : (initialState textBase).pendingBranch = none := by decide
 example : (initialState textBase).llBit = false := by decide
@@ -246,10 +257,13 @@ example : writeMemWord (initialState textBase) 0x10010001#32 0x12345678#32 = non
 #guard writeMemHalf (initialState textBase) 0x10010001#32 0x1234#32 = none
 #guard writeMemWord (initialState textBase) 0x10010001#32 0x12345678#32 = none
 
--- `initialState`: CP0 registers all start zero (no exception has occurred)
-example : (initialState textBase).cp0Status = 0#32 := by decide
+-- `initialState`: `Status` has only `CU1` set; the other CP0 registers start
+-- zero (no exception has occurred), `EBase` at its reset value
+example : (initialState textBase).cp0Status = 0x20000000#32 := by decide
+example : (initialState textBase).cp0EBase = 0x80000000#32 := by decide
+example : (initialState textBase).llAddr = 0#32 := by decide
 example : (initialState textBase).cp0Cause = 0#32 := by decide
 example : (initialState textBase).cp0Epc = 0#32 := by decide
 example : (initialState textBase).cp0BadVAddr = 0#32 := by decide
 example : (initialState textBase).cp0ErrorEpc = 0#32 := by decide
-#guard (initialState textBase).cp0Status = 0#32
+#guard (initialState textBase).cp0Status = statusCu1Mask

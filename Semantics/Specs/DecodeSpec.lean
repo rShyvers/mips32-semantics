@@ -31,12 +31,28 @@ private theorem m16 (i : Nat) : (65535#32).getLsbD i = decide (i < 16) :=
   getLsbD_lowMask 16 (by omega) i
 private theorem m26 (i : Nat) : (67108863#32).getLsbD i = decide (i < 26) :=
   getLsbD_lowMask 26 (by omega) i
+private theorem m1 (i : Nat) : (1#32).getLsbD i = decide (i < 1) :=
+  getLsbD_lowMask 1 (by omega) i
+private theorem m2 (i : Nat) : (3#32).getLsbD i = decide (i < 2) :=
+  getLsbD_lowMask 2 (by omega) i
+private theorem m3 (i : Nat) : (7#32).getLsbD i = decide (i < 3) :=
+  getLsbD_lowMask 3 (by omega) i
+private theorem m4 (i : Nat) : (15#32).getLsbD i = decide (i < 4) :=
+  getLsbD_lowMask 4 (by omega) i
+private theorem m10 (i : Nat) : (1023#32).getLsbD i = decide (i < 10) :=
+  getLsbD_lowMask 10 (by omega) i
+private theorem m19 (i : Nat) : (524287#32).getLsbD i = decide (i < 19) :=
+  getLsbD_lowMask 19 (by omega) i
+private theorem m20 (i : Nat) : (1048575#32).getLsbD i = decide (i < 20) :=
+  getLsbD_lowMask 20 (by omega) i
 
 /-- Closes a field-extraction goal bit by bit. -/
 local macro "field_ext" : tactic =>
   `(tactic| (apply BitVec.eq_of_getLsbD_eq; intro i hi
              simp [opcodeOf, rsOf, rtOf, rdOf, shamtOf, functOf, immOf, targetOf,
-               mkRT, mkIT, mkJT, field, maskLow, m5, m6, m16, m26]
+               ccOf, ndOf, tfOf, fccOf, fcOf, z76Of, coOf, condOf, code20Of, code10Of, code19Of,
+               mkRT, mkIT, mkJT, mkCCR, mkCCI, mkCmp, mkCode20, mkTrap, mkWait,
+               field, maskLow, m5, m6, m16, m26, m1, m2, m3, m4, m10, m19, m20]
              try grind))
 
 /-! ## Field extraction: `x ||| mkRT ..` (SPECIAL2/SPECIAL3/COP0/COP1, where `x` is the
@@ -54,6 +70,83 @@ theorem shamtOf_or_mkRT (x a b c d e : W32) :
     shamtOf (x ||| mkRT a b c d e) = ((x >>> 6) &&& 31#32) ||| (d &&& 31#32) := by field_ext
 theorem functOf_or_mkRT (x a b c d e : W32) :
     functOf (x ||| mkRT a b c d e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
+
+theorem fcOf_or_mkRT (x a b c d e : W32) :
+    fcOf (x ||| mkRT a b c d e) = ((x >>> 4) &&& 3#32) ||| ((e >>> 4) &&& 3#32) := by field_ext
+theorem coOf_or_mkRT (x a b c d e : W32) :
+    coOf (x ||| mkRT a b c d e) = ((x >>> 25) &&& 1#32) ||| ((a >>> 4) &&& 1#32) := by field_ext
+
+/-! ## Field extraction: `mkCCR ..` (`MOVCI`, `MOVCF.fmt`) -/
+
+theorem opcodeOf_mkCCR (o a c n t r d e : W32) :
+    opcodeOf (mkCCR o a c n t r d e) = o &&& 63#32 := by field_ext
+theorem rsOf_mkCCR (o a c n t r d e : W32) : rsOf (mkCCR o a c n t r d e) = a &&& 31#32 := by
+  field_ext
+theorem ccOf_mkCCR (o a c n t r d e : W32) : ccOf (mkCCR o a c n t r d e) = c &&& 7#32 := by
+  field_ext
+theorem ndOf_mkCCR (o a c n t r d e : W32) : ndOf (mkCCR o a c n t r d e) = n &&& 1#32 := by
+  field_ext
+theorem tfOf_mkCCR (o a c n t r d e : W32) : tfOf (mkCCR o a c n t r d e) = t &&& 1#32 := by
+  field_ext
+theorem rdOf_mkCCR (o a c n t r d e : W32) : rdOf (mkCCR o a c n t r d e) = r &&& 31#32 := by
+  field_ext
+theorem shamtOf_mkCCR (o a c n t r d e : W32) :
+    shamtOf (mkCCR o a c n t r d e) = d &&& 31#32 := by field_ext
+theorem functOf_mkCCR (o a c n t r d e : W32) :
+    functOf (mkCCR o a c n t r d e) = e &&& 63#32 := by field_ext
+theorem fcOf_mkCCR (o a c n t r d e : W32) :
+    fcOf (mkCCR o a c n t r d e) = (e >>> 4) &&& 3#32 := by field_ext
+
+/-! ## Field extraction: `mkCCI ..` (FP branches) -/
+
+theorem opcodeOf_mkCCI (o a c n t imm : W32) : opcodeOf (mkCCI o a c n t imm) = o &&& 63#32 := by
+  field_ext
+theorem rsOf_mkCCI (o a c n t imm : W32) : rsOf (mkCCI o a c n t imm) = a &&& 31#32 := by
+  field_ext
+theorem ccOf_mkCCI (o a c n t imm : W32) : ccOf (mkCCI o a c n t imm) = c &&& 7#32 := by
+  field_ext
+theorem ndOf_mkCCI (o a c n t imm : W32) : ndOf (mkCCI o a c n t imm) = n &&& 1#32 := by
+  field_ext
+theorem tfOf_mkCCI (o a c n t imm : W32) : tfOf (mkCCI o a c n t imm) = t &&& 1#32 := by
+  field_ext
+theorem immOf_mkCCI (o a c n t imm : W32) : immOf (mkCCI o a c n t imm) = imm &&& 65535#32 := by
+  field_ext
+
+/-! ## Field extraction: `mkCmp ..` (`C.cond.fmt`) -/
+
+theorem opcodeOf_mkCmp (o f a b c x d : W32) : opcodeOf (mkCmp o f a b c x d) = o &&& 63#32 := by
+  field_ext
+theorem rsOf_mkCmp (o f a b c x d : W32) : rsOf (mkCmp o f a b c x d) = f &&& 31#32 := by
+  field_ext
+theorem rtOf_mkCmp (o f a b c x d : W32) : rtOf (mkCmp o f a b c x d) = a &&& 31#32 := by
+  field_ext
+theorem rdOf_mkCmp (o f a b c x d : W32) : rdOf (mkCmp o f a b c x d) = b &&& 31#32 := by
+  field_ext
+theorem fccOf_mkCmp (o f a b c x d : W32) : fccOf (mkCmp o f a b c x d) = c &&& 7#32 := by
+  field_ext
+theorem condOf_mkCmp (o f a b c x d : W32) : condOf (mkCmp o f a b c x d) = d &&& 15#32 := by
+  field_ext
+theorem fcOf_mkCmp (o f a b c x d : W32) : fcOf (mkCmp o f a b c x d) = x &&& 3#32 := by
+  field_ext
+theorem z76Of_mkCmp (o f a b c x d : W32) : z76Of (mkCmp o f a b c x d) = 0#32 := by field_ext
+
+/-! ## Field extraction: `mkCode20 ..`, `mkTrap ..`, `mkWait ..` -/
+
+theorem opcodeOf_mkCode20 (c e : W32) : opcodeOf (mkCode20 c e) = 0#32 := by field_ext
+theorem functOf_mkCode20 (c e : W32) : functOf (mkCode20 c e) = e &&& 63#32 := by field_ext
+theorem code20Of_mkCode20 (c e : W32) : code20Of (mkCode20 c e) = c &&& 1048575#32 := by
+  field_ext
+theorem opcodeOf_mkTrap (a b c e : W32) : opcodeOf (mkTrap a b c e) = 0#32 := by field_ext
+theorem functOf_mkTrap (a b c e : W32) : functOf (mkTrap a b c e) = e &&& 63#32 := by field_ext
+theorem rsOf_mkTrap (a b c e : W32) : rsOf (mkTrap a b c e) = a &&& 31#32 := by field_ext
+theorem rtOf_mkTrap (a b c e : W32) : rtOf (mkTrap a b c e) = b &&& 31#32 := by field_ext
+theorem code10Of_mkTrap (a b c e : W32) : code10Of (mkTrap a b c e) = c &&& 1023#32 := by
+  field_ext
+theorem opcodeOf_mkWait (o k c e : W32) : opcodeOf (mkWait o k c e) = o &&& 63#32 := by field_ext
+theorem coOf_mkWait (o k c e : W32) : coOf (mkWait o k c e) = k &&& 1#32 := by field_ext
+theorem functOf_mkWait (o k c e : W32) : functOf (mkWait o k c e) = e &&& 63#32 := by field_ext
+theorem code19Of_mkWait (o k c e : W32) : code19Of (mkWait o k c e) = c &&& 524287#32 := by
+  field_ext
 
 /-! ## Field extraction: plain `mkRT ..` (SPECIAL, opcode 0) -/
 
@@ -93,9 +186,25 @@ theorem and_65535 (a : W32) (h : a.toNat < 2 ^ 16) : a &&& 65535#32 = a := and_l
 theorem and_67108863 (a : W32) (h : a.toNat < 2 ^ 26) : a &&& 67108863#32 = a :=
   and_lowMask 26 (by decide) a h
 
-theorem isModeledCp0Reg_lt (rd : W32) (h : isModeledCp0Reg rd = true) : rd.toNat < 32 := by
-  simp only [isModeledCp0Reg, Bool.or_eq_true, beq_iff_eq] at h
-  rcases h with (((h | h) | h) | h) | h <;> subst h <;> decide
+theorem and_1 (a : W32) (h : a.toNat < 2) : a &&& 1#32 = a := and_lowMask 1 (by decide) a h
+theorem and_7 (a : W32) (h : a.toNat < 8) : a &&& 7#32 = a := and_lowMask 3 (by decide) a h
+theorem and_15 (a : W32) (h : a.toNat < 16) : a &&& 15#32 = a := and_lowMask 4 (by decide) a h
+theorem and_63 (a : W32) (h : a.toNat < 64) : a &&& 63#32 = a := and_lowMask 6 (by decide) a h
+theorem and_1023 (a : W32) (h : a.toNat < 2 ^ 10) : a &&& 1023#32 = a :=
+  and_lowMask 10 (by decide) a h
+theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
+  and_lowMask 19 (by decide) a h
+theorem and_1048575 (a : W32) (h : a.toNat < 2 ^ 20) : a &&& 1048575#32 = a :=
+  and_lowMask 20 (by decide) a h
+
+theorem isModeledCp0Reg_lt (rd sel : W32) (h : isModeledCp0Reg rd sel = true) :
+    rd.toNat < 32 ∧ sel.toNat < 8 := by
+  simp only [isModeledCp0Reg, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at h
+  rcases h with ⟨h0, h⟩ | ⟨h0, h⟩
+  · subst h0
+    rcases h with (((((h | h) | h) | h) | h) | h) | h <;> subst h <;> decide
+  · subst h0
+    rcases h with h | h <;> subst h <;> decide
 
 /-! ## Extracted fields are in range -/
 
@@ -111,6 +220,20 @@ theorem immOf_lt (w : W32) : (immOf w).toNat < 2 ^ 16 := by
   simp [immOf, BitVec.extractLsb]; omega
 theorem targetOf_lt (w : W32) : (targetOf w).toNat < 2 ^ 26 := by
   simp [targetOf, BitVec.extractLsb]; omega
+theorem functOf_lt (w : W32) : (functOf w).toNat < 64 := by
+  simp [functOf, BitVec.extractLsb]; omega
+theorem ccOf_lt (w : W32) : (ccOf w).toNat < 8 := by
+  simp [ccOf, BitVec.extractLsb]; omega
+theorem fccOf_lt (w : W32) : (fccOf w).toNat < 8 := by
+  simp [fccOf, BitVec.extractLsb]; omega
+theorem condOf_lt (w : W32) : (condOf w).toNat < 16 := by
+  simp [condOf, BitVec.extractLsb]; omega
+theorem code20Of_lt (w : W32) : (code20Of w).toNat < 2 ^ 20 := by
+  simp [code20Of, BitVec.extractLsb]; omega
+theorem code10Of_lt (w : W32) : (code10Of w).toNat < 2 ^ 10 := by
+  simp [code10Of, BitVec.extractLsb]; omega
+theorem code19Of_lt (w : W32) : (code19Of w).toNat < 2 ^ 19 := by
+  simp [code19Of, BitVec.extractLsb]; omega
 
 end DecodeSpec
 
@@ -210,19 +333,22 @@ def Instruction.WellFormed : Instruction → Prop
   | .synci rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .j target => target.toNat < 2 ^ 26
   | .jal target => target.toNat < 2 ^ 26
-  | .syscall => True
-  | .teq rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .tne rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .tlt rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .tge rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .tltu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .tgeu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .break => True
-  | .sync => True
-  | .mfc0 rt rd => rt.toNat < 32 ∧ isModeledCp0Reg rd = true
-  | .mtc0 rt rd => rt.toNat < 32 ∧ isModeledCp0Reg rd = true
+  | .syscall code => code.toNat < 2 ^ 20
+  | .teq rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .tne rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .tlt rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .tge rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .tltu rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .tgeu rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
+  | .break code => code.toNat < 2 ^ 20
+  | .sync stype => stype.toNat < 32
+  | .pref rs hint imm => rs.toNat < 32 ∧ hint.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .mfc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
+  | .mtc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
+  | .di rt => rt.toNat < 32
+  | .ei rt => rt.toNat < 32
   | .eret => True
-  | .wait => True
+  | .wait code => code.toNat < 2 ^ 19
   | .mfc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .mtc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .lwc1 rs ft imm => rs.toNat < 32 ∧ ft.toNat < 32 ∧ imm.toNat < 2 ^ 16
@@ -236,9 +362,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .movS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtSW fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtWS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  | .cEqS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cLtS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cLeS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
   | .sqrtS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .absS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .negS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
@@ -246,13 +369,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .truncWS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .ceilWS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .floorWS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  | .cFS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUnS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUeqS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cOltS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUltS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cOleS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUleS fs ft => fs.toNat < 32 ∧ ft.toNat < 32
   | .addD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
   | .subD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
   | .mulD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
@@ -262,30 +378,65 @@ def Instruction.WellFormed : Instruction → Prop
   | .cvtSD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtDW fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  | .cEqD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cLtD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cLeD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cFD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUnD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUeqD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cOltD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUltD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cOleD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
-  | .cUleD fs ft => fs.toNat < 32 ∧ ft.toNat < 32
   | .sqrtD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .absD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .negD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cfc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .ctc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
-  | .bc1t imm => imm.toNat < 2 ^ 16
-  | .bc1f imm => imm.toNat < 2 ^ 16
+  | .mfhc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
+  | .mthc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
+  | .lwxc1 fd index base => fd.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
+  | .ldxc1 fd index base => fd.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
+  | .swxc1 fs index base => fs.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
+  | .sdxc1 fs index base => fs.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
+  | .prefx hint index base => hint.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
+  | .recipS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .rsqrtS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .recipD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .rsqrtD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .roundWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .truncWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .ceilWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .floorWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .cCondS cond cc fs ft => cond.toNat < 16 ∧ cc.toNat < 8 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .cCondD cond cc fs ft => cond.toNat < 16 ∧ cc.toNat < 8 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .movfS fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
+  | .movtS fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
+  | .movfD fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
+  | .movtD fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
+  | .movnS fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
+  | .movzS fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
+  | .movnD fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
+  | .movzD fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
+  | .movf rs cc rd => rs.toNat < 32 ∧ cc.toNat < 8 ∧ rd.toNat < 32
+  | .movt rs cc rd => rs.toNat < 32 ∧ cc.toNat < 8 ∧ rd.toNat < 32
+  | .maddS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .msubS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .nmaddS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .nmsubS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maddD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .msubD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .nmaddD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .nmsubD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .bc1f cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
+  | .bc1t cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
+  | .bc1fl cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
+  | .bc1tl cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
 
 attribute [local simp] opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT shamtOf_or_mkRT
   functOf_or_mkRT opcodeOf_mkRT rsOf_mkRT rtOf_mkRT rdOf_mkRT shamtOf_mkRT functOf_mkRT
   opcodeOf_mkIT rsOf_mkIT rtOf_mkIT immOf_mkIT opcodeOf_or_mkJT targetOf_or_mkJT
-  and_31 and_65535 and_67108863
+  fcOf_or_mkRT coOf_or_mkRT
+  opcodeOf_mkCCR rsOf_mkCCR ccOf_mkCCR ndOf_mkCCR tfOf_mkCCR rdOf_mkCCR shamtOf_mkCCR
+  functOf_mkCCR fcOf_mkCCR
+  opcodeOf_mkCCI rsOf_mkCCI ccOf_mkCCI ndOf_mkCCI tfOf_mkCCI immOf_mkCCI
+  opcodeOf_mkCmp rsOf_mkCmp rtOf_mkCmp rdOf_mkCmp fccOf_mkCmp condOf_mkCmp fcOf_mkCmp z76Of_mkCmp
+  opcodeOf_mkCode20 functOf_mkCode20 code20Of_mkCode20
+  opcodeOf_mkTrap functOf_mkTrap rsOf_mkTrap rtOf_mkTrap code10Of_mkTrap
+  opcodeOf_mkWait coOf_mkWait functOf_mkWait code19Of_mkWait
+  and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_1023 and_524287 and_1048575
 
--- 158 constructors, each unfolding the full `decode` match: needs more than
+-- ~180 constructors, each unfolding the full `decode` match: needs more than
 -- the default heartbeat budget.
 set_option maxHeartbeats 1000000 in
 /-- Round trip: decoding the encoding of a well-formed instruction returns it.
@@ -304,12 +455,14 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     have e2 : pos + size - 1#32 - pos + 1#32 = size := by bv_omega
     simp [encode, decode, decodeIf, hrt, hrs, hpos, e1, e2]
     omega
-  case mfc0 rt rd =>
-    have h1 := isModeledCp0Reg_lt rd h.2
-    simp [encode, decode, decodeIf, h, h1]
-  case mtc0 rt rd =>
-    have h1 := isModeledCp0Reg_lt rd h.2
-    simp [encode, decode, decodeIf, h, h1]
+  case mfc0 rt rd sel =>
+    obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
+    have h3 : sel.toNat < 64 := by omega
+    simp [encode, decode, decodeIf, h, h1, h2, h3]
+  case mtc0 rt rd sel =>
+    obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
+    have h3 : sel.toNat < 64 := by omega
+    simp [encode, decode, decodeIf, h, h1, h2, h3]
   all_goals simp [encode, decode, decodeIf, h]
 
 -- Splits the whole `decode` match (~230 leaves).
@@ -319,11 +472,14 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
     i.WellFormed := by
   have h1 := rsOf_lt w; have h2 := rtOf_lt w; have h3 := rdOf_lt w
   have h4 := shamtOf_lt w; have h5 := immOf_lt w; have h6 := targetOf_lt w
+  have h7 := ccOf_lt w; have h8 := fccOf_lt w; have h9 := condOf_lt w
+  have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
   simp only [decode, decodeIf] at h
   repeat' split at h
   all_goals
     (cases h <;>
-      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, and_self, true_and])
+      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12,
+        and_self, true_and])
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
   all_goals first
