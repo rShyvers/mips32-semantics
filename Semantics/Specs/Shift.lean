@@ -30,7 +30,7 @@ vacated low bits.** `shamt` comes straight from the instruction encoding
 (INSTRUCTION-REF "sll"), not a register. -/
 theorem sll_spec_raw (s : State) (w rd rt shamt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sll rd rt shamt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)).pc + 4#32 }) := by
@@ -41,7 +41,7 @@ vacated high bits (logical shift).** Mirrors `sll_spec_raw`; see `sra_spec_raw`
 for the sign-filling counterpart. -/
 theorem srl_spec_raw (s : State) (w rd rt shamt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.srl rd rt shamt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) >>> shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) >>> shamt.toNat)).pc + 4#32 }) := by
@@ -53,7 +53,7 @@ helper `step` itself uses, so a negative `$rt` keeps its sign after the
 shift (INSTRUCTION-REF "sra"). -/
 theorem sra_spec_raw (s : State) (w rd rt shamt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sra rd rt shamt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).sshiftRight shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).sshiftRight shamt.toNat)).pc + 4#32 }) := by
@@ -66,7 +66,7 @@ docs/spec/MIPS-COVERAGE-GAPS.md §3.4). `extractLsb 4 0` is the exact masking
 expression `step` itself uses. -/
 theorem sllv_spec_raw (s : State) (w rd rt rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sllv rd rt rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let amt := ((readReg s (regIdxSpec rs)).extractLsb 4 0).toNat
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< amt)) with
@@ -78,7 +78,7 @@ Mirrors `sllv_spec_raw`'s masking; logical (not arithmetic) shift, same as
 `srl`. -/
 theorem srlv_spec_raw (s : State) (w rd rt rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.srlv rd rt rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let amt := ((readReg s (regIdxSpec rs)).extractLsb 4 0).toNat
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) >>> amt)) with
@@ -89,7 +89,7 @@ theorem srlv_spec_raw (s : State) (w rd rt rs : W32)
 Mirrors `sllv_spec_raw`'s masking and `sra_spec_raw`'s sign-fill. -/
 theorem srav_spec_raw (s : State) (w rd rt rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.srav rd rt rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let amt := ((readReg s (regIdxSpec rs)).extractLsb 4 0).toNat
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).sshiftRight amt)) with
@@ -102,7 +102,7 @@ docs/spec/MIPS-COVERAGE-GAPS.md §3.4) — unlike `srl`'s zero-fill on the same
 input. `BitVec.rotateRight` is the exact operation `step` itself uses. -/
 theorem rotr_spec_raw (s : State) (w rd rt sa : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rotr rd rt sa))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).rotateRight sa.toNat)) with
           pc := (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).rotateRight sa.toNat)).pc + 4#32 }) := by
@@ -113,7 +113,7 @@ theorem rotr_spec_raw (s : State) (w rd rt sa : W32)
 same wrap-around as `rotr`. -/
 theorem rotrv_spec_raw (s : State) (w rd rt rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rotrv rd rt rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let amt := ((readReg s (regIdxSpec rs)).extractLsb 4 0).toNat
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).rotateRight amt)) with
@@ -176,10 +176,10 @@ some kind happened". -/
 theorem rotr_wraps_not_zero_fill (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rotr 10#32 8#32 4#32))
     (hpb : s.pendingBranch = none)
-    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) :
+    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ (writeReg s (regIdxSpec 10#32) 0x81234567#32) with
         pc := (writeReg s (regIdxSpec 10#32) 0x81234567#32).pc + 4#32 }) := by
-  rw [rotr_spec_raw s w 10#32 8#32 4#32 hfetch hdecode hpb]
+  rw [rotr_spec_raw s w 10#32 8#32 4#32 hfetch hdecode hpb hexec]
   dsimp only
   rw [hrt]
   rfl
@@ -187,10 +187,10 @@ theorem rotr_wraps_not_zero_fill (s : State) (w : W32)
 theorem srl_zero_fills_same_input (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.srl 10#32 8#32 4#32))
     (hpb : s.pendingBranch = none)
-    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) :
+    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ (writeReg s (regIdxSpec 10#32) 0x01234567#32) with
         pc := (writeReg s (regIdxSpec 10#32) 0x01234567#32).pc + 4#32 }) := by
-  rw [srl_spec_raw s w 10#32 8#32 4#32 hfetch hdecode hpb]
+  rw [srl_spec_raw s w 10#32 8#32 4#32 hfetch hdecode hpb hexec]
   dsimp only
   rw [hrt]
   rfl
@@ -205,7 +205,7 @@ theorem rotr_output_ne_srl_output (s : State) (m' : Std.HashMap W32 UInt8) (w w'
     (hfetch' : readMemWord { s with physMem := m' } s.pc = some w')
     (hdecode' : decode w' = some (.srl 10#32 8#32 4#32))
     (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32)
-    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) :
+    (hrt : readReg s (regIdxSpec 8#32) = 0x12345678#32) (hexec : executesInstr s = true) :
     ∃ s1 s2, step s = s1 ∧ step { s with physMem := m' } = s2 ∧
       readReg s1 10 = 0x81234567#32 ∧ readReg s2 10 = 0x01234567#32 ∧
       readReg s1 10 ≠ readReg s2 10 := by
@@ -214,8 +214,8 @@ theorem rotr_output_ne_srl_output (s : State) (m' : Std.HashMap W32 UInt8) (w w'
   have h2 : readReg (writeReg { s with physMem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
       = 0x01234567#32 :=
     writeReg_reads_back { s with physMem := m' } 10 _ (by decide) hsize32
-  refine ⟨_, _, rotr_wraps_not_zero_fill s w hfetch hdecode hpb hrt,
-    srl_zero_fills_same_input { s with physMem := m' } w' hfetch' hdecode' hpb hrt, h1, h2, ?_⟩
+  refine ⟨_, _, rotr_wraps_not_zero_fill s w hfetch hdecode hpb hrt hexec,
+    srl_zero_fills_same_input { s with physMem := m' } w' hfetch' hdecode' hpb hrt hexec, h1, h2, ?_⟩
   show readReg (writeReg s (regIdxSpec 10#32) 0x81234567#32) 10
     ≠ readReg (writeReg { s with physMem := m' } (regIdxSpec 10#32) 0x01234567#32) 10
   rw [h1, h2]

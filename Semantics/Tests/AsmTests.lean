@@ -661,6 +661,16 @@ def cop0Prog : Program :=
 #guard (assemble "rdhwr $t0\n").isOk = false
 #guard (assemble "rdhwr $t0, $2, 0\n").isOk = false
 #guard (assemble "rdhwr $t0, 32\n").isOk = false
+-- `rdpgpr $rd, $rt` / `wrpgpr $rd, $rt` (MIPS32 Release 2, COP0 rs = 0x0a / 0x0e; MD00086 Vol II-A
+-- Rev 6.06, RDPGPR p.335, WRPGPR p.444): `rdpgpr $t0, $t1` is 0x41494000.
+#guard (assemble "rdpgpr $t0, $t1\n").toOption.map (·.getD textBase 0) = some 0x41494000#32
+#guard (assemble "wrpgpr $t0, $t1\n").toOption.map (·.getD textBase 0) = some 0x41c94000#32
+#guard (assemble "rdpgpr $t0, $t1\n").toOption.map (fun p => decode (p.getD textBase 0)) =
+  some (some (.rdpgpr 8#32 9#32))
+#guard (assemble "wrpgpr $ra, $zero\n").toOption.map (fun p => decode (p.getD textBase 0)) =
+  some (some (.wrpgpr 31#32 0#32))
+#guard (assemble "rdpgpr $t0\n").isOk = false
+#guard (assemble "wrpgpr $t0, $t1, $t2\n").isOk = false
 -- `lwl`/`lwr`/`swl`/`swr`: identical `rt, offset(rs)` parsing to `lw`/`sw`,
 -- cross-checked against `Instruction.encode`.
 def unalignedSrc : String :=

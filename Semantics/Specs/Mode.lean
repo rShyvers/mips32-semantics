@@ -104,11 +104,11 @@ theorem eret_to_user_mode (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
     (hpb : s.pendingBranch = none)
     (herl : s.cp0Status &&& statusErlMask = 0#32) (hexl : s.cp0Status &&& statusExlMask ≠ 0#32)
-    (hum : s.cp0Status &&& statusUmMask ≠ 0#32) :
+    (hum : s.cp0Status &&& statusUmMask ≠ 0#32) (hexec : executesInstr s = true) :
     (step s).pc = s.cp0Epc ∧ userMode (step s) = true := by
   have hcp0 : cp0Usable s = true := by
     unfold cp0Usable kernelMode; simp [hexl]
-  rw [eret_spec_raw s w hfetch hdecode hpb hcp0]
+  rw [eret_spec_raw s w hfetch hdecode hpb hcp0 hexec]
   have herl' : (s.cp0Status &&& statusErlMask != 0#32) = false := by simp [herl]
   rw [herl', ite_of_neg Bool.false_ne_true]
   refine ⟨rfl, ?_⟩
@@ -131,9 +131,9 @@ theorem mtc0_status_enters_user_mode (s : State) (w rt : W32)
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true)
     (hum : readReg s (regIdxSpec rt) &&& statusUmMask ≠ 0#32)
     (hexl : readReg s (regIdxSpec rt) &&& statusExlMask = 0#32)
-    (herl : readReg s (regIdxSpec rt) &&& statusErlMask = 0#32) :
+    (herl : readReg s (regIdxSpec rt) &&& statusErlMask = 0#32) (hexec : executesInstr s = true) :
     userMode (step s) = true := by
-  rw [mtc0_spec_raw s w rt 12#32 0#32 hfetch hdecode hpb hcp0]
+  rw [mtc0_spec_raw s w rt 12#32 0#32 hfetch hdecode hpb hcp0 hexec]
   show userMode (timerTick
     { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }) = true
   rw [userMode_iff]

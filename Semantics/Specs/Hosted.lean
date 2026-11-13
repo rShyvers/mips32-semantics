@@ -98,7 +98,7 @@ theorem hostStep_syscall_spec (env : HostEnv) (h : Hosted) (w code : W32)
     (hstop : stopReason env h.machine = none) (hon : env.services = true)
     (hfetch : readMemWord h.machine h.machine.pc = some w)
     (hdecode : decode w = some (.syscall code))
-    (hpb : h.machine.pendingBranch = none) :
+    (hpb : h.machine.pendingBranch = none) (hexec : executesInstr h.machine = true) :
     hostStep env h =
       match (readReg h.machine (regIdxSpec 2#32)).toNat with
       | 1 => .next { machine := { h.machine with pc := h.machine.pc + 4#32 },
@@ -112,18 +112,18 @@ theorem hostStep_syscall_spec (env : HostEnv) (h : Hosted) (w code : W32)
                         (Char.ofNat ((readReg h.machine (regIdxSpec 4#32) &&& 0xff#32).toNat)) }
       | _ => .next { h with machine := timerTick (takeException h.machine excCodeSys) } := by
   obtain ⟨s, out⟩ := h
-  simp only at hstop hfetch hpb ⊢
+  simp only at hstop hfetch hpb hexec ⊢
   have h2 : regIdxSpec 2#32 = 2 := by decide
   have h4 : regIdxSpec 4#32 = 4 := by decide
   rw [h2, h4]
   unfold hostStep
   rw [hstop]
-  simp only [hon, ↓reduceIte]
+  simp only [hon, hexec, Bool.and_self, ↓reduceIte]
   unfold selectedService
   rw [hfetch]
   simp only [hdecode]
   have hadv : advance s s = { s with pc := s.pc + 4#32 } := by unfold advance; rw [hpb]
-  have hsys : step s = timerTick (takeException s excCodeSys) := syscall_spec_raw s w code hfetch hdecode
+  have hsys : step s = timerTick (takeException s excCodeSys) := syscall_spec_raw s w code hfetch hdecode hexec
   generalize (readReg s 2).toNat = n
   rcases n with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n <;>
     simp only [performService, hadv, hsys, readCStringSpec, printStringFuelSpec]
@@ -136,11 +136,11 @@ theorem hosted_print_int (env : HostEnv) (h : Hosted) (w code : W32)
     (hfetch : readMemWord h.machine h.machine.pc = some w)
     (hdecode : decode w = some (.syscall code))
     (hv0 : readReg h.machine (regIdxSpec 2#32) = 1#32)
-    (hpb : h.machine.pendingBranch = none) :
+    (hpb : h.machine.pendingBranch = none) (hexec : executesInstr h.machine = true) :
     hostStep env h =
       .next { machine := { h.machine with pc := h.machine.pc + 4#32 },
               out := h.out ++ toString (asSigned (readReg h.machine (regIdxSpec 4#32))) } := by
-  rw [hostStep_syscall_spec env h w code hstop hon hfetch hdecode hpb, hv0]; rfl
+  rw [hostStep_syscall_spec env h w code hstop hon hfetch hdecode hpb hexec, hv0]; rfl
 
 /-- **Hosted service 10 (exit)** stops the run with `exit`, whatever else holds — in or out of a
 delay slot. (Formerly `syscall10_spec`, a statement about `step`.) -/
@@ -148,13 +148,13 @@ theorem hosted_exit (env : HostEnv) (h : Hosted) (w code : W32)
     (hstop : stopReason env h.machine = none) (hon : env.services = true)
     (hfetch : readMemWord h.machine h.machine.pc = some w)
     (hdecode : decode w = some (.syscall code))
-    (hv0 : readReg h.machine (regIdxSpec 2#32) = 10#32) :
+    (hv0 : readReg h.machine (regIdxSpec 2#32) = 10#32) (hexec : executesInstr h.machine = true) :
     hostStep env h = .halt .exit := by
   have h2 : regIdxSpec 2#32 = 2 := by decide
   rw [h2] at hv0
   unfold hostStep
   rw [hstop]
-  simp only [hon, ↓reduceIte]
+  simp only [hon, hexec, Bool.and_self, ↓reduceIte]
   unfold selectedService
   rw [hfetch]
   simp only [hdecode, hv0]

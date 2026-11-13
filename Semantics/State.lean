@@ -24,7 +24,8 @@ state "Undefined", MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95), `Status`, `Caus
 `BadVAddr`, `ErrorEPC`, `LLAddr`, `Count` and `Compare` (MD00090 Vol III Rev 6.02 Table 9.44,
 p.183, and Table 9.46, p.187: reset state "Undefined"), `Cause.TI` clear; `LLbit` clear, no pending
 branch, empty memory (bytes read 0), and `pc = 0`. `HWREna` is 0, the value the Reset exception gives
-it anyway. `EBase` and `Config.K0`/`K23`/`KU` hold the values the Reset exception gives them
+it anyway. The hardware interrupt lines `hwInt` are deasserted (the environment connects no device,
+`Semantics/Env.lean`) and the processor is not in standby. `EBase` and `Config.K0`/`K23`/`KU` hold the values the Reset exception gives them
 anyway.
 This is *not* the reset state: `Step.lean`'s `resetState` is `resetException powerOnState`. -/
 def powerOnState : State :=
@@ -50,7 +51,9 @@ def powerOnState : State :=
     cp0Count := 0#32
     cp0Compare := 0#32
     cp0TimerInt := false
-    cp0HWREna := 0#32 }
+    cp0HWREna := 0#32
+    hwInt := 0#6
+    standby := false }
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;

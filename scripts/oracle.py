@@ -686,6 +686,11 @@ ENC_MANUAL = {
     "prefx 0,$t1($t2)": ([0x4D49000F], "MD00086 Rev 6.06 PREFX p.329: COP1X 010011 | base(25:21)=$t2 | index(20:16)=$t1 | hint(15:11)=0 | 00000 | 001111"),
     "prefx 31,$ra($sp)": ([0x4FBFF80F], "MD00086 Rev 6.06 PREFX p.329: base=$sp(29) index=$ra(31) hint=31"),
     "wait 5": ([0x42000160], "MD00086 Rev 6.06 WAIT p.442: COP0 010000 | CO=1 | code(24:6)=5 | 100000"),
+    # llvm-mc 21 accepts RDPGPR/WRPGPR only with microMIPS ("instruction requires a CPU feature not currently enabled").
+    "rdpgpr $t0,$t1": ([0x41494000], "MD00086 Rev 6.06 RDPGPR p.335: COP0 010000 | RDPGPR 01010 | rt(20:16)=$t1 | rd(15:11)=$t0 | 0(10:0)"),
+    "rdpgpr $zero,$ra": ([0x415F0000], "MD00086 Rev 6.06 RDPGPR p.335: COP0 010000 | 01010 | rt=$ra(31) | rd=$zero(0) | 0"),
+    "wrpgpr $t0,$t1": ([0x41C94000], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | WRPGPR 01110 | rt(20:16)=$t1 | rd(15:11)=$t0 | 0(10:0)"),
+    "wrpgpr $ra,$zero": ([0x41C0F800], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | 01110 | rt=$zero(0) | rd=$ra(31) | 0"),
 }
 
 

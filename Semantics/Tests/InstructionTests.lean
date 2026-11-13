@@ -595,10 +595,20 @@ example : decode (mkRT 2#32 8#32 3#32 5#32 0x02#32) = none := by decide
 example : decode (mkRT 3#32 8#32 3#32 5#32 0x02#32) = none := by decide
 example : decode (mkRT 29#32 8#32 3#32 2#32 0x06#32) = none := by decide
 example : decode (mkRT 29#32 8#32 3#32 3#32 0x06#32) = none := by decide
--- `mfc0`/`mtc0`: `sel ≠ 0` (e.g. `mfc0 $t0,$12,1` = IntCtl), nonzero bits
--- 10..3, or an unmodeled register do not decode.
-example : decode 0x40086001#32 = none := by decide                              -- mfc0 $t0,$12,1
-example : decode 0x40886001#32 = none := by decide                              -- mtc0 $t0,$12,1
+-- `mfc0`/`mtc0`: an unmodeled `(rd, sel)` (e.g. `mfc0 $t0,$12,3` = SRSMap, UNPREDICTABLE with
+-- `SRSCtl.HSS = 0`), nonzero bits 10..3, or an unmodeled register do not decode.
+example : decode 0x40086003#32 = none := by decide                              -- mfc0 $t0,$12,3
+example : decode 0x40886003#32 = none := by decide                              -- mtc0 $t0,$12,3
+-- IntCtl (12,1) and SRSCtl (12,2) are modeled since wave 6 (F13, F16).
+example : decode 0x40086001#32 = some (.mfc0 8#32 12#32 1#32) := by decide        -- mfc0 $t0,$12,1
+example : decode 0x40886002#32 = some (.mtc0 8#32 12#32 2#32) := by decide        -- mtc0 $t0,$12,2
+-- `rdpgpr $t0, $t1` / `wrpgpr $t0, $t1` (MD00086 Vol II-A Rev 6.06, RDPGPR p.335, WRPGPR p.444).
+example : decode 0x41494000#32 = some (.rdpgpr 8#32 9#32) := by decide
+example : decode 0x41c94000#32 = some (.wrpgpr 8#32 9#32) := by decide
+example : encode (.rdpgpr 8#32 9#32) = 0x41494000#32 := by decide
+example : encode (.wrpgpr 8#32 9#32) = 0x41c94000#32 := by decide
+example : decode 0x41494001#32 = none := by decide                              -- bits 10..0 ≠ 0
+example : decode 0x41c94040#32 = none := by decide                              -- bits 10..0 ≠ 0
 example : decode 0x40086008#32 = none := by decide                              -- bit 3 set
 example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 1#32 0#32 0#32) = none := by decide  -- Random (1)
 example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 10#32 0#32 0#32) = none := by decide  -- EntryHi (10)

@@ -127,6 +127,8 @@ Field-shape summary (see each constructor's docstring for details):
   - `di`/`ei` (`rt`): `$rt ← Status`, then `Status.IE ← 0`/`1` (Release 2).
   - `eret` (no fields), `wait` (`code`, the 19-bit implementation-dependent
     field).
+  - `rdpgpr`/`wrpgpr` (`rd rt`; `rs`-field 0x0a / 0x0e, bits 10..0 zero;
+    Release 2).
 - Prefetch `pref` (`rs hint imm`): a no-op.
 - Coprocessor-1 (FPU) — opcodes `0x11` (COP1), `0x13` (COP1X) and the
   load/store opcodes; `fmt` is `S` = 0x10, `D` = 0x11, `W` = 0x14. A double
@@ -603,8 +605,19 @@ inductive Instruction where
   | eret
   /-- Enter standby mode (opcode 0x10 COP0, bit 25 = `CO` = 1, `funct` =
   0x20); `code` = the 19-bit implementation-dependent field, bits 24..6.
-  This model has no interrupt, so it is a no-op that falls through. -/
+  Completes, then stops the processor until an interrupt request restarts it
+  (`State.standby`; MD00086 Vol II-A Rev 6.06, WAIT, p.442). -/
   | wait (code : W32)
+  /-- Read GPR from previous shadow set: `GPR[rd] ← SGPR[SRSCtl.PSS, rt]`
+  (COP0, `rs`-field = `RDPGPR` = 0x0a, bits 10..0 zero; MD00086 Vol II-A
+  Rev 6.06, RDPGPR, p.335, "MIPS32 Release 2"). With only the normal GPRs
+  (`SRSCtl.HSS = 0`) a register move. -/
+  | rdpgpr (rd rt : W32)
+  /-- Write GPR to previous shadow set: `SGPR[SRSCtl.PSS, rd] ← GPR[rt]`
+  (COP0, `rs`-field = `WRPGPR` = 0x0e, bits 10..0 zero; MD00086 Vol II-A
+  Rev 6.06, WRPGPR, p.444, "MIPS32 Release 2"). With only the normal GPRs a
+  register move. -/
+  | wrpgpr (rd rt : W32)
   -- Coprocessor 1 (FPU). Citations: MD00086 Vol II-A Rev 6.06, by
   -- instruction name; semantics in `Step.lean` / `FpOps.lean`.
   /-- `$rt = FPR[fs]` raw low word (COP1, `rs` = `MF` = 0x00). -/
@@ -865,14 +878,16 @@ def mkWait (opcode co code funct : W32) : W32 :=
 
 /-- The coprocessor-0 registers this model implements, by `(rd, sel)`:
 select 0 — `7` HWREna, `8` BadVAddr, `9` Count, `11` Compare, `12` Status, `13` Cause, `14` EPC,
-`15` PRId, `16` Config, `30` ErrorEPC; select 1 — `15` EBase, `16` Config1. `decode`
+`15` PRId, `16` Config, `30` ErrorEPC; select 1 — `12` IntCtl, `15` EBase, `16` Config1; select 2 —
+`12` SRSCtl. `decode`
 accepts `mfc0`/`mtc0` only for these; every other pair does not decode and so
 raises Reserved Instruction — a documented pin (the architecture leaves
 access to an unimplemented CP0 register UNDEFINED/implementation-dependent). -/
 def isModeledCp0Reg (rd sel : W32) : Bool :=
   (sel == 0#32 && (rd == 7#32 || rd == 8#32 || rd == 9#32 || rd == 11#32 || rd == 12#32 ||
       rd == 13#32 || rd == 14#32 || rd == 15#32 || rd == 16#32 || rd == 30#32)) ||
-  (sel == 1#32 && (rd == 15#32 || rd == 16#32))
+  (sel == 1#32 && (rd == 12#32 || rd == 15#32 || rd == 16#32)) ||
+  (sel == 2#32 && rd == 12#32)
 
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
 otherwise. Used by `decode` to reject non-canonical encodings. -/
@@ -1080,6 +1095,9 @@ def decode (w : W32) : Option Instruction :=
       | 0x00 => decodeIf (rd == 12#32 && z shamt) (.di rt)
       | 0x20 => decodeIf (rd == 12#32 && z shamt) (.ei rt)
       | _ => none
+    -- `RDPGPR` (0x0a) / `WRPGPR` (0x0e): bits 10..0 must be zero.
+    | 0x0a => decodeIf (z shamt && z (functOf w)) (.rdpgpr rd rt)
+    | 0x0e => decodeIf (z shamt && z (functOf w)) (.wrpgpr rd rt)
     | _ => none
   | 0x31 => some (.lwc1 rs rt imm)
   | 0x39 => some (.swc1 rs rt imm)
@@ -1305,6 +1323,8 @@ def encode (i : Instruction) : W32 :=
   | .ei rt => (0x10#32 <<< 26) ||| mkRT 0x0b#32 rt 12#32 0#32 0x20#32
   | .eret => (0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 0#32 0x18#32
   | .wait code => mkWait 0x10#32 1#32 code 0x20#32
+  | .rdpgpr rd rt => (0x10#32 <<< 26) ||| mkRT 0x0a#32 rt rd 0#32 0#32
+  | .wrpgpr rd rt => (0x10#32 <<< 26) ||| mkRT 0x0e#32 rt rd 0#32 0#32
   -- Coprocessor 1 (FPU). `mkRT` leaves the opcode field 0 (correct for
   -- plain R-type), so the COP1 cases OR in opcode 0x11 explicitly, the same
   -- way `.j`/`.jal` OR in their opcode over `mkJT`'s target-only field.

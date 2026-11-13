@@ -26,6 +26,9 @@ transition (possibly to the exception vector). Loading a program, the MARS-style
 services and the conventions for stopping a run are the environment's, not the processor's; they
 are in `Semantics/Env.lean`.
 
+0. **Interrupt / standby** (`stepCore`): if an interrupt is requested and enabled
+   (`interruptTaken`), take the Interrupt exception (`takeInterrupt`) instead of steps 1-3; after a
+   `wait` (`State.standby`) the processor stays stopped until a request restarts it.
 1. **Fetch** the big-endian word at `pc` (`readMemWord s s.pc`): the virtual `pc` is translated
    by the Fixed Mapping MMU (`State.lean`, `translate`) and the word read from physical memory
    `State.physMem`. A misaligned `pc`, or a `pc` outside useg in User Mode, raises Address Error
@@ -33,9 +36,9 @@ are in `Semantics/Env.lean`.
    `sll $0, $0, 0`, a no-op).
 2. **Decode** it (`Instruction.decode`, strict). A word that does not decode raises Reserved
    Instruction (or Coprocessor Unusable for an unusable coprocessor's encoding space).
-3. **Execute** it (`execInstr`). Steps 1-3 are `execute`.
+3. **Execute** it (`execInstr`). Steps 1-3 are `execute`; steps 0-3 are `stepCore`.
 4. **Timer**: `Count` advances and is compared with `Compare` (`timerTick`; `step = timerTick ∘
-   execute`). The rate is a pin: one increment per `step`.
+   stepCore`). The rate is a pin: one increment per `step`.
 
 Because fetch reads `physMem`, a store to the instruction stream changes what is executed (MD00086
 Vol II-A Rev 6.06, SYNCI, p.412). The model has no caches, so `synci` has nothing to synchronize.
@@ -58,7 +61,7 @@ nullifies its delay slot: its own step goes straight to `pc + 8`.
 selects which; `EBase` supplies the base when `BEV = 0`), and the pending
 branch is abandoned. Raised here: Integer Overflow (`add`/`addi`/`sub`),
 Address Error (misaligned load/store/fetch, or a kernel address referenced from User Mode;
-sets `BadVAddr`), Reserved
+sets `BadVAddr`), Interrupt (`takeInterrupt`, vector offset `0x180` or `0x200` by `Cause.IV`), Reserved
 Instruction, Coprocessor Unusable (`Cause.CE` = the unit), Floating Point,
 System Call (`syscall`, always), Breakpoint, Trap.
 
@@ -89,6 +92,15 @@ Appendix A.1, p.313-317), implemented once in `State.lean` (`fixedMappingPA`, `t
 kseg0/kseg1 → the low 512 MB, useg/kuseg → `VA + 1 GB` (`ERL = 0`) or `VA` (`ERL = 1`), kseg2/kseg3
 → `VA`.
 
+## Interrupts
+
+Interrupt compatibility mode only (MD00090 Vol III Rev 6.02 §6.1.1.1, p.73; VI and EIC modes are
+optional and absent): request `i` is `Cause.IPi & Status.IMi` (`interruptRequests`), taken when
+`Status.IE = 1` and `EXL = ERL = 0` (`interruptsEnabled`). The sources: software requests `IP1..IP0`
+(written by `mtc0`), the timer (`Cause.TI`, merged into `IP7`: `IntCtl.IPTI = 7`) and the six
+hardware lines `State.hwInt` (inputs; the environment holds them deasserted). `IntCtl` and `SRSCtl`
+are constants (`intCtlValue`, `srsCtlValue`: no vectored interrupts, no shadow sets).
+
 ## Reset
 
 `resetException` is the Reset exception (§6.2.5, p.89-90) applied to a state; `resetState` is
@@ -96,8 +108,8 @@ kseg0/kseg1 → the low 512 MB, useg/kuseg → `VA + 1 GB` (`ERL = 0`) or `VA` (
 
 ## Not modeled
 
-Interrupts (the timer is modeled: `timerTick`; taking the Interrupt exception is not), TLB (the MMU is the Fixed Mapping MMU), caches, shadow register sets (see
-`docs/spec/SPEC-NOTES.md`).
+Vectored Interrupt and EIC interrupt modes, TLB (the MMU is the Fixed Mapping MMU), caches, GPR
+shadow sets beyond the normal GPRs (`SRSCtl.HSS = 0`), EJTAG (see `docs/spec/SPEC-NOTES.md`).
 -/
 
 /-- Convert a raw 5-bit register-field value (as extracted by `decode`, hence
@@ -310,17 +322,18 @@ def cu1Enabled (s : State) : Bool := s.cp0Status &&& statusCu1Mask != 0#32
 Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1." -/
 def cp0Usable (s : State) : Bool := kernelMode s || s.cp0Status &&& statusCu0Mask != 0#32
 
-/-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `wait`.
-Each page lists Coprocessor Unusable among its exceptions (MD00086 Vol II-A Rev 6.06: MFC0
-p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, WAIT p.443), which is raised when "A COP0
+/-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `wait`,
+`rdpgpr`, `wrpgpr`. Each page lists Coprocessor Unusable among its exceptions (MD00086 Vol II-A
+Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, WAIT p.443, RDPGPR p.335,
+WRPGPR p.444), which is raised when "A COP0
 or Cache instruction was executed while the processor was running in a mode other than Debug
 Mode or Kernel Mode, and the CU0 bit in the Status register was a zero" (MD00090 Vol III
-Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`, `RDPGPR`,
-`WRPGPR`) and `CACHE` are not implemented: their words do not decode and are covered by
+Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`) and `CACHE`
+are not implemented: their words do not decode and are covered by
 `isCop0Word`. -/
 def usesCop0 (instr : Instruction) : Bool :=
   match instr with
-  | .mfc0 _ _ _ | .mtc0 _ _ _ | .di _ | .ei _ | .eret | .wait _ => true
+  | .mfc0 _ _ _ | .mtc0 _ _ _ | .di _ | .ei _ | .eret | .wait _ | .rdpgpr _ _ | .wrpgpr _ _ => true
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 0 or is a CACHE instruction:
@@ -497,16 +510,94 @@ def timerTick (s : State) : State :=
   let c := if countEnabled s then s.cp0Count + 1#32 else s.cp0Count
   { s with cp0Count := c, cp0TimerInt := s.cp0TimerInt || c == s.cp0Compare }
 
+/-- The hardware interrupt lines `HW5..HW0` (`State.hwInt`) in the bit positions of `Cause.IP7..IP2`
+(bits 15..10; MD00090 Vol III Rev 6.02 Table 9.52, p.211). -/
+def hwIntBits (s : State) : W32 := s.hwInt.setWidth 32 <<< 10
+
 /-- **`Cause` as software reads it** (`mfc0 $rt, $13`): the stored bits (`State.cp0Cause`: BD, CE,
 DC, IV, IP1..IP0, ExcCode) with the timer request added. `TI` (bit 30) is `State.cp0TimerInt`
 (MD00090 Vol III Rev 6.02 Table 9.52, p.209). In interrupt compatibility mode the timer request is
 also seen in an IP bit: "this field specifies the IP number to which the Timer Interrupt request is
 merged" (`IntCtl.IPTI`, §9.33, Table 9.48, p.199), and Table 6.2 (§6.1.1.1, p.73) lists "Timer
 Interrupt" under source HW5, "CauseIP7 and StatusIM7". **Pin:** `IPTI = 7`, so `IP7` (bit 15) is set
-while `TI` is (the model has no hardware interrupt inputs, so nothing else drives `IP7..IP2`; IntCtl
-itself is not implemented yet). -/
+while `TI` is (software reads the pin in `IntCtl`, `intCtlValue`, reads `IPTI = 7`). The six hardware interrupt lines `HW5..HW0`
+(`State.hwInt`) are seen in `IP7..IP2` (`hwIntBits`; Table 9.52, p.211: "IP7 Hardware interrupt 5
+... IP2 Hardware interrupt 0"): `IP7` is the OR of `HW5` and the timer request. -/
 def causeValue (s : State) : W32 :=
-  s.cp0Cause ||| (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32)
+  s.cp0Cause ||| hwIntBits s ||| (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32)
+
+/-! ## Interrupts (interrupt compatibility mode) -/
+
+/-- **The requests for interrupt service** (MD00090 Vol III Rev 6.02 §6.1.1.1, Table 6.2, p.73,
+"Request for Interrupt Service in Interrupt Compatibility Mode"): request `i` is "CauseIPi and
+StatusIMi", for `i` = 7 (HW5, merged with the timer) down to 0 (SW0). As a word: `Cause` as read
+(`causeValue`: the software requests `IP1..IP0`, the hardware lines and the timer in `IP7..IP2`)
+masked by `Status.IM7..IM0`, bits 15..8. Interrupt compatibility mode is the only mode: Vectored
+Interrupt and EIC modes are optional and absent ("This mode is optional and its presence is denoted
+by the VInt bit in the Config3 register", §6.1.1, p.72; `Config1.M = 0`, no `Config3`), and the mode
+is compatibility whenever `IntCtl.VS = 0` (Table 6.1, p.72; `intCtlValue`). -/
+def interruptRequests (s : State) : W32 := causeValue s &&& s.cp0Status &&& statusImMask
+
+/-- **Interrupts are enabled**: `Status.IE = 1`, `Status.EXL = 0`, `Status.ERL = 0` (MD00090 Vol III
+Rev 6.02 §6.1, p.72: "The IE bit in the Status register is a one", "The DM bit in the Debug register
+is a zero (for processors implementing EJTAG)" — no EJTAG here, `Config1.EP = 0` — and "The EXL and
+ERL bits in the Status register are both zero"). The same function as WAIT's `interrupts_enabled`
+(MD00086 Vol II-A Rev 6.06, WAIT, p.443: "StatusIE && !StatusEXL && !StatusERL && !DebugDM"). -/
+def interruptsEnabled (s : State) : Bool :=
+  s.cp0Status &&& statusIeMask != 0#32 && s.cp0Status &&& statusExlMask == 0#32 &&
+    s.cp0Status &&& statusErlMask == 0#32
+
+/-- **An interrupt is taken** in this step: some request is made and interrupts are enabled
+(MD00090 Vol III Rev 6.02 §6.1, p.72: "An interrupt is only taken when all of the following are
+true: A specific request for interrupt service is made ... The IE bit ... is a one ... The EXL and
+ERL bits ... are both zero"; "Logically, the request for interrupt service is ANDed with the IE bit
+of the Status register. The final interrupt request is then asserted only if both the EXL and ERL
+bits in the Status register are zero"). -/
+def interruptTaken (s : State) : Bool := interruptsEnabled s && interruptRequests s != 0#32
+
+/-- **The Interrupt exception's vector** (MD00090 Vol III Rev 6.02 §6.2.26, p.102: "General exception
+vector (offset 0x180) if the IV bit in the Cause register is zero. Interrupt vector (offset 0x200) if
+the IV bit in the Cause register is one"; §6.2.3 Operation, p.87-88: with `CauseIV = 1`, "if
+(StatusBEV = 1) or (IntCtlVS = 0) then vectorOffset ← 0x200", and `IntCtl.VS` is always 0 here;
+Table 6.10, p.86). `Cause.IV = 0`: the general vector `exceptionVector`. `Cause.IV = 1`: base + 0x200,
+that is `EBase[31..12] ‖ 0x200` with `BEV = 0` (`0x8000_0200` at reset) and `0xBFC0_0400` with
+`BEV = 1`. The base's low 12 bits are zero, so the OR is the sum the Operation computes. -/
+def interruptVector (s : State) : W32 :=
+  if s.cp0Cause &&& causeIvMask == 0#32 then exceptionVector s
+  else if s.cp0Status &&& statusBevMask == 0#32 then ebaseValue s ||| interruptVectorOffset
+  else interruptVectorBevAddr
+
+/-- **Take the Interrupt exception** from `s`: the general exception processing with `ExcCode = Int`
+(0) (MD00090 Vol III Rev 6.02 §6.2.26, p.102; §6.2.3, p.86-88), so `EPC` is the address of the
+instruction at `pc`, which has **not** been executed, or of the branch before it when `pc` is a
+delay slot (`Cause.BD = 1`; Table 6.11, p.87; the pending branch is abandoned and `eret` re-executes
+the branch), `Status.EXL ← 1`; then `PC ← interruptVector s`. "Additional State Saved: CauseIP
+indicates the interrupts that are pending" (p.102): `Cause.IP` is not latched, it is the current
+requests (`causeValue`; "The current interrupt requests are visible via the IP field in the Cause
+register on any read of the register", §6.1.1.1, p.73). A processor in standby restarts (`standby ←
+false`, `pc` already the instruction after the `wait`: "If the pipeline restarts as the result of an
+enabled interrupt, that interrupt is taken between the WAIT instruction and the following
+instruction (EPC for the interrupt points at the instruction following the WAIT instruction)",
+MD00086 Vol II-A Rev 6.06, WAIT, p.442). The shadow-set update of §6.2.3 (p.88: "if
+(ArchitectureRevision ≥ 2) and (SRSCtlHSS ≠ 0) and (StatusBEV = 0)") does not apply: `SRSCtl.HSS = 0`
+(`srsCtlValue`). -/
+def takeInterrupt (s : State) : State :=
+  { exceptionEntry s excCodeInt with pc := interruptVector s, standby := false }
+
+/-- **A step in standby** without an enabled interrupt: the processor stays stopped unless a
+request is pending and not masked out (`Cause.IP & Status.IM ≠ 0`, ignoring `IE`, `EXL`, `ERL`),
+which restarts the pipeline: `standby ← false`, and the next step executes the instruction after the
+`wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "It is implementation-dependent whether the pipeline
+restarts when a non-enabled interrupt is requested. In this case, software must poll for the cause
+of the restart"; **pin**: it restarts, the rule Release 6 makes mandatory, `interrupt_pending_and_not_
+masked_out`, p.443, and the restart itself takes the step). -/
+def standbyStep (s : State) : State :=
+  if interruptRequests s != 0#32 then { s with standby := false } else s
+
+/-- **This step executes the instruction at `pc`**: no interrupt is taken and the processor is
+not in standby. Every per-instruction theorem about `step` assumes it (`step_of_executesInstr`,
+`Specs/Interrupt.lean`). -/
+def executesInstr (s : State) : Bool := !interruptTaken s && !s.standby
 
 /-! ## Hardware registers (`rdhwr`) -/
 
@@ -1413,7 +1504,7 @@ def execBody (s : State) (instr : Instruction) : State :=
   | .break _ => takeException s excCodeBp
   -- Coprocessor 0 register moves, for the `(rd, sel)` pairs of
   -- `isModeledCp0Reg`: (7,0) HWREna, (8,0) BadVAddr, (9,0) Count, (11,0) Compare,
-  -- (12,0) Status, (13,0) Cause (read with the timer bits, `causeValue`), (14,0)
+  -- (12,0) Status, (12,1) IntCtl (`intCtlValue`), (12,2) SRSCtl (`srsCtlValue`), (13,0) Cause (read with the timer bits, `causeValue`), (14,0)
   -- EPC, (15,0) PRId, (15,1) EBase, (16,0) Config, (16,1) Config1, (30,0)
   -- ErrorEPC. `decode` only produces `mfc0`/`mtc0` for these; an
   -- `Instruction` value built by hand with any other pair raises Reserved
@@ -1427,6 +1518,8 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 9, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Count)
     | 11, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Compare)
     | 12, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Status)
+    | 12, 1 => mkNext s (writeReg s (regIdx rt) intCtlValue)
+    | 12, 2 => mkNext s (writeReg s (regIdx rt) srsCtlValue)
     | 13, 0 => mkNext s (writeReg s (regIdx rt) (causeValue s))
     | 14, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Epc)
     | 15, 0 => mkNext s (writeReg s (regIdx rt) prIdValue)
@@ -1436,7 +1529,10 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
     | _, _ => takeException s excCodeRI
   -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1` are
-  -- read-only (the write is ignored); `HWREna` keeps bits 3..0 (`hwrenaWriteMask`); `Count` is
+  -- read-only (the write is ignored); `IntCtl` has no writable field (`VS` "is ignored on write
+  -- and reads as zero" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201); `SRSCtl`'s
+  -- writable fields `ESS`/`PSS` can only hold 0 with `HSS = 0` (a larger value is UNDEFINED,
+  -- Table 9.49, p.203-204; pin: the write is ignored, so they read 0); `HWREna` keeps bits 3..0 (`hwrenaWriteMask`); `Count` is
   -- fully writable ("can be written for functional or diagnostic purposes", MD00090 Vol III
   -- Rev 6.02 §9.27, p.183); a write to `Compare` stores the value and clears the timer interrupt
   -- (`Cause.TI`; §9.30, p.187); `Config` takes only `K23` (30..28), `KU` (27..25) and `K0`
@@ -1452,6 +1548,8 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 9, 0 => mkNext s { s with cp0Count := readReg s (regIdx rt) }
     | 11, 0 => mkNext s { s with cp0Compare := readReg s (regIdx rt), cp0TimerInt := false }
     | 12, 0 => mkNext s { s with cp0Status := readReg s (regIdx rt) &&& statusWriteMask }
+    | 12, 1 => mkNext s s
+    | 12, 2 => mkNext s s
     | 13, 0 => mkNext s { s with cp0Cause :=
               (s.cp0Cause &&& ~~~causeWriteMask) ||| (readReg s (regIdx rt) &&& causeWriteMask) }
     | 14, 0 => mkNext s { s with cp0Epc := readReg s (regIdx rt) }
@@ -1485,16 +1583,27 @@ def execBody (s : State) (instr : Instruction) : State :=
     else
       { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }
   -- `wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442-443): "The WAIT instruction
-  -- performs an implementation-dependent operation, involving a lower power
-  -- mode"; "The pipeline is restarted when an external event, such as an
-  -- interrupt or external request occurs, and execution continues with the
-  -- instruction following the WAIT instruction". The pre-Release-6 Operation
-  -- is "I: Enter implementation dependent lower power mode / I+1: Potential
-  -- interrupt taken here". The model has no interrupts and no power modes; it
-  -- pins the restart event as immediate, so the only architectural effect is
-  -- the one the manual states for the restart without an enabled interrupt:
-  -- `PC ← PC + 4` (p.443, "continue execution at instruction after wait").
-  | .wait _ => mkNext s s
+  -- is implemented by stalling the pipeline at the completion of the
+  -- instruction and entering a lower power mode. The pipeline is restarted when
+  -- an external event, such as an interrupt or external request occurs, and
+  -- execution continues with the instruction following the WAIT instruction".
+  -- Pre-Release-6 Operation: "I: Enter implementation dependent lower power
+  -- mode / I+1: Potential interrupt taken here". The instruction completes
+  -- (`PC ← PC + 4`) and the processor enters standby (`State.standby`); `step`
+  -- then does nothing but advance the timer until an interrupt request restarts
+  -- it (`standbyStep`, `takeInterrupt`). The 19-bit code selects nothing (every
+  -- code is WAIT 0: "If not implemented, then such unimplemented encodings must
+  -- default to WAIT 0", p.442), and `Count` keeps counting ("Prior to Release 6,
+  -- whether Count is disabled was implementation-dependent", p.442: pin).
+  | .wait _ => mkNext s { s with standby := true }
+  -- `rdpgpr rd, rt` / `wrpgpr rd, rt` (MD00086 Vol II-A Rev 6.06, RDPGPR p.335:
+  -- "GPR[rd] ← SGPR[SRSCtlPSS, rt]"; WRPGPR p.444: "SGPR[SRSCtlPSS, rd] ← GPR[rt]").
+  -- Only the normal GPRs exist (`SRSCtl.HSS = 0`: "only the normal GPRs are
+  -- implemented", MD00090 Vol III Rev 6.02 Table 9.49, p.203), and "The normal
+  -- GPRs are logically considered shadow set zero" (§7, p.103); `PSS` = `CSS` = 0
+  -- (`srsCtlValue`), so `SGPR[0, r]` is `GPR[r]` and both are a register move.
+  | .rdpgpr rd rt => mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt)))
+  | .wrpgpr rd rt => mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt)))
 
 /-- Execute the already-fetched, already-decoded instruction `instr` in
 state `s`.
@@ -1560,17 +1669,37 @@ def execute (s : State) : State :=
       else takeException s excCodeRI
     | some instr => execInstr s instr
 
-/-- **One instruction time**: fetch, decode and execute the instruction at `pc` (`execute`), then
-advance the timer (`timerTick`: `Count` + 1 unless `Cause.DC = 1`; `Cause.TI` set when `Count =
-Compare`). There is no halting case: the result is always the next architectural state.
+/-- **The processor's part of one instruction time**, before the timer:
+
+1. If an interrupt is requested and enabled (`interruptTaken`), take the Interrupt exception
+   (`takeInterrupt`) and execute nothing. An interrupt is asynchronous and "the highest priority
+   relative to the next instruction" (MD00090 Vol III Rev 6.02 Table 6.7, p.84); Table 6.6 (p.83)
+   puts "Interrupt" above every instruction-fetch and instruction exception (Address Error -
+   Instruction fetch, Instruction Validity, Execution, data-access exceptions), below only Reset,
+   Soft Reset, the EJTAG debug exceptions, NMI and Machine Check, none of which `step` raises (Reset
+   is applied by the environment, `resetException`). So the check comes before the fetch.
+2. Else, in standby (`State.standby`, after `wait`): `standbyStep` (stay, or restart).
+3. Else fetch, decode and execute the instruction at `pc` (`execute`).
+
+Execution hazards on the interrupt state (MD00090 Vol III §6.1.2.1, Table 6.5, p.82: `mtc0` to
+`Status` IM/ERL/EXL/IE or to `Cause` IP1..0, `ei`, `di`, made visible "no later than the instruction
+following the EHB") are cleared at once: the change is seen by the next step's check (pin; `ehb` is
+`sll $0, $0, 3`, a no-op). -/
+def stepCore (s : State) : State :=
+  if interruptTaken s then takeInterrupt s
+  else if s.standby then standbyStep s
+  else execute s
+
+/-- **One instruction time**: the processor's part (`stepCore`: take an interrupt, or stay in
+standby, or fetch, decode and execute the instruction at `pc`), then advance the timer (`timerTick`:
+`Count` + 1 unless `Cause.DC = 1`; `Cause.TI` set when `Count = Compare`). There is no halting
+case: the result is always the next architectural state.
 
 The timer is applied to the state the instruction (or the exception) produced, so an instruction
 reads the `Count` the step started with (`mfc0`, `rdhwr`), and a `Count`/`Compare`/`Cause.DC` written
-by `mtc0` is what the timer then compares and advances. **Interrupts** (not taken by this model
-yet; MD00090 Vol III Rev 6.02 §6.1, p.72; §6.2.26, p.102) belong here, in this one place: the
-argument of `timerTick` becomes "take the Interrupt exception if one is requested and enabled, else
-`execute s`". -/
-def step (s : State) : State := timerTick (execute s)
+by `mtc0` is what the timer then compares and advances. A timer request raised by this step's tick
+is seen by the next step's interrupt check. -/
+def step (s : State) : State := timerTick (stepCore s)
 
 /-- The bare machine run: `step` iterated `n` times from `s`. It knows nothing about programs,
 services or halting (those are `Semantics/Env.lean`'s `runHosted`). Total by structural
@@ -1598,15 +1727,20 @@ else ErrorEPC ← restartPC                                  # PC of instruction
 PC ← 0xBFC0 0000
 ```
 
-The rest of the Operation names registers the model does not implement (Random, PageMask,
-PageGrain, Wired, EntryHi, IntCtl, SRSCtl, SRSMap, Config2, Config3, WatchLo,
-PerfCnt): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
+`IntCtlVS ← 0`, `SRSCtlHSS ← HighestImplementedShadowSet` and `SRSCtlESS/PSS/CSS ← 0` (p.90) hold
+already: `IntCtl` and `SRSCtl` are constants with `VS = 0`, `HSS = ESS = PSS = CSS = 0`
+(`intCtlValue`, `srsCtlValue`). The rest of the Operation names
+registers the model does not implement (Random, PageMask, PageGrain, Wired, EntryHi, SRSMap, Config2,
+Config3, WatchLo, PerfCnt): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
 "Undefined", Tables 9.44, 9.46, 9.52, p.183, 187, 209): they keep their values. Every register the section does not list keeps whatever it held: its
 reset state is undefined, and keeping it is one legal value (pin). In particular the other
 `Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor
 is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch is dropped (the
 reset "aborts state machines", p.89; "restart PC" is the branch when the interrupted instruction
-was in a delay slot, `s.pc - 4`), and `LLbit` is cleared (its reset state is not given). -/
+was in a delay slot, `s.pc - 4`), and `LLbit` is cleared (its reset state is not given). A processor
+in standby restarts ("The assertion of any reset or NMI must restart the pipeline and the
+corresponding exception must be taken", MD00086 Vol II-A Rev 6.06, WAIT, p.442): `standby ← false`.
+The hardware interrupt lines `hwInt` are inputs and keep their values. -/
 def resetException (s : State) : State :=
   { s with
       cp0Status := s.cp0Status ||| statusBevMask ||| statusErlMask
@@ -1619,7 +1753,8 @@ def resetException (s : State) : State :=
       cp0ErrorEpc := if s.pendingBranch.isSome then s.pc - 4#32 else s.pc
       pc := resetVector
       pendingBranch := none
-      llBit := false }
+      llBit := false
+      standby := false }
 
 /-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose
 values for the registers the reset leaves undefined are all pinned to 0, `State.lean`). So

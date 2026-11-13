@@ -25,7 +25,7 @@ LL, p.223-224). It raises Address Error on a word-misaligned effective
 address, exactly like `lw`. -/
 theorem ll_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
@@ -51,7 +51,7 @@ the whole point of `ll`/`sc` is this exact atomic-primitive contract, not
 just "some memory operation happened" (INSTRUCTION-REF "sc" section). -/
 theorem sc_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with

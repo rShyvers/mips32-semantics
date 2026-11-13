@@ -90,7 +90,7 @@ Many of the tests (FP compare/convert/flag/trap/CpU/random-pool programs) are pr
 ### How a test runs
 1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
    oracle extension: `image` (`[addr, word]` for every assembled word: text 0x00400000, data 0x10010000, `.ktext` 0x80000180),
-   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause (as `mfc0` reads it: with `TI`/`IP7`),epc,badvaddr,errorepc,ebase,count,compare,hwrena}),
+   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause (as `mfc0` reads it: with `TI`/`IP7` and the hardware lines in `IP7..IP2`),epc,badvaddr,errorepc,ebase,count,compare,hwrena}),
    `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
    (every nonzero aligned word of the final **physical** memory, keyed by its **virtual** address `Env.canonicalVAddr`: the model has the Fixed
    Mapping MMU, so the loaded data at virtual 0x10010000 lives at physical 0x50010000 and is reported as 0x10010000) and `physical_memory`
@@ -119,7 +119,7 @@ end of the text (the model reports `no_instruction`, QEMU a TLB refill; both cou
 
 ### What is compared (and what is masked, with reasons)
 GPRs (all 32; **nothing** is ignored by default: the harness preserves $k0/$k1), HI, LO, FPRs (raw 32-bit), FCSR under the model's `fcsr_mask`,
-Status & `0x3040ff17` (IE, EXL, ERL, UM, IM7..0, BEV, CU0, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; QEMU's TI, IP7..IP2, WP, PCI are hardware state the model lacks),
+Status & `0x3040ff17` (IE, EXL, ERL, UM, IM7..0, BEV, CU0, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; TI and IP7..IP2 are not compared because QEMU's Malta board raises HW0 on its own and Count runs at a different rate — tests compare them through registers; WP, PCI are state the model lacks),
 EPC, BadVAddr, ErrorEPC, pc, syscall output, final data+stack memory (virtual addresses on both sides, see step 1), termination kind (+ ExcCode for exceptions).
 Address translation: the model's MMU is the Fixed Mapping MMU (kuseg = virtual + 0x4000_0000 while ERL = 0), QEMU 24Kf's kuseg is TLB-mapped by the
 harness; neither physical placement is observable by a test that uses virtual addresses, so the kuseg offset is checked on the model only

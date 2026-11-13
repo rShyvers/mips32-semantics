@@ -29,7 +29,7 @@ set_option maxRecDepth 4000
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem roundWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.roundWS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f32ToW32 .RN (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -39,7 +39,7 @@ theorem roundWS_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem truncWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.truncWS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f32ToW32 .RZ (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -49,7 +49,7 @@ theorem truncWS_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem ceilWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ceilWS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f32ToW32 .RP (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -59,7 +59,7 @@ theorem ceilWS_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem floorWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.floorWS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f32ToW32 .RM (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -68,7 +68,7 @@ theorem floorWS_spec_raw (s : State) (w fd fs : W32)
 (MD00086 Vol II-A Rev 6.06, CVT.W.fmt, p.160): `Mips.Fp.f32ToW32 (getRM fcsr)` -/
 theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtWS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -78,7 +78,7 @@ theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem roundWD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.roundWD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToW32 .RN (readFpD s fs))) := by
   fp_step_spec
@@ -88,7 +88,7 @@ theorem roundWD_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem truncWD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.truncWD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToW32 .RZ (readFpD s fs))) := by
   fp_step_spec
@@ -98,7 +98,7 @@ theorem truncWD_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem ceilWD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ceilWD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToW32 .RP (readFpD s fs))) := by
   fp_step_spec
@@ -108,7 +108,7 @@ theorem ceilWD_spec_raw (s : State) (w fd fs : W32)
 Invalid Operation (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) -/
 theorem floorWD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.floorWD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToW32 .RM (readFpD s fs))) := by
   fp_step_spec
@@ -117,7 +117,7 @@ theorem floorWD_spec_raw (s : State) (w fd fs : W32)
 (MD00086 Vol II-A Rev 6.06, CVT.W.fmt, p.160): `Mips.Fp.f64ToW32 (getRM fcsr)` -/
 theorem cvtWD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtWD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToW32 (Mips.Fp.getRM s.fcsr) (readFpD s fs))) := by
   fp_step_spec
@@ -125,7 +125,7 @@ theorem cvtWD_spec_raw (s : State) (w fd fs : W32)
 /-- **`cvt.s.w`**: word → single, correctly rounded under FCSR (`Mips.Fp.w32ToF32`) -/
 theorem cvtSW_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtSW fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.w32ToF32 (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -133,7 +133,7 @@ theorem cvtSW_spec_raw (s : State) (w fd fs : W32)
 /-- **`cvt.d.w`**: word → double, always exact (`Mips.Fp.w32ToF64`); raises nothing -/
 theorem cvtDW_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtDW fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesD s fd (Mips.Fp.w32ToF64 (readFpReg s (regIdx fs)), Mips.Fp.Flags.none)) := by
   fp_step_spec
@@ -142,7 +142,7 @@ theorem cvtDW_spec_raw (s : State) (w fd fs : W32)
 payload, a signaling NaN signals Invalid -/
 theorem cvtDS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtDS fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesD s fd (Mips.Fp.f32ToF64 (readFpReg s (regIdx fs)))) := by
   fp_step_spec
@@ -150,7 +150,7 @@ theorem cvtDS_spec_raw (s : State) (w fd fs : W32)
 /-- **`cvt.s.d`**: double → single, correctly rounded under FCSR (`Mips.Fp.f64ToF32`) -/
 theorem cvtSD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtSD fd fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesS s fd (Mips.Fp.f64ToF32 (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec

@@ -30,7 +30,7 @@ MIPS32 / MIPS32r2 additions (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4/§3.5). The
 "clo"). -/
 theorem clo_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clo rs rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd)
             (BitVec.ofNat 32 (countLeadingOnesSpec (readReg s (regIdxSpec rs))))) with
@@ -43,7 +43,7 @@ theorem clo_spec_raw (s : State) (w rs rd : W32)
 "clz"). -/
 theorem clz_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clz rs rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd)
             (BitVec.ofNat 32 (countLeadingZerosSpec (readReg s (regIdxSpec rs))))) with
@@ -74,7 +74,7 @@ higher bits entirely (SPECIAL3 BSHFL opcode 0x1f, funct 0x20, sub-field
 0x10; INSTRUCTION-REF "seb"). -/
 theorem seb_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seb rd rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (signExtLowByteSpec (readReg s (regIdxSpec rt)))) with
           pc := (writeReg s (regIdxSpec rd)
@@ -88,7 +88,7 @@ upper 16 bits entirely (SPECIAL3 BSHFL opcode 0x1f, funct 0x20, sub-field
 immediates). -/
 theorem seh_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seh rd rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (signExt16 (readReg s (regIdxSpec rt)))) with
           pc := (writeReg s (regIdxSpec rd) (signExt16 (readReg s (regIdxSpec rt)))).pc + 4#32 }) := by
@@ -118,7 +118,7 @@ INSTRUCTION-REF "wsbh"). The formula is small enough that `Step.lean` writes
 it out inline with no helper, so this restates it directly. -/
 theorem wsbh_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wsbh rd rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := readReg s (regIdxSpec rt)
       let b0 := v &&& 0xff#32
@@ -145,7 +145,7 @@ with no special case for the real `pos + size <= 32` hardware constraint
 (matching `Step.lean`'s own documented choice). -/
 theorem ext_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ext rt rs pos size))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let field := (readReg s (regIdxSpec rs) >>> pos.toNat) &&& lowBitsMaskSpec size.toNat
       { (writeReg s (regIdxSpec rt) field) with
@@ -160,7 +160,7 @@ its own, the same way `movn`/`movz`'s "genuinely unchanged" properties are
 proved elsewhere in this file. -/
 theorem ins_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ins rt rs pos size))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let mask := lowBitsMaskSpec size.toNat
       let srcField := (readReg s (regIdxSpec rs) &&& mask) <<< pos.toNat
@@ -198,10 +198,10 @@ theorem ins_outside_field_unchanged (s s' : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ins rt rs pos size))
     (hpb : s.pendingBranch = none)
     (hrt : regIdxSpec rt ≠ 0) (hsize32 : s.regs.size = 32)
-    (hstep : step s = s') :
+    (hstep : step s = s') (hexec : executesInstr s = true) :
     let clearMask := ~~~(lowBitsMaskSpec size.toNat <<< pos.toNat)
     readReg s' (regIdxSpec rt) &&& clearMask = readReg s (regIdxSpec rt) &&& clearMask := by
-  rw [ins_spec_raw s w rt rs pos size hfetch hdecode hpb] at hstep
+  rw [ins_spec_raw s w rt rs pos size hfetch hdecode hpb hexec] at hstep
   have hs := hstep
   have hr : readReg s' (regIdxSpec rt) =
       (readReg s (regIdxSpec rt) &&& ~~~(lowBitsMaskSpec size.toNat <<< pos.toNat)) |||

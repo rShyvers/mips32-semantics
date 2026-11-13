@@ -7,7 +7,7 @@ import Semantics.Specs.Defs
 Nothing here is a headline statement: these are small facts about `if`, bit masks, `writeReg`,
 `readCString`, `mkNext` and the `fpFinish*` helpers, used by the proofs in the family files.
 
-## Theorems in this file (78)
+## Theorems in this file (83)
 
   `ite_of_pos` `ite_of_neg` `mask_field_written` `mask_field_kept` `two_fields_first`
   `two_fields_second` `two_fields_kept` `bit_of_31` `bit_of_124` `excCode_field_roundtrip`
@@ -22,12 +22,14 @@ Nothing here is a headline statement: these are small facts about `if`, bit mask
   `fpFinishD_eq` `fpFinishCmp_eq` `readMemWord_misaligned` `writeMemWord_misaligned`
   `readMemWord_isSome_of_aligned` `writeMemWord_isSome_of_aligned` `translate_congr`
   `readMemByte_congr` `translate_of_allowed` `translate_of_not_allowed` `writeReg_proj_cp0Count`
-  `writeReg_proj_cp0Compare` `writeReg_proj_cp0TimerInt` `writeReg_proj_cp0HWREna` `timerTick_pc`
+  `writeReg_proj_cp0Compare` `writeReg_proj_cp0TimerInt` `writeReg_proj_cp0HWREna`
+  `writeReg_proj_hwInt` `writeReg_proj_standby` `timerTick_pc`
   `timerTick_regs` `timerTick_hi` `timerTick_lo` `timerTick_fpRegs` `timerTick_fcsr`
   `timerTick_physMem` `timerTick_pendingBranch` `timerTick_llBit` `timerTick_cp0Status`
   `timerTick_cp0Cause` `timerTick_cp0Epc` `timerTick_cp0BadVAddr` `timerTick_cp0ErrorEpc`
   `timerTick_llAddr` `timerTick_cp0EBase` `timerTick_cp0ConfigK0` `timerTick_cp0ConfigK23`
-  `timerTick_cp0ConfigKU` `timerTick_cp0Compare` `timerTick_cp0HWREna`
+  `timerTick_cp0ConfigKU` `timerTick_cp0Compare` `timerTick_cp0HWREna` `timerTick_hwInt`
+  `timerTick_standby` `step_of_executesInstr`
 -/
 
 set_option maxRecDepth 4000
@@ -121,12 +123,12 @@ def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
     (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (cnt cmp : W32) (ti : Bool)
-    (hwre : W32) (f : Nat) :
+    (hwre : W32) (hw : BitVec 6) (sb : Bool) (f : Nat) :
     readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-        k23, ku, cnt, cmp, ti, hwre⟩ a f
+        k23, ku, cnt, cmp, ti, hwre, hw, sb⟩ a f
       = readCStringOfMem mem st a f :=
   readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-      k23, ku, cnt, cmp, ti, hwre⟩
+      k23, ku, cnt, cmp, ti, hwre, hw, sb⟩
     { initialState 0#32 with physMem := mem, cp0Status := st } rfl rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
@@ -195,6 +197,12 @@ theorem writeReg_proj_cp0TimerInt (s : State) (i : Fin 32) (v : W32) : (writeReg
 theorem writeReg_proj_cp0HWREna (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0HWREna = s.cp0HWREna := by
   unfold writeReg; split <;> rfl
 
+theorem writeReg_proj_hwInt (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).hwInt = s.hwInt := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_standby (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).standby = s.standby := by
+  unfold writeReg; split <;> rfl
+
 /-! ### `timerTick` touches only `Count` and `Cause.TI`
 
 Every other field of `timerTick s` is the field of `s` (by definition: `timerTick` is a record
@@ -222,6 +230,22 @@ through the timer to the instruction's own effect. -/
 @[simp] theorem timerTick_cp0ConfigKU (s : State) : (timerTick s).cp0ConfigKU = s.cp0ConfigKU := rfl
 @[simp] theorem timerTick_cp0Compare (s : State) : (timerTick s).cp0Compare = s.cp0Compare := rfl
 @[simp] theorem timerTick_cp0HWREna (s : State) : (timerTick s).cp0HWREna = s.cp0HWREna := rfl
+@[simp] theorem timerTick_hwInt (s : State) : (timerTick s).hwInt = s.hwInt := rfl
+@[simp] theorem timerTick_standby (s : State) : (timerTick s).standby = s.standby := rfl
+
+/-- **When the step executes the instruction** (`executesInstr`: no interrupt is taken and the
+processor is not in standby), `step` is the instruction followed by the timer. Every
+per-instruction theorem about `step` goes through this. -/
+theorem step_of_executesInstr (s : State) (h : executesInstr s = true) :
+    step s = timerTick (execute s) := by
+  unfold executesInstr at h
+  have hi : interruptTaken s = false := by
+    cases hh : interruptTaken s <;> simp_all
+  have hs : s.standby = false := by
+    cases hh : s.standby <;> simp_all
+  unfold step stepCore
+  rw [hi, hs]
+  rfl
 
 theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).regs = if i == 0 then s.regs else s.regs.set! i.val v := by

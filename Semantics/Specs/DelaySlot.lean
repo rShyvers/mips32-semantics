@@ -377,7 +377,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
   case sdxc1 a b c => exact delaySlotRel_sdxc1 s t a b c hvec
   all_goals (
     obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
     unfold execInstr execBody
     dsimp only [isBranchLike]
     simp only [Bool.false_and, Bool.false_eq_true, ↓reduceIte, mkNext, advance,
@@ -390,7 +390,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       writeReg_proj_cp0Cause, writeReg_proj_cp0Epc, writeReg_proj_cp0BadVAddr,
       writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_cp0ConfigK0, writeReg_proj_cp0ConfigK23, writeReg_proj_cp0ConfigKU,
       writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt,
-      writeReg_proj_cp0HWREna, writeReg_proj_regs]
+      writeReg_proj_cp0HWREna, writeReg_proj_hwInt, writeReg_proj_standby, writeReg_proj_regs]
     repeat' (first
       | (show (_ : State).pc = _ → _ = _
          intro hnorm
@@ -426,9 +426,13 @@ theorem delay_slot_commits_target (s : State) (t w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (hnb : isBranchLike instr = false) (hvec : s.pc + 4#32 ≠ exceptionVector s)
     (h0 : step { s with pendingBranch := none } = s')
-    (hnormal : s'.pc = s.pc + 4#32) :
+    (hnormal : s'.pc = s.pc + 4#32) (hexec : executesInstr s = true) :
     step { s with pendingBranch := some t } = { s' with pc := t } := by
-  unfold step execute at h0 ⊢
+  have he0 : executesInstr ({ s with pendingBranch := none } : State) = true := hexec
+  have he1 : executesInstr ({ s with pendingBranch := some t } : State) = true := hexec
+  rw [step_of_executesInstr _ he0] at h0
+  rw [step_of_executesInstr _ he1]
+  unfold execute at h0 ⊢
   rw [show readMemWord ({ s with pendingBranch := none } : State) ({ s with pendingBranch := none } : State).pc = some w from hfetch] at h0
   rw [show readMemWord ({ s with pendingBranch := some t } : State) ({ s with pendingBranch := some t } : State).pc = some w from hfetch]
   dsimp only at h0 ⊢
@@ -449,10 +453,10 @@ definition), `step` takes the Reserved Instruction exception from the delay slot
 branch and `Cause.BD = 1`, `exceptionEntry_exl0_in_delay_slot`). -/
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
-    (hpb : s.pendingBranch.isSome = true) (hbr : isBranchLikeSpec instr = true) :
+    (hpb : s.pendingBranch.isSome = true) (hbr : isBranchLikeSpec instr = true) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
   have hbr' : isBranchLike instr = true := hbr
-  unfold step execute
+  rw [step_of_executesInstr s hexec]; unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]

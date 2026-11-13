@@ -7,16 +7,17 @@ Almost every `<ctor>_spec_raw` theorem has the same shape
 
     theorem add_spec_raw (s : State) (w rs rt rd : W32)
         (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
-        (hpb : s.pendingBranch = none) :
+        (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
         step s = <right-hand side written with the public state primitives> := by
       step_spec
 
-and the same proof: `step` fetches `w` from memory (`hfetch`), decodes it (`hdecode`), and the arm of
+and the same proof: the step executes the instruction (`hexec`: no interrupt, no standby;
+`step_of_executesInstr`), `step` fetches `w` from memory (`hfetch`), decodes it (`hdecode`), and the arm of
 `execInstr` for that constructor is, by computation, the right-hand side. The two macros below
 are that proof, written once. They prove nothing by themselves: every use is elaborated and
 kernel-checked at the theorem that calls it (`lake check` replays all of them).
 
-Both macros refer to the theorem's binders **by name** (`s`, `hfetch`, `hdecode`, `hpb`, and
+The macros refer to the theorem's binders **by name** (`s`, `hfetch`, `hdecode`, `hpb`, `hexec`, and
 `hcu` for the FPU one), which is why they are declared with `hygiene false`. A theorem that
 names these differently, or whose proof needs more than computation, keeps an explicit proof.
 
@@ -28,7 +29,8 @@ set_option hygiene false in
 
 * `hfetch  : readMemWord s s.pc = some w` (the fetch: the word in memory at `pc`),
 * `hdecode : decode w = some (.ctor …)`,
-* `hpb     : s.pendingBranch = none`.
+* `hpb     : s.pendingBranch = none`,
+* `hexec   : executesInstr s = true`.
 
 Steps: (1) split `s` into its fields and substitute `pendingBranch := none`, so that `advance`
 / `mkNext` compute; (2) unfold `step`, rewrite the fetch and the decode; (3) both sides are now
@@ -36,10 +38,11 @@ the same term up to computation: `rfl`. -/
 macro "step_spec" : tactic => `(tactic| (
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
     cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
   simp only at hpb
   subst hpb
-  unfold step execute
+  rw [step_of_executesInstr _ hexec]
+  unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -60,7 +63,8 @@ once when the statement has no such call, so the alternatives are tried cheaply)
 non-arithmetic one (moves, loads, stores, control registers,
 branches) it is `rfl` after substituting `pendingBranch := none`, as in `step_spec`. -/
 macro "fp_step_spec" : tactic => `(tactic| (
-  unfold step execute
+  rw [step_of_executesInstr s hexec]
+  unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -73,7 +77,7 @@ macro "fp_step_spec" : tactic => `(tactic| (
     | (rw [← fpFinishCmp_eq s _ _ hpb]; rfl)
     | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
          cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
        simp only at hpb
        subst hpb
        rfl)))
@@ -88,7 +92,8 @@ the delay-slot guard (`hpb`), the coprocessor-1 guard (the instruction does not 
 1: `rfl`) and the coprocessor-0 guard (`hcp0`); (3) substitute `pendingBranch := none` and close
 by `rfl`, as in `step_spec`. -/
 macro "cp0_step_spec" : tactic => `(tactic| (
-  unfold step execute
+  rw [step_of_executesInstr s hexec]
+  unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -97,7 +102,7 @@ macro "cp0_step_spec" : tactic => `(tactic| (
   case hcop1 => rfl
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
     cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
   simp only at hpb
   subst hpb
   try dsimp only

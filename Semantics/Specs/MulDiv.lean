@@ -30,7 +30,7 @@ and `lo` untouched and raises no exception** (SPEC-NOTES §9.2 / INSTRUCTION-REF
 Both cases always advance the program counter by 4. -/
 theorem div_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
@@ -46,9 +46,9 @@ they were and raises no exception — INSTRUCTION-REF "div" MARS-note, SPEC-NOTE
 theorem div_by_zero_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none)
-    (hzero : readReg s (regIdxSpec rt) = 0#32) :
+    (hzero : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [div_spec_raw s w rs rt hfetch hdecode hpb, hzero]
+  rw [div_spec_raw s w rs rt hfetch hdecode hpb hexec, hzero]
   rfl
 
 /-- Corollary of `div_spec_raw`: with a **negative dividend** and a nonzero
@@ -60,7 +60,7 @@ theorem div_negative_dividend_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none)
     (hnz : asSigned (readReg s (regIdxSpec rt)) ≠ 0)
-    (hneg : asSigned (readReg s (regIdxSpec rs)) < 0) :
+    (hneg : asSigned (readReg s (regIdxSpec rs)) < 0) (hexec : executesInstr s = true) :
     step s = timerTick (
       { s with
           lo := ofInt32 ((asSigned (readReg s (regIdxSpec rs))).tdiv (asSigned (readReg s (regIdxSpec rt))))
@@ -68,7 +68,7 @@ theorem div_negative_dividend_spec (s : State) (w rs rt : W32)
           pc := s.pc + 4#32 }) ∧
       (asSigned (readReg s (regIdxSpec rs))).tmod (asSigned (readReg s (regIdxSpec rt))) ≤ 0 := by
   constructor
-  · rw [div_spec_raw s w rs rt hfetch hdecode hpb]
+  · rw [div_spec_raw s w rs rt hfetch hdecode hpb hexec]
     simp [hnz]
   · have h1 := Int.tmod_nonneg (a := -asSigned (readReg s (regIdxSpec rs)))
       (asSigned (readReg s (regIdxSpec rt))) (by omega)
@@ -99,7 +99,7 @@ splitting it into `hi`/`lo`.** No GPR is written, and `mult` raises no exception
 the full 64-bit result always fits in `hi:lo`). -/
 theorem mult_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mult rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
@@ -113,7 +113,7 @@ operands are read as unsigned `Nat`s first (INSTRUCTION-REF "multu"
 section). Raises no exception. -/
 theorem multu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.multu rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
@@ -145,7 +145,7 @@ by-zero-is-a-silent-no-op MARS deviation documented for `div`). Always
 advances the program counter by 4. -/
 theorem divu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divu rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
@@ -161,9 +161,9 @@ as they were and raises no exception — the unsigned counterpart of
 theorem divu_by_zero_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divu rs rt))
     (hpb : s.pendingBranch = none)
-    (hzero : readReg s (regIdxSpec rt) = 0#32) :
+    (hzero : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [divu_spec_raw s w rs rt hfetch hdecode hpb, hzero]
+  rw [divu_spec_raw s w rs rt hfetch hdecode hpb hexec, hzero]
   rfl
 
 -- `divu_spec_raw`: `17u / 5u = 3` remainder `2`, ordinary unsigned division.
@@ -182,7 +182,7 @@ theorem divu_by_zero_spec (s : State) (w rs rt : W32)
 (INSTRUCTION-REF "mflo" section); raises no exception. -/
 theorem mflo_spec_raw (s : State) (w rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mflo rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) s.lo) with
           pc := (writeReg s (regIdxSpec rd) s.lo).pc + 4#32 }) := by
@@ -192,7 +192,7 @@ theorem mflo_spec_raw (s : State) (w rd : W32)
 (INSTRUCTION-REF "mfhi" section); raises no exception. -/
 theorem mfhi_spec_raw (s : State) (w rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfhi rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) s.hi) with
           pc := (writeReg s (regIdxSpec rd) s.hi).pc + 4#32 }) := by
@@ -203,7 +203,7 @@ counterpart to `mfhi_spec_raw` (INSTRUCTION-REF "mthi (R)" section); no GPR
 is written, raises no exception. -/
 theorem mthi_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mthi rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) := by
   step_spec
 
@@ -212,7 +212,7 @@ counterpart to `mflo_spec_raw` (INSTRUCTION-REF "mtlo (R)" section); no GPR
 is written, raises no exception. -/
 theorem mtlo_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtlo rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with lo := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) := by
   step_spec
 
@@ -228,14 +228,16 @@ theorem mthi_mfhi_round_trip (s : State) (w w2 rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mthi rs))
     (hpb : s.pendingBranch = none)
     (hfetch2 : readMemWord s (s.pc + 4#32) = some w2) (hdecode2 : decode w2 = some (.mfhi rd))
-    (hrd : regIdxSpec rd ≠ 0) (hsize32 : s.regs.size = 32) :
+    (hrd : regIdxSpec rd ≠ 0) (hsize32 : s.regs.size = 32) (hexec : executesInstr s = true)
+    (hexec2 : executesInstr (step s) = true) :
     ∃ s1 s2,
       step s = s1 ∧
       step s1 = s2 ∧
       readReg s2 (regIdxSpec rd) = readReg s (regIdxSpec rs) := by
-  have h1 := mthi_spec_raw s w rs hfetch hdecode hpb
+  have h1 := mthi_spec_raw s w rs hfetch hdecode hpb hexec
+  rw [h1] at hexec2
   have h2 := mfhi_spec_raw (timerTick { s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) w2 rd
-    hfetch2 hdecode2 hpb
+    hfetch2 hdecode2 hpb hexec2
   refine ⟨_, _, h1, h2, ?_⟩
   exact writeReg_reads_back _ (regIdxSpec rd) _ hrd hsize32
 
@@ -265,7 +267,7 @@ and genuinely used as one operand of the `+` below, not discarded
 overflow, matching `mult`'s non-trapping precedent; raises no exception. -/
 theorem madd_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.madd rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
@@ -282,7 +284,7 @@ overwrite" shape — `acc64` is built from `s.hi`/`s.lo` as they stood before
 this instruction ran. Raises no exception. -/
 theorem maddu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddu rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
@@ -299,7 +301,7 @@ instead of `acc64 + prod64` (INSTRUCTION-REF "msub (R, SPECIAL2)" section).
 Wraps on underflow; raises no exception. -/
 theorem msub_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msub rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
@@ -315,7 +317,7 @@ EXISTING `{hi,lo}` accumulator.** Unsigned counterpart of `msub_spec_raw`
 overwrite shape. Raises no exception. -/
 theorem msubu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubu rs rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
@@ -356,7 +358,7 @@ funct 0x02; INSTRUCTION-REF "mul"). Unlike `mult`, this never touches the
 that half of the claim isolated. -/
 theorem mul_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mul rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt))) with
           pc := (writeReg s (regIdxSpec rd)
@@ -370,9 +372,9 @@ satisfy this. -/
 theorem mul_leaves_hi_lo_unchanged (s s' : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mul rs rt rd))
     (hpb : s.pendingBranch = none)
-    (hstep : step s = s') :
+    (hstep : step s = s') (hexec : executesInstr s = true) :
     s'.hi = s.hi ∧ s'.lo = s.lo := by
-  rw [mul_spec_raw s w rs rt rd hfetch hdecode hpb] at hstep
+  rw [mul_spec_raw s w rs rt rd hfetch hdecode hpb hexec] at hstep
   have hs := hstep
   rw [← hs]
   exact ⟨writeReg_hi s _ _, writeReg_lo s _ _⟩

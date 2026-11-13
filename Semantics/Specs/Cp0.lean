@@ -3,26 +3,28 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DelaySlot
 
 /-!
-# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`, `wait`
+# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`, `wait`, `rdpgpr`/`wrpgpr`
 
-Constructors: `mfc0` `mtc0` `di` `ei` `eret` `wait`.
+Constructors: `mfc0` `mtc0` `di` `ei` `eret` `wait` `rdpgpr` `wrpgpr`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  MFC0 p.266; MTC0 p.290-291; DI p.164; EI p.176; ERET p.177-178; WAIT p.442-443.
+  MFC0 p.266; MTC0 p.290-291; DI p.164; EI p.176; ERET p.177-178; WAIT p.442-443; RDPGPR p.335;
+  WRPGPR p.444.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)".
 
 Every one of these instructions needs coprocessor 0: outside Kernel Mode with `Status.CU0 = 0`
 it raises Coprocessor Unusable with `Cause.CE = 0` and does nothing else
-(`cp0_instruction_user_mode_unusable`, one theorem for all six; MD00090 Vol III Rev 6.02
+(`cp0_instruction_user_mode_unusable`, one theorem for all eight; MD00090 Vol III Rev 6.02
 §6.2.22, p.100). The per-instruction `_spec_raw` theorems state the other case: they assume
 `hcp0 : cp0Usable s = true` (Kernel Mode, or `Status.CU0 = 1`; §3.5.3, p.23).
 
-## Theorems in this file (13)
+## Theorems in this file (15)
 
   `mfc0_spec_raw` `mtc0_spec_raw` `causeWriteMask_eq` `statusWriteMask_eq` `di_spec_raw`
   `ei_spec_raw` `eret_spec_raw` `eret_clears_llBit` `eret_in_delay_slot_reserved_instruction`
-  `wait_spec_raw` `wait_preserves_state` `cp0_instruction_user_mode_unusable`
+  `wait_spec_raw` `wait_preserves_state` `rdpgpr_spec_raw` `wrpgpr_spec_raw`
+  `cp0_instruction_user_mode_unusable`
   `usesCop1_of_usesCop0`
 -/
 
@@ -34,8 +36,10 @@ set_option maxRecDepth 4000
 
 /-- **`mfc0` reads a modeled CP0 register `(rd, sel)` into GPR `$rt`**:
 `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
-`(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1,
-`(30,0)` ErrorEPC. `Cause` reads the stored bits plus the timer request: `TI` (bit 30) and, merged
+`(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, MD00090 Vol III Rev 6.02
+Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1,
+`(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
+request: `TI` (bit 30) and, merged
 into it (`IntCtl.IPTI = 7` pin), `IP7` (bit 15) while a timer interrupt is pending (MD00090 Vol III
 Rev 6.02 Table 9.52, p.209, 211; Table 6.2, p.73). The read happens before the step's timer tick, so
 `Count` reads the value the step started with.
@@ -46,7 +50,7 @@ which is also what the undecodable word does. Coprocessor 0 must be usable
 `cp0_instruction_user_mode_unusable`. -/
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
@@ -56,7 +60,10 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
       | 12, 0 => read s.cp0Status
-      | 13, 0 => read (s.cp0Cause ||| (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32))
+      | 12, 1 => read 0xE0000000#32
+      | 12, 2 => read 0#32
+      | 13, 0 => read (s.cp0Cause ||| (s.hwInt.setWidth 32 <<< 10) |||
+          (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32))
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
@@ -76,12 +83,14 @@ writable, and so is `Count` (9,0) (MD00090 Vol III Rev 6.02 §9.27, p.183). A wr
 (11,0) stores the value and clears the timer interrupt (`Cause.TI`; §9.30, p.187). `HWREna` (7,0)
 keeps bits 3..0 (`hwrenaWriteMask`; Table 9.39, p.175). `EBase` (15,1) takes bits 29..12 of the
 written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
-`BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
+`BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `IntCtl` (12,1: no writable field, `VS` "is
+ignored on write" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201) and `SRSCtl` (12,2: with
+`HSS = 0` its fields can only hold 0, Table 9.49, p.203-204; pin) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
 usable (`hcp0`). -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match rd.toNat, sel.toNat with
       | 7, 0 =>
@@ -92,6 +101,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
         { s with cp0Compare := readReg s (regIdxSpec rt), cp0TimerInt := false, pc := s.pc + 4#32 }
       | 12, 0 =>
         { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }
+      | 12, 1 => { s with pc := s.pc + 4#32 }
+      | 12, 2 => { s with pc := s.pc + 4#32 }
       | 13, 0 =>
         { s with
               cp0Cause := (s.cp0Cause &&& ~~~causeWriteMask) |||
@@ -130,7 +141,7 @@ Rev 6.06, DI, p.164). The value written to `$rt` is the `Status` before the
 change; no other `Status` bit changes. -/
 theorem di_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.di rt))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdxSpec rt)
             s.cp0Status) with
@@ -142,7 +153,7 @@ theorem di_spec_raw (s : State) (w rt : W32)
 Rev 6.06, EI, p.176). -/
 theorem ei_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ei rt))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdxSpec rt)
             s.cp0Status) with
@@ -156,7 +167,7 @@ and **always `LLbit ← 0`**. It has no delay slot of its own: `pc` is set in
 this very step. -/
 theorem eret_spec_raw (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       if s.cp0Status &&& statusErlMask != 0#32 then
         { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
@@ -168,9 +179,9 @@ theorem eret_spec_raw (s : State) (w : W32)
 `sc` after an exception return fails (see `sc_spec_raw`). -/
 theorem eret_clears_llBit (s s' : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hstep : step s = s') :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hstep : step s = s') (hexec : executesInstr s = true) :
     s'.llBit = false := by
-  rw [← hstep, eret_spec_raw s w hfetch hdecode hpb hcp0, timerTick_llBit]
+  rw [← hstep, eret_spec_raw s w hfetch hdecode hpb hcp0 hexec, timerTick_llBit]
   split <;> rfl
 
 /-- **`eret` in a branch delay slot raises Reserved Instruction**, like a
@@ -180,32 +191,54 @@ instruction" (MD00086 Vol II-A Rev 6.06, ERET, p.177); Release 6 requires
 Reserved Instruction (same page). See `branch_in_delay_slot_reserved_instruction`. -/
 theorem eret_in_delay_slot_reserved_instruction (s : State) (w t : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = some t) :
+    (hpb : s.pendingBranch = some t) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) :=
-  branch_in_delay_slot_reserved_instruction s w .eret hfetch hdecode (by rw [hpb]; rfl) rfl
+  branch_in_delay_slot_reserved_instruction s w .eret hfetch hdecode (by rw [hpb]; rfl) rfl hexec
 
-/-- **`wait` continues with the next instruction** (pin): the manual makes the low-power operation
-implementation-dependent and says that when the pipeline restarts "execution continues with the
-instruction following the WAIT instruction" (MD00086 Vol II-A Rev 6.06, WAIT, p.442; `PC ← PC + 4`
-in the Operation, p.443). The model has no interrupts and treats the restart as immediate, so the
-step changes only `pc` (`Step.lean`'s `wait` arm: `mkNext s s`). -/
+/-- **`wait` completes and enters standby** (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "The WAIT
+instruction is implemented by stalling the pipeline at the completion of the instruction and
+entering a lower power mode"): `pc` moves to the next instruction, which "execution continues with"
+once the pipeline restarts, and `State.standby` is set (`Step.lean`'s `wait` arm). The standby
+steps themselves: `Specs/Interrupt.lean` (`step_standby_stays`, `step_standby_restarts`,
+`step_standby_interrupt`). -/
 theorem wait_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
-    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick ({ s with standby := true, pc := s.pc + 4#32 }) := by
   cp0_step_spec
 
-/-- Corollary of `wait_spec_raw`: every piece of state besides `pc` is
-left untouched — the "no-op" claim made precise, not just "produces some
-next state". -/
+/-- Corollary of `wait_spec_raw`: every piece of state besides `pc` and `standby` is left
+untouched. -/
 theorem wait_preserves_state (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ s'.regs = s.regs ∧ s'.fpRegs = s.fpRegs ∧
       s'.hi = s.hi ∧ s'.lo = s.lo ∧ s'.physMem = s.physMem ∧
       s'.cp0Status = s.cp0Status ∧ s'.cp0Cause = s.cp0Cause ∧ s'.cp0Epc = s.cp0Epc ∧
-      s'.pc = s.pc + 4#32 := by
-  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+      s'.pc = s.pc + 4#32 ∧ s'.standby = true := by
+  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0 hexec, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+    rfl⟩
+
+/-- **`rdpgpr $rd, $rt`** (MD00086 Vol II-A Rev 6.06, RDPGPR, p.335: "GPR[rd] ← SGPR[SRSCtlPSS,
+rt]"): with only the normal GPRs (`SRSCtl.HSS = 0`, `PSS = 0`, MD00090 Vol III Rev 6.02 Table 9.49,
+p.203-204; "The normal GPRs are logically considered shadow set zero", §7, p.103), `$rd ← $rt`. -/
+theorem rdpgpr_spec_raw (s : State) (w rd rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdpgpr rd rt))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))) with
+          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) := by
+  cp0_step_spec
+
+/-- **`wrpgpr $rd, $rt`** (MD00086 Vol II-A Rev 6.06, WRPGPR, p.444: "SGPR[SRSCtlPSS, rd] ←
+GPR[rt]"): with only the normal GPRs (`PSS = 0`), `$rd ← $rt`. -/
+theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wrpgpr rd rt))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))) with
+          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) := by
+  cp0_step_spec
 
 /-! ## Coprocessor Unusable outside Kernel Mode -/
 
@@ -231,12 +264,12 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (huses : usesCop0 instr = true)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
-    (hcu : cp0Usable s = false) :
+    (hcu : cp0Usable s = false) (hexec : executesInstr s = true) :
     step s = timerTick (exceptionEntry s excCodeCpU 0#32) := by
   have h1 : (isBranchLike instr && s.pendingBranch.isSome) = false := by
     rcases hnb with h | h <;> simp [h]
   have h2 : usesCop1 instr = false := usesCop1_of_usesCop0 instr huses
-  unfold step execute; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
+  rw [step_of_executesInstr s hexec]; unfold execute; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
   unfold execInstr
   rw [h1, h2, huses, hcu]
   rfl

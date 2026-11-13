@@ -38,7 +38,7 @@ Error (AdEL, `BadVAddr = addr`) for a kernel address referenced from User Mode (
 `none`, MD00090 Vol III Rev 6.02 Table 4.2, p.30). -/
 theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
@@ -75,7 +75,7 @@ Raises no exception on a misaligned address, unlike `lw` (INSTRUCTION-REF `lwr`
 section); only the MMU's Address Error (AdEL) for a kernel address from User Mode. -/
 theorem lwr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwr rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
@@ -112,7 +112,7 @@ to 1 at `off = 3`). Raises no exception on a misaligned address, unlike `sw`
 kernel address from User Mode. -/
 theorem swl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swl rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       let v := readReg s (regIdxSpec rt)
@@ -144,7 +144,7 @@ address, unlike `sw` (INSTRUCTION-REF `swr` section); only the MMU's Address Err
 nothing stored) for a kernel address from User Mode. The byte at `addr` is written first. -/
 theorem swr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swr rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       let v := readReg s (regIdxSpec rt)

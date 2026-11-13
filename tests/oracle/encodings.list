@@ -403,6 +403,13 @@ mtc0 $t0,$11
 mtc0 $t1,$7
 eret
 wait
+rdpgpr $t0,$t1
+rdpgpr $zero,$ra
+wrpgpr $t0,$t1
+wrpgpr $ra,$zero
+mfc0 $t0,$12,1
+mfc0 $t0,$12,2
+mtc0 $t0,$12,2
 syscall
 break
 sync

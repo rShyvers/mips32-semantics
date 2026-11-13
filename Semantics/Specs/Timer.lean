@@ -15,7 +15,7 @@ Manual pages: MD00090 Vol III Rev 6.02 §9.27 Count (p.183), §9.30 Compare (p.1
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, "rdhwr"; pins in `docs/spec/SPEC-NOTES.md` §9 item 28.
 
-`step s = timerTick (execute s)` (`Step.lean`): the instruction (`execute`) and then the timer
+`step s = timerTick (stepCore s)` (`Step.lean`): the instruction (`execute`, or an interrupt entry or a standby step: `stepCore`) and then the timer
 (`timerTick`: `Count` + 1 unless `Cause.DC = 1`, `Cause.TI` set when `Count = Compare`). What this
 file proves:
 
@@ -33,18 +33,18 @@ file proves:
 * **`rdhwr`**: `rdhwr_spec_raw`; the access rule (`rdhwr_reserved_unimplemented`,
   `rdhwr_reserved_not_enabled`, `rdhwr_allowed`); the register values (`hwrValue_*`).
 
-## Theorems in this file (47)
+## Theorems in this file (50)
 
-  `step_eq_timerTick_execute` `timerTick_count` `step_timer_match_sets_ti` `timerKept_advance`
-  `countEnabled_exceptionEntry` `writeMemWord_timerFields` `writeMemHalf_timerFields`
+  `step_eq_timerTick_stepCore` `timerTick_count` `step_timer_match_sets_ti` `timerKept_advance`
+  `countEnabled_exceptionEntry` `stepCore_timerKept` `writeMemWord_timerFields` `writeMemHalf_timerFields`
   `writeMemByte_timerFields` `execInstr_timerKept` `execute_timerKept` `step_count_advances`
   `step_count_stopped` `step_timerInt` `mtc0_count_spec` `mtc0_compare_clears_ti`
   `mtc0_compare_no_match_clears_ti` `causeValue_timer` `causeValue_no_timer` `rdhwr_spec_raw`
   `hwrValue_cpuNum` `hwrValue_synciStep` `hwrValue_cc` `hwrValue_ccRes` `hwrValue_unimplemented`
   `rdhwrAllowed_iff` `rdhwr_reserved_unimplemented` `rdhwr_reserved_not_enabled` `rdhwr_allowed`
   `rdhwr_cc_reads_count` `hwrena_write_masked` `resetException_timer` `advance_cp0Count`
-  `advance_cp0Compare` `advance_cp0TimerInt` `advance_cp0Cause` `mkNext_eq_advance`
-  `exceptionEntry_cp0Count` `exceptionEntry_cp0Compare` `exceptionEntry_cp0TimerInt`
+  `advance_cp0Compare` `advance_cp0TimerInt` `advance_cp0Cause` `advance_hwInt` `mkNext_eq_advance`
+  `exceptionEntry_cp0Count` `exceptionEntry_cp0Compare` `exceptionEntry_cp0TimerInt` `exceptionEntry_hwInt`
   `exceptionEntry_dc` `takeException_eq` `takeAddressException_eq` `takeCoprocessorUnusable_eq`
   `takeCop0Unusable_eq` `writeFpReg_timer` `writeFpD_timer` `writeMemByte_getD_timer`
 -/
@@ -53,8 +53,9 @@ set_option maxRecDepth 4000
 
 /-! ## The timer tick -/
 
-/-- `step` is the instruction followed by the timer (definition of `step`). -/
-theorem step_eq_timerTick_execute (s : State) : step s = timerTick (execute s) := rfl
+/-- `step` is the processor's part (`stepCore`: an interrupt, a standby step, or the instruction)
+followed by the timer (definition of `step`). -/
+theorem step_eq_timerTick_stepCore (s : State) : step s = timerTick (stepCore s) := rfl
 
 /-- **What one tick does to `Count`**: + 1 (modulo 2^32) when counting is enabled (`Cause.DC = 0`),
 unchanged otherwise (MD00090 Vol III Rev 6.02 §9.27, p.183; Table 9.52 `DC`, p.210). -/
@@ -66,9 +67,9 @@ the Count register equals the value of the Compare register, an interrupt reques
 Vol III Rev 6.02 §9.30, p.187), visible in `Cause.TI` (Table 9.52, p.209). -/
 theorem step_timer_match_sets_ti (s : State) (h : (step s).cp0Count = (step s).cp0Compare) :
     (step s).cp0TimerInt = true := by
-  show ((execute s).cp0TimerInt ||
-    (timerTick (execute s)).cp0Count == (execute s).cp0Compare) = true
-  have h' : (timerTick (execute s)).cp0Count = (execute s).cp0Compare := h
+  show ((stepCore s).cp0TimerInt ||
+    (timerTick (stepCore s)).cp0Count == (stepCore s).cp0Compare) = true
+  have h' : (timerTick (stepCore s)).cp0Count = (stepCore s).cp0Compare := h
   rw [h']
   simp
 
@@ -80,10 +81,11 @@ updates of other fields, exception entry, which writes only `BD`, `CE`, `ExcCode
 `execInstr_timerKept` checks this for every constructor, with the same structural tactic loop as
 `execInstr_sizesKept` (`RegFileSize.lean`). -/
 
-/-- Proof device: `r` has the timer state of `s`. -/
+/-- Proof device: `r` has the timer state of `s` (and its hardware interrupt lines, which no
+instruction writes either). -/
 def TimerKept (s r : State) : Prop :=
   r.cp0Count = s.cp0Count ∧ r.cp0Compare = s.cp0Compare ∧ r.cp0TimerInt = s.cp0TimerInt ∧
-    r.cp0Cause &&& causeDcMask = s.cp0Cause &&& causeDcMask
+    r.cp0Cause &&& causeDcMask = s.cp0Cause &&& causeDcMask ∧ r.hwInt = s.hwInt
 
 theorem timerKept_advance (s o r : State) : TimerKept s (advance o r) ↔ TimerKept s r := by
   unfold advance; split <;> exact Iff.rfl
@@ -96,6 +98,8 @@ theorem advance_cp0TimerInt (o r : State) : (advance o r).cp0TimerInt = r.cp0Tim
   unfold advance; split <;> rfl
 theorem advance_cp0Cause (o r : State) : (advance o r).cp0Cause = r.cp0Cause := by
   unfold advance; split <;> rfl
+theorem advance_hwInt (o r : State) : (advance o r).hwInt = r.hwInt := by
+  unfold advance; split <;> rfl
 
 theorem mkNext_eq_advance (o r : State) : mkNext o r = advance o r := rfl
 
@@ -105,6 +109,8 @@ theorem exceptionEntry_cp0Compare (r : State) (c ce : W32) :
     (exceptionEntry r c ce).cp0Compare = r.cp0Compare := rfl
 theorem exceptionEntry_cp0TimerInt (r : State) (c ce : W32) :
     (exceptionEntry r c ce).cp0TimerInt = r.cp0TimerInt := rfl
+theorem exceptionEntry_hwInt (r : State) (c ce : W32) :
+    (exceptionEntry r c ce).hwInt = r.hwInt := rfl
 
 /-- Exception entry keeps `Cause.DC` (it writes only `BD`, `CE`, `ExcCode`). -/
 theorem exceptionEntry_dc (r : State) (c ce : W32) :
@@ -127,18 +133,20 @@ theorem takeCop0Unusable_eq (r : State) :
 
 theorem writeFpReg_timer (r : State) (i : Fin 32) (v : W32) :
     (writeFpReg r i v).cp0Count = r.cp0Count ∧ (writeFpReg r i v).cp0Compare = r.cp0Compare ∧
-      (writeFpReg r i v).cp0TimerInt = r.cp0TimerInt ∧ (writeFpReg r i v).cp0Cause = r.cp0Cause :=
-  ⟨rfl, rfl, rfl, rfl⟩
+      (writeFpReg r i v).cp0TimerInt = r.cp0TimerInt ∧ (writeFpReg r i v).cp0Cause = r.cp0Cause ∧
+      (writeFpReg r i v).hwInt = r.hwInt :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 theorem writeFpD_timer (r : State) (f : W32) (v : BitVec 64) :
     (writeFpD r f v).cp0Count = r.cp0Count ∧ (writeFpD r f v).cp0Compare = r.cp0Compare ∧
-      (writeFpD r f v).cp0TimerInt = r.cp0TimerInt ∧ (writeFpD r f v).cp0Cause = r.cp0Cause :=
-  ⟨rfl, rfl, rfl, rfl⟩
+      (writeFpD r f v).cp0TimerInt = r.cp0TimerInt ∧ (writeFpD r f v).cp0Cause = r.cp0Cause ∧
+      (writeFpD r f v).hwInt = r.hwInt :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-- A word store changes only memory. -/
 theorem writeMemWord_timerFields (s s' : State) (a v : W32) (h : writeMemWord s a v = some s') :
     s'.cp0Count = s.cp0Count ∧ s'.cp0Compare = s.cp0Compare ∧ s'.cp0TimerInt = s.cp0TimerInt ∧
-      s'.cp0Cause = s.cp0Cause := by
+      s'.cp0Cause = s.cp0Cause ∧ s'.hwInt = s.hwInt := by
   unfold writeMemWord at h
   split at h
   · cases h
@@ -146,12 +154,12 @@ theorem writeMemWord_timerFields (s s' : State) (a v : W32) (h : writeMemWord s 
     · cases h
     · injection h with h'
       rw [← h']
-      exact ⟨rfl, rfl, rfl, rfl⟩
+      exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-- A halfword store changes only memory. -/
 theorem writeMemHalf_timerFields (s s' : State) (a v : W32) (h : writeMemHalf s a v = some s') :
     s'.cp0Count = s.cp0Count ∧ s'.cp0Compare = s.cp0Compare ∧ s'.cp0TimerInt = s.cp0TimerInt ∧
-      s'.cp0Cause = s.cp0Cause := by
+      s'.cp0Cause = s.cp0Cause ∧ s'.hwInt = s.hwInt := by
   unfold writeMemHalf at h
   split at h
   · cases h
@@ -159,26 +167,27 @@ theorem writeMemHalf_timerFields (s s' : State) (a v : W32) (h : writeMemHalf s 
     · cases h
     · injection h with h'
       rw [← h']
-      exact ⟨rfl, rfl, rfl, rfl⟩
+      exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-- A byte store changes only memory. -/
 theorem writeMemByte_timerFields (s s' : State) (a : W32) (v : UInt8)
     (h : writeMemByte s a v = some s') :
     s'.cp0Count = s.cp0Count ∧ s'.cp0Compare = s.cp0Compare ∧ s'.cp0TimerInt = s.cp0TimerInt ∧
-      s'.cp0Cause = s.cp0Cause := by
+      s'.cp0Cause = s.cp0Cause ∧ s'.hwInt = s.hwInt := by
   unfold writeMemByte at h
   split at h
   · cases h
   · injection h with h'
     rw [← h']
-    exact ⟨rfl, rfl, rfl, rfl⟩
+    exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 theorem writeMemByte_getD_timer (r : State) (a : W32) (v : UInt8) :
     ((writeMemByte r a v).getD r).cp0Count = r.cp0Count ∧
       ((writeMemByte r a v).getD r).cp0Compare = r.cp0Compare ∧
       ((writeMemByte r a v).getD r).cp0TimerInt = r.cp0TimerInt ∧
-      ((writeMemByte r a v).getD r).cp0Cause = r.cp0Cause := by
-  unfold writeMemByte; cases translate r a <;> exact ⟨rfl, rfl, rfl, rfl⟩
+      ((writeMemByte r a v).getD r).cp0Cause = r.cp0Cause ∧
+      ((writeMemByte r a v).getD r).hwInt = r.hwInt := by
+  unfold writeMemByte; cases translate r a <;> exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-- Forward step for the tactic loop below: for every hypothesis
 `writeMem{Byte,Half,Word} s a v = some s'` in the context, add the four timer-field equations. -/
@@ -198,10 +207,10 @@ elab "tk_fwd" : tactic => Lean.Elab.Tactic.withMainContext do
 every state-update primitive (plus the equations `tk_fwd` put in the context). -/
 macro "tk_simp" : tactic => `(tactic|
   simp only [TimerKept, mkNext_eq_advance, advance_cp0Count, advance_cp0Compare,
-    advance_cp0TimerInt, advance_cp0Cause, takeException_eq, takeAddressException_eq,
+    advance_cp0TimerInt, advance_cp0Cause, advance_hwInt, takeException_eq, takeAddressException_eq,
     takeCoprocessorUnusable_eq, takeCop0Unusable_eq, exceptionEntry_cp0Count,
-    exceptionEntry_cp0Compare, exceptionEntry_cp0TimerInt, exceptionEntry_dc,
-    writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt,
+    exceptionEntry_cp0Compare, exceptionEntry_cp0TimerInt, exceptionEntry_dc, exceptionEntry_hwInt,
+    writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt, writeReg_proj_hwInt,
     writeReg_proj_cp0Cause, writeFpReg_timer, writeFpD_timer, writeMemByte_getD_timer,
     fpFinishS, fpFinishD, fpFinishCmp, and_self, *])
 
@@ -245,6 +254,19 @@ theorem execute_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
       simp only [hdec] at hw
       exact execInstr_timerKept s instr hw
 
+/-- **`stepCore` keeps the timer state** unless it executes an `mtc0` to `Count`, `Compare` or
+`Cause`: the Interrupt exception is an exception entry (which writes only `BD`, `CE`, `ExcCode` of
+`Cause`), and a standby step changes only `standby`. -/
+theorem stepCore_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
+    TimerKept s (stepCore s) := by
+  unfold stepCore
+  split
+  · unfold takeInterrupt
+    exact ⟨rfl, rfl, rfl, exceptionEntry_dc s _ _, rfl⟩
+  split
+  · unfold standbyStep; split <;> exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+  exact execute_timerKept s hw
+
 /-! ## Count, TI and Compare at the level of `step` -/
 
 /-- **`Count` advances by one on every step** (pin of the implementation-dependent rate, MD00090
@@ -256,10 +278,10 @@ instruction, a branch, any exception, a fetch that fails — `Count` goes from `
 theorem step_count_advances (s : State) (hdc : countEnabled s = true)
     (hw : fetchesTimerWrite s = false) :
     (step s).cp0Count = s.cp0Count + 1#32 := by
-  obtain ⟨h1, -, -, h4⟩ := execute_timerKept s hw
-  have hce : countEnabled (execute s) = true := by
+  obtain ⟨h1, -, -, h4, -⟩ := stepCore_timerKept s hw
+  have hce : countEnabled (stepCore s) = true := by
     unfold countEnabled at hdc ⊢; rw [h4]; exact hdc
-  show (if countEnabled (execute s) then (execute s).cp0Count + 1#32 else (execute s).cp0Count) = _
+  show (if countEnabled (stepCore s) then (stepCore s).cp0Count + 1#32 else (stepCore s).cp0Count) = _
   rw [hce, h1]
   rfl
 
@@ -268,10 +290,10 @@ Vol III Rev 6.02 Table 9.52, p.210), unless the instruction writes `Count`, `Com
 theorem step_count_stopped (s : State) (hdc : countEnabled s = false)
     (hw : fetchesTimerWrite s = false) :
     (step s).cp0Count = s.cp0Count := by
-  obtain ⟨h1, -, -, h4⟩ := execute_timerKept s hw
-  have hce : countEnabled (execute s) = false := by
+  obtain ⟨h1, -, -, h4, -⟩ := stepCore_timerKept s hw
+  have hce : countEnabled (stepCore s) = false := by
     unfold countEnabled at hdc ⊢; rw [h4]; exact hdc
-  show (if countEnabled (execute s) then (execute s).cp0Count + 1#32 else (execute s).cp0Count) = _
+  show (if countEnabled (stepCore s) then (stepCore s).cp0Count + 1#32 else (stepCore s).cp0Count) = _
   rw [hce, h1]
   rfl
 
@@ -282,9 +304,9 @@ p.187). -/
 theorem step_timerInt (s : State) (hw : fetchesTimerWrite s = false) :
     (step s).cp0TimerInt = (s.cp0TimerInt || (step s).cp0Count == s.cp0Compare) ∧
       (step s).cp0Compare = s.cp0Compare := by
-  obtain ⟨-, h2, h3, -⟩ := execute_timerKept s hw
+  obtain ⟨-, h2, h3, -, -⟩ := stepCore_timerKept s hw
   refine ⟨?_, h2⟩
-  show ((execute s).cp0TimerInt || (timerTick (execute s)).cp0Count == (execute s).cp0Compare) = _
+  show ((stepCore s).cp0TimerInt || (timerTick (stepCore s)).cp0Count == (stepCore s).cp0Compare) = _
   rw [h2, h3]
   rfl
 
@@ -293,10 +315,10 @@ register can be written for functional or diagnostic purposes", MD00090 Vol III 
 p.183): after the step `Count` is `$rt + 1`, or `$rt` with `Cause.DC = 1`. -/
 theorem mtc0_count_spec (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 9#32 0#32))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     (step s).cp0Count =
       if countEnabled s then readReg s (regIdxSpec rt) + 1#32 else readReg s (regIdxSpec rt) := by
-  rw [mtc0_spec_raw s w rt 9#32 0#32 hfetch hdecode hpb hcp0]
+  rw [mtc0_spec_raw s w rt 9#32 0#32 hfetch hdecode hpb hcp0 hexec]
   rfl
 
 /-- **A write to `Compare` clears the timer interrupt** ("Writing a value to the Compare register,
@@ -305,11 +327,11 @@ as a side effect, clears the timer interrupt", MD00090 Vol III Rev 6.02 §9.30, 
 (a new match in the same step); a pending timer interrupt from before is gone. -/
 theorem mtc0_compare_clears_ti (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 11#32 0#32))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     (step s).cp0Compare = readReg s (regIdxSpec rt) ∧
       (step s).cp0TimerInt = ((step s).cp0Count == readReg s (regIdxSpec rt)) ∧
       (step s).cp0Count = (if countEnabled s then s.cp0Count + 1#32 else s.cp0Count) := by
-  rw [mtc0_spec_raw s w rt 11#32 0#32 hfetch hdecode hpb hcp0]
+  rw [mtc0_spec_raw s w rt 11#32 0#32 hfetch hdecode hpb hcp0 hexec]
   exact ⟨rfl, Bool.false_or _, rfl⟩
 
 /-- **Corollary: after writing `Compare` with a value the new `Count` does not reach, no timer
@@ -317,9 +339,9 @@ interrupt is pending.** -/
 theorem mtc0_compare_no_match_clears_ti (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 11#32 0#32))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true)
-    (hne : (if countEnabled s then s.cp0Count + 1#32 else s.cp0Count) ≠ readReg s (regIdxSpec rt)) :
+    (hne : (if countEnabled s then s.cp0Count + 1#32 else s.cp0Count) ≠ readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
     (step s).cp0TimerInt = false := by
-  obtain ⟨-, hti, hc⟩ := mtc0_compare_clears_ti s w rt hfetch hdecode hpb hcp0
+  obtain ⟨-, hti, hc⟩ := mtc0_compare_clears_ti s w rt hfetch hdecode hpb hcp0 hexec
   rw [hti, hc]
   simpa using hne
 
@@ -327,12 +349,14 @@ theorem mtc0_compare_no_match_clears_ti (s : State) (w rt : W32)
 (bit 15) are set (MD00090 Vol III Rev 6.02 Table 9.52, p.209, 211; the timer request is merged into
 `IP7`, Table 6.2, p.73, the `IntCtl.IPTI = 7` pin); every other bit is the stored `Cause`. -/
 theorem causeValue_timer (s : State) (h : s.cp0TimerInt = true) :
-    causeValue s = s.cp0Cause ||| causeTiMask ||| causeIp7Mask := by
+    causeValue s = s.cp0Cause ||| hwIntBits s ||| causeTiMask ||| causeIp7Mask := by
   unfold causeValue; rw [h]; simp [BitVec.or_assoc]
 
-/-- **… and without one, the stored `Cause`** (whose `TI` and `IP7..IP2` bits are never set:
-`mtc0` cannot write them, exception entry writes only `BD`, `CE`, `ExcCode`). -/
-theorem causeValue_no_timer (s : State) (h : s.cp0TimerInt = false) : causeValue s = s.cp0Cause := by
+/-- **… and without one, the stored `Cause` with the hardware interrupt lines** (the stored
+`TI` and `IP7..IP2` bits are never set: `mtc0` cannot write them, exception entry writes only `BD`,
+`CE`, `ExcCode`). -/
+theorem causeValue_no_timer (s : State) (h : s.cp0TimerInt = false) :
+    causeValue s = s.cp0Cause ||| hwIntBits s := by
   unfold causeValue; rw [h]; simp
 
 /-! ## `rdhwr` -/
@@ -344,7 +368,7 @@ enabled, or bit `rd` of `HWREna`), `$rt ← v` and `pc` advances; otherwise Rese
 signaled", p.333). -/
 theorem rdhwr_spec_raw (s : State) (w rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       match hwrValue s rd with
       | some v =>
@@ -387,9 +411,9 @@ theorem rdhwrAllowed_iff (s : State) (rd : W32) :
 (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Restrictions, p.333). -/
 theorem rdhwr_reserved_unimplemented (s : State) (w rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
-    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) :
+    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb, hwrValue_unimplemented s rd hrd]
+  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec, hwrValue_unimplemented s rd hrd]
 
 /-- **`rdhwr` outside Kernel Mode with `Status.CU0 = 0` and the `HWREna` bit clear raises Reserved
 Instruction** (not Coprocessor Unusable): "Access to the specified hardware register is enabled if
@@ -399,9 +423,9 @@ p.333). -/
 theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = false)
-    (hen : (s.cp0HWREna >>> rd) &&& 1#32 = 0#32) :
+    (hen : (s.cp0HWREna >>> rd) &&& 1#32 = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb]
+  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec]
   have ha : rdhwrAllowed s rd = false := by
     unfold rdhwrAllowed; rw [hcp0, hen]; rfl
   split
@@ -413,10 +437,10 @@ theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
 theorem rdhwr_allowed (s : State) (w rt rd v : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
     (hpb : s.pendingBranch = none) (hv : hwrValue s rd = some v)
-    (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) :
+    (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) (hexec : executesInstr s = true) :
     step s = timerTick
       { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb, hv]
+  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec, hv]
   have ha : rdhwrAllowed s rd = true := (rdhwrAllowed_iff s rd).2 hacc
   simp only [ha, ↓reduceIte]
 
@@ -427,9 +451,9 @@ theorem rdhwr_cc_reads_count (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt 2#32))
     (hpb : s.pendingBranch = none)
     (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> 2#32) &&& 1#32 ≠ 0#32)
-    (hrt : regIdxSpec rt ≠ 0) (hsize : s.regs.size = 32) :
+    (hrt : regIdxSpec rt ≠ 0) (hsize : s.regs.size = 32) (hexec : executesInstr s = true) :
     readReg (step s) (regIdxSpec rt) = s.cp0Count := by
-  rw [rdhwr_allowed s w rt 2#32 s.cp0Count hfetch hdecode hpb (hwrValue_cc s) hacc]
+  rw [rdhwr_allowed s w rt 2#32 s.cp0Count hfetch hdecode hpb (hwrValue_cc s) hacc hexec]
   exact writeReg_reads_back s (regIdxSpec rt) s.cp0Count hrt hsize
 
 /-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 3..0 only**: the bits of the registers the model
@@ -437,9 +461,9 @@ implements; "If RDHWR register ‘n’ is not implemented, bit ‘n’ of this f
 ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175). -/
 theorem hwrena_write_masked (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 7#32 0#32))
-    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x0000000F#32 := by
-  rw [mtc0_spec_raw s w rt 7#32 0#32 hfetch hdecode hpb hcp0]
+  rw [mtc0_spec_raw s w rt 7#32 0#32 hfetch hdecode hpb hcp0 hexec]
   rfl
 
 /-- **The Reset exception clears `HWREna`** ("HWREna ← 0", MD00090 Vol III Rev 6.02 §6.2.5, p.89)

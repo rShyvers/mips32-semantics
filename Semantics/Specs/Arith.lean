@@ -32,7 +32,7 @@ Integer Overflow (`takeException s excCodeOv`) or writes the sum and advances th
 4. Every other `add`-related theorem is a corollary of this one. -/
 theorem add_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := readReg s (regIdxSpec rt)
@@ -52,7 +52,9 @@ theorem step_add_preserves_zero_register (s s' : State) (w rs rt rd : W32)
     (hfw : readMemWord s s.pc = some w) (hdw : decode w = some (.add rs rt rd))
     (hpb : s.pendingBranch = none)
     (hstep : step s = s') : readReg s' 0 = readReg s 0 := by
-  rw [add_spec_raw s w rs rt rd hfw hdw hpb] at hstep
+  cases hexec : executesInstr s
+  · rw [← hstep]; exact step_preserves_zero_register s
+  rw [add_spec_raw s w rs rt rd hfw hdw hpb hexec] at hstep
   dsimp only at hstep
   split at hstep
   · cases hstep; rfl
@@ -65,7 +67,7 @@ overflow.** Mirrors `add_spec_raw`; `subOverflowsSpec` is INSTRUCTION-REF's
 "sub" overflow test. -/
 theorem sub_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sub rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := readReg s (regIdxSpec rt)
@@ -84,9 +86,9 @@ delay slot** — no `pendingBranch` hypothesis. `$rd` is not written
 theorem add_overflow_raises_ov (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
     (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (readReg s (regIdxSpec rt)))
-      (asSigned (readReg s (regIdxSpec rs) + readReg s (regIdxSpec rt))) = true) :
+      (asSigned (readReg s (regIdxSpec rs) + readReg s (regIdxSpec rt))) = true) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeOv) := by
-  unfold step execute
+  rw [step_of_executesInstr s hexec]; unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -97,9 +99,9 @@ theorem add_overflow_raises_ov (s : State) (w rs rt rd : W32)
 theorem sub_overflow_raises_ov (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sub rs rt rd))
     (hov : subOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (readReg s (regIdxSpec rt)))
-      (asSigned (readReg s (regIdxSpec rs) - readReg s (regIdxSpec rt))) = true) :
+      (asSigned (readReg s (regIdxSpec rs) - readReg s (regIdxSpec rt))) = true) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeOv) := by
-  unfold step execute
+  rw [step_of_executesInstr s hexec]; unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -139,11 +141,11 @@ theorem add_overflow_not_wrapped (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add 8#32 9#32 10#32))
     (hpb : s.pendingBranch = none)
     (ha : readReg s (regIdxSpec 8#32) = 0x7fffffff#32)
-    (hb : readReg s (regIdxSpec 9#32) = 1#32) :
+    (hb : readReg s (regIdxSpec 9#32) = 1#32) (hexec : executesInstr s = true) :
     step s = timerTick (exceptionEntry s excCodeOv) ∧
       (exceptionEntry s excCodeOv).regs = s.regs := by
   refine ⟨?_, rfl⟩
-  rw [add_spec_raw s w 8#32 9#32 10#32 hfetch hdecode hpb]
+  rw [add_spec_raw s w 8#32 9#32 10#32 hfetch hdecode hpb hexec]
   dsimp only
   rw [ha, hb]
   rfl
@@ -169,7 +171,7 @@ same formula as `add_spec_raw` minus the overflow check entirely
 (INSTRUCTION-REF "addu" section). -/
 theorem addu_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addu rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let sumBV := readReg s (regIdxSpec rs) + readReg s (regIdxSpec rt)
       { (writeReg s (regIdxSpec rd) sumBV) with
@@ -180,7 +182,7 @@ theorem addu_spec_raw (s : State) (w rs rt rd : W32)
 (INSTRUCTION-REF "subu" section). -/
 theorem subu_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.subu rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let diffBV := readReg s (regIdxSpec rs) - readReg s (regIdxSpec rt)
       { (writeReg s (regIdxSpec rd) diffBV) with
@@ -191,7 +193,7 @@ theorem subu_spec_raw (s : State) (w rs rt rd : W32)
 at all (INSTRUCTION-REF "and" section). -/
 theorem and_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.and rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := readReg s (regIdxSpec rs) &&& readReg s (regIdxSpec rt)
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
@@ -201,7 +203,7 @@ theorem and_spec_raw (s : State) (w rs rt rd : W32)
 section). -/
 theorem or_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.or rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := readReg s (regIdxSpec rs) ||| readReg s (regIdxSpec rt)
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
@@ -211,7 +213,7 @@ theorem or_spec_raw (s : State) (w rs rt rd : W32)
 section). -/
 theorem xor_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.xor rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := readReg s (regIdxSpec rs) ^^^ readReg s (regIdxSpec rt)
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
@@ -221,7 +223,7 @@ theorem xor_spec_raw (s : State) (w rs rt rd : W32)
 (INSTRUCTION-REF "nor" section). -/
 theorem nor_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nor rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := ~~~(readReg s (regIdxSpec rs) ||| readReg s (regIdxSpec rt))
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
@@ -231,7 +233,7 @@ theorem nor_spec_raw (s : State) (w rs rt rd : W32)
 `0`** (INSTRUCTION-REF "slt" section). -/
 theorem slt_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.slt rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := if asSigned (readReg s (regIdxSpec rs)) < asSigned (readReg s (regIdxSpec rt))
                then 1#32 else 0#32
@@ -242,7 +244,7 @@ theorem slt_spec_raw (s : State) (w rs rt rd : W32)
 else `0`** (INSTRUCTION-REF "sltu" section). -/
 theorem sltu_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sltu rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let v := if (readReg s (regIdxSpec rs)).toNat < (readReg s (regIdxSpec rt)).toNat
                then 1#32 else 0#32
@@ -256,7 +258,7 @@ completely unchanged** — a true conditional no-op, not "write `0`"
 the two branches isolated. -/
 theorem movn_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rt) != 0#32 then
         { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
@@ -270,20 +272,20 @@ value. -/
 theorem movn_taken_spec (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
     (hpb : s.pendingBranch = none)
-    (htaken : readReg s (regIdxSpec rt) ≠ 0#32) :
+    (htaken : readReg s (regIdxSpec rt) ≠ 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }) := by
-  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb, ite_of_pos (by simpa using htaken)]
+  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_pos (by simpa using htaken)]
 
 /-- **`movn`, condition false (`$rt = 0`)**: the state advances with no
 register write at all — `$rd` is not touched, not zeroed. -/
 theorem movn_not_taken_spec (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
     (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) = 0#32) :
+    (hnot : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb, ite_of_neg (by simp [hnot])]
+  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_neg (by simp [hnot])]
 
 /-- **"Bad output rejection" for `movn`**: whenever the condition fails
 (`$rt = 0`), the resulting state's `$rd` reads back *exactly* its pre-step
@@ -293,9 +295,9 @@ theorem movn_not_taken_unchanged (s s' : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rt) = 0#32)
-    (hstep : step s = s') :
+    (hstep : step s = s') (hexec : executesInstr s = true) :
     readReg s' (regIdxSpec rd) = readReg s (regIdxSpec rd) := by
-  rw [movn_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot] at hstep
+  rw [movn_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot hexec] at hstep
   have hs := hstep
   rw [← hs]
   rfl
@@ -305,7 +307,7 @@ completely unchanged** — the mirror image of `movn` (INSTRUCTION-REF "movz"
 section). -/
 theorem movz_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rt) == 0#32 then
         { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
@@ -319,20 +321,20 @@ value. -/
 theorem movz_taken_spec (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
     (hpb : s.pendingBranch = none)
-    (htaken : readReg s (regIdxSpec rt) = 0#32) :
+    (htaken : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }) := by
-  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb, ite_of_pos (by simpa using htaken)]
+  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_pos (by simpa using htaken)]
 
 /-- **`movz`, condition false (`$rt ≠ 0`)**: the state advances with no
 register write at all. -/
 theorem movz_not_taken_spec (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
     (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) ≠ 0#32) :
+    (hnot : readReg s (regIdxSpec rt) ≠ 0#32) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb, ite_of_neg (by simpa using hnot)]
+  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_neg (by simpa using hnot)]
 
 /-- **"Bad output rejection" for `movz`**: whenever the condition fails
 (`$rt ≠ 0`), the resulting state's `$rd` reads back *exactly* its pre-step
@@ -342,9 +344,9 @@ theorem movz_not_taken_unchanged (s s' : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rt) ≠ 0#32)
-    (hstep : step s = s') :
+    (hstep : step s = s') (hexec : executesInstr s = true) :
     readReg s' (regIdxSpec rd) = readReg s (regIdxSpec rd) := by
-  rw [movz_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot] at hstep
+  rw [movz_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot hexec] at hstep
   have hs := hstep
   rw [← hs]
   rfl

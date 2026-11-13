@@ -100,7 +100,7 @@ theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none)
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
-    (hacc : accessAllowed s (s.pc + 4#32) = true) :
+    (hacc : accessAllowed s (s.pc + 4#32) = true) (hexec : executesInstr s = true) :
     (step s).pc = s.pc + 4#32 ∧
       readMemWord (step s) (step s).pc = some (readReg s (regIdxSpec rt)) := by
   have hal : s.pc.toNat % 4 = 0 := by
@@ -108,7 +108,7 @@ theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
     rw [readMemWord_misaligned s s.pc h] at hfetch; cases hfetch
   have hal4 : (s.pc + 4#32).toNat % 4 = 0 := by
     rw [BitVec.toNat_add]; simp; omega
-  rw [sw_spec_raw s w rs rt imm hfetch hdecode hpb]
+  rw [sw_spec_raw s w rs rt imm hfetch hdecode hpb hexec]
   dsimp only
   rw [haddr]
   obtain ⟨s', hs'⟩ : ∃ s', writeMemWord s (s.pc + 4#32) (readReg s (regIdxSpec rt)) = some s' :=
@@ -130,10 +130,11 @@ theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' :
     (hpb : s.pendingBranch = none)
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
     (hacc : accessAllowed s (s.pc + 4#32) = true)
-    (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
+    (hnew : decode (readReg s (regIdxSpec rt)) = some instr') (hexec : executesInstr s = true)
+    (hexec2 : executesInstr (step s) = true) :
     step (step s) = timerTick (execInstr (step s) instr') :=
   step_fetches_from_memory (step s) _ instr'
-    (sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr hacc).2 hnew
+    (sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr hacc hexec).2 hnew hexec2
 
 /-! ### Satisfiable example
 

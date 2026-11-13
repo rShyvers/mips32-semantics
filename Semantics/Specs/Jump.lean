@@ -29,7 +29,7 @@ jump via `pendingBranch` and itself falls through to `PC_next`; it never
 jumps in the same step. -/
 theorem jal_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jal target))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s 31 (pcNext + 4#32)) with
@@ -42,9 +42,9 @@ theorem jal_spec_raw (s : State) (w target : W32)
 theorem jal_sets_ra (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jal target))
     (hpb : s.pendingBranch = none)
-    (hsize32 : s.regs.size = 32) :
+    (hsize32 : s.regs.size = 32) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ readReg s' (regIdxSpec 31#32) = s.pc + 8#32 := by
-  refine ⟨_, jal_spec_raw s w target hfetch hdecode hpb, ?_⟩
+  refine ⟨_, jal_spec_raw s w target hfetch hdecode hpb hexec, ?_⟩
   show readReg (writeReg s 31 ((s.pc + 4#32) + 4#32)) (regIdxSpec 31#32) = s.pc + 8#32
   have h31 : regIdxSpec 31#32 = (31 : Fin 32) := by decide
   rw [h31, writeReg_reads_back s 31 ((s.pc + 4#32) + 4#32) (by decide) hsize32,
@@ -68,7 +68,7 @@ section). Like every other jump/branch here, `j` itself falls through to
 always executes first. -/
 theorem j_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.j target))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let pcNext := s.pc + 4#32
       { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
@@ -82,7 +82,7 @@ Same one-delay-slot discipline as every other jump/branch: `jr` itself
 falls through to `PC_next`. -/
 theorem jr_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jr rs))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
@@ -96,7 +96,7 @@ not from the just-written state, exactly matching the "If `rd == rs`..."
 paragraph in the spec. -/
 theorem jalr_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs rd))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s (regIdxSpec rd) (pcNext + 4#32)) with
@@ -110,9 +110,9 @@ the delay slot, the same link-value convention as `jal`'s `$ra`. Requires
 theorem jalr_sets_rd (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs rd))
     (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32)
-    (hrdnz : regIdxSpec rd ≠ (0 : Fin 32)) :
+    (hrdnz : regIdxSpec rd ≠ (0 : Fin 32)) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ readReg s' (regIdxSpec rd) = s.pc + 8#32 := by
-  refine ⟨_, jalr_spec_raw s w rs rd hfetch hdecode hpb, ?_⟩
+  refine ⟨_, jalr_spec_raw s w rs rd hfetch hdecode hpb hexec, ?_⟩
   show readReg (writeReg s (regIdxSpec rd) ((s.pc + 4#32) + 4#32)) (regIdxSpec rd) = s.pc + 8#32
   rw [writeReg_reads_back s (regIdxSpec rd) ((s.pc + 4#32) + 4#32) hrdnz hsize32, BitVec.add_assoc]
   congr 1
@@ -128,11 +128,11 @@ holds the link value `pc + 8` — in general a different value, so aliasing
 theorem jalr_rd_eq_rs_targets_original_value (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs rs))
     (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32)
-    (hrsnz : regIdxSpec rs ≠ (0 : Fin 32)) :
+    (hrsnz : regIdxSpec rs ≠ (0 : Fin 32)) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧
       s'.pendingBranch = some (readReg s (regIdxSpec rs)) ∧
       readReg s' (regIdxSpec rs) = s.pc + 8#32 := by
-  refine ⟨_, jalr_spec_raw s w rs rs hfetch hdecode hpb, rfl, ?_⟩
+  refine ⟨_, jalr_spec_raw s w rs rs hfetch hdecode hpb hexec, rfl, ?_⟩
   show readReg (writeReg s (regIdxSpec rs) ((s.pc + 4#32) + 4#32)) (regIdxSpec rs) = s.pc + 8#32
   rw [writeReg_reads_back s (regIdxSpec rs) ((s.pc + 4#32) + 4#32) hrsnz hsize32, BitVec.add_assoc]
   congr 1

@@ -38,6 +38,7 @@ import Semantics.Specs.Mmu
 import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
 import Semantics.Specs.Timer
+import Semantics.Specs.Interrupt
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -60,6 +61,9 @@ abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
   memory at `pc` is `w`, and it decodes to `instr`": `step` fetches from `State.physMem` through the
   MMU (`translate`), so this is the fetch itself (there is no separate program). A misaligned `pc`, or
   a `pc` outside useg in User Mode, makes `readMemWord` `none`.
+* `hexec : executesInstr s = true` says that this step executes the instruction at `pc`: no interrupt is
+  taken (`interruptTaken`) and the processor is not in standby after `wait`. Otherwise the step is the
+  Interrupt exception or a standby step (`Interrupt.lean`: `step_interrupt`, `step_standby_*`).
 * `hpb : s.pendingBranch = none` restricts a theorem to an instruction that is not in a branch
   delay slot. `delay_slot_commits_target` (`DelaySlot.lean`) lifts any such equation to the
   delay-slot case; `exceptionEntry_*` (`Exception.lean`) describe exception entry in both cases.

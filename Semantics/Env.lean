@@ -30,10 +30,18 @@ bench does around the processor — and has no counterpart in the MIPS32 manuals
 * **Hosted services.** MARS/SPIM-style `syscall` services 1 (print int), 4 (print string),
   10 (exit) and 11 (print char), selected by `$v0`. The hosted run performs one *instead of*
   stepping when the instruction at `pc` is a `syscall` selecting it, as if an operating system's
-  handler had served the System Call exception and returned. Any other `$v0` is not intercepted:
+  handler had served the System Call exception and returned, and only when the processor would
+  execute that instruction in this step (`executesInstr`: no interrupt is taken first and it is not
+  in standby). Any other `$v0` is not intercepted:
   the processor then takes the architectural System Call exception (`step`). The output buffer
   (`Hosted.out`) is environment state, not processor state. A served `syscall` is not a processor
   step, so it does not advance the timer (`Count`).
+* **Hardware interrupt lines.** The processor's six interrupt inputs `HW5..HW0` (`State.hwInt`,
+  seen in `Cause.IP7..IP2`) belong to the system around it. This environment connects no device to
+  them: every state it builds has them at `0` (`powerOnState`), and nothing here changes them, so
+  the only interrupt sources of a hosted or bare run are the software requests (`Cause.IP1..IP0`)
+  and the timer (`IP7`). A system with devices would be a different environment that sets `hwInt`
+  between steps.
 * **Stopping conventions.** The processor never halts. The hosted run *stops observing* it when
   `pc` is word-aligned and outside the loaded image (`stopReason`): `unhandledException code epc
   badVAddr` when an exception was just taken to a vector the image does not cover (`Status.EXL =
@@ -158,9 +166,10 @@ inductive HostStep where
   | next (h : Hosted)
   | halt (r : HaltReason)
 
-/-- "An exception was just taken": `Status.EXL = 1` and `pc` is the general exception vector. -/
+/-- "An exception was just taken": `Status.EXL = 1` and `pc` is the general exception vector, or the
+interrupt vector (`interruptVector`: offset `0x200` when `Cause.IV = 1`). -/
 def atUnhandledVector (s : State) : Bool :=
-  s.cp0Status &&& statusExlMask != 0#32 && s.pc == exceptionVector s
+  s.cp0Status &&& statusExlMask != 0#32 && (s.pc == exceptionVector s || s.pc == interruptVector s)
 
 /-- The stopping convention: `pc` is word-aligned and no word was loaded there. (A misaligned `pc`
 is not a stop: the processor raises Address Error, `step`.) -/
@@ -224,12 +233,14 @@ def performService (svc : Service) (h : Hosted) : HostStep :=
             out := h.out ++ String.singleton (Char.ofNat ((readReg s 4 &&& 0xff#32).toNat)) }
 
 /-- One hosted step: stop if the stopping convention applies; else perform the selected hosted
-service, if services are on and one is selected; else one processor step. -/
+service, if services are on, the processor would execute the instruction at `pc` in this step
+(`executesInstr`: an interrupt is not taken first, and it is not in standby) and a service is
+selected; else one processor step. -/
 def hostStep (env : HostEnv) (h : Hosted) : HostStep :=
   match stopReason env h.machine with
   | some r => .halt r
   | none =>
-    match (if env.services then selectedService h.machine else none) with
+    match (if env.services && executesInstr h.machine then selectedService h.machine else none) with
     | some svc => performService svc h
     | none => .next { h with machine := step h.machine }
 

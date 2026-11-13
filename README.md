@@ -11,15 +11,16 @@ dependency on anything else in that project.
 
 ## What this is
 
-- `Semantics/Step.lean`: `step : State → State` is **one instruction time** of the processor (fetch from memory
-  through the Fixed Mapping MMU of `State.lean`,
-  strict decode, execute, commit) and nothing else: it never halts, and every exception is a state transition.
+- `Semantics/Step.lean`: `step : State → State` is **one instruction time** of the processor (an enabled interrupt
+  is taken first; after `wait` the processor stays in standby until an interrupt request; otherwise fetch from
+  memory through the Fixed Mapping MMU of `State.lean`, strict decode, execute, commit; then the timer) and
+  nothing else: it never halts, and every exception is a state transition.
   `run : State → Nat → State` is `step` iterated `n` times.
 - `Semantics/Env.lean`: the environment, **explicitly outside the architecture**: the loader `load : Program →
   State` (writes the assembled image into physical memory, each word at the physical address of its virtual
   address), the MARS-style `syscall` services (1, 4, 10, 11) and the
   conventions for stopping a run (`runHosted`). `MipsRun` and the harnesses use the hosted run.
-- `Semantics/Instruction.lean`: the `Instruction` type (179 constructors), `decode` (strict) and `encode`.
+- `Semantics/Instruction.lean`: the `Instruction` type (181 constructors), `decode` (strict) and `encode`.
 - `Semantics/Asm.lean`: an assembler from source text to a `Program` (labels, directives, idioms, range checks).
 - `Semantics/FpOps.lean`: the floating-point unit, defined on bit patterns without host floats.
 - `Semantics/Specs/`, `Semantics/Statements.lean`: the specification and its proofs (see below for exactly what
@@ -52,24 +53,27 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1455 lines) states **116 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1677 lines) states **139 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 116 statements are a selection: every global theorem below and at least one per-instruction
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 139 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
-**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 179
-constructors (`python3 scripts/trace.py`). 177 of the 179 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
+**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 181
+constructors (`python3 scripts/trace.py`). 179 of the 181 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
 (`step_spec`/`fp_step_spec` in `Semantics/Specs/Tactics.lean`; `break_spec_raw` and `syscall_spec_raw` have explicit
 proofs), and each states what `step` computes for that
 instruction in terms of the model's own helper functions (`readReg`, `writeReg`, `signExt16`, ...; the `...Spec`
 names in `Defs.lean` are abbreviations for the real definitions, not independent copies). Each has the form
 `step s = timerTick (…)`: `step` is the instruction (`execute`) followed by the timer (`timerTick`, which only
-advances `Count` and sets `Cause.TI`), so the instruction's own effect is the argument of `timerTick`. They pin the behaviour
+advances `Count` and sets `Cause.TI`), so the instruction's own effect is the argument of `timerTick`. Since
+interrupts exist (wave 6) each of them assumes `hexec : executesInstr s = true` — no interrupt is taken in this
+step and the processor is not in standby — because otherwise the step is the Interrupt exception or a standby
+step instead (`Specs/Interrupt.lean`); that hypothesis is a weakening of the earlier statements, forced by the model. They pin the behaviour
 against regression and make each instruction's semantics readable in isolation. **They are not independent of the
 implementation**: a mistake in `Step.lean` that is also a mistake in the reader's understanding of the manual
 survives them. The evidence that the semantics matches the architecture is the manual review recorded in
@@ -92,6 +96,7 @@ The results that are genuinely global, or independent of how an individual instr
 | Coprocessor Unusable | `Specs/FpuCommon.lean`, `Specs/Cp0.lean` | `fp_coprocessor_unusable`, `cp0_instruction_user_mode_unusable` |
 | operating modes: User Mode is `UM = 1`, `EXL = ERL = 0`; CP0 unusable exactly in User Mode with `CU0 = 0`; exception entry enters Kernel Mode (UM kept); `eret` returns to User Mode | `Specs/Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
 | timer: `Count` + 1 per step unless `Cause.DC = 1` or the instruction writes `Count`/`Compare`/`Cause` (proved over every constructor); `Count = Compare` sets `Cause.TI`; a `Compare` write clears it; `Cause` reads `TI` and `IP7`; `rdhwr` values and access rule (Kernel Mode or `CU0`, or the `HWREna` bit; Reserved Instruction otherwise) | `Specs/Timer.lean` | `step_count_advances`, `step_count_stopped`, `step_timer_match_sets_ti`, `step_timerInt`, `mtc0_count_spec`, `mtc0_compare_clears_ti`, `causeValue_timer`, `rdhwr_spec_raw`, `hwrValue_*`, `rdhwr_reserved_unimplemented`, `rdhwr_reserved_not_enabled`, `rdhwr_allowed`, `hwrena_write_masked`, `resetException_timer` |
+| interrupts: taken exactly when `IE = 1`, `EXL = ERL = 0` and some `Cause.IP & Status.IM` is set, before the instruction at `pc`; entry (`ExcCode` 0, `EPC`/`BD`), vector `0x180`/`0x200` by `Cause.IV`; software, timer and hardware-line requests; the lines are inputs no step writes; standby after `wait`; `IntCtl`/`SRSCtl` values; `rdpgpr`/`wrpgpr` | `Specs/Interrupt.lean`, `Specs/Cp0.lean` | `step_interrupt`, `interruptTaken_iff`, `no_interrupt_ie0`/`_exl`/`_erl`/`_masked`, `takeInterrupt_not_in_delay_slot`, `takeInterrupt_in_delay_slot`, `interruptVector_iv0`/`_iv1_bev0`/`_iv1_bev1`, `mtc0_cause_requests_software_interrupt`, `timer_requests_interrupt`, `step_hwInt`, `wait_spec_raw`, `step_standby_stays`/`_restarts`/`_interrupt`, `intCtlValue_fields`, `srsCtlValue_fields`, `mfc0_srsctl_spec`, `rdpgpr_spec_raw`, `wrpgpr_spec_raw` |
 | Reset exception and reset state; the hosted start state is reset followed by the environment's boot convention (and equals `initialState textBase`) | `Specs/Reset.lean` | `resetException_spec`, `resetState_spec`, `hostedStart_is_reset_then_boot` |
 | FP trap: an enabled FP exception takes ExcCode 15 and writes no FP register | `Specs/FpuCommon.lean` | `fpCompletesS_trap` (single-precision finish helper; the double and compare analogues `fpCompletesD_trap`, `fpCompletesCmp_trap` are in `FpuCommon.lean`) |
 | FCSR round trip through `ctc1`/`cfc1` | `Specs/FpuControl.lean` | `fcsr_ctc1_cfc1_roundtrip` |
@@ -175,7 +180,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | J-type | 2 | 2 | 2 | 1 | j, jal |
 | syscall | 1 | 1 | 1 | 1 | syscall |
 | R-type trap-on-condition | 9 | 9 | 7 | 9 | teq, tne, tlt, tge, tltu, tgeu, break, sync, pref |
-| Coprocessor 0 | 6 | 6 | 0 | 6 | mfc0, mtc0, di, ei, eret, wait |
+| Coprocessor 0 | 8 | 8 | 0 | 8 | mfc0, mtc0, di, ei, eret, wait, rdpgpr, wrpgpr |
 | Coprocessor 1 | 15 | 15 | 6 | 15 | mfc1, mtc1, mfhc1, mthc1, cfc1, ctc1, lwc1, swc1, ldc1, sdc1, lwxc1, ldxc1, swxc1, sdxc1, prefx |
 | Arithmetic, single | 18 | 18 | 16 | 18 | add.s, sub.s, mul.s, div.s, sqrt.s, abs.s, mov.s, neg.s, recip.s, rsqrt.s, round.w.s, trunc.w.s, ceil.w.s, floor.w.s, cvt.w.s, cvt.d.s, cvt.s.w, cvt.d.w |
 | Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
@@ -183,7 +188,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
 | Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
 | FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **179** | **179** | **119** | **178** | |
+| **Total** | **181** | **181** | **119** | **180** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->
@@ -193,13 +198,14 @@ Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_
 Nothing here is implemented, and an access raises Reserved Instruction (or Coprocessor Unusable for COP2 words).
 Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md`.
 
-- Instructions: `rdpgpr`, `wrpgpr`, `cache`, `tlbp`, `tlbr`, `tlbwi`, `tlbwr`, `sdbbp`, `deret`, the
+- Instructions: `cache`, `tlbp`, `tlbr`, `tlbwi`, `tlbwr`, `sdbbp`, `deret`, the
   coprocessor-2 family (`cop2`, `mfc2`, `mtc2`, `cfc2`, `ctc2`, `lwc2`, `swc2`, `ldc2`, `sdc2`, `bc2f`/`bc2t`/
   `bc2fl`/`bc2tl`), `luxc1`, `suxc1`, the L format (`cvt.l`, `round.l`, `trunc.l`, `ceil.l`, `floor.l`,
   `cvt.s.l`, `cvt.d.l`) and paired-single (`*.ps`, `alnv.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu`).
   `pause` and `nal` assemble and decode as `sll $0,$0,5` and `bltzal $0` (`PAUSE` executes as the NOP the manual permits).
-- State: interrupts (the timer `Count`/`Compare`/`Cause.TI` runs, but no Interrupt exception is taken),
-  `IntCtl`, `SRSCtl`, `UserLocal` (so `rdhwr 29`), shadow register sets, the TLB (the
+- State: vectored (VI) and external-controller (EIC) interrupt modes (interrupt compatibility mode is modeled, with
+  `IntCtl` and `SRSCtl` as constants: `IPTI = 7`, `VS = 0`, `HSS = 0`), `SRSMap`, `UserLocal` (so `rdhwr 29`),
+  shadow register sets beyond the normal GPRs, the TLB (the
   MMU is the Fixed Mapping MMU, `Config.MT = 3`, with kseg0/kseg1 aliasing and the User-Mode Address Errors;
   SPEC-NOTES §9 item 27), caches, `WatchLo`/`WatchHi`, EJTAG,
   coprocessor 2, `Config2`..`Config5`.

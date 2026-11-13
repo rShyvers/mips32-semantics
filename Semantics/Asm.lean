@@ -828,7 +828,7 @@ private def bitfieldMnemonics : List String := ["rotr", "rotrv", "wsbh", "ext", 
 of the four fit `Cop1Form`/`RForm`/the existing zero-operand special cases
 exactly -- hand-encoded directly in `encodeInstruction` below, the same way
 `bshflMnemonics`/`jrJalrMnemonics` are. -/
-private def cop0Mnemonics : List String := ["mfc0", "mtc0", "eret", "wait"]
+private def cop0Mnemonics : List String := ["mfc0", "mtc0", "eret", "wait", "rdpgpr", "wrpgpr"]
 /-- `rdhwr $rt, $rd` (MIPS32 Release 2, SPECIAL3 funct 0x3b; MD00086 Vol II-A Rev 6.06, RDHWR,
 p.332): read hardware register `rd` (0-31, written `$29` or `29`) into GPR `rt`. The Release 6
 `sel` operand does not exist before Release 6 (bits 10..6 are zero), so exactly two operands. -/
@@ -2013,6 +2013,15 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
         let c ← parseCode name "code" 524287 cT item.lineNo
         pure [cop0RtWord 0x10 0 0 0 0x20 ||| (natToW32 c <<< 6)]
     | _ => throw (.badOperand s!"wait expects at most one (code) operand" item.lineNo)
+  -- `rdpgpr $rd, $rt` / `wrpgpr $rd, $rt` (MIPS32 Release 2; MD00086 Vol II-A Rev 6.06, RDPGPR
+  -- p.335, WRPGPR p.444): COP0, `rs` = 0x0a / 0x0e, bits 10..0 zero.
+  | "rdpgpr" | "wrpgpr" =>
+    match item.operands with
+    | [rdT, rtT] => do
+        let rd ← parseRegister rdT item.lineNo
+        let rt ← parseRegister rtT item.lineNo
+        pure [cop0RtWord (if name == "rdpgpr" then 0x0a else 0x0e) rt rd 0 0]
+    | _ => throw (.badOperand s!"{name} expects '$rd, $rt'" item.lineNo)
   | _ => throw (.unknownMnemonic s!"unknown mnemonic '{name}'" item.lineNo)
 
 private def applyItem (labels : Std.HashMap String W32) (prog : Program) (item : RawItem) :

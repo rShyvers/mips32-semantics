@@ -495,12 +495,15 @@ private def cp0Unusable (s : State) : Bool :=
 #guard cp0Unusable (step1 (.ei 8#32) userSt)
 #guard cp0Unusable (step1 .eret userSt)
 #guard cp0Unusable (step1 (.wait 0#32) userSt)
--- Undecodable COP0 words (rs = 3 reserved; TLBP; RDPGPR) and CACHE: CpU in User Mode, RI in Kernel Mode.
+#guard cp0Unusable (step1 (.rdpgpr 8#32 9#32) userSt)
+#guard cp0Unusable (step1 (.wrpgpr 8#32 9#32) userSt)
+-- Undecodable COP0 words (rs = 3 reserved; TLBP; rs = 0x0d reserved) and CACHE: CpU in User Mode, RI in
+-- Kernel Mode. (RDPGPR, 0x41400000, decodes since wave 6: `rdpgpr $0, $0`.)
 #guard (let w := 0x40600000#32
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI)
-#guard [0x42000008#32, 0x41400000#32, 0xbc000000#32].all fun w =>
+#guard [0x42000008#32, 0x41a00000#32, 0xbc000000#32].all fun w =>
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI
@@ -547,3 +550,75 @@ private def cp0Unusable (s : State) : Bool :=
 -- The hosted start is the reset state followed by the boot convention.
 #guard hostedStart.pc == textBase && hostedStart.cp0Status == statusCu1Mask &&
   readReg hostedStart 29 == spInit && kernelMode hostedStart
+
+-- ### Interrupts (MD00090 Vol III Rev 6.02 §6.1, p.72-73; §6.2.26, p.102), standby, IntCtl, SRSCtl
+
+-- Kernel Mode with `IE = 1`, `IM0 = 1` (Status 0x2000_0101) and the software request `IP0` set:
+-- the next step takes the Interrupt exception instead of executing the `addiu` at `pc`.
+private def swIntSt : State := { regs0 with cp0Status := 0x20000101#32, cp0Cause := 0x00000100#32 }
+#guard interruptTaken swIntSt
+#guard (let s := step1 (.addiu 0#32 8#32 5#32) swIntSt
+        s.pc == 0x80000180#32 && s.cp0Epc == textBase && causeExcCode s == excCodeInt &&
+          readReg s 8 == 0#32 && s.cp0Status == 0x20000103#32 && s.cp0Cause &&& causeBdMask == 0#32)
+-- `Cause.IV = 1`: the special interrupt vector, offset 0x200 (Table 6.10, p.86).
+#guard (step1 (.addiu 0#32 8#32 5#32) { swIntSt with cp0Cause := 0x00800100#32 }).pc == 0x80000200#32
+-- BEV = 1: 0xBFC0_0380 (IV = 0) and 0xBFC0_0400 (IV = 1).
+#guard interruptVector { swIntSt with cp0Status := 0x20400101#32 } == 0xBFC00380#32
+#guard interruptVector { swIntSt with cp0Status := 0x20400101#32, cp0Cause := 0x00800100#32 } ==
+  0xBFC00400#32
+-- Not taken: `IE = 0`, `IM0 = 0`, `EXL = 1`, `ERL = 1`; the instruction executes.
+#guard !interruptTaken { swIntSt with cp0Status := 0x20000105#32 }   -- ERL = 1
+#guard [0x20000100#32, 0x20000001#32, 0x20000103#32].all fun st =>
+  (let s := step1 (.addiu 0#32 8#32 5#32) { swIntSt with cp0Status := st }
+   !interruptTaken { swIntSt with cp0Status := st } && readReg s 8 == 5#32)
+-- In a delay slot: EPC = the branch (pc - 4), BD = 1, the pending branch is abandoned.
+#guard (let s := step1 nopInstr { swIntSt with pendingBranch := some 0x00400100#32 }
+        s.cp0Epc == textBase - 4#32 && s.cp0Cause &&& causeBdMask != 0#32 && s.pendingBranch == none &&
+          s.pc == 0x80000180#32)
+-- `mtc0 $t0, $13` with `$t0 = 0x200` (IP1) and IM1 = IE = 1: the request appears after the step and
+-- the following step takes it with EPC = the instruction after the `mtc0`.
+#guard (let p := buildProg textBase [.mtc0 8#32 13#32 0#32, nopInstr]
+        let s0 := setRegs { regs0 with cp0Status := 0x20000201#32 } [(8, 0x200#32)]
+        let s1 := step (loadImage p s0)
+        let s2 := step s1
+        s1.pc == textBase + 4#32 && interruptTaken s1 && s2.pc == 0x80000180#32 &&
+          s2.cp0Epc == textBase + 4#32 && causeExcCode s2 == excCodeInt)
+-- `ei` makes a pending request visible at once (hazard cleared immediately, pin).
+#guard (let p := buildProg textBase [.ei 0#32, nopInstr]
+        let s1 := step (loadImage p { regs0 with cp0Status := 0x20000100#32, cp0Cause := 0x100#32 })
+        interruptTaken s1 && (step s1).cp0Epc == textBase + 4#32)
+-- The timer: Count reaches Compare during a step, TI/IP7 is set, and with IM7 = IE = 1 the next
+-- step takes the interrupt.
+#guard (let s0 := { regs0 with cp0Status := 0x20008001#32, cp0Count := 9#32, cp0Compare := 10#32 }
+        let s1 := step1 nopInstr s0
+        s1.cp0TimerInt && interruptTaken s1 && (step s1).pc == 0x80000180#32 &&
+          causeValue s1 &&& 0x40008000#32 == 0x40008000#32)
+-- A hardware line (never asserted by the environment) is seen in IP2..IP7.
+#guard causeValue { regs0 with hwInt := 0b000001#6 } == 0x400#32 &&
+  interruptTaken { regs0 with hwInt := 0b000001#6, cp0Status := 0x20000401#32 }
+-- `wait` enters standby; standby steps only advance Count; the timer request restarts it through
+-- the interrupt with EPC = the instruction after the `wait` (WAIT, p.442).
+#guard (let p := buildProg textBase [.wait 0#32, nopInstr]
+        let s0 := { regs0 with cp0Status := 0x20008001#32, cp0Count := 0#32, cp0Compare := 5#32 }
+        let s1 := step (loadImage p s0)
+        let s3 := step (step s1)
+        s1.standby && s1.pc == textBase + 4#32 && s3.standby && s3.pc == textBase + 4#32 &&
+          s3.cp0Count == 3#32 &&
+          (let s6 := run s3 3
+           !s6.standby && s6.pc == 0x80000180#32 && s6.cp0Epc == textBase + 4#32))
+-- With IE = 0 an unmasked request restarts the pipeline (pin), and execution continues after `wait`.
+#guard (let s0 := { regs0 with standby := true, pc := textBase + 4#32, cp0Status := 0x20000100#32,
+                                cp0Cause := 0x100#32 }
+        let s1 := step s0
+        !s1.standby && s1.pc == textBase + 4#32)
+-- Reset leaves standby.
+#guard !(resetException { regs0 with standby := true }).standby
+-- IntCtl reads 0xE000_0000 (IPTI = 7), SRSCtl reads 0; writes are ignored.
+#guard readReg (step1 (.mfc0 8#32 12#32 1#32) regs0) 8 == 0xE0000000#32
+#guard readReg (step1 (.mfc0 8#32 12#32 2#32) regs0) 8 == 0#32
+#guard (let s := step1 (.mtc0 8#32 12#32 2#32) (setRegs regs0 [(8, 0xffffffff#32)])
+        readReg (step1 (.mfc0 9#32 12#32 2#32) { s with pc := textBase }) 9 == 0#32)
+-- `rdpgpr`/`wrpgpr` move between the (only) shadow set 0 and the current GPRs.
+#guard readReg (step1 (.rdpgpr 8#32 9#32) (setRegs regs0 [(9, 0x1234#32)])) 8 == 0x1234#32
+#guard readReg (step1 (.wrpgpr 8#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 8 == 0x5678#32
+#guard readReg (step1 (.wrpgpr 0#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 0 == 0#32

@@ -37,9 +37,9 @@ which does not compute until `s.pendingBranch` is known. -/
 `EPC`/`Cause`/`Status`/`pc`/`pendingBranch` is stated once, in `Exception.lean`
 (`exceptionEntry_*`) (INSTRUCTION-REF "break" section). -/
 theorem break_spec_raw (s : State) (w code : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.break code)) :
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.break code)) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeBp) := by
-  unfold step execute
+  rw [step_of_executesInstr s hexec]; unfold execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -57,7 +57,7 @@ beyond the ordinary fallthrough to `pc + 4#32` — no CP0 state touched at
 all (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu" section). -/
 theorem teq_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teq rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         takeException s excCodeTr
@@ -69,7 +69,7 @@ theorem teq_spec_raw (s : State) (w rs rt code : W32)
 (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu" section). -/
 theorem tne_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tne rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt) then
         takeException s excCodeTr
@@ -82,7 +82,7 @@ theorem tne_spec_raw (s : State) (w rs rt code : W32)
 `$rs <s $rt` (signed)"). -/
 theorem tlt_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tlt rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < asSigned (readReg s (regIdxSpec rt)) then
         takeException s excCodeTr
@@ -95,7 +95,7 @@ image of `tlt` (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu"
 section). -/
 theorem tge_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tge rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≥ asSigned (readReg s (regIdxSpec rt)) then
         takeException s excCodeTr
@@ -108,7 +108,7 @@ bit patterns (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu"
 section: "`tltu`: `$rs <u $rt` (unsigned)"). -/
 theorem tltu_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tltu rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat < (readReg s (regIdxSpec rt)).toNat then
         takeException s excCodeTr
@@ -121,7 +121,7 @@ mirror image of `tltu` (INSTRUCTION-REF "teq / tne / tlt / tge / tltu /
 tgeu" section). -/
 theorem tgeu_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgeu rs rt code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat ≥ (readReg s (regIdxSpec rt)).toNat then
         takeException s excCodeTr
@@ -185,7 +185,7 @@ trap-immediate subsection; mirrors `teq_spec_raw` with `sext16 imm` in
 place of `$rt`). -/
 theorem teqi_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teqi rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rs) == signExt16 imm then
         takeException s excCodeTr
@@ -197,7 +197,7 @@ theorem teqi_spec_raw (s : State) (w rs imm : W32)
 (REGIMM trap-immediate subsection). -/
 theorem tnei_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tnei rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rs) ≠ signExt16 imm then
         takeException s excCodeTr
@@ -209,7 +209,7 @@ theorem tnei_spec_raw (s : State) (w rs imm : W32)
 (REGIMM trap-immediate subsection; mirrors `tge_spec_raw`). -/
 theorem tgei_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgei rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≥ asSigned (signExt16 imm) then
         takeException s excCodeTr
@@ -225,7 +225,7 @@ extension (same convention as `sltiu`; confirmed against `Step.lean`'s
 values). -/
 theorem tgeiu_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgeiu rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat ≥ (signExt16 imm).toNat then
         takeException s excCodeTr
@@ -237,7 +237,7 @@ theorem tgeiu_spec_raw (s : State) (w rs imm : W32)
 (REGIMM trap-immediate subsection; mirrors `tlt_spec_raw`). -/
 theorem tlti_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tlti rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < asSigned (signExt16 imm) then
         takeException s excCodeTr
@@ -252,7 +252,7 @@ confirmed against `Step.lean`'s `.tltiu` case, which calls `signExt16 imm`
 and then compares `.toNat` values). -/
 theorem tltiu_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tltiu rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat < (signExt16 imm).toNat then
         takeException s excCodeTr

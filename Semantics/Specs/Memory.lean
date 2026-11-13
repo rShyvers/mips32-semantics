@@ -29,7 +29,7 @@ sign-extended, unlike MARS's own latent zero-extension bug for raw-decoded
 binaries). -/
 theorem lw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
@@ -44,9 +44,9 @@ Error, naming that exact address. -/
 theorem lw_misaligned_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none)
-    (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) :
+    (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) (hexec : executesInstr s = true) :
     step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) := by
-  rw [lw_spec_raw s w rs rt imm hfetch hdecode hpb]
+  rw [lw_spec_raw s w rs rt imm hfetch hdecode hpb hexec]
   dsimp only
   rw [show readMemWord s (readReg s (regIdxSpec rs) + signExt16 imm) = none by
     unfold readMemWord
@@ -90,10 +90,10 @@ in particular `$rt` — is written. -/
 theorem lw_misaligned_no_load (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none)
-    (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) :
+    (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ s'.regs = s.regs ∧
       s'.cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
-  rw [lw_misaligned_spec s w rs rt imm hfetch hdecode hpb hmisaligned]
+  rw [lw_misaligned_spec s w rs rt imm hfetch hdecode hpb hmisaligned hexec]
   exact ⟨_, rfl, rfl, rfl⟩
 
 -- Concrete witness: `lw` from a `+1`-misaligned address raises AdEL with
@@ -117,7 +117,7 @@ Address Error on a misaligned effective address (INSTRUCTION-REF "sw"
 section). -/
 theorem sw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
@@ -133,7 +133,7 @@ on a halfword-misaligned effective address (INSTRUCTION-REF "sh" section).
 -/
 theorem sh_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sh rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemHalf s addr (readReg s (regIdxSpec rt)) with
@@ -146,7 +146,7 @@ theorem sh_spec_raw (s : State) (w rs rt imm : W32)
 /-- `sb` in terms of `writeMemByte` (proof device for `sb_spec_raw`). -/
 theorem sb_spec_raw_writeMemByte (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       match writeMemByte s (readReg s (regIdxSpec rs) + signExt16 imm)
           (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8 with
@@ -165,7 +165,7 @@ memory changes, at the translated address. Clearing `llBit` is the model's pinne
 every store (see `State.llBit`). -/
 theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
       | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
@@ -174,7 +174,7 @@ theorem sb_spec_raw (s : State) (w rs rt imm : W32)
               physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
               llBit := false
               pc := s.pc + 4#32 }) := by
-  have h := sb_spec_raw_writeMemByte s w rs rt imm hfetch hdecode hpb
+  have h := sb_spec_raw_writeMemByte s w rs rt imm hfetch hdecode hpb hexec
   rw [h]
   unfold writeMemByte
   cases translate s (readReg s (regIdxSpec rs) + signExt16 imm) <;> rfl
@@ -229,7 +229,7 @@ Vol II-A Rev 6.06, PREF, p.321). Only `pc` changes; it never raises, whatever
 the address and hint. -/
 theorem pref_spec_raw (s : State) (w rs hint imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.pref rs hint imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec
 
@@ -238,7 +238,7 @@ theorem pref_spec_raw (s : State) (w rs hint imm : W32)
 the equation matches `step`'s code. -/
 theorem lb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lb rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
@@ -251,7 +251,7 @@ theorem lb_spec_raw (s : State) (w rs rt imm : W32)
 /-- **`lbu` zero-extends the loaded byte** — same address and byte as `lb`, different widening (INSTRUCTION-REF "lbu" section). -/
 theorem lbu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lbu rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
@@ -264,7 +264,7 @@ theorem lbu_spec_raw (s : State) (w rs rt imm : W32)
 /-- **`lh` sign-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lh" section). -/
 theorem lh_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lh rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemHalf s addr with
@@ -277,7 +277,7 @@ theorem lh_spec_raw (s : State) (w rs rt imm : W32)
 /-- **`lhu` zero-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lhu" section). -/
 theorem lhu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lhu rs rt imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemHalf s addr with
@@ -298,7 +298,7 @@ ordinary non-control-flow instruction, touching no other state
 (`Step.lean`'s `sync` docstring: `mkNext s s`). -/
 theorem sync_spec_raw (s : State) (w stype : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sync stype))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec
 
@@ -310,6 +310,6 @@ touching no other state at all, not even a memory read (`Step.lean`'s
 `synci` docstring). -/
 theorem synci_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.synci rs imm))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec

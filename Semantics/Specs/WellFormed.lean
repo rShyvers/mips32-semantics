@@ -120,6 +120,8 @@ def Instruction.WellFormed : Instruction → Prop
   | .ei rt => rt.toNat < 32
   | .eret => True
   | .wait code => code.toNat < 2 ^ 19
+  | .rdpgpr rd rt => rd.toNat < 32 ∧ rt.toNat < 32
+  | .wrpgpr rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .mfc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .mtc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .lwc1 rs ft imm => rs.toNat < 32 ∧ ft.toNat < 32 ∧ imm.toNat < 2 ^ 16

@@ -17,12 +17,12 @@ addresses are word-aligned, and no two of them are loaded at the same physical a
 holding both `0x8000_0180` and `0xA000_0180` would load two words at physical `0x180`; the later
 one wins).
 
-## Theorems in this file (12)
+## Theorems in this file (14)
 
   `loadAddr_mod4` `addr_ne_of_aligned` `get?_loadWord_other` `get?_loadWord_same`
   `foldl_loadWord_other` `foldl_loadWord_mem` `loadImage_readMemWord` `translate_hostedStart`
-  `load_readMemWord` `load_step_fetches_image` `loadAtReset_readMemWord_kseg`
-  `loadAddr_examples`
+  `load_readMemWord` `executesInstr_load` `load_step_fetches_image` `loadAtReset_readMemWord_kseg`
+  `loadAddr_examples` `ofNat_0`
 -/
 
 set_option maxRecDepth 4000
@@ -191,6 +191,16 @@ theorem load_readMemWord (p : Program) (a w : W32) (hw : p.get? a = some w)
     readMemWord (load p) a = some w :=
   loadImage_readMemWord p hostedStart a w hw halign hdisj (translate_hostedStart p a)
 
+/-- **A loaded program's first step executes an instruction**: the hosted start has `Status.IE = 0`
+(`bootConvention`), so no interrupt is taken, and it is not in standby. -/
+theorem executesInstr_load (p : Program) : executesInstr (load p) = true := by
+  have hst : (load p).cp0Status = statusCu1Mask := rfl
+  have hsb : (load p).standby = false := rfl
+  have hie : (statusCu1Mask &&& statusIeMask != 0#32) = false := by decide
+  unfold executesInstr interruptTaken interruptsEnabled
+  rw [hst, hsb, hie]
+  rfl
+
 /-- **The first step of a loaded program executes the image word at `textBase`.** -/
 theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
     (hw : p.get? textBase = some w) (hdecode : decode w = some instr)
@@ -198,6 +208,7 @@ theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
     (hdisj : ∀ b v, p.get? b = some v → b ≠ textBase → loadAddr b ≠ loadAddr textBase) :
     step (load p) = timerTick (execInstr (load p) instr) :=
   step_fetches_from_memory (load p) w instr (load_readMemWord p textBase w hw halign hdisj) hdecode
+    (executesInstr_load p)
 
 /-- **The reset loader**, for kernel segments (kseg0, kseg1, kseg2, kseg3, where `ERL` does not
 change the mapping): a word read of an image address in `loadAtReset p` (Kernel Mode, `ERL = 1`)

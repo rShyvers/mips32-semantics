@@ -103,8 +103,9 @@ structure State where
   Table 9.47, p.189-196). The model gives meaning to exactly these bits, and
   `mtc0` can write only these (`statusWriteMask`); all others read as zero:
 
-  * `IE` (bit 0), `IM7..IM0` (bits 15..8) — stored and read back only; no
-    interrupt is ever raised by this model.
+  * `IE` (bit 0), `IM7..IM0` (bits 15..8) — interrupt enable and the per-request
+    masks: an interrupt is taken when `IE = 1`, `EXL = ERL = 0` and some
+    `Cause.IPi` with `IMi = 1` is set (`interruptTaken`, `Step.lean`).
   * `EXL` (bit 1) — set by every exception, cleared by `eret`.
   * `ERL` (bit 2) — set by the Reset exception (`resetException`, `Step.lean`);
     selects `ErrorEPC` in `eret`.
@@ -127,8 +128,11 @@ structure State where
   Coprocessor Unusable; "loaded, but not defined" for every other exception —
   MD00090 Vol III Rev 6.02 §6.2.3, p.87 — pinned to 0) and, when `Status.EXL`
   was 0, `BD` (bit 31); it leaves every other bit alone. `mtc0` can write
-  only `DC` (27), `IV` (23) and `IP1..IP0` (9..8) (`causeWriteMask`). `WP`,
-  `IP7..IP2`, `TI`, `PCI` are never set. -/
+  only `DC` (27), `IV` (23) and `IP1..IP0` (9..8) (`causeWriteMask`). `TI` and
+  `IP7..IP2` are not stored here: they are the timer request (`cp0TimerInt`) and the
+  hardware interrupt lines (`hwInt`), added when `Cause` is read (`causeValue`,
+  `Step.lean`). `WP`, `PCI`, `FDCI` are never set (no watch registers, performance
+  counters or EJTAG). -/
   cp0Cause : W32
   /-- Coprocessor 0 `EPC` (register 14, sel 0): the restart address recorded
   by exception entry when `Status.EXL` was 0 — the faulting instruction's
@@ -199,6 +203,24 @@ structure State where
   implements); every other bit "returns a zero and is ignored on a write" (Table 9.39), so the field
   only ever holds values under `hwrenaWriteMask`. -/
   cp0HWREna : W32 := 0#32
+  /-- The six **hardware interrupt request lines** `HW5..HW0` (bit `i` = `HWi`), seen by software in
+  `Cause.IP(i+2)` (MD00090 Vol III Rev 6.02 Table 9.52, p.211: "IP7..IP2 ... Indicates an interrupt
+  is pending ... Hardware interrupt 5 ... Hardware interrupt 0", Read-only; Table 6.2, p.73). They
+  are **inputs** to the processor: `step` reads them (`causeValue`, `interruptRequests`,
+  `Step.lean`) and never writes them (`step_hwInt`, `Specs/Interrupt.lean`). Who drives them is the
+  system's business: the environment of this model (`Semantics/Env.lean`) connects no device, so in
+  every state it builds they are `0` (all deasserted). Pinned to `0` at power-on; the Reset
+  exception does not change them. -/
+  hwInt : BitVec 6 := 0#6
+  /-- **Standby**: the processor has executed `wait` and its pipeline is stopped until an interrupt
+  request restarts it (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "The WAIT instruction is implemented
+  by stalling the pipeline at the completion of the instruction and entering a lower power mode. The
+  pipeline is restarted when an external event, such as an interrupt or external request occurs, and
+  execution continues with the instruction following the WAIT instruction"). `pc` already holds the
+  address of the instruction after the `wait`. Set only by `wait`; cleared when the processor
+  restarts (`Step.lean`, `step`) and by the Reset exception ("The assertion of any reset or NMI must
+  restart the pipeline", p.442). `false` at power-on. -/
+  standby : Bool := false
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
@@ -273,6 +295,9 @@ def excCodeTr : W32 := 13
 Table 9.53 `FPE`): an enabled IEEE exception, or FCSR `Cause.E`. -/
 def excCodeFPE : W32 := 15
 
+/-- Interrupt (MD00090 Vol III Rev 6.02 Table 9.53, p.212: ExcCode 0, "Int"). -/
+def excCodeInt : W32 := 0
+
 /-- `Status.IE` (bit 0). -/
 def statusIeMask : W32 := 0x1
 /-- `Status.EXL` (bit 1): set on exception entry, cleared by `eret`. -/
@@ -318,6 +343,41 @@ here: it is "Required if watch registers are implemented", and the model has non
 (`Config1.WR = 0`). `TI` (30) and `IP7..IP2` (15..10) are read-only: they come from the timer
 (`State.cp0TimerInt`) when `Cause` is read (`Step.lean`, `causeValue`). -/
 def causeWriteMask : W32 := 0x08800300
+
+/-- `Cause.IV` (bit 23): interrupts use the special interrupt vector (offset `0x200`) instead of
+the general exception vector (MD00090 Vol III Rev 6.02 Table 9.52, p.210; §6.2.26, p.102). -/
+def causeIvMask : W32 := 0x00800000
+
+/-- `Cause.IP7..IP0` (bits 15..8): the pending interrupt requests, in the bit positions of
+`Status.IM7..IM0` (MD00090 Vol III Rev 6.02 Table 9.52, p.211-212; Table 6.2, p.73). -/
+def causeIpMask : W32 := 0x0000ff00
+
+/-- Vector offset of the Interrupt exception when `Cause.IV = 1` (MD00090 Vol III Rev 6.02
+Table 6.9, p.86: "Interrupt, CauseIV = 1 ... 0x200"; §6.2.3 Operation, p.88). -/
+def interruptVectorOffset : W32 := 0x200
+
+/-- The Interrupt vector when `Status.BEV = 1` and `Cause.IV = 1`: base `0xBFC0_0200` + `0x200`
+(MD00090 Vol III Rev 6.02 Table 6.10, p.86: "Interrupt 1 0 1 ... 0xBFC0.0400"). -/
+def interruptVectorBevAddr : W32 := 0xBFC00400
+
+/-- `IntCtl` (CP0 register 12, select 1) as software reads it (MD00090 Vol III Rev 6.02 §9.33,
+Figure 9.34 / Table 9.48, p.199-201): `IPTI` (bits 31..29) = 7 (the timer request is merged into
+`IP7`, HW5; "Preset by hardware"), `IPPCI` (28..26) = 0 ("If performance counters are not
+implemented (Config1PC = 0), this field returns zero on read", p.200), `IPFDC` (25..23) = 0 ("If
+EJTAG FDC is not implemented, this field returns zero on read", p.200), the MCU ASE bits and the
+reserved fields 0, `VS` (9..5) = 0 ("If neither EIC interrupt mode nor VI mode are implemented
+(Config3VEIC = 0 and Config3VInt = 0), this field is ignored on write and reads as zero", p.201).
+No field is writable, so the register is this constant. -/
+def intCtlValue : W32 := 0xE0000000
+
+/-- `SRSCtl` (CP0 register 12, select 2) as software reads it (MD00090 Vol III Rev 6.02 §9.34,
+Figure 9.35 / Table 9.49, p.203-204): `HSS` = 0 ("A value of zero in this field indicates that only
+the normal GPRs are implemented"), `EICSS` = 0 ("If Config3VEIC is 0, this field must be written as
+zero, and returns zero on read"), `ESS` = `PSS` = `CSS` = 0 (their reset state; HSS is "the highest
+value that can be written to the ESS, EICSS, PSS, and CSS fields ... The operation of the processor
+is UNDEFINED if a value larger than the one in this field is written", so 0 is the only value they
+can hold), reserved fields 0. -/
+def srsCtlValue : W32 := 0
 
 /-- `Cause.TI` (bit 30): a timer interrupt is pending (MD00090 Vol III Rev 6.02 Table 9.52,
 p.209). -/

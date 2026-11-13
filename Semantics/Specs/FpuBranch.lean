@@ -24,7 +24,7 @@ set_option maxRecDepth 4000
 BC1F, p.56) -/
 theorem bc1f_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1f cc imm))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readFcc s cc then { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }
       else
@@ -35,7 +35,7 @@ theorem bc1f_spec_raw (s : State) (w cc imm : W32)
 BC1T, p.60) -/
 theorem bc1t_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1t cc imm))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readFcc s cc then
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
@@ -46,7 +46,7 @@ theorem bc1t_spec_raw (s : State) (w cc imm : W32)
 (`pc ← pc + 8`, nothing pending) (MD00086 Vol II-A Rev 6.06, BC1FL, p.58) -/
 theorem bc1fl_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1fl cc imm))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readFcc s cc then { s with pc := s.pc + 8#32 }
       else
@@ -57,7 +57,7 @@ theorem bc1fl_spec_raw (s : State) (w cc imm : W32)
 (MD00086 Vol II-A Rev 6.06, BC1TL, p.62) -/
 theorem bc1tl_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1tl cc imm))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readFcc s cc then
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }

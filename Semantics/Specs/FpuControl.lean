@@ -25,7 +25,7 @@ FEXR (26), FENR (28), FCSR (31); any other number reads 0 (pin for UNPREDICTABLE
 (MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 }) := by
   fp_step_spec
@@ -37,7 +37,7 @@ number the manual leaves UNPREDICTABLE is a no-op (pin)
 (MD00086 Vol II-A Rev 6.06, CTC1, p.149-151) -/
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
       | none => { s with pc := s.pc + 4#32 }
@@ -63,10 +63,10 @@ writable bits. -/
 theorem ctc1_fcsr_spec (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt 31#32))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
-    (hnt : Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = false) :
+    (hnt : Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = false) (hexec : executesInstr s = true) :
     step s = timerTick (
       { s with fcsr := readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask, pc := s.pc + 4#32 }) := by
-  rw [ctc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu]
+  rw [ctc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu hexec]
   show timerTick (if Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = true
     then _ else _) = _
   rw [ite_of_neg (by simp [hnt])]
@@ -75,8 +75,8 @@ theorem ctc1_fcsr_spec (s : State) (w rt : W32)
 /-- … and `cfc1 $rt, $31` reads the FCSR back (its reserved bits as zero). -/
 theorem cfc1_fcsr_spec (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt 31#32))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
+    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)) with
           pc := (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)).pc + 4#32 }) :=
-  cfc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu
+  cfc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu hexec
