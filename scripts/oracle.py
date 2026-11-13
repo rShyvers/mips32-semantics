@@ -692,25 +692,35 @@ def enc_lines():
     return ls
 
 
+def lean_def_body(src, name, terminator):
+    """Body text of `def <name> ...` in Semantics/Asm.lean, with or without `private` (and `protected`).
+    `terminator` is a regex for the end of the body.  Exits with a clear message if the definition is
+    not found, so a rename or reformatting in Asm.lean cannot silently shrink the mnemonic set."""
+    m = re.search(r"(?:^|\n)(?:private\s+|protected\s+)?def\s+" + re.escape(name) + r"\b[^=\n]*(?::[^=]*)?:=\s*" + terminator, src, re.S)
+    if not m:
+        sys.stderr.write("oracle.py: cannot find `def %s` in %s (expected `[private] def %s : ... := ...`; "
+                         "if it was renamed or restructured, update asm_mnemonics())\n" % (name, ASMLEAN, name))
+        sys.exit(2)
+    return m.group(1)
+
+
 def asm_mnemonics():
     src = open(ASMLEAN).read()
     ms = set()
     for t in ("rTable", "iTable", "bTable", "cop1Table"):
-        m = re.search(r"private def " + t + r" :[^=]*:=\s*(.*?)\n\n", src, re.S)
-        body = m.group(1)
+        body = lean_def_body(src, t, r"(.*?)\n\n")
         ms |= set(re.findall(r'\("([a-z0-9.]+)",', body))
         # names generated per format suffix: ("add." ++ sfx, ...) -> add.s, add.d
         for base in re.findall(r'\("([a-z0-9.]+\.)" \+\+ sfx', body):
             ms |= {base + "s", base + "d"}
         if t == "cop1Table":
-            fm = re.search(r"def fpCondNames : List String :=\s*\[(.*?)\]", src, re.S)
-            for c in re.findall(r'"([a-z]+)"', fm.group(1)):
+            fbody = lean_def_body(src, "fpCondNames", r"\[(.*?)\]")
+            for c in re.findall(r'"([a-z]+)"', fbody):
                 ms |= {"c.%s.s" % c, "c.%s.d" % c}
             ms -= {"s", "d"}
     for t in ("pseudoSet", "bshflMnemonics", "multAccumMnemonics", "jrJalrMnemonics", "hiLoMoveMnemonics",
               "bitfieldMnemonics", "cop0Mnemonics"):
-        m = re.search(r"private def " + t + r" :[^=]*:=\s*\[(.*?)\]", src, re.S)
-        ms |= set(re.findall(r'"([a-z0-9.]+)"', m.group(1)))
+        ms |= set(re.findall(r'"([a-z0-9.]+)"', lean_def_body(src, t, r"\[(.*?)\]")))
     ms |= {"j", "jal"}
     return ms
 

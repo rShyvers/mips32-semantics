@@ -1,5 +1,5 @@
 # jump_jal.asm — j and jal with a "return" (hardcoded j back to the known
-# call-site address, since jr is out of v1 scope).
+# call-site address, this program deliberately does not use jr).
 #
 # Real MIPS32 jumps always execute the instruction in their delay slot (the
 # one immediately following the jump) before transferring control — see
@@ -20,7 +20,7 @@ AfterCall:
     # (no longer prints $ra's low byte here: jal's $ra legitimately diverges
     # from MARS's once a real delay-slot instruction sits between jal and
     # its continuation — see docs/spec/SPEC-NOTES.md §9 item 5. This file
-    # never actually uses $ra to return (jr is out of v1 scope; see header),
+    # never actually uses $ra to return (this program does not use jr; see header),
     # so dropping the probe does not weaken the control-flow check below.)
     li   $v0, 10
     syscall

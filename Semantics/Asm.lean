@@ -4,9 +4,9 @@ import Semantics.Types
 import Semantics.Instruction
 
 /-!
-# Asm — v1 MIPS assembler
+# Asm — MIPS assembler
 
-Converts assembler source text for the v1 MIPS subset (DESIGN.md §4) into a
+Converts assembler source text for the modeled MIPS32 instruction set into a
 `Program` (`Std.HashMap W32 W32`, PC → instruction word). Builds raw instruction
 words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
 **not** depend on an `Instruction` enum.
@@ -129,7 +129,7 @@ words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
   `round.w.s`/`trunc.w.s`/`ceil.w.s`/`floor.w.s`, `cvt.s.w`/`cvt.w.s`,
   `c.eq.s`/`c.lt.s`/`c.le.s`/`c.f.s`/`c.un.s`/`c.ueq.s`/`c.olt.s`/`c.ult.s`/
   `c.ole.s`/`c.ule.s`, `bc1t`/`bc1f`.
-- Coprocessor-1 (FPU) double-precision subset (v2 addition,
+- Coprocessor-1 (FPU) double-precision subset (
   `docs/spec/MIPS-COVERAGE-GAPS.md` §3.9A; `docs/spec/INSTRUCTION-REF.md`'s
   double-precision section): `ldc1`/`sdc1`, `add.d`/`sub.d`/`mul.d`/`div.d`,
   `mov.d`, `sqrt.d`/`abs.d`/`neg.d`, `cvt.d.s`/`cvt.s.d`/`cvt.d.w`/`cvt.w.d`,

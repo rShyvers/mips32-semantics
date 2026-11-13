@@ -2,6 +2,8 @@
 """trace.py -- generate docs/TRACE.md, the instruction traceability matrix.
 
     python3 scripts/trace.py [--out PATH] [--json PATH] [--check]
+    python3 scripts/trace.py --readme | --check-readme | --write-readme
+    (a plain run that writes docs/TRACE.md also refreshes the README's generated block)
 
 For every constructor of `inductive Instruction` (Semantics/Instruction.lean)
 the matrix follows one instruction end to end:
@@ -35,7 +37,7 @@ Heuristics at a glance
                  (up to `:= by`) has a `decode .. = some (.ctor ..)`
                  hypothesis.  Primary = named `<ctor>_spec_raw`/`<ctor>_spec`.
   * tests      : first token of each instruction line (comments and labels
-                 stripped) of tests/{corpus,equiv,asm}/*.asm; `move`/`nop`
+                 stripped) of tests/{corpus,equiv,asm,oracle}/*.asm; `move`/`nop`
                  count as addu/sll.  `li`/`la` expansions are data-dependent
                  and not counted.
 """
@@ -53,8 +55,9 @@ STEP_LEAN = "Semantics/Step.lean"
 ASM_LEAN = "Semantics/Asm.lean"
 REF_MD = "docs/spec/INSTRUCTION-REF.md"
 MANUAL_DIR = os.path.join(ROOT, "docs/spec/manuals")
-TEST_DIRS = ["tests/corpus", "tests/equiv", "tests/asm"]
+TEST_DIRS = ["tests/corpus", "tests/equiv", "tests/asm", "tests/oracle"]
 DIFF_DIR = "tests/corpus"          # the MARS differential corpus
+ORACLE_DIR = "tests/oracle"        # the QEMU differential oracle programs
 PSEUDO_AS = {"move": "addu", "nop": "sll"}   # pseudo-ops with one fixed expansion
 CTOR = r"(?<![\w.'])\.{n}(?![\w'])"          # `.name` as a constructor reference
 
@@ -496,7 +499,17 @@ def build():
         mn, rule = find_mnemonics(c, lits)
         pri, name_only = primary_of(n, mn, by_ctor[n], theorems)
         pat = re.compile(CTOR.format(n=re.escape(n)) + "|" + r"Instruction\." + re.escape(n) + r"(?![\w'])")
-        used = {d: sorted(p for p, toks in progs.items() if any(m in toks for m in mn))
+        def hit(toks, mn=mn):
+            # c.cond.<fmt> stands for the sixteen c.<cond>.<fmt> mnemonics
+            for m in mn:
+                if m.startswith("c.cond."):
+                    suf = m[len("c.cond"):]
+                    if any(t.startswith("c.") and t.endswith(suf) for t in toks):
+                        return True
+                elif m in toks:
+                    return True
+            return False
+        used = {d: sorted(p for p, toks in progs.items() if hit(toks))
                 for d, progs in tests.items()}
         rows.append({
             **c, "mnemonics": mn, "mnemonic_rule": rule,
@@ -526,6 +539,7 @@ def summarize(rows, theorems):
         ("with step arm", sum(1 for r in rows if r["step"])),
         ("with primary spec theorem", sum(1 for r in rows if r["primary"])),
         ("with any differential test (tests/corpus)", sum(1 for r in rows if r["tests"].get(DIFF_DIR))),
+        ("with any QEMU-oracle test (tests/oracle/*.asm)", sum(1 for r in rows if r["tests"].get(ORACLE_DIR))),
         ("with sorry in an attributed spec theorem", sum(1 for r in rows if any(t["sorry"] for t in r["theorems"]))),
         ("spec theorems / of which contain sorry (all of Semantics/Specs)",
          f'{len(theorems)} / {sum(1 for t in theorems if t["sorry"])}'),
@@ -611,7 +625,7 @@ def cell_thms(r):
 
 def cell_tests(r):
     parts = []
-    for d, label in ((DIFF_DIR, "corpus"), ("tests/equiv", "equiv"), ("tests/asm", "asm")):
+    for d, label in ((DIFF_DIR, "corpus"), ("tests/equiv", "equiv"), ("tests/asm", "asm"), (ORACLE_DIR, "oracle")):
         p = r["tests"].get(d) or []
         if p:
             parts.append(f'{label}: ' + ", ".join(p[:3]) + (f" +{len(p) - 3}" if len(p) > 3 else ""))
@@ -670,14 +684,81 @@ def render(rows, theorems, have_manual):
     return "\n".join(o).rstrip() + "\n", g
 
 
+README = os.path.join(ROOT, "README.md")
+README_BEGIN = "<!-- BEGIN GENERATED: trace.py --readme -->"
+README_END = "<!-- END GENERATED -->"
+
+
+def readme_block(rows):
+    """Compact per-family coverage table for README.md (no manual access, no git state needed).
+    Columns: family, constructors, how many have a primary spec theorem, how many are exercised by a
+    tests/corpus program (MARS differential), by a tests/oracle program (QEMU differential), mnemonics."""
+    fams = {}
+    for r in rows:
+        fams.setdefault(r["family"], []).append(r)
+    tot = [0, 0, 0, 0]
+    o = ["| Family | Constructors | Spec theorem | MARS corpus | QEMU oracle | Mnemonics |",
+         "|---|---:|---:|---:|---:|---|"]
+    for name, rs in fams.items():
+        n = len(rs)
+        sp = sum(1 for r in rs if r["primary"])
+        mars = sum(1 for r in rs if r["tests"].get(DIFF_DIR))
+        orc = sum(1 for r in rs if r["tests"].get(ORACLE_DIR))
+        for i, v in enumerate((n, sp, mars, orc)):
+            tot[i] += v
+        mn = ", ".join(r["mnemonics"][0] for r in rs)
+        o.append(f"| {esc(name)} | {n} | {sp} | {mars} | {orc} | {esc(mn)} |")
+    o.append(f"| **Total** | **{tot[0]}** | **{tot[1]}** | **{tot[2]}** | **{tot[3]}** | |")
+    o += ["", "Columns count constructors of `Instruction`. \"Spec theorem\": has a `<ctor>_spec_raw`/`_spec` theorem. "
+          "\"MARS corpus\" / \"QEMU oracle\": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / "
+          "`tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is)."]
+    return "\n".join(o)
+
+
+def readme_text(block):
+    """README.md content with the generated block replaced by `block`; None if markers are absent."""
+    with open(README, encoding="utf-8") as f:
+        t = f.read()
+    i, j = t.find(README_BEGIN), t.find(README_END)
+    if i < 0 or j < i:
+        return None
+    return t[:i + len(README_BEGIN)] + "\n" + block + "\n" + t[j:]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Generate the instruction traceability matrix.")
     ap.add_argument("--out", default=os.path.join(ROOT, "docs/TRACE.md"))
     ap.add_argument("--json", help="also dump the raw data to this path")
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if a constructor lacks a step arm or primary spec theorem, or a spec theorem has sorry")
+    ap.add_argument("--readme", action="store_true",
+                    help="print the compact per-family coverage table (the block embedded in README.md) and exit")
+    ap.add_argument("--check-readme", action="store_true",
+                    help="exit 1 if the generated block in README.md differs from fresh output; writes nothing")
+    ap.add_argument("--write-readme", action="store_true",
+                    help="rewrite the generated block in README.md")
     a = ap.parse_args()
     rows, theorems, have_manual = build()
+    if a.readme or a.check_readme or a.write_readme:
+        block = readme_block(rows)
+        if a.readme:
+            print(block)
+            return
+        fresh = readme_text(block)
+        if fresh is None:
+            print("README.md: generated-block markers not found", file=sys.stderr)
+            sys.exit(1)
+        with open(README, encoding="utf-8") as f:
+            cur = f.read()
+        if a.write_readme:
+            with open(README, "w", encoding="utf-8") as f:
+                f.write(fresh)
+            return
+        if cur != fresh:
+            print("README.md generated block is stale: run `python3 scripts/trace.py --write-readme`", file=sys.stderr)
+            sys.exit(1)
+        print("README.md generated block is current")
+        return
     text, _g = render(rows, theorems, have_manual)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
@@ -686,6 +767,11 @@ def main():
         with open(a.json, "w", encoding="utf-8") as f:
             json.dump({"constructors": rows, "theorems": [{k: v for k, v in t.items() if k != "header"} for t in theorems]},
                       f, indent=1)
+    if os.path.abspath(a.out) == os.path.abspath(os.path.join(ROOT, "docs/TRACE.md")) and not a.check:
+        fresh = readme_text(readme_block(rows))      # keep the README block in step with TRACE.md (gate.sh --fix)
+        if fresh is not None:
+            with open(README, "w", encoding="utf-8") as f:
+                f.write(fresh)
     for k, v in summarize(rows, theorems):
         print(f"{k}: {v}")
     bad = [r["name"] for r in rows if not r["step"] or not r["primary"]]

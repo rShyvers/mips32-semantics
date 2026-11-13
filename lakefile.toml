@@ -1,11 +1,15 @@
 name = "Semantics"
 version = "0.1.0"
 keywords = ["math"]
-# `Checked` (not `Semantics`) is the default target on purpose: it is the
-# sorry-free subset that `lake check` kernel-replays. See `Checked.lean`
-# and the "Verification gates" section of the root README. `Semantics`
-# (the full library, including the 3 documented `sorry`s in
-# `Semantics.Specs.StepSpec`) is still buildable with `lake build Semantics`.
+# Targets.
+#  * `Checked` (default): the library `lake check` kernel-replays. It imports the model, every spec file
+#    (through the index `Semantics.Specs.StepSpec`), the comparator solution module `Semantics.StatementsProofs`,
+#    the facts files and the tests; see `Checked.lean`. No `sorry` is reachable from it.
+#  * `DiffHarness` (default): the corpus-vs-MARS executable (needs java).
+#  * `Semantics`: the full library (same modules as `Checked`); `lake build Semantics`.
+#  * `EquivHarness`, `MipsRun`: executables, built explicitly (see the note below).
+# `Semantics.Statements` (the statements-only challenge module of `lake comparator`, see `comparator.json`) is
+# the one module with a `sorry`, by design; no library root imports it, so no build or `lake check` sees it.
 defaultTargets = ["Checked", "DiffHarness"]
 
 [leanOptions]

@@ -7,7 +7,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | `gate.sh` | Runs the 10 gate steps, prints `[n/10] name ... PASS/FAIL/SKIP (s)`, keeps logs in `.gate/logs/`, always writes `.gate/last-run.json`; on a full green run writes the stamp `.gate/green` (tree id of the exact verified content, timestamp, HEAD, toolchain, per-step results). |
 | `gate-commit.sh "<subject>" [body-file]` | Commits only if on a non-main branch, the stamp exists, and the current tree id equals the stamp. Stages `git add -A`, re-verifies the staged tree, commits with a `Gate:` trailer block and `Co-Authored-By` last. Never pushes. `--run` runs the gate first. |
 | `install-hooks.sh` | `git config core.hooksPath .githooks` for this clone (idempotent). The `pre-commit` hook then blocks any commit whose staged tree differs from the stamp. Bypass in an emergency: `git commit --no-verify`. |
-| `trace.py` | Generates `docs/TRACE.md` (`--check`: exit 1 on missing step arm / spec theorem / sorry; `--out FILE`). |
+| `trace.py` | Generates `docs/TRACE.md` (`--check`: exit 1 on missing step arm / spec theorem / sorry; `--out FILE`; `--json FILE`). Also owns the generated coverage table in the root `README.md` (between `<!-- BEGIN GENERATED: trace.py --readme -->` and `<!-- END GENERATED -->`): `--readme` prints it, `--write-readme` rewrites the block, `--check-readme` exits 1 if the block differs from fresh output and writes nothing; a plain run that writes `docs/TRACE.md` (so `gate.sh --fix`) refreshes the block too. The test data scans `tests/corpus`, `tests/equiv`, `tests/asm` and `tests/oracle` (`oracle` is a separate column). |
 | `gate-allow.txt` | Optional, absent by default. Lines `path:construct  # reason` allow a forbidden construct in one file. A line without a reason is an error. |
 
 ## Steps
@@ -21,7 +21,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | 5 | diffharness | `lake exe DiffHarness` exits 0, and `SUMMARY: all N corpus programs PASS` has N = number of `tests/corpus/*.asm`; java and `vendor/mars/Mars4_5.jar` required (missing = FAIL) |
 | 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed` |
 | 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU 24Kf vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mips` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
-| 8 | trace | `trace.py --check` passes and regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line); `--fix` rewrites it |
+| 8 | trace | `trace.py --check` passes, regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line), and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites both. The TRACE.md comparison needs the manual texts (its manual column), so it fails on a machine that has not run `docs/spec/manuals/fetch.sh` |
 | 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent |
 | 10 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
 
@@ -38,27 +38,21 @@ scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, loc
 ```
 
 ## CI
-Replace the five gate `run:` steps in `.github/workflows/ci.yml` (keep checkout, elan, cache, `lake exe cache get`; add `actions/setup-java` and
-`fetch.sh` only if the manuals step should not SKIP) with:
-```yaml
-      - name: Gate (build, check, comparator, DiffHarness, EquivHarness, trace, hygiene)
-        run: |
-          export PATH="$HOME/.elan/bin:$PATH"
-          scripts/gate.sh
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with: { name: gate-logs, path: .gate/ }
-```
-CI needs `python3` and `java` on the runner (ubuntu-latest has both) plus, for step 7, `qemu-system-mips` and LLVM >= 18 (`llvm`, `lld`; set `ORACLE_LLVM_DIR` to the directory holding `llvm-mc ld.lld llvm-objdump llvm-objcopy`):
+`.github/workflows/ci.yml` runs the gate: it installs elan, a JRE, `qemu-system-mips`, `llvm` + `lld` and `poppler-utils`,
+sets `ORACLE_LLVM_DIR`, restores the `.lake` cache, runs `lake exe cache get`, tries `docs/spec/manuals/fetch.sh`
+(best effort, `continue-on-error`) and then `scripts/gate.sh`, and uploads `.gate/` as an artifact. The manual texts are not
+committed. If `fetch.sh` fails, step 9 (manuals) is a SKIP, which does not fail the gate, but step 8 compares
+`docs/TRACE.md`, whose manual column needs those texts, so it fails too; CI is therefore only meaningful when the fetch works.
+The snippet for the oracle tools:
 ```yaml
       - name: Install the differential-oracle tools (QEMU MIPS system emulator + LLVM)
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-mips llvm lld
+          sudo apt-get install -y qemu-system-mips llvm lld poppler-utils
           echo "ORACLE_LLVM_DIR=$(dirname "$(readlink -f "$(command -v llvm-mc || ls /usr/lib/llvm-*/bin/llvm-mc | tail -1)")")" >> "$GITHUB_ENV"
 ```
-(`oracle.py` looks in `$ORACLE_LLVM_DIR`, then `/usr/lib/llvm-21/bin`, then `PATH`; `ld.lld` and `llvm-objcopy` must sit next to `llvm-mc`; on Debian/Ubuntu they do under `/usr/lib/llvm-N/bin`.) The stamp written in CI is irrelevant; the exit code is the verdict.
+(`oracle.py` looks in `$ORACLE_LLVM_DIR`, then `/usr/lib/llvm-21/bin`, then `PATH`; `ld.lld` and `llvm-objcopy` must sit next to `llvm-mc`; on Debian/Ubuntu they do under `/usr/lib/llvm-N/bin`.)
+The stamp written in CI is irrelevant; the exit code is the verdict. The workflow has not been run by its author (no CI access from the authoring environment).
 
 ## Troubleshooting
 - "stale stamp" / hook blocks: something changed after the gate (even a whitespace edit or a regenerated TRACE.md). Re-run `scripts/gate.sh`.

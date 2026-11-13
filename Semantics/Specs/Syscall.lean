@@ -9,7 +9,7 @@ Constructors: `syscall`.
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   SYSCALL p.415.
 
-Reference: `docs/spec/INSTRUCTION-REF.md`, section "Syscalls (v1 scope: 1, 4, 10, 11)".
+Reference: `docs/spec/INSTRUCTION-REF.md`, section "Syscalls (modeled services: 1, 4, 10, 11)".
 
 ## Theorems in this file (4)
 

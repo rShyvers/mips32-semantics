@@ -39,7 +39,7 @@ one JSON object to stdout and nothing else. Exit codes:
 materialization step, a submitted program that loads from `.data` (e.g.
 `la $a0, msg` then `syscall 4` to print a string) would see all-zero memory
 at that address rather than the declared bytes — this was flagged and
-deliberately left unfixed as the original v1 scope of this file (see
+deliberately left unfixed as the original scope of this file (see
 issue #1), and is now fixed per issue #12: `materializeSpec` below (copied
 from `DiffHarness.lean`'s `materialize`, not imported, since `DiffHarness`
 and this file each define their own `main` and Lean can't combine two `main`

@@ -11,7 +11,7 @@ import Semantics.Step
 
 This replaces the originally-planned "unseal a real MIPS program (CS47) and
 find its bug" step: that program needs assembler macros, which
-`docs/spec/SPEC-NOTES.md` §9 puts explicitly out of v1 scope, so it can't be
+`docs/spec/SPEC-NOTES.md` §9 puts explicitly out of scope, so it can't be
 assembled by `Asm.lean` at all. Instead, this harness validates the
 semantics against a small corpus we wrote ourselves: for several arithmetic
 operations, a "base" program using the direct instruction (`mult`, `div`,

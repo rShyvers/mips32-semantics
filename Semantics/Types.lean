@@ -68,7 +68,7 @@ structure State where
   Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure), by `eret`,
   and by every exception entry ("Exceptions between the LL and SC cause SC
   to fail"). Pinned model choice: every store-class
-  instruction (`sb`, `sh`, `sw`, `swl`, `swr`, `swc1`, `sdc1`) also clears
+  instruction (`sb`, `sh`, `sw`, `swl`, `swr`, `swc1`, `sdc1`, `swxc1`, `sdxc1`) also clears
   it. MD00086 "SC": when a memory access instruction (load, store or
   prefetch) executes on the same processor between `ll` and `sc`, "the SC
   may succeed or it may fail; the success or failure is not predictable".

@@ -388,7 +388,7 @@ step_trace() {
   [ -f scripts/trace.py ] || { echo "scripts/trace.py missing"; NOTE="trace.py missing"; return 1; }
   # --out always goes to a temp file so a check never rewrites docs/TRACE.md.
   tmp=$(mktemp)
-  python3 scripts/trace.py --check --out "$tmp"
+  python3 scripts/trace.py --check --out "$tmp" && python3 scripts/trace.py --check-readme
   rc=$?
   X_CONSTR=$(sed -n 's/^constructors: \([0-9]*\).*/\1/p' "$log" | head -1)
   X_THEOREMS=$(sed -n 's/^spec theorems.*: \([0-9]*\) \/ [0-9]*.*/\1/p' "$log" | head -1)
