@@ -199,9 +199,11 @@ theorem execInstr_zeroKept (s : State) (instr : Instruction) :
   · exact (zeroKept_takeException _ _).mpr trivial
   · split
     · exact (zeroKept_takeCoprocessorUnusable _).mpr trivial
-    · unfold execBody
-      cases instr <;> dsimp only <;>
-        repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split)
+    · split
+      · exact (zeroKept_exceptionEntry _ _ _).mpr trivial
+      · unfold execBody
+        cases instr <;> dsimp only <;>
+          repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split)
 
 /-- **Global invariant: `$zero` is never changed by a step.** Register `0` reads the same thing
 after a step as before — for **every** state and instruction, with no side conditions
@@ -214,7 +216,9 @@ theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg 
   · split
     · split
       · rfl
-      · split <;> rfl
+      · split
+        · rfl
+        · split <;> rfl
     · exact execInstr_zeroKept _ _
 
 /-- **`$zero` reads `0` after any step**, given it read `0` before

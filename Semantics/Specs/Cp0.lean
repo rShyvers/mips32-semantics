@@ -12,10 +12,17 @@ Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)".
 
-## Theorems in this file (10)
+Every one of these instructions needs coprocessor 0: outside Kernel Mode with `Status.CU0 = 0`
+it raises Coprocessor Unusable with `Cause.CE = 0` and does nothing else
+(`cp0_instruction_user_mode_unusable`, one theorem for all six; MD00090 Vol III Rev 6.02
+§6.2.22, p.100). The per-instruction `_spec_raw` theorems state the other case: they assume
+`hcp0 : cp0Usable s = true` (Kernel Mode, or `Status.CU0 = 1`; §3.5.3, p.23).
 
-  `mfc0_spec_raw` `mtc0_spec_raw` `causeWriteMask_eq` `di_spec_raw` `ei_spec_raw` `eret_spec_raw`
-  `eret_clears_llBit` `eret_in_delay_slot_reserved_instruction` `wait_spec_raw` `wait_preserves_state`
+## Theorems in this file (12)
+
+  `mfc0_spec_raw` `mtc0_spec_raw` `causeWriteMask_eq` `statusWriteMask_eq` `di_spec_raw`
+  `ei_spec_raw` `eret_spec_raw` `eret_clears_llBit` `eret_in_delay_slot_reserved_instruction`
+  `wait_spec_raw` `wait_preserves_state` `cp0_instruction_user_mode_unusable`
 -/
 
 set_option maxRecDepth 4000
@@ -29,11 +36,12 @@ set_option maxRecDepth 4000
 PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1, `(30,0)` ErrorEPC.
 `decode` produces `mfc0` only for these; for any other pair (reachable only
 through a hand-built `Instruction`) the step raises Reserved Instruction,
-which is also what the undecodable word does. User mode is not modeled, so
-Coprocessor Unusable is never raised. -/
+which is also what the undecodable word does. Coprocessor 0 must be usable
+(`hcp0`: Kernel Mode or `Status.CU0 = 1`); otherwise see
+`cp0_instruction_user_mode_unusable`. -/
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
@@ -48,20 +56,21 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI := by
-  step_spec
+  cp0_step_spec
 
 /-- **`mtc0` writes GPR `$rt` into a modeled CP0 register, through that
 register's write mask.** `Status` (12,0) keeps only `statusWriteMask` (IE,
-EXL, ERL, IM7..0, BEV, CU1; every other bit reads as zero). `Cause` (13,0)
+EXL, ERL, UM, IM7..0, BEV, CU0, CU1; every other bit reads as zero). `Cause` (13,0)
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
 writable. `EBase` (15,1) takes bits 29..12 of the written value under the
 fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
 `BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
-raises Reserved Instruction, as for `mfc0_spec_raw`. -/
+raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
+usable (`hcp0`). -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       match rd.toNat, sel.toNat with
       | 8, 0 => { s with pc := s.pc + 4#32 }
@@ -84,36 +93,42 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | _, _ => takeException s excCodeRI := by
-  step_spec
+  cp0_step_spec
 
 /-- The write mask of `Cause` is `DC` (27), `IV` (23), `IP1..IP0` (9..8)
 (MD00090 Vol III Rev 6.02 §9.36, p.209-210). -/
 theorem causeWriteMask_eq : causeWriteMask = 0x08800300#32 := rfl
+
+/-- The write mask of `Status` is `CU1` (29), `CU0` (28), `BEV` (22), `IM7..IM0`
+(15..8), `UM` (4), `ERL` (2), `EXL` (1), `IE` (0) (MD00090 Vol III Rev 6.02
+§9.32, Table 9.47, p.190-196: the R/W fields of an implementation without
+Supervisor Mode, coprocessors 2/3, `RP`, `FR`, `RE`, `MX`, `TS`, `SR`, `NMI`). -/
+theorem statusWriteMask_eq : statusWriteMask = 0x3040ff17#32 := rfl
 
 /-- **`di`: `$rt ← Status`, then `Status.IE ← 0`** (MD00086 Vol II-A
 Rev 6.06, DI, p.164). The value written to `$rt` is the `Status` before the
 change; no other `Status` bit changes. -/
 theorem di_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.di rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       { (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdxSpec rt)
             s.cp0Status) with
           pc := (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdxSpec rt)
             s.cp0Status).pc + 4#32 } := by
-  step_spec
+  cp0_step_spec
 
 /-- **`ei`: `$rt ← Status`, then `Status.IE ← 1`** (MD00086 Vol II-A
 Rev 6.06, EI, p.176). -/
 theorem ei_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ei rt))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       { (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdxSpec rt)
             s.cp0Status) with
           pc := (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdxSpec rt)
             s.cp0Status).pc + 4#32 } := by
-  step_spec
+  cp0_step_spec
 
 /-- **`eret`** (MD00086 "ERET"), executed outside a delay slot:
 `if Status.ERL = 1 then PC ← ErrorEPC, ERL ← 0 else PC ← EPC, EXL ← 0`,
@@ -121,21 +136,21 @@ and **always `LLbit ← 0`**. It has no delay slot of its own: `pc` is set in
 this very step. -/
 theorem eret_spec_raw (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       if s.cp0Status &&& statusErlMask != 0#32 then
         { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
       else
         { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false } := by
-  step_spec
+  cp0_step_spec
 
 /-- **`eret` clears `LLbit`**, whichever return address it uses — so an
 `sc` after an exception return fails (see `sc_spec_raw`). -/
 theorem eret_clears_llBit (s s' : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) (hstep : step s = s') :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hstep : step s = s') :
     s'.llBit = false := by
-  rw [eret_spec_raw s w hfetch hdecode hpb] at hstep
+  rw [eret_spec_raw s w hfetch hdecode hpb hcp0] at hstep
   split at hstep <;> (have h := hstep; rw [← h])
 
 /-- **`eret` in a branch delay slot raises Reserved Instruction**, like a
@@ -156,21 +171,55 @@ in the Operation, p.443). The model has no interrupts and treats the restart as 
 step changes only `pc` (`Step.lean`'s `wait` arm: `mkNext s s`). -/
 theorem wait_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s = { s with pc := s.pc + 4#32 } := by
-  step_spec
+  cp0_step_spec
 
 /-- Corollary of `wait_spec_raw`: every piece of state besides `pc` is
 left untouched — the "no-op" claim made precise, not just "produces some
 next state". -/
 theorem wait_preserves_state (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     ∃ s', step s = s' ∧ s'.regs = s.regs ∧ s'.fpRegs = s.fpRegs ∧
       s'.hi = s.hi ∧ s'.lo = s.lo ∧ s'.mem = s.mem ∧
       s'.cp0Status = s.cp0Status ∧ s'.cp0Cause = s.cp0Cause ∧ s'.cp0Epc = s.cp0Epc ∧
       s'.pc = s.pc + 4#32 := by
-  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-! ## Coprocessor Unusable outside Kernel Mode -/
+
+/-- A coprocessor-0 instruction does not use coprocessor 1 (the two guards of `execInstr` are
+about disjoint instruction sets). -/
+theorem usesCop1_of_usesCop0 (instr : Instruction) (h : usesCop0 instr = true) :
+    usesCop1 instr = false := by
+  cases instr <;> first | rfl | exact absurd h Bool.false_ne_true
+
+/-- **Every coprocessor-0 instruction executed outside Kernel Mode with `Status.CU0 = 0` raises
+Coprocessor Unusable with `Cause.CE = 0`, and does nothing else.** The instructions are
+`usesCop0`: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `wait` (each page lists "Coprocessor Unusable"
+among its exceptions: MD00086 Vol II-A Rev 6.06, MFC0 p.266, MTC0 p.291, DI p.164, EI p.176,
+ERET p.178, WAIT p.443). The rule: "A COP0 or Cache instruction was executed while the processor
+was running in a mode other than Debug Mode or Kernel Mode, and the CU0 bit in the Status register
+was a zero"; `Cause.CE` = "unit number of the coprocessor being referenced" (MD00090 Vol III
+Rev 6.02 §6.2.22, p.100). `cp0Usable s = false` is exactly "User Mode and `CU0 = 0`" (`kernelMode`,
+§3.2, p.21; §3.5.3, p.23). The hypothesis `hnb` excludes `eret`/`wait` in a delay slot, which is
+UNDEFINED and pinned to Reserved Instruction in every mode
+(`branch_in_delay_slot_reserved_instruction`). Undecodable COP0 words and CACHE:
+`step_reserved_cop0_unusable`. -/
+theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
+    (huses : usesCop0 instr = true)
+    (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
+    (hcu : cp0Usable s = false) :
+    step s = exceptionEntry s excCodeCpU 0#32 := by
+  have h1 : (isBranchLike instr && s.pendingBranch.isSome) = false := by
+    rcases hnb with h | h <;> simp [h]
+  have h2 : usesCop1 instr = false := usesCop1_of_usesCop0 instr huses
+  unfold step; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
+  unfold execInstr
+  rw [h1, h2, huses, hcu]
+  rfl
 
 -- `mfc0` reads back Status/Cause/EPC, selected by `rd`;
 -- an out-of-scope `rd` raises Reserved Instruction.

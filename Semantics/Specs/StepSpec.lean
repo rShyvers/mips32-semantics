@@ -23,6 +23,8 @@ import Semantics.Specs.Jump
 import Semantics.Specs.Trap
 import Semantics.Specs.Syscall
 import Semantics.Specs.Cp0
+import Semantics.Specs.Mode
+import Semantics.Specs.Reset
 import Semantics.Specs.FpuCommon
 import Semantics.Specs.FpuMove
 import Semantics.Specs.FpuControl
@@ -58,7 +60,8 @@ abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
   coprocessor unusable, floating point) appear on right-hand sides as `takeException s code` /
   `takeAddressException s code addr`; `Exception.lean` states exactly what those do.
 * FPU theorems carry `hcu : cu1Enabled s = true`; `fp_coprocessor_unusable` (`FpuCommon.lean`)
-  covers the other case.
+  covers the other case. Coprocessor-0 theorems carry `hcp0 : cp0Usable s = true` (Kernel Mode, or
+  `Status.CU0 = 1`); `cp0_instruction_user_mode_unusable` (`Cp0.lean`) covers the other case.
 
 Besides the general statement, most files contain **satisfiable examples** (`#guard`s that run
 `step` on a concrete program loaded into a state with `Fixtures.lean`, showing the hypotheses are
@@ -75,11 +78,11 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 |---|---|---|
 | Statement vocabulary | `Defs.lean` | every definition: they occur in statements |
 | Helper lemmas | `Lemmas.lean` | nothing (kernel-checked plumbing) |
-| Proof scripts | `Tactics.lean` | the two macros `step_spec` / `fp_step_spec`, once |
+| Proof scripts | `Tactics.lean` | the three macros `step_spec` / `fp_step_spec` / `cp0_step_spec`, once |
 | Example fixtures | `Fixtures.lean` | the three builders used by `#guard`s |
 | Decode / encode | `WellFormed.lean`, `DecodeSpec.lean` | `Instruction.WellFormed` (field ranges), `decode_encode` (round trip) |
 | Exception entry | `Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode`, `_ce` |
-| Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_fetches_from_memory`, `step_undecodable`, `step_reserved_instruction` |
+| Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_fetches_from_memory`, `step_undecodable`, `step_reserved_instruction`, `step_reserved_cop0_unusable` |
 | Self-modifying code | `SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
 | Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
@@ -98,7 +101,9 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
 | `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
 | Hosted run (environment, not architecture) | `Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run` (where the hosted run differs from `step`); `hostStep_syscall_spec`, `hosted_print_int`, `hosted_exit` (the MARS-style services) |
-| Coprocessor 0 | `Cp0.lean` | `mfc0`/`mtc0` register map and write masks; `eret` |
+| Coprocessor 0 | `Cp0.lean` | `mfc0`/`mtc0` register map and write masks; `eret`; `cp0_instruction_user_mode_unusable` |
+| Operating modes | `Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
+| Reset, boot convention | `Reset.lean` | `resetException_spec`, `resetException_keeps`, `resetState_spec`, `hostedStart_is_reset_then_boot` |
 | FPU, common | `FpuCommon.lean` | `fp_coprocessor_unusable`; `fpCompletes*_trap` / `_ok` |
 | FPU moves | `FpuMove.lean` | statements (FCSR untouched) |
 | FPU control registers | `FpuControl.lean` | `cfc1`/`ctc1` statements; `fcsr_ctc1_cfc1_roundtrip` |

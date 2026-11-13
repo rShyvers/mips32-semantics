@@ -21,7 +21,7 @@ present in `lake-manifest.json`'s packages to reuse).
 ## CLI
 
 ```
-MipsRun [--max-steps N] [--bare] [path.asm]
+MipsRun [--max-steps N] [--bare] [--reset] [path.asm]
 ```
 `--max-steps N` bounds the run (default 1000000). The program is loaded (`Env.load`) and run
 *hosted* (`Env.runHosted`): the MARS-style `syscall` services 1/4/10/11 are performed by the
@@ -29,7 +29,11 @@ environment, and the run stops by the environment's conventions (exit, an except
 image does not cover, `pc` outside the image). `--bare` turns the services off: every
 instruction, `syscall` included, is executed by the processor (`step`), so a `syscall` is the
 System Call exception; the stopping conventions still apply (they are how this observer decides
-the run is over; the processor itself never halts). Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
+the run is over; the processor itself never halts). `--reset` starts from the architectural
+reset state (`resetState`: `pc = 0xBFC0_0000`, `Status.BEV = ERL = 1`) instead of the hosted
+boot convention (`Env.loadAtReset`): the program must provide boot code at the reset vector
+(`.ktext 0xBFC00000`), otherwise the run stops at once with `no_instruction` at `0xBFC0_0000`.
+The JSON shape is the same; its `initial` field is then the reset state. Reads `.asm` source from `path.asm` if given, else from stdin. Prints exactly
 one JSON object to stdout and nothing else. Exit codes:
 - `0` — assembled and ran to completion or to the step limit (a *program*
   runtime error, e.g. an illegal instruction, is reported as data in the
@@ -253,12 +257,14 @@ def readSource (path : Option String) : IO (Except String String) := do
     | none => pure (Except.ok (← (← IO.getStdin).readToEnd))
   catch e => pure (Except.error (toString e))
 
-/-- Command line: `MipsRun [--max-steps N] [--bare] [path.asm]`. -/
+/-- Command line: `MipsRun [--max-steps N] [--bare] [--reset] [path.asm]`. -/
 structure Cli where
   path : Option String := none
   maxSteps : Nat := 1000000
   /-- `--bare`: no hosted `syscall` services. -/
   bare : Bool := false
+  /-- `--reset`: start at the reset vector from `resetState` (no boot convention). -/
+  reset : Bool := false
 
 def parseArgs : List String → Except String Cli
   | [] => .ok {}
@@ -271,6 +277,10 @@ def parseArgs : List String → Except String Cli
   | "--bare" :: rest =>
     match parseArgs rest with
     | .ok c => .ok { c with bare := true }
+    | .error e => .error e
+  | "--reset" :: rest =>
+    match parseArgs rest with
+    | .ok c => .ok { c with reset := true }
     | .error e => .error e
   | p :: rest =>
     match parseArgs rest with
@@ -293,8 +303,12 @@ def main (args : List String) : IO UInt32 := do
       IO.println (renderAsmFailure e)
       return 1
     | .ok prog =>
-      let result := runProgram prog cli.maxSteps (services := !cli.bare)
-      IO.println (renderRunResult prog hostedStart result)
+      if cli.reset then
+        let result := runProgramAtReset prog cli.maxSteps (services := !cli.bare)
+        IO.println (renderRunResult prog resetState result)
+      else
+        let result := runProgram prog cli.maxSteps (services := !cli.bare)
+        IO.println (renderRunResult prog hostedStart result)
       return 0
 
 -- ====================================================================
@@ -418,4 +432,40 @@ private def bareResult : HostedResult :=
 
 #guard (match bareResult with
         | .halted (.unhandledException c _ _) h _ => c == excCodeSys && h.out == ""
+        | _ => false)
+
+/-- `--reset`: boot code at the reset vector (`.ktext 0xBFC00000`) reads the reset `Status`
+(`BEV | ERL` = `0x0040_0004`), leaves the reset state with `eret` (`ERL = 1`: `pc ← ErrorEPC`,
+`ERL ← 0`) into the program, which prints that value and exits. -/
+private def resetBootSrc : String :=
+".ktext 0xBFC00000\n" ++
+"    mfc0 $t0, $12\n" ++
+"    la   $t1, main\n" ++
+"    mtc0 $t1, $30\n" ++
+"    eret\n" ++
+".text\n" ++
+"main:\n" ++
+"    li   $v0, 1\n" ++
+"    move $a0, $t0\n" ++
+"    syscall\n" ++
+"    li   $v0, 10\n" ++
+"    syscall\n"
+
+private def resetBootResult : HostedResult :=
+  match assemble resetBootSrc with
+  | .ok prog => runProgramAtReset prog 1000
+  | .error _ => .limitReached { machine := resetState } 0 -- unreachable: assembles fine
+
+#guard (match resetBootResult with
+        | .halted .exit h _ => h.out == "4194308" && h.machine.cp0Status == statusBevMask
+        | _ => false)
+
+/-- `--reset` without boot code at the reset vector: the run stops at once at `0xBFC0_0000`. -/
+private def resetNoBootResult : HostedResult :=
+  match assemble cleanExitSrc with
+  | .ok prog => runProgramAtReset prog 1000
+  | .error _ => .limitReached { machine := resetState } 0 -- unreachable: assembles fine
+
+#guard (match resetNoBootResult with
+        | .halted (.noInstruction pc) _ 1 => pc == 0xBFC00000#32
         | _ => false)

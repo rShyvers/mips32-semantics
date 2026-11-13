@@ -236,19 +236,22 @@ theorem mkNext_of_none (s x : State) (h : s.pendingBranch = none) :
     mkNext s x = { x with pc := x.pc + 4#32 } := by
   unfold mkNext advance; rw [h]
 
-/-- `execInstr` is `execBody` once its two guards are passed: the instruction
-is not a control transfer in a delay slot, and it does not need an unusable
-coprocessor 1. -/
+/-- `execInstr` is `execBody` once its three guards are passed: the instruction
+is not a control transfer in a delay slot, it does not need an unusable
+coprocessor 1, and it does not need an unusable coprocessor 0. -/
 theorem execInstr_eq_body (s : State) (instr : Instruction)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
-    (hcu : usesCop1 instr = false ∨ cu1Enabled s = true) :
+    (hcu : usesCop1 instr = false ∨ cu1Enabled s = true)
+    (hcp0 : usesCop0 instr = false ∨ cp0Usable s = true) :
     execInstr s instr = execBody s instr := by
   have h1 : (isBranchLike instr && s.pendingBranch.isSome) = false := by
     rcases hnb with h | h <;> simp [h]
   have h2 : (usesCop1 instr && !cu1Enabled s) = false := by
     rcases hcu with h | h <;> simp [h]
+  have h3 : (usesCop0 instr && !cp0Usable s) = false := by
+    rcases hcp0 with h | h <;> simp [h]
   unfold execInstr
-  rw [h1, h2]
+  rw [h1, h2, h3]
   rfl
 
 theorem fpFinishS_eq (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags)

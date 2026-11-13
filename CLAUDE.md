@@ -37,19 +37,19 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
 ## File map
 - Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State`, `Program`), `State.lean`
   (accessors, the six memory-access functions), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
-  bit patterns, no host floats), `Step.lean` (`step : State → State`, `run`, exception model). `Env.lean`: the environment, NOT the
-  architecture (`load`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
+  bit patterns, no host floats), `Step.lean` (`step : State → State`, `run`, exception model, Kernel/User Mode, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
+  architecture (`load`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
   `Semantics.lean`/`Checked.lean` roots
 
 - Spec, one file per family: `Semantics/Specs/<Family>.lean` (`Arith`, `Shift`, `MulDiv`, `BitOps`, `Immediate`, `Memory`, `Atomic`,
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
-  `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
-  `Tactics` (the `step_spec` / `fp_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (73 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
+  `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
+  `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
+- Trusted surface: `Semantics/Statements.lean` (83 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
-  `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services). `vendor/mars/` is the MARS jar only (source not vendored).
+  `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).
 - Docs: `README.md` (what is proved/tested/trusted; its coverage table is GENERATED), `DESIGN.md`, `docs/PROOF-NOTES.md` (reading order,
   comparator arrangement), `docs/TRACE.md` (GENERATED), `docs/AUDIT.md`, `docs/spec/{INSTRUCTION-REF,SPEC-NOTES,MIPS-COVERAGE-GAPS}.md`,
   `docs/spec/manuals/` (lookup tool `mipsdoc.py`, see its `AGENTS.md`). `scripts/` gate, oracle, trace (`scripts/README.md`).

@@ -67,11 +67,23 @@ checks `Status.CU1` (`usesCop1`); arithmetic instructions finish through
 `Mips.Fp.fpUpdate` and take the Floating Point exception instead of writing
 the destination when an enabled exception was raised.
 
+## Operating modes
+
+Kernel Mode and User Mode (MD00090 Vol III Rev 6.02 ch.3, p.21-23; `kernelMode`, `userMode`):
+Supervisor Mode and Debug Mode are not implemented. A coprocessor-0 instruction (`usesCop0`), an
+undecodable COP0 word or a CACHE word (`isCop0Word`) executed outside Kernel Mode with
+`Status.CU0 = 0` raises Coprocessor Unusable with `Cause.CE = 0` (§6.2.22, p.100). User-Mode
+address checks (kseg references from User Mode) belong to the MMU and are not modeled yet: every
+memory access goes through the six `readMem*`/`writeMem*` functions of `State.lean`.
+
+## Reset
+
+`resetException` is the Reset exception (§6.2.5, p.89-90) applied to a state; `resetState` is
+`resetException powerOnState`, the machine after a cold reset.
+
 ## Not modeled
 
-User/kernel mode (`Status.UM`/`KSU`): everything runs as kernel, so CP0
-instructions never raise Coprocessor Unusable. Interrupts, timer, TLB,
-caches, shadow register sets (see `docs/spec/SPEC-NOTES.md`).
+Interrupts, timer, TLB, caches, shadow register sets (see `docs/spec/SPEC-NOTES.md`).
 -/
 
 /-- Convert a raw 5-bit register-field value (as extracted by `decode`, hence
@@ -278,6 +290,56 @@ def causeExcCode (s : State) : W32 :=
 
 /-- `Status.CU1`: coprocessor 1 is usable. -/
 def cu1Enabled (s : State) : Bool := s.cp0Status &&& statusCu1Mask != 0#32
+
+/-- **Kernel Mode** (MD00090 Vol III Rev 6.02 §3.2, p.21): "The processor is in Kernel Mode
+when the DM bit in the Debug register is 0 (if the processor implements Debug Mode), and any of
+the following is true: The KSU field in the CP0 Status register contains 0b00. The EXL bit in the
+Status register is 1. The ERL bit in the Status register is 1." Debug Mode is not implemented
+(`Config1.EP = 0`) and neither is Supervisor Mode, so `KSU` is `UM ‖ R0` with `R0` reading 0
+(Table 9.47, p.195): `KSU = 0b00` iff `UM = 0`. -/
+def kernelMode (s : State) : Bool :=
+  s.cp0Status &&& statusUmMask == 0#32 || s.cp0Status &&& statusExlMask != 0#32 ||
+    s.cp0Status &&& statusErlMask != 0#32
+
+/-- **User Mode** (MD00090 Vol III Rev 6.02 §3.4, p.22): "The KSU field in the Status register
+contains 0b10. The EXL and ERL bits in the Status register are both 0." With `KSU = UM ‖ 0`
+this is `UM = 1`, `EXL = 0`, `ERL = 0`, i.e. exactly "not Kernel Mode": there is no third mode. -/
+def userMode (s : State) : Bool := !kernelMode s
+
+/-- **Coprocessor 0 is usable** (MD00090 Vol III Rev 6.02 §3.5.3, p.23): "Access to Coprocessor
+0 registers are enabled under any of the following conditions: The processor is running in Kernel
+Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1." -/
+def cp0Usable (s : State) : Bool := kernelMode s || s.cp0Status &&& statusCu0Mask != 0#32
+
+/-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `wait`.
+Each page lists Coprocessor Unusable among its exceptions (MD00086 Vol II-A Rev 6.06: MFC0
+p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, WAIT p.443), which is raised when "A COP0
+or Cache instruction was executed while the processor was running in a mode other than Debug
+Mode or Kernel Mode, and the CU0 bit in the Status register was a zero" (MD00090 Vol III
+Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`, `RDPGPR`,
+`WRPGPR`) and `CACHE` are not implemented: their words do not decode and are covered by
+`isCop0Word`. -/
+def usesCop0 (instr : Instruction) : Bool :=
+  match instr with
+  | .mfc0 _ _ _ | .mtc0 _ _ _ | .di _ | .ei _ | .eret | .wait _ => true
+  | _ => false
+
+/-- Whether a word that does **not** decode belongs to coprocessor 0 or is a CACHE instruction:
+opcode COP0 (0x10) or CACHE (0x2f). Outside Kernel Mode with `Status.CU0 = 0` such a word raises
+Coprocessor Unusable (`Cause.CE = 0`) instead of Reserved Instruction: "An instruction was
+executed that specifies an unimplemented COP0 opcode encoding of the function field when rs is
+CO ... assuming that access to coprocessor 0 is allowed. If access to the coprocessor is not
+allowed, a Coprocessor Unusable Exception occurs instead" (MD00090 Vol III Rev 6.02 §6.2.21,
+p.99), and "If both exceptions occur on the same instruction, the Coprocessor Unusable Exception
+takes priority over the Reserved Instruction Exception" (Table 6.6, p.83). -/
+def isCop0Word (w : W32) : Bool :=
+  opcodeOf w == 0x10#32 || opcodeOf w == 0x2f#32
+
+/-- Raise Coprocessor Unusable for coprocessor 0: `Cause.ExcCode = CpU` (11),
+`Cause.CE = 0` ("unit number of the coprocessor being referenced", MD00090 Vol III
+Rev 6.02 §6.2.22, p.100). -/
+def takeCop0Unusable (s : State) : State :=
+  exceptionEntry s excCodeCpU 0#32
 
 /-- The instructions that need `Status.CU1` (MD00090 Vol III Rev 6.02
 §6.2.22, p.100: "A COP1, COP1X, LWC1, SWC1, LDC1, SDC1 or MOVCI (Special
@@ -1258,8 +1320,9 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- EPC, (15,0) PRId, (15,1) EBase, (16,0) Config, (16,1) Config1, (30,0)
   -- ErrorEPC. `decode` only produces `mfc0`/`mtc0` for these; an
   -- `Instruction` value built by hand with any other pair raises Reserved
-  -- Instruction, matching what the undecodable word would do. User mode is
-  -- not modeled, so these never raise Coprocessor Unusable.
+  -- Instruction, matching what the undecodable word would do. Outside Kernel
+  -- Mode with `Status.CU0 = 0` they raise Coprocessor Unusable before reaching
+  -- this arm (`execInstr`, `usesCop0`).
   | .mfc0 rt rd sel =>
     match rd.toNat, sel.toNat with
     | 8, 0 => mkNext s (writeReg s (regIdx rt) s.cp0BadVAddr)
@@ -1344,7 +1407,14 @@ taken in the delay slot: `EPC` = the branch, `Cause.BD = 1` (`exceptionEntry`).
 to `false` by computation for any non-branch instruction, whatever `s` is.)
 
 Second check: a coprocessor-1 instruction (`usesCop1`) with `Status.CU1 = 0`
-raises Coprocessor Unusable and does nothing else.
+raises Coprocessor Unusable (`Cause.CE = 1`) and does nothing else.
+
+Third check: a coprocessor-0 instruction (`usesCop0`) executed when coprocessor 0 is not usable
+(`cp0Usable`: not Kernel Mode and `Status.CU0 = 0`) raises Coprocessor Unusable (`Cause.CE = 0`)
+and does nothing else (MD00090 Vol III Rev 6.02 §6.2.22, p.100). The second and third checks
+concern disjoint sets of instructions, so their order does not matter. The first check comes
+before the third: `eret` or `wait` in a delay slot is UNDEFINED (ERET p.177, WAIT p.442) and the
+pin is Reserved Instruction in every mode.
 
 Otherwise the instruction's effect is `execBody s instr`. -/
 def execInstr (s : State) (instr : Instruction) : State :=
@@ -1352,17 +1422,21 @@ def execInstr (s : State) (instr : Instruction) : State :=
     takeException s excCodeRI
   else if usesCop1 instr && !cu1Enabled s then
     takeCoprocessorUnusable s
+  else if usesCop0 instr && !cp0Usable s then
+    takeCop0Unusable s
   else execBody s instr
 
 /-- One instruction time: fetch the word at `s.pc` from memory, decode, execute.
 
 * Fetch is `readMemWord s s.pc`, a big-endian word read from `State.mem`; it fails only for a
   misaligned `pc`, which raises Address Error (AdEL) with `BadVAddr = pc`.
-* A word that does not decode: Reserved Instruction — except that a word
-  in coprocessor 1's encoding space (`isCop1Word`) raises Coprocessor
-  Unusable (`CE = 1`) when `Status.CU1 = 0`, and a word in coprocessor 2's
-  (`isCop2Word`) always raises Coprocessor Unusable (`CE = 2`): the model has
-  no coprocessor 2 and `Status.CU2` reads 0.
+* A word that does not decode: Reserved Instruction — except that a COP0 or
+  CACHE word (`isCop0Word`) raises Coprocessor Unusable (`CE = 0`) when
+  coprocessor 0 is not usable (`cp0Usable`), a word in coprocessor 1's
+  encoding space (`isCop1Word`) raises Coprocessor Unusable (`CE = 1`) when
+  `Status.CU1 = 0`, and a word in coprocessor 2's (`isCop2Word`) always raises
+  Coprocessor Unusable (`CE = 2`): the model has no coprocessor 2 and
+  `Status.CU2` reads 0.
 * Otherwise `execInstr`.
 
 There is no halting case: the result is always the next architectural state. -/
@@ -1372,7 +1446,8 @@ def step (s : State) : State :=
   | some w =>
     match decode w with
     | none =>
-      if isCop1Word w && !cu1Enabled s then takeCoprocessorUnusable s
+      if isCop0Word w && !cp0Usable s then takeCop0Unusable s
+      else if isCop1Word w && !cu1Enabled s then takeCoprocessorUnusable s
       else if isCop2Word w then exceptionEntry s excCodeCpU 2#32
       else takeException s excCodeRI
     | some instr => execInstr s instr
@@ -1383,3 +1458,48 @@ recursion on `n`. -/
 def run (s : State) : Nat → State
   | 0 => s
   | n + 1 => run (step s) n
+
+/-! ## Reset -/
+
+/-- **The Reset exception** (cold reset), taken from state `s` (MD00090 Vol III Rev 6.02 §6.2.5
+"Reset Exception", p.89-90). "On a Reset Exception, only the following registers have defined
+state"; the Operation (p.89-90), restricted to the registers this model has:
+
+```
+StatusBEV ← 1;  StatusERL ← 1
+StatusRP ← 0;  StatusTS ← 0;  StatusSR ← 0;  StatusNMI ← 0   -- not implemented: read as 0
+CauseDC ← 0
+EBaseExceptionBase ← 0                                     -- EBase reads 0x8000_0000
+Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1 fixed
+if InstructionInBranchDelaySlot then ErrorEPC ← restartPC  # PC of branch/jump
+else ErrorEPC ← restartPC                                  # PC of instruction
+PC ← 0xBFC0 0000
+```
+
+The rest of the Operation names registers the model does not implement (Random, PageMask,
+PageGrain, Wired, HWREna, EntryHi, IntCtl, SRSCtl, SRSMap, Config2, Config3, WatchLo,
+PerfCnt): nothing to do. Every register the section does not list keeps whatever it held: its
+reset state is undefined, and keeping it is one legal value (pin). In particular the other
+`Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor
+is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch is dropped (the
+reset "aborts state machines", p.89; "restart PC" is the branch when the interrupted instruction
+was in a delay slot, `s.pc - 4`), and `LLbit` is cleared (its reset state is not given). -/
+def resetException (s : State) : State :=
+  { s with
+      cp0Status := s.cp0Status ||| statusBevMask ||| statusErlMask
+      cp0Cause := s.cp0Cause &&& ~~~causeDcMask
+      cp0EBase := ebaseFixedBits
+      cp0ConfigK0 := 2#3
+      cp0ErrorEpc := if s.pendingBranch.isSome then s.pc - 4#32 else s.pc
+      pc := resetVector
+      pendingBranch := none
+      llBit := false }
+
+/-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose
+values for the registers the reset leaves undefined are all pinned to 0, `State.lean`). So
+`pc = 0xBFC0_0000`, `Status = BEV | ERL` (0x0040_0004: Kernel Mode, bootstrap vectors, CU0 = CU1
+= 0), `Cause = 0`, `EBase` reads 0x8000_0000, `Config.K0 = 2`, `ErrorEPC = 0` (the restart PC
+of a power-on reset is not meaningful, p.89: "this value may or may not be predictable if the
+Reset Exception was taken as the result of power being applied to the processor"), every GPR,
+`HI`/`LO`, FPR and `FCSR` 0, memory empty. Properties: `Specs/Reset.lean`. -/
+def resetState : State := resetException powerOnState

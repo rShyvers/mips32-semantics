@@ -50,14 +50,14 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1038 lines) states **73 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1153 lines) states **83 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 73 statements are a selection: every global theorem below and at least one per-instruction
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 83 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
 **(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 178
@@ -79,11 +79,13 @@ The results that are genuinely global, or independent of how an individual instr
 | `$zero` is unchanged by every `step`, every `run` and every hosted run; a write to `$zero` is never observable | `Specs/Invariants.lean`, `Specs/Hosted.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable`, `runHosted_preserves_zero_register` |
 | register files keep size 32 under `step`; `run` from `initialState` is well-formed | `Specs/RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed` |
 | exception entry: vector, `EXL`, pending branch abandoned, `LLbit` cleared, `EPC`/`Cause.BD` with and without delay slot, `ExcCode`, `CE` | `Specs/Exception.lean` | `exceptionEntry_always`, `_exl0_not_in_delay_slot`, `_exl0_in_delay_slot`, `_exl1`, `_excCode` (`_ce` is in `Exception.lean` only) |
-| fetch from memory; fetch/decode failure: misaligned `pc`, undecodable word, Reserved Instruction | `Specs/Fetch.lean` | `step_fetches_from_memory`, `step_misaligned_pc`, `step_undecodable`, `step_reserved_instruction` |
+| fetch from memory; fetch/decode failure: misaligned `pc`, undecodable word, Reserved Instruction, Coprocessor Unusable for an undecodable COP0/CACHE word outside Kernel Mode | `Specs/Fetch.lean` | `step_fetches_from_memory`, `step_misaligned_pc`, `step_undecodable`, `step_reserved_instruction`, `step_reserved_cop0_unusable` |
 | self-modifying code: a store to the next instruction is what executes next | `Specs/SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` |
 | general delay-slot theorem; a control transfer in a delay slot raises Reserved Instruction (pin) | `Specs/DelaySlot.lean` | `delay_slot_commits_target`; `branch_in_delay_slot_reserved_instruction` |
 | the hosted run is `step` whenever it neither stops nor performs a service; the services | `Specs/Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run`, `hosted_print_int`, `hosted_exit` |
-| Coprocessor Unusable | `Specs/FpuCommon.lean` | `fp_coprocessor_unusable` |
+| Coprocessor Unusable | `Specs/FpuCommon.lean`, `Specs/Cp0.lean` | `fp_coprocessor_unusable`, `cp0_instruction_user_mode_unusable` |
+| operating modes: User Mode is `UM = 1`, `EXL = ERL = 0`; CP0 unusable exactly in User Mode with `CU0 = 0`; exception entry enters Kernel Mode (UM kept); `eret` returns to User Mode | `Specs/Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
+| Reset exception and reset state; the hosted start state is reset followed by the environment's boot convention (and equals `initialState textBase`) | `Specs/Reset.lean` | `resetException_spec`, `resetState_spec`, `hostedStart_is_reset_then_boot` |
 | FP trap: an enabled FP exception takes ExcCode 15 and writes no FP register | `Specs/FpuCommon.lean` | `fpCompletesS_trap` (single-precision finish helper; the double and compare analogues `fpCompletesD_trap`, `fpCompletesCmp_trap` are in `FpuCommon.lean`) |
 | FCSR round trip through `ctc1`/`cfc1` | `Specs/FpuControl.lean` | `fcsr_ctc1_cfc1_roundtrip` |
 | FP compare: what the result bit means for all operands (unordered, equal, less, in terms of sign/exponent/fraction fields) | `Semantics/FpCompareFacts.lean`, `Specs/FpuCompare.lean` | `c_lt_s_sets_cc` only; the characterisation is kernel-checked but not in the surface |
@@ -163,7 +165,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | J-type | 2 | 2 | 2 | 1 | j, jal |
 | syscall | 1 | 1 | 1 | 1 | syscall |
 | R-type trap-on-condition | 9 | 9 | 7 | 9 | teq, tne, tlt, tge, tltu, tgeu, break, sync, pref |
-| Coprocessor 0 | 6 | 6 | 0 | 5 | mfc0, mtc0, di, ei, eret, wait |
+| Coprocessor 0 | 6 | 6 | 0 | 6 | mfc0, mtc0, di, ei, eret, wait |
 | Coprocessor 1 | 15 | 15 | 6 | 15 | mfc1, mtc1, mfhc1, mthc1, cfc1, ctc1, lwc1, swc1, ldc1, sdc1, lwxc1, ldxc1, swxc1, sdxc1, prefx |
 | Arithmetic, single | 18 | 18 | 16 | 18 | add.s, sub.s, mul.s, div.s, sqrt.s, abs.s, mov.s, neg.s, recip.s, rsqrt.s, round.w.s, trunc.w.s, ceil.w.s, floor.w.s, cvt.w.s, cvt.d.s, cvt.s.w, cvt.d.w |
 | Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
@@ -171,7 +173,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
 | Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
 | FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **178** | **178** | **119** | **176** | |
+| **Total** | **178** | **178** | **119** | **177** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->
@@ -187,8 +189,9 @@ Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md
   `cvt.s.l`, `cvt.d.l`) and paired-single (`*.ps`, `alnv.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu`).
   `pause` and `nal` assemble and decode as `sll $0,$0,5` and `bltzal $0` (`PAUSE` executes as the NOP the manual permits).
 - State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB and
-  mapped address translation, caches, `WatchLo`/`WatchHi`, user mode (`Status.UM`/`KSU`/`CU0`; everything runs as
-  kernel), EJTAG, coprocessor 2, `Config2`..`Config5`.
+  mapped address translation and the User-Mode address checks (Kernel/User Mode and the CP0 access rule are modeled;
+  a kernel-segment reference from User Mode is not yet an Address Error), caches, `WatchLo`/`WatchHi`, EJTAG,
+  coprocessor 2, `Config2`..`Config5`.
 - The manuals themselves are inconsistent about the L format with `FR = 0` (`FIR.L = 1` is required, the L-format
   instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 1` and leaves the L format undecoded (SPEC-NOTES §9 item 13).
 
@@ -263,11 +266,14 @@ vendor/mars/                   the MARS 4.5 jar, used by DiffHarness only
 
 ## MipsRun
 
-`lake exe MipsRun [--max-steps N] [--bare] [prog.asm]` assembles a program (file or stdin), loads it (`Env.load`)
+`lake exe MipsRun [--max-steps N] [--bare] [--reset] [prog.asm]` assembles a program (file or stdin), loads it (`Env.load`)
 and runs it hosted (`Env.runHosted`; default bound 1000000 steps), printing one JSON object. The hosted run
 performs the MARS-style `syscall` services 1/4/10/11 and stops by the environment's conventions (exit, an
 exception vector the loaded image does not cover, `pc` outside the image); `--bare` performs no service, so every
-`syscall` is the architectural System Call exception (the stopping conventions still apply). Exit code 0:
+`syscall` is the architectural System Call exception (the stopping conventions still apply). The default start state
+is the architectural reset state followed by the environment's boot convention (`Env.hostedStart`: `pc = 0x0040_0000`,
+`Status = CU1`, `$sp = 0x7FFF_EFFC`); `--reset` starts from the reset state itself (`pc = 0xBFC0_0000`,
+`Status.BEV = ERL = 1`), so the program must provide boot code at the reset vector (`.ktext 0xBFC00000`). Exit code 0:
 assembled and ran to a stop or the step limit; 1: assembly failed (`"assembled": false`, `"error"` set, other
 fields `null`); 2: usage or I/O error (no JSON).
 

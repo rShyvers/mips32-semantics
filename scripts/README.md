@@ -116,7 +116,7 @@ end of the text (the model reports `no_instruction`, QEMU a TLB refill; both cou
 
 ### What is compared (and what is masked, with reasons)
 GPRs (all 32; **nothing** is ignored by default: the harness preserves $k0/$k1), HI, LO, FPRs (raw 32-bit), FCSR under the model's `fcsr_mask`,
-Status & `0x2040ff07` (IE, EXL, ERL, IM7..0, BEV, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; QEMU's TI, IP7..IP2, WP, PCI are hardware state the model lacks),
+Status & `0x3040ff17` (IE, EXL, ERL, UM, IM7..0, BEV, CU0, CU1), Cause & `0xb880037c` (BD, CE, DC, IV, IP1..0, ExcCode; QEMU's TI, IP7..IP2, WP, PCI are hardware state the model lacks),
 EPC, BadVAddr, ErrorEPC, pc, syscall output, final data+stack memory, termination kind (+ ExcCode for exceptions).
 Skipped by termination kind: for `no_instruction` the Status/Cause/EPC/BadVAddr/pc (QEMU's describe its TLB refill); for `exit` the EPC (QEMU's syscall exception clobbers it).
 Not observable on QEMU: the LL bit (reported by MipsRun, not compared; `ll_sc_*` tests observe it through `sc`).

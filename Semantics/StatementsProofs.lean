@@ -109,16 +109,24 @@ theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
 theorem step_undecodable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none) :
     step s =
-      if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
+      if isCop0Word w && !cp0Usable s then (exceptionEntry s excCodeCpU 0#32)
+      else if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
       else if isCop2Word w then (exceptionEntry s excCodeCpU 2#32)
       else takeException s excCodeRI :=
   _root_.step_undecodable s w hfetch hdecode
 
 theorem step_reserved_instruction (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
+    (hc0 : isCop0Word w = false ∨ cp0Usable s = true)
     (hc1 : isCop1Word w = false) (hc2 : isCop2Word w = false) :
     step s = takeException s excCodeRI :=
-  _root_.step_reserved_instruction s w hfetch hdecode hc1 hc2
+  _root_.step_reserved_instruction s w hfetch hdecode hc0 hc1 hc2
+
+theorem step_reserved_cop0_unusable (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
+    (hc0 : isCop0Word w = true) (hcu : cp0Usable s = false) :
+    step s = takeCop0Unusable s :=
+  _root_.step_reserved_cop0_unusable s w hfetch hdecode hc0 hcu
 
 /-! ## Delay slots -/
 
@@ -454,7 +462,7 @@ theorem syscall_spec_raw (s : State) (w code : W32)
 
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
@@ -469,11 +477,11 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI :=
-  _root_.mfc0_spec_raw s w rt rd sel hfetch hdecode hpb
+  _root_.mfc0_spec_raw s w rt rd sel hfetch hdecode hpb hcp0
 
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       match rd.toNat, sel.toNat with
       | 8, 0 => { s with pc := s.pc + 4#32 }
@@ -496,17 +504,85 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | _, _ => takeException s excCodeRI :=
-  _root_.mtc0_spec_raw s w rt rd sel hfetch hdecode hpb
+  _root_.mtc0_spec_raw s w rt rd sel hfetch hdecode hpb hcp0
 
 theorem eret_spec_raw (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       if s.cp0Status &&& statusErlMask != 0#32 then
         { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
       else
         { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false } :=
-  _root_.eret_spec_raw s w hfetch hdecode hpb
+  _root_.eret_spec_raw s w hfetch hdecode hpb hcp0
+
+
+/-! ## Operating modes and reset -/
+
+theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
+    (huses : usesCop0 instr = true)
+    (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
+    (hcu : cp0Usable s = false) :
+    step s = exceptionEntry s excCodeCpU 0#32 :=
+  _root_.cp0_instruction_user_mode_unusable s w instr hfetch hdecode huses hnb hcu
+
+theorem cp0Usable_false_iff (s : State) :
+    cp0Usable s = false ↔ (userMode s = true ∧ s.cp0Status &&& statusCu0Mask = 0#32) :=
+  _root_.cp0Usable_false_iff s
+
+theorem userMode_iff (s : State) :
+    userMode s = true ↔
+      (s.cp0Status &&& statusUmMask ≠ 0#32 ∧ s.cp0Status &&& statusExlMask = 0#32 ∧
+        s.cp0Status &&& statusErlMask = 0#32) :=
+  _root_.userMode_iff s
+
+theorem exception_from_user_mode_enters_kernel_mode (s : State) (code ce : W32)
+    (hu : userMode s = true) :
+    kernelMode (exceptionEntry s code ce) = true ∧ userMode (exceptionEntry s code ce) = false ∧
+      (exceptionEntry s code ce).cp0Status &&& statusUmMask ≠ 0#32 ∧
+      (exceptionEntry s code ce).cp0Status &&& statusExlMask = statusExlMask :=
+  _root_.exception_from_user_mode_enters_kernel_mode s code ce hu
+
+theorem exceptionEntry_enters_kernel_mode (s : State) (code ce : W32) :
+    kernelMode (exceptionEntry s code ce) = true :=
+  _root_.exceptionEntry_enters_kernel_mode s code ce
+
+theorem eret_to_user_mode (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
+    (hpb : s.pendingBranch = none)
+    (herl : s.cp0Status &&& statusErlMask = 0#32) (hexl : s.cp0Status &&& statusExlMask ≠ 0#32)
+    (hum : s.cp0Status &&& statusUmMask ≠ 0#32) :
+    (step s).pc = s.cp0Epc ∧ userMode (step s) = true :=
+  _root_.eret_to_user_mode s w hfetch hdecode hpb herl hexl hum
+
+theorem resetException_spec (s : State) :
+    (resetException s).pc = 0xBFC00000#32 ∧
+    (resetException s).cp0Status &&& statusBevMask = statusBevMask ∧
+    (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
+    (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
+    ebaseValue (resetException s) = 0x80000000#32 ∧
+    configValue (resetException s) = 0x80008402#32 ∧
+    (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
+    (resetException s).pendingBranch = none ∧
+    kernelMode (resetException s) = true ∧
+    exceptionVector (resetException s) = 0xBFC00380#32 :=
+  _root_.resetException_spec s
+
+theorem resetState_spec :
+    resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
+    resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
+    resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
+    configValue resetState = 0x80008402#32 ∧ kernelMode resetState = true ∧
+    exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
+    resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
+    resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
+    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 :=
+  _root_.resetState_spec
+
+theorem hostedStart_is_reset_then_boot :
+    hostedStart = bootConvention textBase resetState ∧ hostedStart = initialState textBase :=
+  _root_.hostedStart_is_reset_then_boot
 
 /-! ## Floating point -/
 

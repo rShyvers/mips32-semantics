@@ -36,7 +36,8 @@ theorem syscall_spec_raw (s : State) (w code : W32)
   dsimp only
   unfold execInstr execBody
   simp only [show isBranchLike (Instruction.syscall code) = false from rfl,
-    show usesCop1 (Instruction.syscall code) = false from rfl, Bool.false_and, Bool.false_eq_true,
+    show usesCop1 (Instruction.syscall code) = false from rfl,
+    show usesCop0 (Instruction.syscall code) = false from rfl, Bool.false_and, Bool.false_eq_true,
     ↓reduceIte]
 
 /-! ### Satisfiable examples -/

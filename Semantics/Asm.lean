@@ -173,7 +173,8 @@ location counter: `.text` (default `textBase`, 0x00400000), `.data`
 0x90000000). A segment directive with an address operand (`.data
 0x10000000`, `.text 0x00400100`) moves that segment's location counter
 there; without an operand the segment resumes where it left off. Execution
-still starts at `textBase` (the harnesses' `initialState textBase`), exactly
+still starts at `textBase` (the hosted start state `Env.hostedStart`; `MipsRun --reset`
+starts at the reset vector `0xBFC00000`, which `.ktext 0xBFC00000` can fill), exactly
 as in MARS. Two items that would occupy the same bytes are an error, as is
 running past address 2^32.
 

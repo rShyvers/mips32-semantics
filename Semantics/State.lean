@@ -13,20 +13,48 @@ composition rules (SPEC-NOTES §1,§4,§7; INSTRUCTION-REF Global rules §2,§4,
 Depends only on the foundation (`Word`, `Types`); read-only there.
 -/
 
+/-- **Power-on values** of the state the Reset exception leaves undefined (pins). On a Reset
+Exception "only the following registers have defined state" (MD00090 Vol III Rev 6.02 §6.2.5,
+p.89): the GPRs, `HI`/`LO`, the FPRs, `FCSR`, `EPC`, `BadVAddr`, most of `Status` and `Cause` are
+not in that list, so the architecture leaves their reset value undefined. The model pins every
+one of them to 0: all GPRs (including `$sp`), `HI`, `LO`, all FPRs, `FCSR` (whose fields have reset
+state "Undefined", MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95), `Status`, `Cause`, `EPC`,
+`BadVAddr`, `ErrorEPC`, `LLAddr`; `LLbit` clear, no pending branch, empty memory (bytes read 0),
+and `pc = 0`. `EBase` and `Config.K0` hold the values the Reset exception gives them anyway.
+This is *not* the reset state: `Step.lean`'s `resetState` is `resetException powerOnState`. -/
+def powerOnState : State :=
+  { pc := 0#32
+    regs := Array.replicate 32 (0#32)
+    hi := 0#32
+    lo := 0#32
+    fpRegs := Array.replicate 32 (0#32)
+    fcsr := 0#32
+    mem := ∅
+    pendingBranch := none
+    llBit := false
+    cp0Status := 0#32
+    cp0Cause := 0#32
+    cp0Epc := 0#32
+    cp0BadVAddr := 0#32
+    cp0ErrorEpc := 0#32
+    llAddr := 0#32
+    cp0EBase := ebaseFixedBits
+    cp0ConfigK0 := 2#3 }
+
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
 `hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; memory is empty
 (the loader, `Semantics/Env.lean`'s `load`, then writes the program image into it);
 `llBit` is `false` (no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot).
 
-**Environment conventions** (the state a program finds when it starts, as if
-boot code / an operating system had set the machine up; none of these is the
-architectural reset state, MD00090 Vol III Rev 6.02 §6.2.5, p.89-90; the hosted environment's
-start state is `Env.lean`'s `hostedStart`):
+**Environment conventions** (the state a program finds when it starts, after boot code has
+run). `Env.lean` defines the hosted start state as the architectural reset state followed by an
+explicit boot convention, `hostedStart = bootConvention textBase resetState`, and proves that it
+equals `initialState textBase` (`Specs/Reset.lean`, `hostedStart_is_reset_then_boot`):
 
-* `Status = 0x2000_0000`: only `CU1` set, so user programs can use the FPU
-  (clear it with `mtc0` to get Coprocessor Unusable exceptions). Reset would
-  set `BEV` and `ERL`; the model starts as if boot code had cleared them.
+* `Status = 0x2000_0000`: only `CU1` set (Kernel Mode, `BEV = ERL = 0`), so programs can use
+  the FPU (clear it with `mtc0` to get Coprocessor Unusable exceptions). Reset sets `BEV` and
+  `ERL`; the boot convention clears them.
 * `FCSR = 0`: round to nearest, no exception enabled, flags and cause clear,
   all eight condition codes 0, `FS = 0`. The manual makes every FCSR field's
   reset state "Undefined" (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95).

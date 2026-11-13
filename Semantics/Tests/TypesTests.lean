@@ -81,7 +81,11 @@ example : excCodeBp = 9#32 := by decide
 example : excCodeTr = 13#32 := by decide
 example : statusExlMask = 2#32 := by decide
 example : exceptionVectorBevAddr = 0xbfc00380#32 := by decide
-example : statusWriteMask = statusIeMask ||| statusExlMask ||| statusErlMask ||| statusImMask
-    ||| statusBevMask ||| statusCu1Mask := by decide
+example : statusWriteMask = statusIeMask ||| statusExlMask ||| statusErlMask ||| statusUmMask
+    ||| statusImMask ||| statusBevMask ||| statusCu0Mask ||| statusCu1Mask := by decide
+example : statusUmMask = 1#32 <<< 4 := by decide
+example : statusCu0Mask = 1#32 <<< 28 := by decide
+example : causeDcMask = 1#32 <<< 27 := by decide
+example : resetVector = 0xbfc00000#32 := by decide
 example : causeWriteMask = (1#32 <<< 27) ||| (1#32 <<< 23) ||| (3#32 <<< 8) := by decide
 example : causeExcCodeMask = 0x1f#32 <<< 2 := by decide

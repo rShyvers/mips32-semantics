@@ -202,9 +202,11 @@ theorem execInstr_sizesKept (s : State) (instr : Instruction) :
   · exact (sizesKept_takeException _ _).mpr trivial
   · split
     · exact (sizesKept_takeCoprocessorUnusable _).mpr trivial
-    · unfold execBody
-      cases instr <;> dsimp only <;>
-        repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split)
+    · split
+      · exact (sizesKept_exceptionEntry _ _ _).mpr trivial
+      · unfold execBody
+        cases instr <;> dsimp only <;>
+          repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split)
 
 /-! ## Statements -/
 
@@ -218,7 +220,9 @@ theorem step_preserves_regfile_sizes (s : State) :
   · split
     · split
       · exact ⟨rfl, rfl⟩
-      · split <;> exact ⟨rfl, rfl⟩
+      · split
+        · exact ⟨rfl, rfl⟩
+        · split <;> exact ⟨rfl, rfl⟩
     · exact execInstr_sizesKept _ _
 
 /-- **Well-formedness is preserved by `step`**: if both register files have 32 entries before a

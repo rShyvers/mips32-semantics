@@ -179,23 +179,38 @@ theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
 /-- **A word that does not decode** raises Reserved Instruction (ExcCode
 10) — unless it lies in a coprocessor's encoding space and that coprocessor
 is unusable, in which case Coprocessor Unusable takes precedence (MD00090
-Vol III Rev 6.02 §6.2.21, p.99): coprocessor 1 (`isCop1Word`) when
+Vol III Rev 6.02 §6.2.21, p.99; Table 6.6, p.83): coprocessor 0 (`isCop0Word`:
+COP0 or CACHE) when coprocessor 0 is not usable (`cp0Usable`: not Kernel Mode
+and `Status.CU0 = 0`), with `Cause.CE = 0`; coprocessor 1 (`isCop1Word`) when
 `Status.CU1 = 0`, with `Cause.CE = 1`; coprocessor 2 (`isCop2Word`), which
 the model does not have, always, with `Cause.CE = 2`. -/
 theorem step_undecodable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none) :
     step s =
-      if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
+      if isCop0Word w && !cp0Usable s then (exceptionEntry s excCodeCpU 0#32)
+      else if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
       else if isCop2Word w then (exceptionEntry s excCodeCpU 2#32)
       else takeException s excCodeRI := by
   sorry
 
-/-- **A word that does not decode and is in no coprocessor's encoding space
-raises Reserved Instruction** (ExcCode 10). -/
+/-- **A word that does not decode and is in no unusable coprocessor's encoding space
+raises Reserved Instruction** (ExcCode 10): not a COP1/COP2 word, and either not a COP0/CACHE
+word or coprocessor 0 is usable (Kernel Mode, or `Status.CU0 = 1`). -/
 theorem step_reserved_instruction (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
+    (hc0 : isCop0Word w = false ∨ cp0Usable s = true)
     (hc1 : isCop1Word w = false) (hc2 : isCop2Word w = false) :
     step s = takeException s excCodeRI := by
+  sorry
+
+/-- **A COP0 or CACHE word that does not decode, executed when coprocessor 0 is not usable,
+raises Coprocessor Unusable with `Cause.CE = 0`**, not Reserved Instruction (MD00090 Vol III
+Rev 6.02 §6.2.21, p.99; §6.2.22, p.100). Covers the unimplemented COP0 instructions (TLB
+instructions, DERET, RDPGPR, WRPGPR, reserved encodings) and CACHE. -/
+theorem step_reserved_cop0_unusable (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
+    (hc0 : isCop0Word w = true) (hcu : cp0Usable s = false) :
+    step s = takeCop0Unusable s := by
   sorry
 
 /-! ## Delay slots
@@ -716,11 +731,12 @@ Proved in `Semantics/Specs/` — Cp0.lean. -/
 PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1, `(30,0)` ErrorEPC.
 `decode` produces `mfc0` only for these; for any other pair (reachable only
 through a hand-built `Instruction`) the step raises Reserved Instruction,
-which is also what the undecodable word does. User mode is not modeled, so
-Coprocessor Unusable is never raised. -/
+which is also what the undecodable word does. Coprocessor 0 must be usable
+(`hcp0`: Kernel Mode or `Status.CU0 = 1`); otherwise see
+`cp0_instruction_user_mode_unusable`. -/
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
@@ -739,16 +755,17 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
 
 /-- **`mtc0` writes GPR `$rt` into a modeled CP0 register, through that
 register's write mask.** `Status` (12,0) keeps only `statusWriteMask` (IE,
-EXL, ERL, IM7..0, BEV, CU1; every other bit reads as zero). `Cause` (13,0)
+EXL, ERL, UM, IM7..0, BEV, CU0, CU1; every other bit reads as zero). `Cause` (13,0)
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
 writable. `EBase` (15,1) takes bits 29..12 of the written value under the
 fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
 `BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
-raises Reserved Instruction, as for `mfc0_spec_raw`. -/
+raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
+usable (`hcp0`). -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       match rd.toNat, sel.toNat with
       | 8, 0 => { s with pc := s.pc + 4#32 }
@@ -776,15 +793,112 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
 /-- **`eret`** (MD00086 "ERET"), executed outside a delay slot:
 `if Status.ERL = 1 then PC ← ErrorEPC, ERL ← 0 else PC ← EPC, EXL ← 0`,
 and **always `LLbit ← 0`**. It has no delay slot of its own: `pc` is set in
-this very step. -/
+this very step. Coprocessor 0 must be usable (`hcp0`). -/
 theorem eret_spec_raw (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
-    (hpb : s.pendingBranch = none) :
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
     step s =
       if s.cp0Status &&& statusErlMask != 0#32 then
         { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
       else
         { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false } := by
+  sorry
+
+
+/-! ## Operating modes and reset
+
+Proved in `Semantics/Specs/` — Cp0.lean, Mode.lean, Reset.lean. -/
+
+/-- **Every coprocessor-0 instruction executed outside Kernel Mode with `Status.CU0 = 0` raises
+Coprocessor Unusable with `Cause.CE = 0`, and does nothing else.** `usesCop0`: `mfc0`, `mtc0`,
+`di`, `ei`, `eret`, `wait` (MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI
+p.176, ERET p.178, WAIT p.443, "Exceptions: Coprocessor Unusable"); the rule is MD00090 Vol III
+Rev 6.02 §6.2.22, p.100 ("A COP0 or Cache instruction was executed while the processor was running
+in a mode other than Debug Mode or Kernel Mode, and the CU0 bit in the Status register was a
+zero"). `hnb` excludes `eret`/`wait` in a delay slot (UNDEFINED; pinned to Reserved Instruction,
+`branch_in_delay_slot_reserved_instruction`). -/
+theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
+    (huses : usesCop0 instr = true)
+    (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
+    (hcu : cp0Usable s = false) :
+    step s = exceptionEntry s excCodeCpU 0#32 := by
+  sorry
+
+/-- **Coprocessor 0 is unusable exactly in User Mode with `Status.CU0 = 0`** (MD00090 Vol III
+Rev 6.02 §3.5.3, p.23). -/
+theorem cp0Usable_false_iff (s : State) :
+    cp0Usable s = false ↔ (userMode s = true ∧ s.cp0Status &&& statusCu0Mask = 0#32) := by
+  sorry
+
+/-- **User Mode** is `Status.UM = 1`, `Status.EXL = 0`, `Status.ERL = 0` (MD00090 Vol III
+Rev 6.02 §3.4, p.22; Supervisor Mode is not implemented, so `KSU = UM ‖ 0`, Table 9.47 p.195);
+Kernel Mode is every other state (§3.2, p.21). -/
+theorem userMode_iff (s : State) :
+    userMode s = true ↔
+      (s.cp0Status &&& statusUmMask ≠ 0#32 ∧ s.cp0Status &&& statusExlMask = 0#32 ∧
+        s.cp0Status &&& statusErlMask = 0#32) := by
+  sorry
+
+/-- **An exception taken from User Mode enters Kernel Mode**, with `Status.EXL = 1` and
+`Status.UM` still 1 (MD00090 Vol III Rev 6.02 §3.2, p.21; §6.2.3, p.86-88). -/
+theorem exception_from_user_mode_enters_kernel_mode (s : State) (code ce : W32)
+    (hu : userMode s = true) :
+    kernelMode (exceptionEntry s code ce) = true ∧ userMode (exceptionEntry s code ce) = false ∧
+      (exceptionEntry s code ce).cp0Status &&& statusUmMask ≠ 0#32 ∧
+      (exceptionEntry s code ce).cp0Status &&& statusExlMask = statusExlMask := by
+  sorry
+
+/-- **Exception entry always enters Kernel Mode** (it sets `Status.EXL`). -/
+theorem exceptionEntry_enters_kernel_mode (s : State) (code ce : W32) :
+    kernelMode (exceptionEntry s code ce) = true := by
+  sorry
+
+/-- **`eret` returns to User Mode** at `EPC` when `Status.ERL = 0`, `Status.EXL = 1` and
+`Status.UM = 1` (MD00086 Vol II-A Rev 6.06, ERET, p.177). -/
+theorem eret_to_user_mode (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
+    (hpb : s.pendingBranch = none)
+    (herl : s.cp0Status &&& statusErlMask = 0#32) (hexl : s.cp0Status &&& statusExlMask ≠ 0#32)
+    (hum : s.cp0Status &&& statusUmMask ≠ 0#32) :
+    (step s).pc = s.cp0Epc ∧ userMode (step s) = true := by
+  sorry
+
+/-- **What the Reset exception defines** (MD00090 Vol III Rev 6.02 §6.2.5, p.89-90), from any
+state: `PC ← 0xBFC0_0000`, `Status.BEV ← 1`, `Status.ERL ← 1` (Kernel Mode, bootstrap vectors),
+`Cause.DC ← 0`, `EBase` reads `0x8000_0000`, `Config` reads `0x8000_8402` (`K0 = 2`),
+`ErrorEPC ←` the restart PC, no branch pending. -/
+theorem resetException_spec (s : State) :
+    (resetException s).pc = 0xBFC00000#32 ∧
+    (resetException s).cp0Status &&& statusBevMask = statusBevMask ∧
+    (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
+    (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
+    ebaseValue (resetException s) = 0x80000000#32 ∧
+    configValue (resetException s) = 0x80008402#32 ∧
+    (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
+    (resetException s).pendingBranch = none ∧
+    kernelMode (resetException s) = true ∧
+    exceptionVector (resetException s) = 0xBFC00380#32 := by
+  sorry
+
+/-- **The state after a cold reset** (`resetState = resetException powerOnState`; the registers
+whose reset state is undefined are pinned to 0 by `powerOnState`). -/
+theorem resetState_spec :
+    resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
+    resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
+    resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
+    configValue resetState = 0x80008402#32 ∧ kernelMode resetState = true ∧
+    exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
+    resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
+    resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
+    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 := by
+  sorry
+
+/-- **The hosted start state is the reset state followed by the environment's boot convention**
+(`Env.lean`, `bootConvention`: `Status ← CU1`, `$sp ← spInit`, `pc ← textBase`), and it equals
+`initialState textBase`. -/
+theorem hostedStart_is_reset_then_boot :
+    hostedStart = bootConvention textBase resetState ∧ hostedStart = initialState textBase := by
   sorry
 
 /-! ## Floating point

@@ -180,9 +180,9 @@ private def vectorHandlerProg : Program :=
           { (setRegs regs0 [(8, 0#32)]) with cp0Cause := 0x80c00334#32 } with
         | some s' => s'.cp0Cause == 0x80400034#32
         | none => false)
--- `mtc0` to Status keeps only IE, EXL, ERL, IM7..0, BEV, CU1.
+-- `mtc0` to Status keeps only IE, EXL, ERL, UM, IM7..0, BEV, CU0, CU1 (bit 3, R0, reads 0).
 #guard (match stepState (prog1 (.mtc0 8#32 12#32 0#32)) (setRegs regs0 [(8, 0xffffffff#32)]) with
-        | some s' => s'.cp0Status == 0x2040ff07#32
+        | some s' => s'.cp0Status == 0x3040ff17#32
         | none => false)
 -- BadVAddr (8) is read-only: `mtc0` to it is ignored; `mfc0` reads it.
 #guard (match stepState (prog1 (.mtc0 8#32 8#32 0#32)) { (setRegs regs0 [(8, 0x1234#32)]) with cp0BadVAddr := 0x77#32 } with
@@ -199,7 +199,7 @@ private def vectorHandlerProg : Program :=
         | none => false)
 
 -- mtc0 then mfc0 reads back the written value through the register's write
--- mask (Status: 0xabcd &&& 0x2040ff07; Cause: 0xabcd &&& 0x00800300; EPC: all).
+-- mask (Status: 0xabcd &&& 0x3040ff17; Cause: 0xabcd &&& 0x00800300; EPC: all).
 #guard (match stepState (prog1 (.mtc0 8#32 12#32 0#32)) (setRegs regs0 [(8, 0xabcd#32)]) with
         | some s' => nextRegEq (hstep (prog1 (.mfc0 9#32 12#32 0#32)) { s' with pc := textBase }) 9
             0xab05#32
@@ -414,3 +414,77 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 #guard (match hstep (prog1 (.mtc0 9#32 13#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
         | .next s => s.cp0Cause == 0x08800300#32
         | .halt _ => false)
+
+-- ### Operating modes: User Mode and Coprocessor Unusable for coprocessor 0
+-- (MD00090 Vol III Rev 6.02 §3.2-3.5.3, p.21-23; §6.2.22, p.100)
+
+/-- User Mode: `UM = 1`, `EXL = ERL = 0`, `CU0 = 0` (CU1 kept so FP is usable). -/
+private def userSt : State := { regs0 with cp0Status := 0x20000010#32 }
+
+/-- One step of `instr` at `textBase` from `s`. -/
+private def step1 (instr : Instruction) (s : State) : State := step (loadImage (prog1 instr) s)
+
+/-- `s` took Coprocessor Unusable for coprocessor 0 at `textBase` (CE = 0, EPC, BD = 0, EXL set,
+UM kept, vector 0x8000_0180) and changed no GPR. -/
+private def cp0Unusable (s : State) : Bool :=
+  causeExcCode s == excCodeCpU && s.cp0Cause &&& causeCeMask == 0#32 &&
+    s.cp0Cause &&& causeBdMask == 0#32 && s.cp0Epc == textBase &&
+    s.cp0Status == 0x20000012#32 && s.pc == exceptionVectorAddr && s.regs == userSt.regs
+
+#guard userMode userSt && !kernelMode userSt && !cp0Usable userSt
+-- Each coprocessor-0 instruction in User Mode with CU0 = 0 raises CpU (CE = 0).
+#guard cp0Unusable (step1 (.mfc0 8#32 12#32 0#32) userSt)
+#guard cp0Unusable (step1 (.mtc0 0#32 12#32 0#32) userSt)
+#guard cp0Unusable (step1 (.di 8#32) userSt)
+#guard cp0Unusable (step1 (.ei 8#32) userSt)
+#guard cp0Unusable (step1 .eret userSt)
+#guard cp0Unusable (step1 (.wait 0#32) userSt)
+-- Undecodable COP0 words (rs = 3 reserved; TLBP; RDPGPR) and CACHE: CpU in User Mode, RI in Kernel Mode.
+#guard (let w := 0x40600000#32
+        decode w == none && isCop0Word w &&
+        cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
+        causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI)
+#guard [0x42000008#32, 0x41400000#32, 0xbc000000#32].all fun w =>
+        decode w == none && isCop0Word w &&
+        cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
+        causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI
+-- Non-CP0 instructions run normally in User Mode (and FP with CU1 = 1).
+#guard (let s := step1 (.addiu 0#32 8#32 5#32) userSt
+        readReg s 8 == 5#32 && s.pc == textBase + 4#32 && userMode s)
+-- User Mode with CU0 = 1: coprocessor 0 is usable.
+#guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x30000010#32 }
+        readReg s 8 == 0x30000010#32 && s.pc == textBase + 4#32)
+-- UM = 1 with EXL = 1 or ERL = 1 is Kernel Mode: CP0 usable.
+#guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000012#32 }
+        readReg s 8 == 0x20000012#32 && s.pc == textBase + 4#32)
+#guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000014#32 }
+        readReg s 8 == 0x20000014#32 && s.pc == textBase + 4#32)
+-- `eret` in a delay slot is Reserved Instruction in User Mode too (pin; delay-slot check first).
+#guard causeExcCode (step1 .eret { userSt with pendingBranch := some 0x400100#32 }) == excCodeRI
+-- Any exception from User Mode enters Kernel Mode, UM still 1.
+#guard (let s := step1 (.break 0#32) userSt
+        causeExcCode s == excCodeBp && kernelMode s && s.cp0Status &&& statusUmMask != 0#32)
+-- `eret` from a handler (EXL = 1, UM = 1) returns to User Mode at EPC.
+#guard (let s := step1 .eret { userSt with cp0Status := 0x20000012#32, cp0Epc := 0x400100#32 }
+        s.pc == 0x400100#32 && userMode s && s.cp0Status == 0x20000010#32)
+-- `mtc0` writes UM and CU0 (Status write mask 0x3040ff17); bit 3 (R0) reads 0.
+#guard (let s := step1 (.mtc0 8#32 12#32 0#32) (setRegs regs0 [(8, 0x10000018#32)])
+        s.cp0Status == 0x10000010#32 && userMode s && cp0Usable s)
+
+-- ### Reset (MD00090 Vol III Rev 6.02 §6.2.5, p.89-90)
+
+#guard resetState.pc == 0xbfc00000#32 && resetState.cp0Status == 0x00400004#32 &&
+  kernelMode resetState && exceptionVector resetState == 0xbfc00380#32 &&
+  ebaseValue resetState == 0x80000000#32 && configValue resetState == 0x80008402#32 &&
+  resetState.cp0ErrorEpc == 0#32 && resetState.cp0Cause == 0#32
+-- An exception taken right after reset (BEV = 1) goes to the bootstrap vector 0xBFC0_0380;
+-- with ERL = 1 it is still Kernel Mode and CP0 is usable.
+#guard (let s := step (loadImage ((∅ : Program).insert 0xbfc00000#32 0x40600000#32) resetState)
+        causeExcCode s == excCodeRI && s.pc == 0xbfc00380#32 && s.cp0Epc == 0xbfc00000#32)
+-- Reset clears Cause.DC and keeps the other Cause bits; Status keeps UM/CU0 but sets BEV/ERL.
+#guard (let r := resetException { regs0 with cp0Cause := 0x08000300#32, cp0Status := 0x10000010#32 }
+        r.cp0Cause == 0x00000300#32 && r.cp0Status == 0x10400014#32 && kernelMode r &&
+          r.cp0ErrorEpc == textBase)
+-- The hosted start is the reset state followed by the boot convention.
+#guard hostedStart.pc == textBase && hostedStart.cp0Status == statusCu1Mask &&
+  readReg hostedStart 29 == spInit && kernelMode hostedStart

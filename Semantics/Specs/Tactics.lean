@@ -1,7 +1,7 @@
 import Semantics.Specs.Lemmas
 
 /-!
-# Tactics — the two proof scripts shared by the per-instruction specs
+# Tactics — the proof scripts shared by the per-instruction specs
 
 Almost every `<ctor>_spec_raw` theorem has the same shape
 
@@ -64,7 +64,8 @@ macro "fp_step_spec" : tactic => `(tactic| (
   dsimp only
   rw [hdecode]
   dsimp only
-  rw [execInstr_eq_body s _ (Or.inr hpb) (Or.inr hcu)]
+  rw [execInstr_eq_body s _ (Or.inr hpb) (Or.inr hcu) (Or.inl ?hcop0)]
+  case hcop0 => rfl
   first
     | (rw [← fpFinishS_eq s _ _ hpb]; rfl)
     | (rw [← fpFinishD_eq s _ _ hpb]; rfl)
@@ -74,3 +75,27 @@ macro "fp_step_spec" : tactic => `(tactic| (
        simp only at hpb
        subst hpb
        rfl)))
+
+set_option hygiene false in
+/-- `cp0_step_spec` is `step_spec` for the coprocessor-0 instructions (`usesCop0`), whose
+theorems carry the extra hypothesis `hcp0 : cp0Usable s = true` (Kernel Mode, or `Status.CU0 = 1`;
+otherwise the instruction raises Coprocessor Unusable, `cp0_instruction_user_mode_unusable`).
+
+Steps: (1) unfold `step`, rewrite the fetch and the decode; (2) `execInstr_eq_body` discharges
+the delay-slot guard (`hpb`), the coprocessor-1 guard (the instruction does not use coprocessor
+1: `rfl`) and the coprocessor-0 guard (`hcp0`); (3) substitute `pendingBranch := none` and close
+by `rfl`, as in `step_spec`. -/
+macro "cp0_step_spec" : tactic => `(tactic| (
+  unfold step
+  rw [hfetch]
+  dsimp only
+  rw [hdecode]
+  dsimp only
+  rw [execInstr_eq_body s _ (Or.inr hpb) (Or.inl ?hcop1) (Or.inr hcp0)]
+  case hcop1 => rfl
+  obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
+    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0⟩ := s
+  simp only at hpb
+  subst hpb
+  try dsimp only
+  rfl))

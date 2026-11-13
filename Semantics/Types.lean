@@ -85,24 +85,28 @@ structure State where
   intervening *load* the model lets the `sc` succeed — equally legal.)
   Defaults `false`. -/
   llBit : Bool := false
-  /-- Coprocessor 0 `Status` (register 12, sel 0). The model gives meaning to
-  exactly these bits, and `mtc0` can write only these (`statusWriteMask`);
-  all others read as zero:
+  /-- Coprocessor 0 `Status` (register 12, sel 0; MD00090 Vol III Rev 6.02 §9.32,
+  Table 9.47, p.189-196). The model gives meaning to exactly these bits, and
+  `mtc0` can write only these (`statusWriteMask`); all others read as zero:
 
   * `IE` (bit 0), `IM7..IM0` (bits 15..8) — stored and read back only; no
     interrupt is ever raised by this model.
   * `EXL` (bit 1) — set by every exception, cleared by `eret`.
-  * `ERL` (bit 2) — selects `ErrorEPC` in `eret`; never set by the model
-    itself (no Reset/NMI/Cache-Error exception), only by `mtc0`.
-  * `BEV` (bit 22) — selects the bootstrap exception vector.
+  * `ERL` (bit 2) — set by the Reset exception (`resetException`, `Step.lean`);
+    selects `ErrorEPC` in `eret`.
+  * `UM` (bit 4) — the base operating mode: 0 Kernel, 1 User (Supervisor Mode
+    is not implemented, so bit 3 (`R0`) reads 0 and `KSU` = `UM ‖ 0`). The
+    processor is in User Mode iff `UM = 1`, `EXL = 0` and `ERL = 0`
+    (`userMode`, `Step.lean`; Vol III §3.2-3.4, p.21-22).
+  * `BEV` (bit 22) — selects the bootstrap exception vector; set by Reset.
+  * `CU0` (bit 28) — coprocessor 0 usable outside Kernel Mode (`cp0Usable`).
   * `CU1` (bit 29) — coprocessor 1 usable. When it is 0 every COP1/COP1X
     instruction, `lwc1`/`swc1`/`ldc1`/`sdc1` and `movf`/`movt` raises
     Coprocessor Unusable (MD00090 Vol III Rev 6.02 §6.2.22, p.100).
 
-  **Not modeled:** `UM`/`KSU` (no user/kernel mode distinction — every
-  instruction, including `mfc0`/`mtc0`/`eret`, executes as if in kernel
-  mode, so Coprocessor Unusable is never raised for CP0), `CU0`, `RP`, `FR`,
-  `RE`, `MX`, `PX`, `TS`, `SR`, `NMI`. -/
+  **Not modeled** (read as zero, writes ignored, as Table 9.47 requires for an
+  unimplemented field): `CU2`, `CU3`, `RP`, `FR`, `RE`, `MX`, `TS`, `SR`,
+  `NMI`, `ASE`, `Impl`. -/
   cp0Status : W32
   /-- Coprocessor 0 `Cause` (register 13, sel 0). Exception entry writes
   `ExcCode` (bits 6..2), `CE` (bits 29..28: the coprocessor unit number for
@@ -122,8 +126,8 @@ structure State where
   Read-only to software (`mtc0` to it is ignored). -/
   cp0BadVAddr : W32 := 0#32
   /-- Coprocessor 0 `ErrorEPC` (register 30, sel 0): `eret`'s return address
-  when `Status.ERL = 1`. Only ever written by `mtc0` (the model raises no
-  error-level exception). -/
+  when `Status.ERL = 1`. Written by `mtc0` and by the Reset exception (the
+  restart PC, `resetException`). -/
   cp0ErrorEpc : W32 := 0#32
   /-- The aligned effective address of the most recent `ll` (the address the
   RMW sequence monitors). `sc` fails unless its own address equals it:
@@ -178,6 +182,11 @@ reset value (MD00090 Vol III Rev 6.02 §6.2.2 "Exception Vector Locations":
 base `0x8000_0000`, offset `0x180`). -/
 def exceptionVectorAddr : W32 := 0x80000180
 
+/-- The Reset exception vector: "PC is loaded with 0xBFC0 0000" (MD00090 Vol III
+Rev 6.02 §6.2.5, p.89; §6.2.2, p.84: "The Reset, Soft Reset, and NMI exceptions are
+always vectored to location 0xBFC0.0000"). -/
+def resetVector : W32 := 0xBFC00000
+
 /-- Offset of the general exception vector from the vector base. -/
 def exceptionVectorOffset : W32 := 0x180
 
@@ -201,8 +210,9 @@ def excCodeSys : W32 := 8
 def excCodeBp : W32 := 9
 /-- Reserved Instruction. -/
 def excCodeRI : W32 := 10
-/-- Coprocessor Unusable: a coprocessor-1 instruction with `Status.CU1 = 0`
-(user mode is not modeled, so coprocessor 0 is always usable). -/
+/-- Coprocessor Unusable: a coprocessor-1 instruction with `Status.CU1 = 0`, a
+coprocessor-2 encoding, or a coprocessor-0 instruction outside Kernel Mode with
+`Status.CU0 = 0` (MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
 def excCodeCpU : W32 := 11
 /-- Integer Overflow (`add`/`addi`/`sub`). -/
 def excCodeOv : W32 := 12
@@ -225,12 +235,25 @@ def statusImMask : W32 := 0xff00
 def statusBevMask : W32 := 0x00400000
 /-- `Status.CU1` (bit 29). -/
 def statusCu1Mask : W32 := 0x20000000
-/-- The `Status` bits `mtc0` can write: `IE`, `EXL`, `ERL`, `IM7..IM0`,
-`BEV`, `CU1`. Every other bit reads as zero. -/
-def statusWriteMask : W32 := 0x2040ff07
+/-- `Status.CU0` (bit 28): coprocessor 0 usable outside Kernel Mode
+(MD00090 Vol III Rev 6.02 Table 9.47, p.190: R/W, reset Undefined, "Required for
+all implemented coprocessors (Pre-Release 6)"). -/
+def statusCu0Mask : W32 := 0x10000000
+/-- `Status.UM` (bit 4): base mode User when 1 (MD00090 Vol III Rev 6.02
+Table 9.47, p.195: R/W, reset Undefined, Required when Supervisor Mode is not
+implemented). -/
+def statusUmMask : W32 := 0x10
+/-- The `Status` bits `mtc0` can write: `IE`, `EXL`, `ERL`, `UM`, `IM7..IM0`,
+`BEV`, `CU0`, `CU1`. Every other bit reads as zero (bit 3, `R0`, "must be
+ignored on write and read as zero" when Supervisor Mode is not implemented,
+Table 9.47 p.195). -/
+def statusWriteMask : W32 := 0x3040ff17
 
 /-- `Cause.BD` (bit 31): the exception was taken in a branch delay slot. -/
 def causeBdMask : W32 := 0x80000000
+/-- `Cause.DC` (bit 27): Disable Count; cleared by Reset (MD00090 Vol III
+Rev 6.02 §6.2.5, p.90: "CauseDC ← 0"). -/
+def causeDcMask : W32 := 0x08000000
 /-- `Cause.ExcCode` (bits 6..2). -/
 def causeExcCodeMask : W32 := 0x7c
 /-- `Cause.CE` (bits 29..28): coprocessor unit number of a Coprocessor

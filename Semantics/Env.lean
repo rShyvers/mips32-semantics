@@ -12,8 +12,14 @@ import Semantics.Step
 file is a convention of this model's *environment* — what a loader, an operating system or a test
 bench does around the processor — and has no counterpart in the MIPS32 manuals:
 
+* **Start state.** The machine starts at the architectural reset state (`Step.lean`'s
+  `resetState`: `pc = 0xBFC0_0000`, `Status.BEV = ERL = 1`). The hosted environment then applies
+  a named **boot convention** (`bootConvention`): what a boot ROM would do before handing control
+  to a loaded program. That boot code is not part of the architecture; `hostedStart` is
+  `bootConvention textBase resetState`. `MipsRun --reset` skips the boot convention and starts at
+  the reset vector (`loadAtReset`).
 * **Loader.** `load p` writes the assembled image `p` (text, data, `.ktext`, `.kdata`; a
-  `Program`) into the memory of `initialState textBase`. From then on the processor fetches
+  `Program`) into the memory of `hostedStart`. From then on the processor fetches
   from memory; the `Program` is no longer consulted by the machine.
 * **Hosted services.** MARS/SPIM-style `syscall` services 1 (print int), 4 (print string),
   10 (exit) and 11 (print char), selected by `$v0`. The hosted run performs one *instead of*
@@ -48,19 +54,37 @@ def loadWord (m : Std.HashMap W32 UInt8) (addr w : W32) : Std.HashMap W32 UInt8 
 def loadImage (p : Program) (s : State) : State :=
   { s with mem := p.fold (fun m addr w => loadWord m addr w) s.mem }
 
-/-- **The hosted start state**: the processor state a loaded program finds, as if boot code had
-already run. It is a convention of the hosted environment, NOT the architectural reset state: on a
-Reset Exception "PC is loaded with 0xBFC0 0000", `Status.BEV ← 1`, `Status.ERL ← 1`, the restart
-PC goes to `ErrorEPC`, and only a few registers have a defined state (MD00090 Vol III Rev 6.02
-§6.2.5 Reset Exception, p.89-90). Here instead `pc = textBase` (`0x0040_0000`), `$sp = spInit`,
-`Status = CU1` only (`BEV = ERL = 0`), `EBase` at its reset value, everything else 0
-(`initialState`, `State.lean`). A later reset model + boot convention replaces exactly this
-definition. -/
-def hostedStart : State := initialState textBase
+/-- **The boot convention** of the hosted environment: what boot code at the reset vector does
+before it jumps to a loaded program whose entry point is `entry`. Written as the instructions
+a boot ROM would execute in Kernel Mode:
+
+1. `mtc0 Status ← 0x2000_0000`: `CU1 = 1` (the FPU is usable), `BEV = 0` (normal exception
+   vectors, `EBase`), `ERL = 0`, `EXL = 0`, `UM = 0` (the program runs in Kernel Mode, as MARS and
+   SPIM programs expect), `IE = 0`, `IM = 0`, `CU0 = 0`.
+2. `$sp ← spInit` (`0x7FFF_EFFC`, the MARS stack pointer).
+3. Jump to `entry` (a ROM would `jr` there, or set `ErrorEPC` and `eret`; the model just sets
+   `pc`, and no branch is pending).
+
+Every other register keeps its reset value. This is an environment convention, not an
+architectural requirement. -/
+def bootConvention (entry : W32) (s : State) : State :=
+  { (writeReg s 29 spInit) with cp0Status := statusCu1Mask, pc := entry, pendingBranch := none }
+
+/-- **The hosted start state**: the architectural reset state (`resetState`, MD00090 Vol III
+Rev 6.02 §6.2.5, p.89-90) followed by the boot convention with entry point `textBase`
+(`0x0040_0000`). It equals `initialState textBase` (`Specs/Reset.lean`,
+`hostedStart_is_reset_then_boot`). -/
+def hostedStart : State := bootConvention textBase resetState
 
 /-- **The loader.** The state a program starts in: `hostedStart` with the image `p` written into
 memory. -/
 def load (p : Program) : State := loadImage p hostedStart
+
+/-- **The reset loader** (`MipsRun --reset`): the image `p` written into the memory of
+`resetState`, with no boot convention. Execution begins at the reset vector `0xBFC0_0000`, so the
+image must place boot code there (e.g. `.ktext 0xBFC00000`); otherwise the hosted run stops at
+once (`noInstruction 0xBFC0_0000`). -/
+def loadAtReset (p : Program) : State := loadImage p resetState
 
 /-! ## Hosted run -/
 
@@ -193,3 +217,7 @@ def HostedResult.final : HostedResult → Hosted
 /-- Load `p` and run it hosted (services on), as `MipsRun` does by default. -/
 def runProgram (p : Program) (fuel : Nat) (services : Bool := true) : HostedResult :=
   runHosted { image := p, services } fuel { machine := load p }
+
+/-- Load `p` into the reset state and run it hosted from the reset vector (`MipsRun --reset`). -/
+def runProgramAtReset (p : Program) (fuel : Nat) (services : Bool := true) : HostedResult :=
+  runHosted { image := p, services } fuel { machine := loadAtReset p }
