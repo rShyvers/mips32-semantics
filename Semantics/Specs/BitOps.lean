@@ -31,11 +31,11 @@ MIPS32 / MIPS32r2 additions (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4/§3.5). The
 theorem clo_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clo rs rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd)
             (BitVec.ofNat 32 (countLeadingOnesSpec (readReg s (regIdxSpec rs))))) with
           pc := (writeReg s (regIdxSpec rd)
-            (BitVec.ofNat 32 (countLeadingOnesSpec (readReg s (regIdxSpec rs))))).pc + 4#32 } := by
+            (BitVec.ofNat 32 (countLeadingOnesSpec (readReg s (regIdxSpec rs))))).pc + 4#32 }) := by
   step_spec
 
 /-- **`clz` counts `$rs`'s leading zero bits (from the MSB) into `$rd`**;
@@ -44,11 +44,11 @@ theorem clo_spec_raw (s : State) (w rs rd : W32)
 theorem clz_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clz rs rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd)
             (BitVec.ofNat 32 (countLeadingZerosSpec (readReg s (regIdxSpec rs))))) with
           pc := (writeReg s (regIdxSpec rd)
-            (BitVec.ofNat 32 (countLeadingZerosSpec (readReg s (regIdxSpec rs))))).pc + 4#32 } := by
+            (BitVec.ofNat 32 (countLeadingZerosSpec (readReg s (regIdxSpec rs))))).pc + 4#32 }) := by
   step_spec
 
 -- `clo`/`clz` satisfiable examples, matching `Step.lean`'s own `#guard`s:
@@ -75,10 +75,10 @@ higher bits entirely (SPECIAL3 BSHFL opcode 0x1f, funct 0x20, sub-field
 theorem seb_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seb rd rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) (signExtLowByteSpec (readReg s (regIdxSpec rt)))) with
           pc := (writeReg s (regIdxSpec rd)
-            (signExtLowByteSpec (readReg s (regIdxSpec rt)))).pc + 4#32 } := by
+            (signExtLowByteSpec (readReg s (regIdxSpec rt)))).pc + 4#32 }) := by
   step_spec
 
 /-- **`seh` sign-extends `$rt`'s low halfword into `$rd`**, ignoring `$rt`'s
@@ -89,9 +89,9 @@ immediates). -/
 theorem seh_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seh rd rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) (signExt16 (readReg s (regIdxSpec rt)))) with
-          pc := (writeReg s (regIdxSpec rd) (signExt16 (readReg s (regIdxSpec rt)))).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rd) (signExt16 (readReg s (regIdxSpec rt)))).pc + 4#32 }) := by
   step_spec
 
 -- `seb`/`seh` satisfiable examples, matching `Step.lean`'s own `#guard`s.
@@ -119,7 +119,7 @@ it out inline with no helper, so this restates it directly. -/
 theorem wsbh_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wsbh rd rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let v := readReg s (regIdxSpec rt)
       let b0 := v &&& 0xff#32
       let b1 := (v >>> 8) &&& 0xff#32
@@ -127,7 +127,7 @@ theorem wsbh_spec_raw (s : State) (w rd rt : W32)
       let b3 := (v >>> 24) &&& 0xff#32
       let result := (b2 <<< 24) ||| (b3 <<< 16) ||| (b0 <<< 8) ||| b1
       { (writeReg s (regIdxSpec rd) result) with
-          pc := (writeReg s (regIdxSpec rd) result).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rd) result).pc + 4#32 }) := by
   step_spec
 
 -- `wsbh` satisfiable example, matching `Step.lean`'s own `#guard`: halfword0
@@ -146,10 +146,10 @@ with no special case for the real `pos + size <= 32` hardware constraint
 theorem ext_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ext rt rs pos size))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let field := (readReg s (regIdxSpec rs) >>> pos.toNat) &&& lowBitsMaskSpec size.toNat
       { (writeReg s (regIdxSpec rt) field) with
-          pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 }) := by
   step_spec
 
 /-- **`ins` inserts the low `size` bits of `$rs`, shifted up to bit `pos`,
@@ -161,13 +161,13 @@ proved elsewhere in this file. -/
 theorem ins_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ins rt rs pos size))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let mask := lowBitsMaskSpec size.toNat
       let srcField := (readReg s (regIdxSpec rs) &&& mask) <<< pos.toNat
       let clearMask := ~~~(mask <<< pos.toNat)
       let newVal := (readReg s (regIdxSpec rt) &&& clearMask) ||| srcField
       { (writeReg s (regIdxSpec rt) newVal) with
-          pc := (writeReg s (regIdxSpec rt) newVal).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) newVal).pc + 4#32 }) := by
   step_spec
 
 /-- Bitvector identity behind `ins_outside_field_unchanged`: ORing in a

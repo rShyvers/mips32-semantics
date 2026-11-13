@@ -165,7 +165,7 @@ Proved in `Semantics/Specs/` — Fetch.lean. -/
 /-- **A misaligned `pc` raises Address Error (AdEL)** with `BadVAddr = pc`
 (and `EPC = pc`, by `exceptionEntry_*`). -/
 theorem step_misaligned_pc (s : State) (h : s.pc.toNat % 4 ≠ 0) :
-    step s = takeAddressException s excCodeAdEL s.pc := by
+    step s = timerTick (takeAddressException s excCodeAdEL s.pc) := by
   sorry
 
 /-- **`step` executes the word in memory at `pc`**: if the big-endian word at `pc` decodes to
@@ -173,7 +173,7 @@ theorem step_misaligned_pc (s : State) (h : s.pc.toNat % 4 ≠ 0) :
 memory that was never written reads as 0 (`sll $0, $0, 0`). -/
 theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr) :
-    step s = execInstr s instr := by
+    step s = timerTick (execInstr s instr) := by
   sorry
 
 /-- **A word that does not decode** raises Reserved Instruction (ExcCode
@@ -186,11 +186,11 @@ and `Status.CU0 = 0`), with `Cause.CE = 0`; coprocessor 1 (`isCop1Word`) when
 the model does not have, always, with `Cause.CE = 2`. -/
 theorem step_undecodable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none) :
-    step s =
+    step s = timerTick (
       if isCop0Word w && !cp0Usable s then (exceptionEntry s excCodeCpU 0#32)
       else if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
       else if isCop2Word w then (exceptionEntry s excCodeCpU 2#32)
-      else takeException s excCodeRI := by
+      else takeException s excCodeRI) := by
   sorry
 
 /-- **A word that does not decode and is in no unusable coprocessor's encoding space
@@ -200,7 +200,7 @@ theorem step_reserved_instruction (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc0 : isCop0Word w = false ∨ cp0Usable s = true)
     (hc1 : isCop1Word w = false) (hc2 : isCop2Word w = false) :
-    step s = takeException s excCodeRI := by
+    step s = timerTick (takeException s excCodeRI) := by
   sorry
 
 /-- **A COP0 or CACHE word that does not decode, executed when coprocessor 0 is not usable,
@@ -210,7 +210,7 @@ instructions, DERET, RDPGPR, WRPGPR, reserved encodings) and CACHE. -/
 theorem step_reserved_cop0_unusable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc0 : isCop0Word w = true) (hcu : cp0Usable s = false) :
-    step s = takeCop0Unusable s := by
+    step s = timerTick (takeCop0Unusable s) := by
   sorry
 
 /-! ## Delay slots
@@ -243,7 +243,7 @@ to execute is in a delay slot (`s.pendingBranch = some _`) and is one of the 26 
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (hpb : s.pendingBranch.isSome = true) (hbr : isBranchLikeSpec instr = true) :
-    step s = takeException s excCodeRI := by
+    step s = timerTick (takeException s excCodeRI) := by
   sorry
 
 /-! ## R-type arithmetic
@@ -259,7 +259,7 @@ Integer Overflow (`takeException s excCodeOv`) or writes the sum and advances th
 theorem add_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := readReg s (regIdxSpec rt)
       let sumBV := av + bv
@@ -267,7 +267,7 @@ theorem add_spec_raw (s : State) (w rs rt rd : W32)
         takeException s excCodeOv
       else
         { (writeReg s (regIdxSpec rd) sumBV) with
-            pc := (writeReg s (regIdxSpec rd) sumBV).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rd) sumBV).pc + 4#32 }) := by
   sorry
 
 /-- **`sub` computes the exact difference, or traps exactly on signed
@@ -276,7 +276,7 @@ overflow.** Mirrors `add_spec_raw`; `subOverflowsSpec` is INSTRUCTION-REF's
 theorem sub_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sub rs rt rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := readReg s (regIdxSpec rt)
       let diffBV := av - bv
@@ -284,7 +284,7 @@ theorem sub_spec_raw (s : State) (w rs rt rd : W32)
         takeException s excCodeOv
       else
         { (writeReg s (regIdxSpec rd) diffBV) with
-            pc := (writeReg s (regIdxSpec rd) diffBV).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rd) diffBV).pc + 4#32 }) := by
   sorry
 
 /-- **`add` overflow raises Integer Overflow (ExcCode 12), in or out of a
@@ -295,7 +295,7 @@ theorem add_overflow_raises_ov (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.add rs rt rd))
     (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (readReg s (regIdxSpec rt)))
       (asSigned (readReg s (regIdxSpec rs) + readReg s (regIdxSpec rt))) = true) :
-    step s = takeException s excCodeOv := by
+    step s = timerTick (takeException s excCodeOv) := by
   sorry
 
 /-- **Overflow does not silently wrap.** A buggy `add` might wrap
@@ -308,7 +308,7 @@ theorem add_overflow_not_wrapped (s : State) (w : W32)
     (hpb : s.pendingBranch = none)
     (ha : readReg s (regIdxSpec 8#32) = 0x7fffffff#32)
     (hb : readReg s (regIdxSpec 9#32) = 1#32) :
-    step s = (exceptionEntry s excCodeOv) ∧
+    step s = timerTick (exceptionEntry s excCodeOv) ∧
       (exceptionEntry s excCodeOv).regs = s.regs := by
   sorry
 
@@ -322,7 +322,7 @@ signed overflow.** The immediate is sign-extended first (INSTRUCTION-REF
 theorem addi_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := signExt16 imm
       let sumBV := av + bv
@@ -330,7 +330,7 @@ theorem addi_spec_raw (s : State) (w rs rt imm : W32)
         takeException s excCodeOv
       else
         { (writeReg s (regIdxSpec rt) sumBV) with
-            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 }) := by
   sorry
 
 /-- **`addi` overflow raises Integer Overflow**, in or out of a delay slot. -/
@@ -338,7 +338,7 @@ theorem addi_overflow_raises_ov (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
     (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (signExt16 imm))
       (asSigned (readReg s (regIdxSpec rs) + signExt16 imm)) = true) :
-    step s = takeException s excCodeOv := by
+    step s = timerTick (takeException s excCodeOv) := by
   sorry
 
 /-! ## Shifts
@@ -351,9 +351,9 @@ vacated low bits.** `shamt` comes straight from the instruction encoding
 theorem sll_spec_raw (s : State) (w rd rt shamt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sll rd rt shamt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)) with
-          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)).pc + 4#32 }) := by
   sorry
 
 /-! ## Multiply / divide
@@ -367,11 +367,11 @@ the full 64-bit result always fits in `hi:lo`). -/
 theorem mult_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mult rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       let prod64 : BitVec 64 := BitVec.ofInt 64 (a * b)
-      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **`div` by a nonzero divisor truncates toward zero; the remainder takes
@@ -383,13 +383,13 @@ Both cases always advance the program counter by 4. -/
 theorem div_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       if b == 0 then
         { s with pc := s.pc + 4#32 }
       else
-        { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b), pc := s.pc + 4#32 } := by
+        { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b), pc := s.pc + 4#32 }) := by
   sorry
 
 /-- Corollary of `div_spec_raw`: dividing by `0` leaves `hi`/`lo` exactly as
@@ -399,7 +399,7 @@ theorem div_by_zero_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none)
     (hzero : readReg s (regIdxSpec rt) = 0#32) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   sorry
 
 /-! ## Bit operations
@@ -415,10 +415,10 @@ with no special case for the real `pos + size <= 32` hardware constraint
 theorem ext_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ext rt rs pos size))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let field := (readReg s (regIdxSpec rs) >>> pos.toNat) &&& lowBitsMaskSpec size.toNat
       { (writeReg s (regIdxSpec rt) field) with
-          pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 }) := by
   sorry
 
 /-! ## Loads and stores
@@ -433,13 +433,13 @@ binaries). -/
 theorem lw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
         { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   sorry
 
 /-- Corollary of `lw_spec_raw`: a misaligned effective address raises Address
@@ -448,7 +448,7 @@ theorem lw_misaligned_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none)
     (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) :
-    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) := by
+    step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) := by
   sorry
 
 /-- **`sw` stores `$rt` as a big-endian word at `$rs + sext16(offset)` and
@@ -459,13 +459,13 @@ section). -/
 theorem sw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some s' =>
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   sorry
 
 /-- **`sb` stores the low byte of `$rt` at `$rs + sext16(offset)` and
@@ -478,14 +478,14 @@ every store (see `State.llBit`). -/
 theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
       | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
       | some pa =>
         { s with
               physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
               llBit := false
-              pc := s.pc + 4#32 } := by
+              pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **`ll` loads a word exactly like `lw`, and additionally sets `llBit`
@@ -496,13 +496,13 @@ address, exactly like `lw`. -/
 theorem ll_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
         { ({ (writeReg s (regIdxSpec rt) v) with llBit := true, llAddr := addr }) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   sorry
 
 /-- **`sc` is conditional on `llBit` and on its address matching the
@@ -522,7 +522,7 @@ just "some memory operation happened" (INSTRUCTION-REF "sc" section). -/
 theorem sc_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
@@ -532,7 +532,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
               pc := ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }).pc + 4#32 }
         else
           { ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }) with
-              pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 } := by
+              pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 }) := by
   sorry
 
 /-- **`lwl` ("load word left") merges 1–4 most-significant bytes starting at
@@ -546,7 +546,7 @@ Rev 6.02 Table 4.2, p.30). -/
 theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
       | none => takeAddressException s excCodeAdEL addr
@@ -570,7 +570,7 @@ theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
           | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
             setByteSlotSpec old 0 b0
         { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   sorry
 
 /-! ## Branches and jumps
@@ -594,11 +594,11 @@ case. -/
 theorem beq_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beq rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   sorry
 
 /-- **`beq`, taken**: when `$rs = $rt`, `beq` schedules
@@ -610,7 +610,7 @@ theorem beq_taken_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beq rs rt imm))
     (hpb : s.pendingBranch = none)
     (htaken : readReg s (regIdxSpec rs) = readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   sorry
 
 /-- **`beql`/`bnel` step-level shape**: identical field layout and taken
@@ -620,11 +620,11 @@ slot (`pc := pc + 8`, no pending branch) instead of executing it
 theorem beql_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   sorry
 
 /-- **A not-taken `beql` skips its delay slot in one `step`**, whatever the
@@ -633,8 +633,8 @@ theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 8#32 } ∧
-      run s 1 = { s with pc := s.pc + 8#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 8#32 }) ∧
+      run s 1 = timerTick ({ s with pc := s.pc + 8#32 }) := by
   sorry
 
 /-- **`j` unconditionally schedules a jump whose top 4 bits come from
@@ -646,9 +646,9 @@ always executes first. -/
 theorem j_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.j target))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
-      { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) } := by
+      { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
   sorry
 
 /-- **`jal` links `$ra` to `pc + 8` — past the delay slot, not `PC_next`
@@ -662,10 +662,10 @@ jumps in the same step. -/
 theorem jal_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jal target))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s 31 (pcNext + 4#32)) with
-          pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) } := by
+          pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
   sorry
 
 /-- Corollary of `jal_spec_raw`: `$ra` (register 31) reads back exactly
@@ -688,10 +688,10 @@ paragraph in the spec. -/
 theorem jalr_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s (regIdxSpec rd) (pcNext + 4#32)) with
-          pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) } := by
+          pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   sorry
 
 /-! ## Traps, `break`, `syscall`
@@ -705,11 +705,11 @@ all (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu" section). -/
 theorem teq_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teq rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **`break` unconditionally raises the Breakpoint exception** (ExcCode
@@ -718,7 +718,7 @@ theorem teq_spec_raw (s : State) (w rs rt code : W32)
 (`exceptionEntry_*`) (INSTRUCTION-REF "break" section). -/
 theorem break_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.break code)) :
-    step s = takeException s excCodeBp := by
+    step s = timerTick (takeException s excCodeBp) := by
   sorry
 
 /-- **`syscall` raises the System Call exception (ExcCode 8)**, whatever `$v0` holds, in or out
@@ -727,7 +727,7 @@ control to the exception handler" (MD00086 Vol II-A Rev 6.06, SYSCALL, p.415). T
 services are the hosted environment's (`hostStep_syscall_spec`, `Specs/Hosted.lean`). -/
 theorem syscall_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.syscall code)) :
-    step s = takeException s excCodeSys := by
+    step s = timerTick (takeException s excCodeSys) := by
   sorry
 
 /-! ## Coprocessor 0
@@ -735,8 +735,12 @@ theorem syscall_spec_raw (s : State) (w code : W32)
 Proved in `Semantics/Specs/` — Cp0.lean. -/
 
 /-- **`mfc0` reads a modeled CP0 register `(rd, sel)` into GPR `$rt`**:
-`(8,0)` BadVAddr, `(12,0)` Status, `(13,0)` Cause, `(14,0)` EPC, `(15,0)`
-PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1, `(30,0)` ErrorEPC.
+`(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
+`(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1,
+`(30,0)` ErrorEPC. `Cause` reads the stored bits plus the timer request: `TI` (bit 30) and, merged
+into it (`IntCtl.IPTI = 7` pin), `IP7` (bit 15) while a timer interrupt is pending (MD00090 Vol III
+Rev 6.02 Table 9.52, p.209, 211; Table 6.2, p.73). The read happens before the step's timer tick, so
+`Count` reads the value the step started with.
 `decode` produces `mfc0` only for these; for any other pair (reachable only
 through a hand-built `Instruction`) the step raises Reserved Instruction,
 which is also what the undecodable word does. Coprocessor 0 must be usable
@@ -745,13 +749,16 @@ which is also what the undecodable word does. Coprocessor 0 must be usable
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
-    step s =
+    step s = timerTick (
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
       match rd.toNat, sel.toNat with
+      | 7, 0 => read s.cp0HWREna
       | 8, 0 => read s.cp0BadVAddr
+      | 9, 0 => read s.cp0Count
+      | 11, 0 => read s.cp0Compare
       | 12, 0 => read s.cp0Status
-      | 13, 0 => read s.cp0Cause
+      | 13, 0 => read (s.cp0Cause ||| (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32))
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
@@ -759,7 +766,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x00000001#32
       | 30, 0 => read s.cp0ErrorEpc
-      | _, _ => takeException s excCodeRI := by
+      | _, _ => takeException s excCodeRI) := by
   sorry
 
 /-- **`mtc0` writes GPR `$rt` into a modeled CP0 register, through that
@@ -767,8 +774,10 @@ register's write mask.** `Status` (12,0) keeps only `statusWriteMask` (IE,
 EXL, ERL, UM, IM7..0, BEV, CU0, CU1; every other bit reads as zero). `Cause` (13,0)
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
-writable. `EBase` (15,1) takes bits 29..12 of the written value under the
-fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0)
+writable, and so is `Count` (9,0) (MD00090 Vol III Rev 6.02 §9.27, p.183). A write to `Compare`
+(11,0) stores the value and clears the timer interrupt (`Cause.TI`; §9.30, p.187). `HWREna` (7,0)
+keeps bits 3..0 (`hwrenaWriteMask`; Table 9.39, p.175). `EBase` (15,1) takes bits 29..12 of the
+written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0)
 (Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317);
 `BadVAddr` (8,0), `PRId` (15,0) and `Config1` (16,1) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
@@ -776,9 +785,14 @@ usable (`hcp0`). -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
-    step s =
+    step s = timerTick (
       match rd.toNat, sel.toNat with
+      | 7, 0 =>
+        { s with cp0HWREna := readReg s (regIdxSpec rt) &&& hwrenaWriteMask, pc := s.pc + 4#32 }
       | 8, 0 => { s with pc := s.pc + 4#32 }
+      | 9, 0 => { s with cp0Count := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
+      | 11, 0 =>
+        { s with cp0Compare := readReg s (regIdxSpec rt), cp0TimerInt := false, pc := s.pc + 4#32 }
       | 12, 0 =>
         { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }
       | 13, 0 =>
@@ -801,7 +815,7 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
       | 16, 1 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
-      | _, _ => takeException s excCodeRI := by
+      | _, _ => takeException s excCodeRI) := by
   sorry
 
 /-- **`eret`** (MD00086 "ERET"), executed outside a delay slot:
@@ -811,11 +825,11 @@ this very step. Coprocessor 0 must be usable (`hcp0`). -/
 theorem eret_spec_raw (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eret)
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
-    step s =
+    step s = timerTick (
       if s.cp0Status &&& statusErlMask != 0#32 then
         { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
       else
-        { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false } := by
+        { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }) := by
   sorry
 
 
@@ -836,7 +850,7 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
     (huses : usesCop0 instr = true)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
     (hcu : cp0Usable s = false) :
-    step s = exceptionEntry s excCodeCpU 0#32 := by
+    step s = timerTick (exceptionEntry s excCodeCpU 0#32) := by
   sorry
 
 /-- **Coprocessor 0 is unusable exactly in User Mode with `Status.CU0 = 0`** (MD00090 Vol III
@@ -906,7 +920,9 @@ theorem resetState_spec :
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
     resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
-    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 := by
+    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
+    resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
+    resetState.cp0HWREna = 0#32 := by
   sorry
 
 /-- **The hosted start state is the reset state followed by the environment's boot convention**
@@ -914,6 +930,159 @@ theorem resetState_spec :
 `initialState textBase`. -/
 theorem hostedStart_is_reset_then_boot :
     hostedStart = bootConvention textBase resetState ∧ hostedStart = initialState textBase := by
+  sorry
+
+/-! ## Timer (Count / Compare / Cause.TI) and hardware registers (`rdhwr`, `HWREna`)
+
+Proved in `Semantics/Specs/` — Timer.lean. -/
+
+/-- **`Count` advances by one on every step** (pin of the implementation-dependent rate, MD00090
+Vol III Rev 6.02 §9.27, p.183: "incrementing at a constant rate, whether or not an instruction is
+executed"), when counting is enabled (`Cause.DC = 0`, Table 9.52, p.210) and the instruction at
+`pc` does not itself write `Count`, `Compare` or `Cause`. Whatever else the step does — an ordinary
+instruction, a branch, any exception, a fetch that fails — `Count` goes from `c` to `c + 1`
+(modulo 2^32). -/
+theorem step_count_advances (s : State) (hdc : countEnabled s = true)
+    (hw : fetchesTimerWrite s = false) :
+    (step s).cp0Count = s.cp0Count + 1#32 := by
+  sorry
+
+/-- **With `Cause.DC = 1`, `Count` does not move** ("Disable counting of Count register", MD00090
+Vol III Rev 6.02 Table 9.52, p.210), unless the instruction writes `Count`, `Compare` or `Cause`. -/
+theorem step_count_stopped (s : State) (hdc : countEnabled s = false)
+    (hw : fetchesTimerWrite s = false) :
+    (step s).cp0Count = s.cp0Count := by
+  sorry
+
+/-- **`Count = Compare` sets `Cause.TI`**, after every step, from every state: "When the value of
+the Count register equals the value of the Compare register, an interrupt request is made" (MD00090
+Vol III Rev 6.02 §9.30, p.187), visible in `Cause.TI` (Table 9.52, p.209). -/
+theorem step_timer_match_sets_ti (s : State) (h : (step s).cp0Count = (step s).cp0Compare) :
+    (step s).cp0TimerInt = true := by
+  sorry
+
+/-- **`Cause.TI` after a step** that does not write `Count`, `Compare` or `Cause`: it stays set
+if it was set, and becomes set exactly when the new `Count` equals `Compare`; `Compare` does not
+change ("maintains a stable value and does not change on its own", MD00090 Vol III Rev 6.02 §9.30,
+p.187). -/
+theorem step_timerInt (s : State) (hw : fetchesTimerWrite s = false) :
+    (step s).cp0TimerInt = (s.cp0TimerInt || (step s).cp0Count == s.cp0Compare) ∧
+      (step s).cp0Compare = s.cp0Compare := by
+  sorry
+
+/-- **`mtc0 $rt, $9` (`Count`)**: the written value is what the timer advances from ("The Count
+register can be written for functional or diagnostic purposes", MD00090 Vol III Rev 6.02 §9.27,
+p.183): after the step `Count` is `$rt + 1`, or `$rt` with `Cause.DC = 1`. -/
+theorem mtc0_count_spec (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 9#32 0#32))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (step s).cp0Count =
+      if countEnabled s then readReg s (regIdxSpec rt) + 1#32 else readReg s (regIdxSpec rt) := by
+  sorry
+
+/-- **A write to `Compare` clears the timer interrupt** ("Writing a value to the Compare register,
+as a side effect, clears the timer interrupt", MD00090 Vol III Rev 6.02 §9.30, p.187): after
+`mtc0 $rt, $11`, `Compare` holds `$rt` and `Cause.TI` is set only if the new `Count` equals it
+(a new match in the same step); a pending timer interrupt from before is gone. -/
+theorem mtc0_compare_clears_ti (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 11#32 0#32))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (step s).cp0Compare = readReg s (regIdxSpec rt) ∧
+      (step s).cp0TimerInt = ((step s).cp0Count == readReg s (regIdxSpec rt)) ∧
+      (step s).cp0Count = (if countEnabled s then s.cp0Count + 1#32 else s.cp0Count) := by
+  sorry
+
+/-- **`Cause` as `mfc0` reads it, with a timer interrupt pending**: `TI` (bit 30) and `IP7`
+(bit 15) are set (MD00090 Vol III Rev 6.02 Table 9.52, p.209, 211; the timer request is merged into
+`IP7`, Table 6.2, p.73, the `IntCtl.IPTI = 7` pin); every other bit is the stored `Cause`. -/
+theorem causeValue_timer (s : State) (h : s.cp0TimerInt = true) :
+    causeValue s = s.cp0Cause ||| causeTiMask ||| causeIp7Mask := by
+  sorry
+
+/-- **`rdhwr $rt, $rd`** (MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334): if hardware register `rd`
+is implemented (`hwrValue s rd = some v`) and access is allowed (`rdhwrAllowed`: Coprocessor 0
+enabled, or bit `rd` of `HWREna`), `$rt ← v` and `pc` advances; otherwise Reserved Instruction
+("If access is not allowed or the register is not implemented, a Reserved Instruction Exception is
+signaled", p.333). -/
+theorem rdhwr_spec_raw (s : State) (w rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hpb : s.pendingBranch = none) :
+    step s = timerTick (
+      match hwrValue s rd with
+      | some v =>
+        if rdhwrAllowed s rd then
+          { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
+        else takeException s excCodeRI
+      | none => takeException s excCodeRI) := by
+  sorry
+
+/-- `CPUNum` (`rdhwr` register 0) is `EBase.CPUNum`, which reads 0 (one processor). -/
+theorem hwrValue_cpuNum (s : State) : hwrValue s 0#32 = some 0#32 := by
+  sorry
+
+/-- `SYNCI_Step` (`rdhwr` register 1) is 0: no caches need be synchronized. -/
+theorem hwrValue_synciStep (s : State) : hwrValue s 1#32 = some 0#32 := by
+  sorry
+
+/-- `CC` (`rdhwr` register 2) is `Count`. -/
+theorem hwrValue_cc (s : State) : hwrValue s 2#32 = some s.cp0Count := by
+  sorry
+
+/-- `CCRes` (`rdhwr` register 3) is 1: `Count` advances once per step. -/
+theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 := by
+  sorry
+
+/-- Registers 4..31 are not implemented (`PerfCtr`, `XNP` are Release 6; 6..28 reserved; `ULR`
+needs the optional UserLocal register; 30, 31 implementation-dependent, none). -/
+theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) : hwrValue s rd = none := by
+  sorry
+
+/-- **`rdhwr` of an unimplemented register raises Reserved Instruction**, in every mode
+(MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Restrictions, p.333). -/
+theorem rdhwr_reserved_unimplemented (s : State) (w rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) :
+    step s = timerTick (takeException s excCodeRI) := by
+  sorry
+
+/-- **`rdhwr` outside Kernel Mode with `Status.CU0 = 0` and the `HWREna` bit clear raises Reserved
+Instruction** (not Coprocessor Unusable): "Access to the specified hardware register is enabled if
+Coprocessor 0 is enabled, or if the corresponding bit is set in the HWREna register. If access is
+not allowed ... a Reserved Instruction Exception is signaled" (MD00086 Vol II-A Rev 6.06, RDHWR,
+p.333). -/
+theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = false)
+    (hen : (s.cp0HWREna >>> rd) &&& 1#32 = 0#32) :
+    step s = timerTick (takeException s excCodeRI) := by
+  sorry
+
+/-- **`rdhwr` of an implemented register with access allowed** writes the register's value to
+`$rt` and advances `pc`. -/
+theorem rdhwr_allowed (s : State) (w rt rd v : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hpb : s.pendingBranch = none) (hv : hwrValue s rd = some v)
+    (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) :
+    step s = timerTick
+      { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+  sorry
+
+/-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 3..0 only**: the bits of the registers the model
+implements; "If RDHWR register ‘n’ is not implemented, bit ‘n’ of this field returns a zero and is
+ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175). -/
+theorem hwrena_write_masked (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 7#32 0#32))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) :
+    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x0000000F#32 := by
+  sorry
+
+/-- **The Reset exception clears `HWREna`** ("HWREna ← 0", MD00090 Vol III Rev 6.02 §6.2.5, p.89)
+and leaves `Count`, `Compare` and `Cause.TI` (reset state "Undefined", Tables 9.44, 9.46, 9.52,
+p.183, 187, 209) unchanged. -/
+theorem resetException_timer (s : State) :
+    (resetException s).cp0HWREna = 0#32 ∧ (resetException s).cp0Count = s.cp0Count ∧
+      (resetException s).cp0Compare = s.cp0Compare ∧
+      (resetException s).cp0TimerInt = s.cp0TimerInt := by
   sorry
 
 /-! ## Floating point
@@ -929,7 +1098,7 @@ theorem fp_coprocessor_unusable (s : State) (w : W32) (instr : Instruction)
     (huses : usesCop1 instr = true)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
     (hcu : cu1Enabled s = false) :
-    step s = takeCoprocessorUnusable s := by
+    step s = timerTick (takeCoprocessorUnusable s) := by
   sorry
 
 /-- **The FP trap.** If the operation raised an exception that is enabled in
@@ -962,9 +1131,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesS`
 theorem addS_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addS fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   sorry
 
 /-- **`add.d`: `fd ← fs + ft`**, double precision: the result bits and exceptions are
@@ -974,9 +1143,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesD`
 theorem addD_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addD fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))) := by
   sorry
 
 /-- **`cvt.w.s`** converts to a 32-bit word rounding **per FCSR.RM**
@@ -984,8 +1153,8 @@ theorem addD_spec_raw (s : State) (w fd fs ft : W32)
 theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtWS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs)))) := by
   sorry
 
 /-- **`c.cond.s`** writes `FCC[cc]` with predicate `cond` (its low four bits) of the two singles:
@@ -994,9 +1163,9 @@ C.cond.fmt, p.110-113). `fpCompletesCmp_ok` says only `FCC[cc]` changes -/
 theorem cCondS_spec_raw (s : State) (w cond cc fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cCondS cond cc fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesCmp s cc
-        (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   sorry
 
 /-- **`c.lt.s` (cond = 12) sets `FCC[cc]` iff `fs < ft` and neither is a NaN.** -/
@@ -1014,30 +1183,30 @@ theorem c_lt_s_sets_cc (s s' : State) (w cc fs ft : W32)
 theorem movf_spec_raw (s : State) (w rs cc rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movf rs cc rd))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       if readFcc s cc then { s with pc := s.pc + 4#32 }
       else
         { (writeReg s (regIdx rd) (readReg s (regIdx rs))) with
-            pc := (writeReg s (regIdx rd) (readReg s (regIdx rs))).pc + 4#32 } := by
+            pc := (writeReg s (regIdx rd) (readReg s (regIdx rs))).pc + 4#32 }) := by
   sorry
 
 /-- **`mfc1`**: `$rt ← FPR[fs]`, raw bits -/
 theorem mfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      { (writeReg s (regIdx rt) (readFpReg s (regIdx fs))) with pc := (writeReg s (regIdx rt) (readFpReg s (regIdx fs))).pc + 4#32 } := by
+    step s = timerTick (
+      { (writeReg s (regIdx rt) (readFpReg s (regIdx fs))) with pc := (writeReg s (regIdx rt) (readFpReg s (regIdx fs))).pc + 4#32 }) := by
   sorry
 
 /-- **`lwc1`**: `FPR[ft] ← MEM32[$rs + sext(imm)]`; Address Error (AdEL) if not word-aligned -/
 theorem lwc1_spec_raw (s : State) (w rs ft imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwc1 rs ft imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdx rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
-      | some v => { (writeFpReg s (regIdx ft) v) with pc := s.pc + 4#32 } := by
+      | some v => { (writeFpReg s (regIdx ft) v) with pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **A misaligned `lwc1` raises Address Error (AdEL) on the effective address**; no FP register
@@ -1046,7 +1215,7 @@ theorem lwc1_misaligned_spec (s : State) (w rs ft imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwc1 rs ft imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
     (hmisaligned : (readReg s (regIdx rs) + signExt16 imm).toNat % 4 ≠ 0) :
-    step s = takeAddressException s excCodeAdEL (readReg s (regIdx rs) + signExt16 imm) := by
+    step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdx rs) + signExt16 imm)) := by
   sorry
 
 /-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25),
@@ -1055,8 +1224,8 @@ FEXR (26), FENR (28), FCSR (31); any other number reads 0 (pin for UNPREDICTABLE
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 } := by
+    step s = timerTick (
+      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 }) := by
   sorry
 
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
@@ -1067,12 +1236,12 @@ number the manual leaves UNPREDICTABLE is a no-op (pin)
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
       | none => { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
-        else { s with fcsr := f, pc := s.pc + 4#32 } := by
+        else { s with fcsr := f, pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **FCSR round trip through `ctc1 $rt, $31` / `cfc1 $rt, $31`.** Writing `v`
@@ -1089,10 +1258,10 @@ BC1T, p.60) -/
 theorem bc1t_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1t cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       if readFcc s cc then
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
-      else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+      else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   sorry
 
 /-! ## Address translation: the Fixed Mapping MMU, and the loader
@@ -1150,7 +1319,7 @@ theorem translate_erl1_kuseg_identity (s : State) (va : W32) (herl : erlSet s = 
 /-- **An instruction fetch from a kernel address in User Mode raises Address Error (AdEL)** with
 `BadVAddr = EPC = pc` (§6.2.9, p.92-93). -/
 theorem step_fetch_user_kernel_address (s : State) (hum : userMode s = true)
-    (hk : isUseg s.pc = false) : step s = takeAddressException s excCodeAdEL s.pc := by
+    (hk : isUseg s.pc = false) : step s = timerTick (takeAddressException s excCodeAdEL s.pc) := by
   sorry
 
 /-- **A User-Mode `lw` of a kernel address raises Address Error (AdEL)**, with `BadVAddr` = the
@@ -1159,7 +1328,7 @@ theorem lw_user_kernel_address (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none) (hum : userMode s = true)
     (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
-    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+    step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) ∧
       (step s).physMem = s.physMem ∧
       (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
   sorry
@@ -1170,7 +1339,7 @@ theorem sw_user_kernel_address (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none) (hum : userMode s = true)
     (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
-    step s = takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+    step s = timerTick (takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)) ∧
       (step s).physMem = s.physMem ∧
       (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
   sorry
@@ -1197,7 +1366,7 @@ theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
     (hw : p.get? textBase = some w) (hdecode : decode w = some instr)
     (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
     (hdisj : ∀ b v, p.get? b = some v → b ≠ textBase → loadAddr b ≠ loadAddr textBase) :
-    step (load p) = execInstr (load p) instr := by
+    step (load p) = timerTick (execInstr (load p) instr) := by
   sorry
 
 /-- **Loader correctness (reset start, `ERL = 1`)** for kernel-segment addresses (kseg0-kseg3, where
@@ -1236,7 +1405,7 @@ theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' :
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
     (hacc : accessAllowed s (s.pc + 4#32) = true)
     (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
-    step (step s) = execInstr (step s) instr' := by
+    step (step s) = timerTick (execInstr (step s) instr') := by
   sorry
 
 /-- **The hosted environment is `step` when it provides nothing.** If the stopping convention

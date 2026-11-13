@@ -30,10 +30,10 @@ jumps in the same step. -/
 theorem jal_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jal target))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s 31 (pcNext + 4#32)) with
-          pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) } := by
+          pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
   step_spec
 
 /-- Corollary of `jal_spec_raw`: `$ra` (register 31) reads back exactly
@@ -69,9 +69,9 @@ always executes first. -/
 theorem j_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.j target))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
-      { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) } := by
+      { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
   step_spec
 
 /-- **`jr` schedules a jump to the raw 32-bit value held in `$rs`** — not a
@@ -83,8 +83,8 @@ falls through to `PC_next`. -/
 theorem jr_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jr rs))
     (hpb : s.pendingBranch = none) :
-    step s =
-      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) } := by
+    step s = timerTick (
+      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
 
 /-- **`jalr` links `$rd` to `pc + 8` (the same `jal`/`jalr` link-value
@@ -97,10 +97,10 @@ paragraph in the spec. -/
 theorem jalr_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       { (writeReg s (regIdxSpec rd) (pcNext + 4#32)) with
-          pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) } := by
+          pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
 
 /-- Corollary of `jalr_spec_raw`: `$rd` reads back exactly `pc + 8` — past

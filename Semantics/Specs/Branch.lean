@@ -40,21 +40,21 @@ case. -/
 theorem beq_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beq rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 theorem bne_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bne rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   step_spec
 
 /-- **`beq`, taken**: when `$rs = $rt`, `beq` schedules
@@ -66,7 +66,7 @@ theorem beq_taken_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beq rs rt imm))
     (hpb : s.pendingBranch = none)
     (htaken : readReg s (regIdxSpec rs) = readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [beq_spec_raw s w rs rt imm hfetch hdecode hpb, ite_of_pos (by simpa using htaken)]
 
 /-- **`beq`, not taken**: when `$rs ≠ $rt`, control simply falls through to
@@ -76,7 +76,7 @@ theorem beq_not_taken_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beq rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [beq_spec_raw s w rs rt imm hfetch hdecode hpb, ite_of_neg (by simpa using hnot)]
 
 /-- **`bne`, taken**: when `$rs ≠ $rt`, schedules `PC_next + (offset << 2)`
@@ -85,7 +85,7 @@ theorem bne_taken_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bne rs rt imm))
     (hpb : s.pendingBranch = none)
     (htaken : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bne_spec_raw s w rs rt imm hfetch hdecode hpb, ite_of_neg (by simpa using htaken)]
 
 /-- **`bne`, not taken**: when `$rs = $rt`, falls through to `PC_next`. -/
@@ -93,7 +93,7 @@ theorem bne_not_taken_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bne rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) = readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bne_spec_raw s w rs rt imm hfetch hdecode hpb, ite_of_pos (by simpa using hnot)]
 
 /-- **Two-step delay-slot composition for a taken `beq`**: the branch's own
@@ -116,9 +116,9 @@ theorem beq_taken_delay_slot_lands_on_target (s : State) (w w2 rs rt imm : W32)
       step s1 = s2 ∧
       s2.pc = (s.pc + 4#32) + (signExt16 imm <<< 2) := by
   have h1 := beq_taken_spec s w rs rt imm hfetch hdecode hpb htaken
-  have h2 : step { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } = { s with pc := (s.pc + 4#32) + (signExt16 imm <<< 2), pendingBranch := none } := by
-    unfold step
-    rw [show readMemWord ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } : State) ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } : State).pc = some w2 from hfetch2]
+  have h2 : step (timerTick { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) = timerTick { (timerTick { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) with pc := (s.pc + 4#32) + (signExt16 imm <<< 2), pendingBranch := none } := by
+    unfold step execute
+    rw [show readMemWord (timerTick { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } : State) (timerTick { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } : State).pc = some w2 from hfetch2]
     dsimp only
     rw [hdecode2]
     dsimp only
@@ -166,11 +166,11 @@ section). -/
 theorem blez_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.blez rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≤ 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`blez`, taken**: when `$rs ≤ 0`, schedules `PC_next + (offset << 2)`
@@ -180,7 +180,7 @@ theorem blez_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.blez rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : asSigned (readReg s (regIdxSpec rs)) ≤ 0) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [blez_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`blez`, not taken**: when `$rs > 0`, falls through to `PC_next` with
@@ -189,7 +189,7 @@ theorem blez_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.blez rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : 0 < asSigned (readReg s (regIdxSpec rs))) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [blez_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- **`bgtz` branch target and condition** — the mirror image of `blez`:
@@ -199,11 +199,11 @@ if `$rs > 0` (signed, strictly positive), schedules
 theorem bgtz_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgtz rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if 0 < asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`bgtz`, taken**: when `$rs > 0`, schedules `PC_next + (offset << 2)`
@@ -212,7 +212,7 @@ theorem bgtz_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgtz rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : 0 < asSigned (readReg s (regIdxSpec rs))) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bgtz_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`bgtz`, not taken**: when `$rs ≤ 0`, falls through to `PC_next` with
@@ -221,7 +221,7 @@ theorem bgtz_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgtz rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : asSigned (readReg s (regIdxSpec rs)) ≤ 0) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bgtz_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- **`bltz` branch target and condition** (REGIMM, opcode `0x01`,
@@ -231,11 +231,11 @@ theorem bgtz_not_taken_spec (s : State) (w rs imm : W32)
 theorem bltz_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltz rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`bltz`, taken**: when `$rs < 0`, schedules `PC_next + (offset << 2)`. -/
@@ -243,7 +243,7 @@ theorem bltz_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltz rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : asSigned (readReg s (regIdxSpec rs)) < 0) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bltz_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`bltz`, not taken**: when `$rs ≥ 0`, falls through to `PC_next`. -/
@@ -251,7 +251,7 @@ theorem bltz_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltz rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : 0 ≤ asSigned (readReg s (regIdxSpec rs))) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bltz_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- **`bgez` branch target and condition** (REGIMM, `rt = 0x01`) — the
@@ -260,11 +260,11 @@ mirror image of `bltz`: if `$rs ≥ 0` (signed, zero included), schedules
 theorem bgez_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgez rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`bgez`, taken**: when `$rs ≥ 0`, schedules `PC_next + (offset << 2)`. -/
@@ -272,7 +272,7 @@ theorem bgez_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgez rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : 0 ≤ asSigned (readReg s (regIdxSpec rs))) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bgez_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`bgez`, not taken**: when `$rs < 0`, falls through to `PC_next`. -/
@@ -280,7 +280,7 @@ theorem bgez_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgez rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : asSigned (readReg s (regIdxSpec rs)) < 0) :
-    step s = { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bgez_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- **`bltzal` links `$ra` to `pc + 8` unconditionally, then — independent
@@ -296,13 +296,13 @@ UNPREDICTABLE case. -/
 theorem bltzal_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       let s' := writeReg s 31 (pcNext + 4#32)
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) } := by
+        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`bltzal`, taken**: `$ra` links to `pc + 8` (as always) and the branch
@@ -311,8 +311,8 @@ theorem bltzal_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : asSigned (readReg s (regIdxSpec rs)) < 0) :
-    step s = { (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
+        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bltzal_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`bltzal`, not taken**: `$ra` still links to `pc + 8` (the link is
@@ -322,8 +322,8 @@ theorem bltzal_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : 0 ≤ asSigned (readReg s (regIdxSpec rs))) :
-    step s = { (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
+        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bltzal_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- Corollary of `bltzal_taken_spec`/`bltzal_not_taken_spec`: `$ra` reads
@@ -347,13 +347,13 @@ branch structure as `bltzal` (INSTRUCTION-REF "bgezal" section). -/
 theorem bgezal_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       let s' := writeReg s 31 (pcNext + 4#32)
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) } := by
+        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }) := by
   step_spec
 
 /-- **`bgezal`, taken**: `$ra` links to `pc + 8` (as always) and the branch
@@ -362,8 +362,8 @@ theorem bgezal_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
     (hpb : s.pendingBranch = none)
     (htaken : 0 ≤ asSigned (readReg s (regIdxSpec rs))) :
-    step s = { (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
+        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   rw [bgezal_spec_raw s w rs imm hfetch hdecode hpb, ite_of_pos htaken]
 
 /-- **`bgezal`, not taken**: `$ra` still links to `pc + 8` (the link is
@@ -372,8 +372,8 @@ theorem bgezal_not_taken_spec (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
     (hpb : s.pendingBranch = none)
     (hnot : asSigned (readReg s (regIdxSpec rs)) < 0) :
-    step s = { (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } := by
+    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
+        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bgezal_spec_raw s w rs imm hfetch hdecode hpb, ite_of_neg (by omega)]
 
 /-- Corollary of `bgezal_taken_spec`/`bgezal_not_taken_spec`: `$ra` reads

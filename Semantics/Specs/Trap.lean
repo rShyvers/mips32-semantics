@@ -38,8 +38,8 @@ which does not compute until `s.pendingBranch` is known. -/
 (`exceptionEntry_*`) (INSTRUCTION-REF "break" section). -/
 theorem break_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.break code)) :
-    step s = takeException s excCodeBp := by
-  unfold step
+    step s = timerTick (takeException s excCodeBp) := by
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -58,11 +58,11 @@ all (INSTRUCTION-REF "teq / tne / tlt / tge / tltu / tgeu" section). -/
 theorem teq_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teq rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tne` traps iff `$rs ≠ $rt`** — the mirror image of `teq`
@@ -70,11 +70,11 @@ theorem teq_spec_raw (s : State) (w rs rt code : W32)
 theorem tne_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tne rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tlt` traps iff `$rs <s $rt`**, a *signed* comparison
@@ -83,11 +83,11 @@ theorem tne_spec_raw (s : State) (w rs rt code : W32)
 theorem tlt_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tlt rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < asSigned (readReg s (regIdxSpec rt)) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tge` traps iff `$rs ≥s $rt`**, a *signed* comparison — the mirror
@@ -96,11 +96,11 @@ section). -/
 theorem tge_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tge rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≥ asSigned (readReg s (regIdxSpec rt)) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tltu` traps iff `$rs <u $rt`**, an *unsigned* comparison on the raw
@@ -109,11 +109,11 @@ section: "`tltu`: `$rs <u $rt` (unsigned)"). -/
 theorem tltu_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tltu rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat < (readReg s (regIdxSpec rt)).toNat then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tgeu` traps iff `$rs ≥u $rt`**, an *unsigned* comparison — the
@@ -122,11 +122,11 @@ tgeu" section). -/
 theorem tgeu_spec_raw (s : State) (w rs rt code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgeu rs rt code))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat ≥ (readReg s (regIdxSpec rt)).toNat then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 -- `teq_spec_raw`/`tne_spec_raw`: equal registers trap under `teq` (and are
@@ -186,11 +186,11 @@ place of `$rt`). -/
 theorem teqi_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teqi rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == signExt16 imm then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tnei` traps iff `$rs ≠ sext16(imm)`** — the mirror image of `teqi`
@@ -198,11 +198,11 @@ theorem teqi_spec_raw (s : State) (w rs imm : W32)
 theorem tnei_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tnei rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) ≠ signExt16 imm then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tgei` traps iff `$rs ≥s sext16(imm)`**, a *signed* comparison
@@ -210,11 +210,11 @@ theorem tnei_spec_raw (s : State) (w rs imm : W32)
 theorem tgei_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgei rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≥ asSigned (signExt16 imm) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tgeiu` sign-extends the 16-bit immediate to a full 32-bit value
@@ -226,11 +226,11 @@ values). -/
 theorem tgeiu_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgeiu rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat ≥ (signExt16 imm).toNat then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tlti` traps iff `$rs <s sext16(imm)`**, a *signed* comparison
@@ -238,11 +238,11 @@ theorem tgeiu_spec_raw (s : State) (w rs imm : W32)
 theorem tlti_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tlti rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < asSigned (signExt16 imm) then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`tltiu` sign-extends the 16-bit immediate to a full 32-bit value
@@ -253,11 +253,11 @@ and then compares `.toNat` values). -/
 theorem tltiu_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tltiu rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if (readReg s (regIdxSpec rs)).toNat < (signExt16 imm).toNat then
         takeException s excCodeTr
       else
-        { s with pc := s.pc + 4#32 } := by
+        { s with pc := s.pc + 4#32 }) := by
   step_spec
 
 -- `teqi_spec_raw`/`tnei_spec_raw`: `$rs == sext16(imm)` traps under `teqi`

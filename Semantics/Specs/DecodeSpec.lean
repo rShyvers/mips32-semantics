@@ -203,7 +203,7 @@ theorem isModeledCp0Reg_lt (rd sel : W32) (h : isModeledCp0Reg rd sel = true) :
   simp only [isModeledCp0Reg, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at h
   rcases h with ⟨h0, h⟩ | ⟨h0, h⟩
   · subst h0
-    rcases h with (((((h | h) | h) | h) | h) | h) | h <;> subst h <;> decide
+    rcases h with ((((((((h | h) | h) | h) | h) | h) | h) | h) | h) | h <;> subst h <;> decide
   · subst h0
     rcases h with h | h <;> subst h <;> decide
 

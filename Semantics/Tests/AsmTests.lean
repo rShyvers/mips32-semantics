@@ -652,6 +652,15 @@ def cop0Prog : Program :=
 #guard (assemble "eret $t0\n").isOk = false
 #guard (assemble "wait $t0\n").isOk = false
 #guard (assemble "wait 1, 2\n").isOk = false
+-- `rdhwr $rt, $rd` (MIPS32r2, SPECIAL3 funct 0x3b): `rdhwr $3, $29` is 0x7c03e83b (the LLVM
+-- encoding of the same line); the hardware register is `$N` or `N`; no `sel` operand before Release 6.
+#guard (assemble "rdhwr $3, $29\n").toOption.map (·.getD textBase 0) = some 0x7c03e83b#32
+#guard (assemble "rdhwr $t0, 2\n").toOption.map (·.getD textBase 0) = some (encode (.rdhwr 8#32 2#32))
+#guard (assemble "rdhwr $t0, $2\n").toOption.map (fun p => decode (p.getD textBase 0)) =
+  some (some (.rdhwr 8#32 2#32))
+#guard (assemble "rdhwr $t0\n").isOk = false
+#guard (assemble "rdhwr $t0, $2, 0\n").isOk = false
+#guard (assemble "rdhwr $t0, 32\n").isOk = false
 -- `lwl`/`lwr`/`swl`/`swr`: identical `rt, offset(rs)` parsing to `lw`/`sw`,
 -- cross-checked against `Instruction.encode`.
 def unalignedSrc : String :=

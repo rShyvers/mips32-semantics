@@ -35,11 +35,11 @@ slot (`pc := pc + 8`, no pending branch) instead of executing it
 theorem beql_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bnel`**: the mirror image of `beql` — taken on `$rs ≠ $rt`, squashes
@@ -47,11 +47,11 @@ theorem beql_spec_raw (s : State) (w rs rt imm : W32)
 theorem bnel_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bnel rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 8#32 }
       else
-        { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) } := by
+        { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   step_spec
 
 /-- **`blezl`**: same condition as `blez` (`$rs ≤ 0`, signed), not-taken
@@ -59,11 +59,11 @@ skips the delay slot (`pc := pc + 8`) instead of falling through plainly. -/
 theorem blezl_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.blezl rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) ≤ 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bgtzl`**: same condition as `bgtz` (`$rs > 0`, signed), not-taken
@@ -71,11 +71,11 @@ skips the delay slot (`pc := pc + 8`). -/
 theorem bgtzl_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgtzl rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if 0 < asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bltzl`** (REGIMM `rt = 0x02`): same condition as `bltz` (`$rs < 0`,
@@ -83,11 +83,11 @@ signed), not-taken skips the delay slot (`pc := pc + 8`). -/
 theorem bltzl_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzl rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bgezl`** (REGIMM `rt = 0x03`): same condition as `bgez` (`$rs ≥ 0`,
@@ -95,11 +95,11 @@ signed), not-taken skips the delay slot (`pc := pc + 8`). -/
 theorem bgezl_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezl rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 } := by
+        { s with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bltzall`** (REGIMM `rt = 0x12`): same unconditional-`$ra`-link
@@ -112,13 +112,13 @@ INSTRUCTION-REF's explicit note that the link "survives the squash case". -/
 theorem bltzall_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzall rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       let s' := writeReg s 31 (pcNext + 4#32)
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := s.pc + 8#32 } := by
+        { s' with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-- **`bgezall`** (REGIMM `rt = 0x13`): same unconditional link as
@@ -128,13 +128,13 @@ way. -/
 theorem bgezall_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezall rs imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let pcNext := s.pc + 4#32
       let s' := writeReg s 31 (pcNext + 4#32)
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := s.pc + 8#32 } := by
+        { s' with pc := s.pc + 8#32 }) := by
   step_spec
 
 /-! ### Satisfiable examples
@@ -234,9 +234,9 @@ theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) :
-    step s = { s with pc := s.pc + 8#32 } ∧
-      run s 1 = { s with pc := s.pc + 8#32 } := by
-  have hstep : step s = { s with pc := s.pc + 8#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 8#32 }) ∧
+      run s 1 = timerTick ({ s with pc := s.pc + 8#32 }) := by
+  have hstep : step s = timerTick ({ s with pc := s.pc + 8#32 }) := by
     rw [beql_spec_raw s w rs rt imm hfetch hdecode hpb]
     simp [hnot]
   refine ⟨hstep, ?_⟩

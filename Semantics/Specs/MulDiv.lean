@@ -31,13 +31,13 @@ Both cases always advance the program counter by 4. -/
 theorem div_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       if b == 0 then
         { s with pc := s.pc + 4#32 }
       else
-        { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b), pc := s.pc + 4#32 } := by
+        { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b), pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- Corollary of `div_spec_raw`: dividing by `0` leaves `hi`/`lo` exactly as
@@ -47,7 +47,7 @@ theorem div_by_zero_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
     (hpb : s.pendingBranch = none)
     (hzero : readReg s (regIdxSpec rt) = 0#32) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   rw [div_spec_raw s w rs rt hfetch hdecode hpb, hzero]
   rfl
 
@@ -61,11 +61,11 @@ theorem div_negative_dividend_spec (s : State) (w rs rt : W32)
     (hpb : s.pendingBranch = none)
     (hnz : asSigned (readReg s (regIdxSpec rt)) ≠ 0)
     (hneg : asSigned (readReg s (regIdxSpec rs)) < 0) :
-    step s =
+    step s = timerTick (
       { s with
           lo := ofInt32 ((asSigned (readReg s (regIdxSpec rs))).tdiv (asSigned (readReg s (regIdxSpec rt))))
           hi := ofInt32 ((asSigned (readReg s (regIdxSpec rs))).tmod (asSigned (readReg s (regIdxSpec rt))))
-          pc := s.pc + 4#32 } ∧
+          pc := s.pc + 4#32 }) ∧
       (asSigned (readReg s (regIdxSpec rs))).tmod (asSigned (readReg s (regIdxSpec rt))) ≤ 0 := by
   constructor
   · rw [div_spec_raw s w rs rt hfetch hdecode hpb]
@@ -100,11 +100,11 @@ the full 64-bit result always fits in `hi:lo`). -/
 theorem mult_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mult rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       let prod64 : BitVec 64 := BitVec.ofInt 64 (a * b)
-      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`multu` forms the exact unsigned 64-bit product of `$rs` and `$rt`,
@@ -114,11 +114,11 @@ section). Raises no exception. -/
 theorem multu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.multu rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
       let prod64 : BitVec 64 := BitVec.ofNat 64 (a * b)
-      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 -- `mult_spec_raw`: `5 * 7 = 35` fits entirely in `lo`, `hi = 0`.
@@ -146,13 +146,13 @@ advances the program counter by 4. -/
 theorem divu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divu rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
       if b == 0 then
         { s with pc := s.pc + 4#32 }
       else
-        { s with lo := BitVec.ofNat 32 (a / b), hi := BitVec.ofNat 32 (a % b), pc := s.pc + 4#32 } := by
+        { s with lo := BitVec.ofNat 32 (a / b), hi := BitVec.ofNat 32 (a % b), pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- Corollary of `divu_spec_raw`: dividing by `0` leaves `hi`/`lo` exactly
@@ -162,7 +162,7 @@ theorem divu_by_zero_spec (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divu rs rt))
     (hpb : s.pendingBranch = none)
     (hzero : readReg s (regIdxSpec rt) = 0#32) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   rw [divu_spec_raw s w rs rt hfetch hdecode hpb, hzero]
   rfl
 
@@ -183,9 +183,9 @@ theorem divu_by_zero_spec (s : State) (w rs rt : W32)
 theorem mflo_spec_raw (s : State) (w rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mflo rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) s.lo) with
-          pc := (writeReg s (regIdxSpec rd) s.lo).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rd) s.lo).pc + 4#32 }) := by
   step_spec
 
 /-- **`mfhi` copies `hi` into `$rd`.** Trivial register read
@@ -193,9 +193,9 @@ theorem mflo_spec_raw (s : State) (w rd : W32)
 theorem mfhi_spec_raw (s : State) (w rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfhi rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) s.hi) with
-          pc := (writeReg s (regIdxSpec rd) s.hi).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rd) s.hi).pc + 4#32 }) := by
   step_spec
 
 /-- **`mthi` copies `$rs` into `hi`; `lo` is left unchanged.** Write-direction
@@ -204,7 +204,7 @@ is written, raises no exception. -/
 theorem mthi_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mthi rs))
     (hpb : s.pendingBranch = none) :
-    step s = { s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`mtlo` copies `$rs` into `lo`; `hi` is left unchanged.** Write-direction
@@ -213,7 +213,7 @@ is written, raises no exception. -/
 theorem mtlo_spec_raw (s : State) (w rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtlo rs))
     (hpb : s.pendingBranch = none) :
-    step s = { s with lo := readReg s (regIdxSpec rs), pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with lo := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **Round-trip check: `mthi` immediately followed by `mfhi` recovers
@@ -234,7 +234,7 @@ theorem mthi_mfhi_round_trip (s : State) (w w2 rs rd : W32)
       step s1 = s2 ∧
       readReg s2 (regIdxSpec rd) = readReg s (regIdxSpec rs) := by
   have h1 := mthi_spec_raw s w rs hfetch hdecode hpb
-  have h2 := mfhi_spec_raw { s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 } w2 rd
+  have h2 := mfhi_spec_raw (timerTick { s with hi := readReg s (regIdxSpec rs), pc := s.pc + 4#32 }) w2 rd
     hfetch2 hdecode2 hpb
   refine ⟨_, _, h1, h2, ?_⟩
   exact writeReg_reads_back _ (regIdxSpec rd) _ hrd hsize32
@@ -266,13 +266,13 @@ overflow, matching `mult`'s non-trapping precedent; raises no exception. -/
 theorem madd_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.madd rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       let prod64 : BitVec 64 := BitVec.ofInt 64 (a * b)
       let acc64 : BitVec 64 := s.hi ++ s.lo
       let sum64 := acc64 + prod64
-      { s with lo := sum64.extractLsb 31 0, hi := sum64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := sum64.extractLsb 31 0, hi := sum64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`maddu` adds the unsigned 64-bit product of `$rs`/`$rt` onto the
@@ -283,13 +283,13 @@ this instruction ran. Raises no exception. -/
 theorem maddu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddu rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
       let prod64 : BitVec 64 := BitVec.ofNat 64 (a * b)
       let acc64 : BitVec 64 := s.hi ++ s.lo
       let sum64 := acc64 + prod64
-      { s with lo := sum64.extractLsb 31 0, hi := sum64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := sum64.extractLsb 31 0, hi := sum64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`msub` subtracts the signed 64-bit product of `$rs`/`$rt` from the
@@ -300,13 +300,13 @@ Wraps on underflow; raises no exception. -/
 theorem msub_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msub rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := asSigned (readReg s (regIdxSpec rs))
       let b := asSigned (readReg s (regIdxSpec rt))
       let prod64 : BitVec 64 := BitVec.ofInt 64 (a * b)
       let acc64 : BitVec 64 := s.hi ++ s.lo
       let diff64 := acc64 - prod64
-      { s with lo := diff64.extractLsb 31 0, hi := diff64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := diff64.extractLsb 31 0, hi := diff64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`msubu` subtracts the unsigned 64-bit product of `$rs`/`$rt` from the
@@ -316,13 +316,13 @@ overwrite shape. Raises no exception. -/
 theorem msubu_spec_raw (s : State) (w rs rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubu rs rt))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let a := (readReg s (regIdxSpec rs)).toNat
       let b := (readReg s (regIdxSpec rt)).toNat
       let prod64 : BitVec 64 := BitVec.ofNat 64 (a * b)
       let acc64 : BitVec 64 := s.hi ++ s.lo
       let diff64 := acc64 - prod64
-      { s with lo := diff64.extractLsb 31 0, hi := diff64.extractLsb 63 32, pc := s.pc + 4#32 } := by
+      { s with lo := diff64.extractLsb 31 0, hi := diff64.extractLsb 63 32, pc := s.pc + 4#32 }) := by
   step_spec
 
 -- `madd_spec_raw`: a pre-seeded accumulator of `{hi=0,lo=100}` plus
@@ -357,10 +357,10 @@ that half of the claim isolated. -/
 theorem mul_spec_raw (s : State) (w rs rt rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mul rs rt rd))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt))) with
           pc := (writeReg s (regIdxSpec rd)
-            (readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt))).pc + 4#32 } := by
+            (readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt))).pc + 4#32 }) := by
   step_spec
 
 /-- **"Bad output rejection" for `mul`**: the resulting state's `hi`/`lo`

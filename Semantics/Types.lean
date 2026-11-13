@@ -172,6 +172,33 @@ structure State where
   coherency attribute when StatusERL is zero", Read/Write, reset "Undefined" (Table A.2, p.317;
   Table 9.64, p.233). Stored and read back; no other effect. Pinned to `2` like `K23`. -/
   cp0ConfigKU : BitVec 3 := 2#3
+  /-- Coprocessor 0 `Count` (register 9, select 0; MD00090 Vol III Rev 6.02 §9.27, Table 9.44,
+  p.183): "acts as a timer, incrementing at a constant rate, whether or not an instruction is
+  executed"; Read/Write, reset state "Undefined", "Required". The rate "is implementation-dependent";
+  the model's pin is **one increment per `step`** unless `Cause.DC = 1` (`Step.lean`, `timerTick`).
+  Also readable with `rdhwr` register 2 (`CC`). Pinned to `0` at power-on; the Reset exception does
+  not change it (it is not in the list of §6.2.5, p.89). -/
+  cp0Count : W32 := 0#32
+  /-- Coprocessor 0 `Compare` (register 11, select 0; MD00090 Vol III Rev 6.02 §9.30, Table 9.46,
+  p.187): "maintains a stable value and does not change on its own"; Read/Write, reset state
+  "Undefined", "Required". "When the value of the Count register equals the value of the Compare
+  register, an interrupt request is made" (`cp0TimerInt`); "Writing a value to the Compare register,
+  as a side effect, clears the timer interrupt" (`mtc0`, `Step.lean`). Pinned to `0` at power-on;
+  the Reset exception does not change it. -/
+  cp0Compare : W32 := 0#32
+  /-- `Cause.TI` (bit 30; MD00090 Vol III Rev 6.02 Table 9.52, p.209): "Timer Interrupt ... this bit
+  denotes whether a timer interrupt is pending"; Read-only, reset "Undefined", "Required (Release 2)".
+  Kept apart from `cp0Cause` because hardware, not software, drives it: set by `timerTick` when `Count`
+  equals `Compare`, cleared by a write to `Compare`. Software sees it in bit 30 of `Cause` and, merged
+  as the timer request, in `Cause.IP7` (bit 15) (`causeValue`, `Step.lean`). Pinned to `false` at
+  power-on; the Reset exception does not change it. -/
+  cp0TimerInt : Bool := false
+  /-- Coprocessor 0 `HWREna` (register 7, select 0; MD00090 Vol III Rev 6.02 §9.23, Table 9.39,
+  p.175): one enable bit per `rdhwr` register, "Required (Release 2)", reset state 0 (§6.2.5, p.89:
+  "HWREna ← 0"). Only bits 3..0 exist (`CPUNum`, `SYNCI_Step`, `CC`, `CCRes`, the registers the model
+  implements); every other bit "returns a zero and is ignored on a write" (Table 9.39), so the field
+  only ever holds values under `hwrenaWriteMask`. -/
+  cp0HWREna : W32 := 0#32
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
@@ -286,8 +313,23 @@ def causeCeMask : W32 := 0x30000000
 (9..8). MD00090 Vol III Rev 6.02 §9.36 (p.209): "With the exception of the
 IP1..0, DC, IV, and WP fields, all fields in the Cause register are
 read-only"; Table 9.52 (p.210) makes `DC` R/W and Required in Release 2. `DC`
-("Disable Count register") is stored and read back but has no effect: the
-model has no `Count` register. `WP` (22) is not writable here: it is
-"Required if watch registers are implemented", and the model has none
-(`Config1.WR = 0`). -/
+("Disable Count register") stops `Count` (`Step.lean`, `timerTick`). `WP` (22) is not writable
+here: it is "Required if watch registers are implemented", and the model has none
+(`Config1.WR = 0`). `TI` (30) and `IP7..IP2` (15..10) are read-only: they come from the timer
+(`State.cp0TimerInt`) when `Cause` is read (`Step.lean`, `causeValue`). -/
 def causeWriteMask : W32 := 0x08800300
+
+/-- `Cause.TI` (bit 30): a timer interrupt is pending (MD00090 Vol III Rev 6.02 Table 9.52,
+p.209). -/
+def causeTiMask : W32 := 0x40000000
+
+/-- `Cause.IP7` (bit 15): "Hardware interrupt 5" (MD00090 Vol III Rev 6.02 Table 9.52, p.211), the
+IP bit the timer request is merged into (`IntCtl.IPTI = 7` pin, `Step.lean`, `causeValue`). -/
+def causeIp7Mask : W32 := 0x00008000
+
+/-- The bits of `HWREna` (CP0 7,0) that exist: bit `n` enables `rdhwr` register `n` for `n` =
+0 `CPUNum`, 1 `SYNCI_Step`, 2 `CC`, 3 `CCRes`. "If RDHWR register ‘n’ is not implemented, bit ‘n’ of
+this field returns a zero and is ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175):
+registers 4..31 are not implemented (4, 5 are Release 6; 6..28 reserved; 29 `ULR` needs the optional
+UserLocal register; 30, 31 implementation-dependent, none). -/
+def hwrenaWriteMask : W32 := 0x0000000F

@@ -110,7 +110,7 @@ theorem hostStep_syscall_spec (env : HostEnv) (h : Hosted) (w code : W32)
       | 11 => .next { machine := { h.machine with pc := h.machine.pc + 4#32 },
                       out := h.out ++ String.singleton
                         (Char.ofNat ((readReg h.machine (regIdxSpec 4#32) &&& 0xff#32).toNat)) }
-      | _ => .next { h with machine := takeException h.machine excCodeSys } := by
+      | _ => .next { h with machine := timerTick (takeException h.machine excCodeSys) } := by
   obtain ⟨s, out⟩ := h
   simp only at hstop hfetch hpb ⊢
   have h2 : regIdxSpec 2#32 = 2 := by decide
@@ -123,7 +123,7 @@ theorem hostStep_syscall_spec (env : HostEnv) (h : Hosted) (w code : W32)
   rw [hfetch]
   simp only [hdecode]
   have hadv : advance s s = { s with pc := s.pc + 4#32 } := by unfold advance; rw [hpb]
-  have hsys : step s = takeException s excCodeSys := syscall_spec_raw s w code hfetch hdecode
+  have hsys : step s = timerTick (takeException s excCodeSys) := syscall_spec_raw s w code hfetch hdecode
   generalize (readReg s 2).toNat = n
   rcases n with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n <;>
     simp only [performService, hadv, hsys, readCStringSpec, printStringFuelSpec]

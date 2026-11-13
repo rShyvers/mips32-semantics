@@ -41,10 +41,10 @@ theorem fp_coprocessor_unusable (s : State) (w : W32) (instr : Instruction)
     (huses : usesCop1 instr = true)
     (hnb : isBranchLike instr = false ∨ s.pendingBranch = none)
     (hcu : cu1Enabled s = false) :
-    step s = takeCoprocessorUnusable s := by
+    step s = timerTick (takeCoprocessorUnusable s) := by
   have h1 : (isBranchLike instr && s.pendingBranch.isSome) = false := by
     rcases hnb with h | h <;> simp [h]
-  unfold step; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
+  unfold step execute; rw [hfetch]; dsimp only; rw [hdecode]; dsimp only
   unfold execInstr
   rw [h1, huses, hcu]
   rfl

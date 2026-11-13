@@ -39,7 +39,7 @@ Error (AdEL, `BadVAddr = addr`) for a kernel address referenced from User Mode (
 theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
       | none => takeAddressException s excCodeAdEL addr
@@ -63,7 +63,7 @@ theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
           | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
             setByteSlotSpec old 0 b0
         { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- **`lwr` ("load word right") merges 1–4 least-significant bytes ending
@@ -76,7 +76,7 @@ section); only the MMU's Address Error (AdEL) for a kernel address from User Mod
 theorem lwr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwr rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
       | none => takeAddressException s excCodeAdEL addr
@@ -100,7 +100,7 @@ theorem lwr_spec_raw (s : State) (w rs rt imm : W32)
             let b2 := (readMemByte s (addr - 1#32)).getD 0
             setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
         { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- **`swl` ("store word left") stores `$rt`'s most-significant 1–4 bytes
@@ -113,7 +113,7 @@ kernel address from User Mode. -/
 theorem swl_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swl rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       let v := readReg s (regIdxSpec rt)
       match writeMemByte s addr (getByteSlotSpec v 0) with
@@ -132,7 +132,7 @@ theorem swl_spec_raw (s : State) (w rs rt imm : W32)
           | 2 => (writeMemByte s1 (addr + 1#32) (getByteSlotSpec v 1)).getD s1
           | _ => s1  -- off = 3 (and unreachable default; addr.toNat % 4 is always < 4)
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 /-- **`swr` ("store word right") stores `$rt`'s least-significant 1–4
@@ -145,7 +145,7 @@ nothing stored) for a kernel address from User Mode. The byte at `addr` is writt
 theorem swr_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swr rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       let v := readReg s (regIdxSpec rt)
       match writeMemByte s addr (getByteSlotSpec v 3) with
@@ -164,7 +164,7 @@ theorem swr_spec_raw (s : State) (w rs rt imm : W32)
             let s3 := (writeMemByte s2 (addr - 2#32) (getByteSlotSpec v 1)).getD s2
             (writeMemByte s3 (addr - 1#32) (getByteSlotSpec v 2)).getD s3
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 /-- Base address for the concrete `lwl`/`lwr`/`swl`/`swr` examples below

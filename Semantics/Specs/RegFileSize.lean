@@ -222,7 +222,7 @@ theorem execInstr_sizesKept (s : State) (instr : Instruction) :
 (including every exception path). -/
 theorem step_preserves_regfile_sizes (s : State) :
     (step s).regs.size = s.regs.size ∧ (step s).fpRegs.size = s.fpRegs.size := by
-  unfold step
+  unfold step execute
   split
   · exact ⟨rfl, rfl⟩
   · split

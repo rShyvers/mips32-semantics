@@ -36,9 +36,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesS`
 theorem addS_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addS fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`sub.s`: `fd ← fs − ft`**, single precision: the result bits and exceptions are
@@ -48,9 +48,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesS`
 theorem subS_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.subS fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`mul.s`: `fd ← fs × ft`**, single precision: the result bits and exceptions are
@@ -60,9 +60,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesS`
 theorem mulS_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mulS fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`div.s`: `fd ← fs / ft`**, single precision: the result bits and exceptions are
@@ -72,9 +72,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesS`
 theorem divS_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divS fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Div (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Div (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`sqrt.s`**: `Mips.Fp.f32Sqrt` of the operand, completing per `fpCompletesS`
@@ -82,8 +82,8 @@ theorem divS_spec_raw (s : State) (w fd fs ft : W32)
 theorem sqrtS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sqrtS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32Sqrt (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32Sqrt (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
 /-- **`recip.s`**: `Mips.Fp.f32Recip` of the operand, completing per `fpCompletesS`
@@ -91,8 +91,8 @@ theorem sqrtS_spec_raw (s : State) (w fd fs : W32)
 theorem recipS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.recipS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32Recip (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32Recip (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
 /-- **`rsqrt.s`**: `Mips.Fp.f32Rsqrt` of the operand, completing per `fpCompletesS`
@@ -100,8 +100,8 @@ theorem recipS_spec_raw (s : State) (w fd fs : W32)
 theorem rsqrtS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rsqrtS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32Rsqrt (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32Rsqrt (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
 /-- **`abs.s`**: `Mips.Fp.f32Abs` of the operand, completing per `fpCompletesS`
@@ -109,8 +109,8 @@ theorem rsqrtS_spec_raw (s : State) (w fd fs : W32)
 theorem absS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.absS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32Abs (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32Abs (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
 /-- **`neg.s`**: `Mips.Fp.f32Neg` of the operand, completing per `fpCompletesS`
@@ -118,8 +118,8 @@ theorem absS_spec_raw (s : State) (w fd fs : W32)
 theorem negS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.negS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs))) := by
+    step s = timerTick (
+      fpCompletesS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
 /-- **`madd.s`** (unfused: multiply, round, add/subtract, round):
@@ -128,9 +128,9 @@ theorem negS_spec_raw (s : State) (w fd fs : W32)
 theorem maddS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Madd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Madd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`msub.s`** (unfused: multiply, round, add/subtract, round):
@@ -139,9 +139,9 @@ theorem maddS_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem msubS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Msub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Msub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`nmadd.s`** (unfused: multiply, round, add/subtract, round, negate):
@@ -150,9 +150,9 @@ theorem msubS_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem nmaddS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Nmadd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Nmadd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`nmsub.s`** (unfused: multiply, round, add/subtract, round, negate):
@@ -161,9 +161,9 @@ theorem nmaddS_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem nmsubS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesS s fd
-        (Mips.Fp.f32Nmsub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Nmsub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`add.d`: `fd ← fs + ft`**, double precision: the result bits and exceptions are
@@ -173,9 +173,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesD`
 theorem addD_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addD fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`sub.d`: `fd ← fs − ft`**, double precision: the result bits and exceptions are
@@ -185,9 +185,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesD`
 theorem subD_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.subD fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`mul.d`: `fd ← fs × ft`**, double precision: the result bits and exceptions are
@@ -197,9 +197,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesD`
 theorem mulD_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mulD fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`div.d`: `fd ← fs / ft`**, double precision: the result bits and exceptions are
@@ -209,9 +209,9 @@ mode, enables, FS); completion and FCSR update per `fpCompletesD`
 theorem divD_spec_raw (s : State) (w fd fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divD fd fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Div (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Div (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`sqrt.d`**: `Mips.Fp.f64Sqrt` of the operand, completing per `fpCompletesD`
@@ -219,8 +219,8 @@ theorem divD_spec_raw (s : State) (w fd fs ft : W32)
 theorem sqrtD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sqrtD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesD s fd (Mips.Fp.f64Sqrt (Mips.Fp.envOf s.fcsr) (readFpD s fs)) := by
+    step s = timerTick (
+      fpCompletesD s fd (Mips.Fp.f64Sqrt (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
 
 /-- **`recip.d`**: `Mips.Fp.f64Recip` of the operand, completing per `fpCompletesD`
@@ -228,8 +228,8 @@ theorem sqrtD_spec_raw (s : State) (w fd fs : W32)
 theorem recipD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.recipD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesD s fd (Mips.Fp.f64Recip (Mips.Fp.envOf s.fcsr) (readFpD s fs)) := by
+    step s = timerTick (
+      fpCompletesD s fd (Mips.Fp.f64Recip (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
 
 /-- **`rsqrt.d`**: `Mips.Fp.f64Rsqrt` of the operand, completing per `fpCompletesD`
@@ -237,8 +237,8 @@ theorem recipD_spec_raw (s : State) (w fd fs : W32)
 theorem rsqrtD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rsqrtD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesD s fd (Mips.Fp.f64Rsqrt (Mips.Fp.envOf s.fcsr) (readFpD s fs)) := by
+    step s = timerTick (
+      fpCompletesD s fd (Mips.Fp.f64Rsqrt (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
 
 /-- **`abs.d`**: `Mips.Fp.f64Abs` of the operand, completing per `fpCompletesD`
@@ -246,8 +246,8 @@ theorem rsqrtD_spec_raw (s : State) (w fd fs : W32)
 theorem absD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.absD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesD s fd (Mips.Fp.f64Abs (readFpD s fs)) := by
+    step s = timerTick (
+      fpCompletesD s fd (Mips.Fp.f64Abs (readFpD s fs))) := by
   fp_step_spec
 
 /-- **`neg.d`**: `Mips.Fp.f64Neg` of the operand, completing per `fpCompletesD`
@@ -255,8 +255,8 @@ theorem absD_spec_raw (s : State) (w fd fs : W32)
 theorem negD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.negD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesD s fd (Mips.Fp.f64Neg (readFpD s fs)) := by
+    step s = timerTick (
+      fpCompletesD s fd (Mips.Fp.f64Neg (readFpD s fs))) := by
   fp_step_spec
 
 /-- **`madd.d`** (unfused: multiply, round, add/subtract, round):
@@ -265,9 +265,9 @@ theorem negD_spec_raw (s : State) (w fd fs : W32)
 theorem maddD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Madd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Madd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`msub.d`** (unfused: multiply, round, add/subtract, round):
@@ -276,9 +276,9 @@ theorem maddD_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem msubD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Msub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Msub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`nmadd.d`** (unfused: multiply, round, add/subtract, round, negate):
@@ -287,9 +287,9 @@ theorem msubD_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem nmaddD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Nmadd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Nmadd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-- **`nmsub.d`** (unfused: multiply, round, add/subtract, round, negate):
@@ -298,7 +298,7 @@ theorem nmaddD_spec_raw (s : State) (w fd fr fs ft : W32)
 theorem nmsubD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesD s fd
-        (Mips.Fp.f64Nmsub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft)) := by
+        (Mips.Fp.f64Nmsub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec

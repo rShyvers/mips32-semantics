@@ -30,17 +30,17 @@ C.cond.fmt, p.110-113). `fpCompletesCmp_ok` says only `FCC[cc]` changes -/
 theorem cCondS_spec_raw (s : State) (w cond cc fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cCondS cond cc fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       fpCompletesCmp s cc
-        (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) := by
+        (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
   fp_step_spec
 
 /-- **`c.cond.d`**: as `cCondS_spec_raw`, on doubles (`Mips.Fp.f64Compare`) -/
 theorem cCondD_spec_raw (s : State) (w cond cc fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cCondD cond cc fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      fpCompletesCmp s cc (Mips.Fp.f64Compare (cond.setWidth 4) (readFpD s fs) (readFpD s ft)) := by
+    step s = timerTick (
+      fpCompletesCmp s cc (Mips.Fp.f64Compare (cond.setWidth 4) (readFpD s fs) (readFpD s ft))) := by
   fp_step_spec
 
 /-! ## What ends up in the condition code
@@ -62,7 +62,8 @@ theorem cCondS_sets_cc (s s' : State) (w cond cc fs ft : W32)
     Mips.Fp.getCC s'.fcsr (ccIdx cc) =
       (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).1 := by
   rw [cCondS_spec_raw s w cond cc fs ft hfetch hdecode hpb hcu] at hstep
-  rw [(fpCompletesCmp_ok s s' cc _ hen hstep (ccIdx cc)).1, ite_of_pos rfl]
+  subst hstep
+  rw [timerTick_fcsr, (fpCompletesCmp_ok s _ cc _ hen rfl (ccIdx cc)).1, ite_of_pos rfl]
 
 /-- **`c.cond.d` without a trap sets `FCC[cc]` to the predicate's value.** -/
 theorem cCondD_sets_cc (s s' : State) (w cond cc fs ft : W32)
@@ -74,7 +75,8 @@ theorem cCondD_sets_cc (s s' : State) (w cond cc fs ft : W32)
     Mips.Fp.getCC s'.fcsr (ccIdx cc) =
       (Mips.Fp.f64Compare (cond.setWidth 4) (readFpD s fs) (readFpD s ft)).1 := by
   rw [cCondD_spec_raw s w cond cc fs ft hfetch hdecode hpb hcu] at hstep
-  rw [(fpCompletesCmp_ok s s' cc _ hen hstep (ccIdx cc)).1, ite_of_pos rfl]
+  subst hstep
+  rw [timerTick_fcsr, (fpCompletesCmp_ok s _ cc _ hen rfl (ccIdx cc)).1, ite_of_pos rfl]
 
 /-- **`c.lt.s` (cond = 12) sets `FCC[cc]` iff `fs < ft` and neither is a NaN.** -/
 theorem c_lt_s_sets_cc (s s' : State) (w cc fs ft : W32)

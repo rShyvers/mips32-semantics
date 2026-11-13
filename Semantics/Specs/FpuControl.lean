@@ -26,8 +26,8 @@ FEXR (26), FENR (28), FCSR (31); any other number reads 0 (pin for UNPREDICTABLE
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
-      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 } := by
+    step s = timerTick (
+      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 }) := by
   fp_step_spec
 
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
@@ -38,12 +38,12 @@ number the manual leaves UNPREDICTABLE is a no-op (pin)
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
       | none => { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
-        else { s with fcsr := f, pc := s.pc + 4#32 } := by
+        else { s with fcsr := f, pc := s.pc + 4#32 }) := by
   fp_step_spec
 
 /-- **FCSR round trip through `ctc1 $rt, $31` / `cfc1 $rt, $31`.** Writing `v`
@@ -64,10 +64,10 @@ theorem ctc1_fcsr_spec (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt 31#32))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
     (hnt : Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = false) :
-    step s =
-      { s with fcsr := readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask, pc := s.pc + 4#32 } := by
+    step s = timerTick (
+      { s with fcsr := readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask, pc := s.pc + 4#32 }) := by
   rw [ctc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu]
-  show (if Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = true
+  show timerTick (if Mips.Fp.fcsrTrapPending (readReg s (regIdx rt) &&& Mips.Fp.fcsrWritableMask) = true
     then _ else _) = _
   rw [ite_of_neg (by simp [hnt])]
   rfl
@@ -76,7 +76,7 @@ theorem ctc1_fcsr_spec (s : State) (w rt : W32)
 theorem cfc1_fcsr_spec (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt 31#32))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)) with
-          pc := (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)).pc + 4#32 } :=
+          pc := (writeReg s (regIdx rt) (s.fcsr &&& Mips.Fp.fcsrWritableMask)).pc + 4#32 }) :=
   cfc1_spec_raw s w rt 31#32 hfetch hdecode hpb hcu

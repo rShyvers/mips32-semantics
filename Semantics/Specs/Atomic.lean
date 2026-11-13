@@ -26,13 +26,13 @@ address, exactly like `lw`. -/
 theorem ll_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
         { ({ (writeReg s (regIdxSpec rt) v) with llBit := true, llAddr := addr }) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- **`sc` is conditional on `llBit` and on its address matching the
@@ -52,7 +52,7 @@ just "some memory operation happened" (INSTRUCTION-REF "sc" section). -/
 theorem sc_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
@@ -62,7 +62,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
               pc := ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }).pc + 4#32 }
         else
           { ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }) with
-              pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 } := by
+              pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 -- `ll_spec_raw`: loads like `lw` and sets `llBit`.

@@ -14,6 +14,8 @@ A reviewer must read these to know what the statements say; `Semantics/Statement
 * The environment layer (`Semantics/Env.lean`: `load`, `hostStep`, `runHosted`) is imported so
   that the statements about the hosted run can be stated; it is not part of the processor.
 * `State.RegFilesWF`: both register files have 32 entries.
+* `writesTimer`, `fetchesTimerWrite`: the instructions that write `Count`, `Compare` or `Cause`
+  (`Timer.lean`).
 * `fcsrTrapped`, `fpCompletesS`/`D`/`Cmp`: how an FP arithmetic instruction completes (result written
   and flags accumulated, or Floating Point exception with the destination untouched).
 -/
@@ -55,6 +57,24 @@ abbrev signExtLowByteSpec := signExtLowByte
 
 /-- Spec-side name for `Step.lean`'s `lowBitsMask` — the same definition, not a copy. -/
 abbrev lowBitsMaskSpec := lowBitsMask
+
+/-- **The instructions that write the timer state**: `mtc0` to `Count` (9,0), `Compare` (11,0) or
+`Cause` (13,0, which holds `DC`). Every other instruction leaves `Count`, `Compare`, `Cause.TI`
+and `Cause.DC` alone (`Timer.lean`, `execute_timerKept`). -/
+def writesTimer : Instruction → Bool
+  | .mtc0 _ rd sel => sel.toNat == 0 && (rd.toNat == 9 || rd.toNat == 11 || rd.toNat == 13)
+  | _ => false
+
+/-- The word at `pc` is fetched and decodes to an instruction that writes the timer state
+(`writesTimer`). `false` when the fetch fails or the word does not decode (those steps raise an
+exception, which writes none of it). -/
+def fetchesTimerWrite (s : State) : Bool :=
+  match readMemWord s s.pc with
+  | some w =>
+    match decode w with
+    | some i => writesTimer i
+    | none => false
+  | none => false
 
 /-- Both register files of `s` have 32 entries (`RegFileSize.lean`: an invariant of `step`/`run`,
 satisfied by `initialState`). -/

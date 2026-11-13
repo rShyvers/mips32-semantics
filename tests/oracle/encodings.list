@@ -395,6 +395,12 @@ mtc0 $t1,$13
 mfc0 $s0,$0
 mtc0 $ra,$31
 mfc0 $t0,$12,0
+rdhwr $3,$29
+rdhwr $t0,$2
+rdhwr $zero,$0
+mfc0 $t0,$9
+mtc0 $t0,$11
+mtc0 $t1,$7
 eret
 wait
 syscall

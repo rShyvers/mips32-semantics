@@ -30,13 +30,13 @@ binaries). -/
 theorem lw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
         { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- Corollary of `lw_spec_raw`: a misaligned effective address raises Address
@@ -45,7 +45,7 @@ theorem lw_misaligned_spec (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none)
     (hmisaligned : (readReg s (regIdxSpec rs) + signExt16 imm).toNat % 4 ≠ 0) :
-    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) := by
+    step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) := by
   rw [lw_spec_raw s w rs rt imm hfetch hdecode hpb]
   dsimp only
   rw [show readMemWord s (readReg s (regIdxSpec rs) + signExt16 imm) = none by
@@ -118,13 +118,13 @@ section). -/
 theorem sw_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some s' =>
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 /-- **`sh` stores the low 16 bits of `$rt` as a big-endian halfword at
@@ -134,26 +134,26 @@ on a halfword-misaligned effective address (INSTRUCTION-REF "sh" section).
 theorem sh_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sh rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match writeMemHalf s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some s' =>
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 /-- `sb` in terms of `writeMemByte` (proof device for `sb_spec_raw`). -/
 theorem sb_spec_raw_writeMemByte (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       match writeMemByte s (readReg s (regIdxSpec rs) + signExt16 imm)
           (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8 with
       | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
       | some s' =>
         { ({ s' with llBit := false }) with
-            pc := ({ s' with llBit := false }).pc + 4#32 } := by
+            pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
 /-- **`sb` stores the low byte of `$rt` at `$rs + sext16(offset)` and
@@ -166,14 +166,14 @@ every store (see `State.llBit`). -/
 theorem sb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sb rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       match translate s (readReg s (regIdxSpec rs) + signExt16 imm) with
       | none => takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)
       | some pa =>
         { s with
               physMem := s.physMem.insert pa (readReg s (regIdxSpec rt) &&& 0xff#32).toNat.toUInt8
               llBit := false
-              pc := s.pc + 4#32 } := by
+              pc := s.pc + 4#32 }) := by
   have h := sb_spec_raw_writeMemByte s w rs rt imm hfetch hdecode hpb
   rw [h]
   unfold writeMemByte
@@ -230,7 +230,7 @@ the address and hint. -/
 theorem pref_spec_raw (s : State) (w rs hint imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.pref rs hint imm))
     (hpb : s.pendingBranch = none) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`lb` sign-extends the loaded byte** (INSTRUCTION-REF "lb" section).
@@ -239,52 +239,52 @@ the equation matches `step`'s code. -/
 theorem lb_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lb rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some b =>
         { (writeReg s (regIdxSpec rt) ((BitVec.ofNat 8 b.toNat).signExtend 32)) with
-            pc := (writeReg s (regIdxSpec rt) ((BitVec.ofNat 8 b.toNat).signExtend 32)).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) ((BitVec.ofNat 8 b.toNat).signExtend 32)).pc + 4#32 }) := by
   step_spec
 
 /-- **`lbu` zero-extends the loaded byte** — same address and byte as `lb`, different widening (INSTRUCTION-REF "lbu" section). -/
 theorem lbu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lbu rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemByte s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some b =>
         { (writeReg s (regIdxSpec rt) (BitVec.ofNat 32 b.toNat)) with
-            pc := (writeReg s (regIdxSpec rt) (BitVec.ofNat 32 b.toNat)).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) (BitVec.ofNat 32 b.toNat)).pc + 4#32 }) := by
   step_spec
 
 /-- **`lh` sign-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lh" section). -/
 theorem lh_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lh rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemHalf s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some h =>
         { (writeReg s (regIdxSpec rt) (signExt16 h)) with
-            pc := (writeReg s (regIdxSpec rt) (signExt16 h)).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) (signExt16 h)).pc + 4#32 }) := by
   step_spec
 
 /-- **`lhu` zero-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lhu" section). -/
 theorem lhu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lhu rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let addr := readReg s (regIdxSpec rs) + signExt16 imm
       match readMemHalf s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some h =>
         { (writeReg s (regIdxSpec rt) h) with
-            pc := (writeReg s (regIdxSpec rt) h).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) h).pc + 4#32 }) := by
   step_spec
 
 /-! ## `sync`/`synci`
@@ -299,7 +299,7 @@ ordinary non-control-flow instruction, touching no other state
 theorem sync_spec_raw (s : State) (w stype : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sync stype))
     (hpb : s.pendingBranch = none) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec
 
 /-- **`synci` is a documented no-op**: it computes the same effective
@@ -311,5 +311,5 @@ touching no other state at all, not even a memory read (`Step.lean`'s
 theorem synci_spec_raw (s : State) (w rs imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.synci rs imm))
     (hpb : s.pendingBranch = none) :
-    step s = { s with pc := s.pc + 4#32 } := by
+    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
   step_spec

@@ -191,6 +191,56 @@ private def vectorHandlerProg : Program :=
         | some s' => s'.cp0BadVAddr == 0x77#32 && s'.pc == textBase + 4#32
         | none => false)
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 8#32 0#32)) { regs0 with cp0BadVAddr := 0x10010001#32 }) 8 0x10010001#32
+-- Timer (wave 5, F12): Count (9) and Compare (11) are R/W; Count advances once per step unless
+-- Cause.DC = 1; a write to Compare clears Cause.TI; Count = Compare sets TI, read in Cause bit 30
+-- and (IPTI = 7 pin) IP7 (bit 15).
+#guard (match stepState (prog1 (.mtc0 8#32 9#32 0#32)) (setRegs regs0 [(8, 1000#32)]) with
+        | some s' => s'.cp0Count == 1001#32
+        | none => false)
+#guard (match stepState (prog1 (.mtc0 8#32 9#32 0#32))
+          { (setRegs regs0 [(8, 1000#32)]) with cp0Cause := causeDcMask } with
+        | some s' => s'.cp0Count == 1000#32
+        | none => false)
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 9#32 0#32)) { regs0 with cp0Count := 0x1234#32 }) 8 0x1234#32
+#guard (match stepState (prog1 (.mtc0 8#32 11#32 0#32))
+          { (setRegs regs0 [(8, 5#32)]) with cp0TimerInt := true, cp0Count := 100#32 } with
+        | some s' => s'.cp0Compare == 5#32 && !s'.cp0TimerInt
+        | none => false)
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 11#32 0#32)) { regs0 with cp0Compare := 77#32 }) 8 77#32
+-- writing Compare = Count + 1 is matched by the same step's tick
+#guard (match stepState (prog1 (.mtc0 8#32 11#32 0#32))
+          { (setRegs regs0 [(8, 101#32)]) with cp0Count := 100#32 } with
+        | some s' => s'.cp0TimerInt
+        | none => false)
+#guard (match stepState (prog1 nopInstr) { regs0 with cp0Count := 9#32, cp0Compare := 10#32 } with
+        | some s' => s'.cp0TimerInt && s'.cp0Count == 10#32
+        | none => false)
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 13#32 0#32)) { regs0 with cp0TimerInt := true }) 8 0x40008000#32
+-- mtc0 to Cause cannot write TI or IP7
+#guard (match stepState (prog1 (.mtc0 8#32 13#32 0#32)) (setRegs regs0 [(8, 0x40008000#32)]) with
+        | some s' => causeValue s' == 0#32
+        | none => false)
+-- HWREna (7): bits 3..0 only (F15)
+#guard (match stepState (prog1 (.mtc0 8#32 7#32 0#32)) (setRegs regs0 [(8, 0xffffffff#32)]) with
+        | some s' => s'.cp0HWREna == 0xf#32
+        | none => false)
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 7#32 0#32)) { regs0 with cp0HWREna := 0xa#32 }) 8 0xa#32
+-- rdhwr in Kernel Mode: CPUNum 0, SYNCI_Step 0, CC = Count, CCRes 1; 29 (ULR) is RI
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 1#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32)) { regs0 with cp0Count := 0xabc#32 }) 8 0xabc#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32)) regs0) 8 1#32
+#guard raises (hstep (prog1 (.rdhwr 8#32 29#32)) regs0) excCodeRI
+#guard raises (hstep (prog1 (.rdhwr 8#32 4#32)) regs0) excCodeRI
+-- rdhwr in User Mode (UM = 1, CU0 = 0): only the registers enabled in HWREna; otherwise RI (not CpU)
+#guard raises (hstep (prog1 (.rdhwr 8#32 2#32)) { regs0 with cp0Status := statusUmMask }) excCodeRI
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32))
+  { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32, cp0Count := 55#32 }) 8 55#32
+#guard raises (hstep (prog1 (.rdhwr 8#32 3#32))
+  { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32 }) excCodeRI
+-- User Mode with CU0 = 1: Coprocessor 0 is enabled, so every implemented register is readable
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32))
+  { regs0 with cp0Status := statusUmMask ||| statusCu0Mask }) 8 1#32
 -- ErrorEPC (30) is fully readable/writable.
 #guard (match stepState (prog1 (.mtc0 8#32 30#32 0#32)) (setRegs regs0 [(8, 0x3000#32)]) with
         | some s' => s'.cp0ErrorEpc == 0x3000#32

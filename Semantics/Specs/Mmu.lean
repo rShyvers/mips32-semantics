@@ -161,8 +161,8 @@ theorem writeMemByte_user_kernel_address (s : State) (va : W32) (v : UInt8)
 `BadVAddr = EPC = pc` (MD00090 Vol III Rev 6.02 §6.2.9, p.92-93: "A reference is made to a kernel
 address space from User Mode"; AdEL "Reference was a load or an instruction fetch"). -/
 theorem step_fetch_user_kernel_address (s : State) (hum : userMode s = true)
-    (hk : isUseg s.pc = false) : step s = takeAddressException s excCodeAdEL s.pc := by
-  unfold step; rw [readMemWord_user_kernel_address s s.pc hum hk]
+    (hk : isUseg s.pc = false) : step s = timerTick (takeAddressException s excCodeAdEL s.pc) := by
+  unfold step execute; rw [readMemWord_user_kernel_address s s.pc hum hk]
 
 /-- **A User-Mode `lw` of a kernel address raises Address Error (AdEL)**, with `BadVAddr` = the
 effective address, and changes no memory. -/
@@ -170,10 +170,10 @@ theorem lw_user_kernel_address (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lw rs rt imm))
     (hpb : s.pendingBranch = none) (hum : userMode s = true)
     (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
-    step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+    step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) ∧
       (step s).physMem = s.physMem ∧
       (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
-  have h : step s = takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm) := by
+  have h : step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdxSpec rs) + signExt16 imm)) := by
     rw [lw_spec_raw s w rs rt imm hfetch hdecode hpb]
     dsimp only
     rw [readMemWord_user_kernel_address s _ hum hk]
@@ -185,10 +185,10 @@ theorem sw_user_kernel_address (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sw rs rt imm))
     (hpb : s.pendingBranch = none) (hum : userMode s = true)
     (hk : isUseg (readReg s (regIdxSpec rs) + signExt16 imm) = false) :
-    step s = takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm) ∧
+    step s = timerTick (takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)) ∧
       (step s).physMem = s.physMem ∧
       (step s).cp0BadVAddr = readReg s (regIdxSpec rs) + signExt16 imm := by
-  have h : step s = takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm) := by
+  have h : step s = timerTick (takeAddressException s excCodeAdES (readReg s (regIdxSpec rs) + signExt16 imm)) := by
     rw [sw_spec_raw s w rs rt imm hfetch hdecode hpb]
     dsimp only
     rw [writeMemWord_user_kernel_address s _ _ hum hk]

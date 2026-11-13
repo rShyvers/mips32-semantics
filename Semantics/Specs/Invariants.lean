@@ -211,7 +211,7 @@ after a step as before — for **every** state and instruction, with no side con
 (INSTRUCTION-REF Global rule 2, "writes to `$zero` are a no-op"). Proof: `step` is fetch/decode
 (whose failures are exceptions) followed by `execInstr`; see `execInstr_zeroKept`. -/
 theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg s 0 := by
-  unfold step
+  unfold step execute
   split
   · rfl
   · split

@@ -90,7 +90,7 @@ Many of the tests (FP compare/convert/flag/trap/CpU/random-pool programs) are pr
 ### How a test runs
 1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
    oracle extension: `image` (`[addr, word]` for every assembled word: text 0x00400000, data 0x10010000, `.ktext` 0x80000180),
-   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause,epc,badvaddr,errorepc,ebase}),
+   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause (as `mfc0` reads it: with `TI`/`IP7`),epc,badvaddr,errorepc,ebase,count,compare,hwrena}),
    `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
    (every nonzero aligned word of the final **physical** memory, keyed by its **virtual** address `Env.canonicalVAddr`: the model has the Fixed
    Mapping MMU, so the loaded data at virtual 0x10010000 lives at physical 0x50010000 and is reported as 0x10010000) and `physical_memory`

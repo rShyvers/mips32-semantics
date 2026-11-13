@@ -77,7 +77,8 @@ theorem resetException_keeps (s : State) :
 CU1 = 0`), `Cause = 0`, `EPC = BadVAddr = ErrorEPC = 0`, `EBase` reads `0x8000_0000`, `Config`
 reads `0xA400_8582` (`MT = 3`, `K23 = KU = K0 = 2`), the general exception vector is the bootstrap one
 (`0xBFC0_0380`), no branch is pending, `LLbit` clear, and every GPR, `HI`, `LO`, FPR and `FCSR`
-is 0 (pins of undefined reset values, `powerOnState`). -/
+is 0 (pins of undefined reset values, `powerOnState`), and so are `Count` and `Compare`, with no
+timer interrupt pending; `HWREna = 0` (§6.2.5, p.89: "HWREna ← 0"). -/
 theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
@@ -86,7 +87,9 @@ theorem resetState_spec :
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
     resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
-    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 := by
+    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
+    resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
+    resetState.cp0HWREna = 0#32 := by
   decide
 
 /-- **The boot convention** (`Env.lean`): the program starts at `entry` in Kernel Mode with

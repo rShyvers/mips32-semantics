@@ -21,8 +21,10 @@ p.89): the GPRs, `HI`/`LO`, the FPRs, `FCSR`, `EPC`, `BadVAddr`, most of `Status
 not in that list, so the architecture leaves their reset value undefined. The model pins every
 one of them to 0: all GPRs (including `$sp`), `HI`, `LO`, all FPRs, `FCSR` (whose fields have reset
 state "Undefined", MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95), `Status`, `Cause`, `EPC`,
-`BadVAddr`, `ErrorEPC`, `LLAddr`; `LLbit` clear, no pending branch, empty memory (bytes read 0),
-and `pc = 0`. `EBase` and `Config.K0`/`K23`/`KU` hold the values the Reset exception gives them
+`BadVAddr`, `ErrorEPC`, `LLAddr`, `Count` and `Compare` (MD00090 Vol III Rev 6.02 Table 9.44,
+p.183, and Table 9.46, p.187: reset state "Undefined"), `Cause.TI` clear; `LLbit` clear, no pending
+branch, empty memory (bytes read 0), and `pc = 0`. `HWREna` is 0, the value the Reset exception gives
+it anyway. `EBase` and `Config.K0`/`K23`/`KU` hold the values the Reset exception gives them
 anyway.
 This is *not* the reset state: `Step.lean`'s `resetState` is `resetException powerOnState`. -/
 def powerOnState : State :=
@@ -44,7 +46,11 @@ def powerOnState : State :=
     cp0EBase := ebaseFixedBits
     cp0ConfigK0 := 2#3
     cp0ConfigK23 := 2#3
-    cp0ConfigKU := 2#3 }
+    cp0ConfigKU := 2#3
+    cp0Count := 0#32
+    cp0Compare := 0#32
+    cp0TimerInt := false
+    cp0HWREna := 0#32 }
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
@@ -63,7 +69,8 @@ equals `initialState textBase` (`Specs/Reset.lean`, `hostedStart_is_reset_then_b
 * `FCSR = 0`: round to nearest, no exception enabled, flags and cause clear,
   all eight condition codes 0, `FS = 0`. The manual makes every FCSR field's
   reset state "Undefined" (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95).
-* `Cause`, `EPC`, `BadVAddr`, `ErrorEPC` are `0`; `EBase` holds its reset
+* `Cause`, `EPC`, `BadVAddr`, `ErrorEPC`, `Count`, `Compare`, `HWREna` are `0` and no timer
+  interrupt is pending; `EBase` holds its reset
   value `0x8000_0000` (MD00090 Vol III Rev 6.02 §9.41, p.223). -/
 def initialState (pc : W32) : State :=
   { pc := pc
@@ -84,7 +91,11 @@ def initialState (pc : W32) : State :=
     cp0EBase := ebaseFixedBits
     cp0ConfigK0 := 2#3
     cp0ConfigK23 := 2#3
-    cp0ConfigKU := 2#3 }
+    cp0ConfigKU := 2#3
+    cp0Count := 0#32
+    cp0Compare := 0#32
+    cp0TimerInt := false
+    cp0HWREna := 0#32 }
 
 /-- Read general-purpose register `i`. Register `0` (`$zero`) always reads as
 `0` by construction of `initialState`/`writeReg`, but this also tolerates any

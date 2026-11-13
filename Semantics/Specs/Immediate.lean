@@ -26,7 +26,7 @@ signed overflow.** The immediate is sign-extended first (INSTRUCTION-REF
 theorem addi_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let av := readReg s (regIdxSpec rs)
       let bv := signExt16 imm
       let sumBV := av + bv
@@ -34,7 +34,7 @@ theorem addi_spec_raw (s : State) (w rs rt imm : W32)
         takeException s excCodeOv
       else
         { (writeReg s (regIdxSpec rt) sumBV) with
-            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 } := by
+            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 }) := by
   step_spec
 
 /-- **`addi` overflow raises Integer Overflow**, in or out of a delay slot. -/
@@ -42,12 +42,12 @@ theorem addi_overflow_raises_ov (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
     (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (signExt16 imm))
       (asSigned (readReg s (regIdxSpec rs) + signExt16 imm)) = true) :
-    step s = takeException s excCodeOv := by
-  unfold step
+    step s = timerTick (takeException s excCodeOv) := by
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
-  show (if addOverflows _ _ _ = true then takeException s excCodeOv else _) = _
+  show timerTick (if addOverflows _ _ _ = true then takeException s excCodeOv else _) = _
   rw [ite_of_pos hov]
 
 /-! ### Satisfiable examples -/
@@ -70,9 +70,9 @@ entirely; INSTRUCTION-REF "addiu" section, confirmed against `Step.lean`'s
 theorem addiu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addiu rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) + signExt16 imm)) with
-          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) + signExt16 imm)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) + signExt16 imm)).pc + 4#32 }) := by
   step_spec
 
 /-- **`slti` writes `1` iff `$rs < sext16(imm)` under a signed comparison,
@@ -80,10 +80,10 @@ else `0`** (INSTRUCTION-REF "slti" section). -/
 theorem slti_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.slti rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let v := if asSigned (readReg s (regIdxSpec rs)) < asSigned (signExt16 imm)
                then 1#32 else 0#32
-      { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+      { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- **`sltiu` sign-extends the 16-bit immediate first, exactly like `slti`,
@@ -95,10 +95,10 @@ compares `.toNat` values). -/
 theorem sltiu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sltiu rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       let v := if (readReg s (regIdxSpec rs)).toNat < (signExt16 imm).toNat
                then 1#32 else 0#32
-      { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
+      { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) := by
   step_spec
 
 /-- **`andi` zero-extends the 16-bit immediate, then bitwise-ANDs it with
@@ -108,9 +108,9 @@ zero-extended... not sign-extended"). -/
 theorem andi_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.andi rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) &&& zeroExt16 imm)) with
-          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) &&& zeroExt16 imm)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) &&& zeroExt16 imm)).pc + 4#32 }) := by
   step_spec
 
 /-- **`ori` zero-extends the 16-bit immediate, then bitwise-ORs it with
@@ -119,9 +119,9 @@ theorem andi_spec_raw (s : State) (w rs rt imm : W32)
 theorem ori_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ori rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ||| zeroExt16 imm)) with
-          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ||| zeroExt16 imm)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ||| zeroExt16 imm)).pc + 4#32 }) := by
   step_spec
 
 /-- **`xori` zero-extends the 16-bit immediate, then bitwise-XORs it with
@@ -130,9 +130,9 @@ theorem ori_spec_raw (s : State) (w rs rt imm : W32)
 theorem xori_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.xori rs rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ^^^ zeroExt16 imm)) with
-          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ^^^ zeroExt16 imm)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ^^^ zeroExt16 imm)).pc + 4#32 }) := by
   step_spec
 
 /-- **`lui` writes `imm << 16` into `$rt`, ignoring `$rs` entirely** — `$rs`
@@ -143,9 +143,9 @@ the shift). -/
 theorem lui_spec_raw (s : State) (w rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lui rt imm))
     (hpb : s.pendingBranch = none) :
-    step s =
+    step s = timerTick (
       { (writeReg s (regIdxSpec rt) (zeroExt16 imm <<< 16)) with
-          pc := (writeReg s (regIdxSpec rt) (zeroExt16 imm <<< 16)).pc + 4#32 } := by
+          pc := (writeReg s (regIdxSpec rt) (zeroExt16 imm <<< 16)).pc + 4#32 }) := by
   step_spec
 
 -- `addiu_spec_raw`: `0x7fffffff + 1` wraps to `0x80000000` instead of

@@ -19,7 +19,7 @@ dependency on anything else in that project.
   State` (writes the assembled image into physical memory, each word at the physical address of its virtual
   address), the MARS-style `syscall` services (1, 4, 10, 11) and the
   conventions for stopping a run (`runHosted`). `MipsRun` and the harnesses use the hosted run.
-- `Semantics/Instruction.lean`: the `Instruction` type (178 constructors), `decode` (strict) and `encode`.
+- `Semantics/Instruction.lean`: the `Instruction` type (179 constructors), `decode` (strict) and `encode`.
 - `Semantics/Asm.lean`: an assembler from source text to a `Program` (labels, directives, idioms, range checks).
 - `Semantics/FpOps.lean`: the floating-point unit, defined on bit patterns without host floats.
 - `Semantics/Specs/`, `Semantics/Statements.lean`: the specification and its proofs (see below for exactly what
@@ -52,22 +52,24 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1153 lines) states **98 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1455 lines) states **116 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 98 statements are a selection: every global theorem below and at least one per-instruction
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 116 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
-**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 178
-constructors (`python3 scripts/trace.py`). 176 of the 178 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
+**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 179
+constructors (`python3 scripts/trace.py`). 177 of the 179 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
 (`step_spec`/`fp_step_spec` in `Semantics/Specs/Tactics.lean`; `break_spec_raw` and `syscall_spec_raw` have explicit
 proofs), and each states what `step` computes for that
 instruction in terms of the model's own helper functions (`readReg`, `writeReg`, `signExt16`, ...; the `...Spec`
-names in `Defs.lean` are abbreviations for the real definitions, not independent copies). They pin the behaviour
+names in `Defs.lean` are abbreviations for the real definitions, not independent copies). Each has the form
+`step s = timerTick (…)`: `step` is the instruction (`execute`) followed by the timer (`timerTick`, which only
+advances `Count` and sets `Cause.TI`), so the instruction's own effect is the argument of `timerTick`. They pin the behaviour
 against regression and make each instruction's semantics readable in isolation. **They are not independent of the
 implementation**: a mistake in `Step.lean` that is also a mistake in the reader's understanding of the manual
 survives them. The evidence that the semantics matches the architecture is the manual review recorded in
@@ -89,6 +91,7 @@ The results that are genuinely global, or independent of how an individual instr
 | the hosted run is `step` whenever it neither stops nor performs a service; the services | `Specs/Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run`, `hosted_print_int`, `hosted_exit` |
 | Coprocessor Unusable | `Specs/FpuCommon.lean`, `Specs/Cp0.lean` | `fp_coprocessor_unusable`, `cp0_instruction_user_mode_unusable` |
 | operating modes: User Mode is `UM = 1`, `EXL = ERL = 0`; CP0 unusable exactly in User Mode with `CU0 = 0`; exception entry enters Kernel Mode (UM kept); `eret` returns to User Mode | `Specs/Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
+| timer: `Count` + 1 per step unless `Cause.DC = 1` or the instruction writes `Count`/`Compare`/`Cause` (proved over every constructor); `Count = Compare` sets `Cause.TI`; a `Compare` write clears it; `Cause` reads `TI` and `IP7`; `rdhwr` values and access rule (Kernel Mode or `CU0`, or the `HWREna` bit; Reserved Instruction otherwise) | `Specs/Timer.lean` | `step_count_advances`, `step_count_stopped`, `step_timer_match_sets_ti`, `step_timerInt`, `mtc0_count_spec`, `mtc0_compare_clears_ti`, `causeValue_timer`, `rdhwr_spec_raw`, `hwrValue_*`, `rdhwr_reserved_unimplemented`, `rdhwr_reserved_not_enabled`, `rdhwr_allowed`, `hwrena_write_masked`, `resetException_timer` |
 | Reset exception and reset state; the hosted start state is reset followed by the environment's boot convention (and equals `initialState textBase`) | `Specs/Reset.lean` | `resetException_spec`, `resetState_spec`, `hostedStart_is_reset_then_boot` |
 | FP trap: an enabled FP exception takes ExcCode 15 and writes no FP register | `Specs/FpuCommon.lean` | `fpCompletesS_trap` (single-precision finish helper; the double and compare analogues `fpCompletesD_trap`, `fpCompletesCmp_trap` are in `FpuCommon.lean`) |
 | FCSR round trip through `ctc1`/`cfc1` | `Specs/FpuControl.lean` | `fcsr_ctc1_cfc1_roundtrip` |
@@ -112,17 +115,19 @@ order equals the order of the rational values is tested, not proved (`FpCompareF
   uses endian-invariant patterns and covers the original instruction subset best (SPEC-NOTES §9).
 - *QEMU* (`qemu-system-mips -M malta -cpu 24Kf`, `tests/oracle`, `scripts/oracle.py`): the same machine code at the
   same addresses runs on QEMU and on the model, and registers, `HI`/`LO`, FPRs, FCSR, CP0 state, memory, output and
-  termination are compared. The last gate run (`.gate/last-run.json`) reports 139 tests (130 programs in
-  `tests/oracle`, 9 runnable programs of `tests/asm`): 130 pass, 9 are **declared deviations where QEMU departs
-  from the manual** (the manual wins), 0 known model bugs. The deviations, with the citations from the tests'
+  termination are compared. The last gate run (`.gate/last-run.json`) reports 150 tests (141 programs in
+  `tests/oracle`, 9 programs of `tests/asm`): 140 pass, 10 are **declared deviations where QEMU departs
+  from the manual** (the manual wins), 0 known model bugs, 5 skipped (unsupported by the harness). The deviations, with the citations from the tests'
   own `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the table):
   misaligned `sc` (MD00086 Vol II-A Rev 6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`, QEMU performs
   the access (LWXC1 p.254, LDXC1 p.218, SWXC1 p.406, SDXC1 p.364); `FCSR.FS` flush leaves Underflow/Inexact clear
   (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102); `abs`/`neg` of a signaling NaN does not signal Invalid (MD00086
-  ABS.fmt p.32, NEG.fmt p.307; two tests); Inexact set with an enabled Overflow trap (MD00082 §6.7.2.6, p.102).
+  ABS.fmt p.32, NEG.fmt p.307; two tests); Inexact set with an enabled Overflow trap (MD00082 §6.7.2.6, p.102); `rdhwr 29` in Kernel Mode returns a
+  value although QEMU's Config3 reads 0, so UserLocal is not implemented (MD00086 RDHWR p.333; MD00090 Vol III
+  Rev 6.02 §9.11, p.143).
   Not covered: EBase relocation, `Status.ERL` writes, interrupts, `wait`.
 - *LLVM encoding oracle* (`llvm-mc -triple=mips-unknown-elf -mcpu=mips32r2`): the assembler's output is compared
-  word for word on 594 forms (`tests/oracle/encodings.list`): 581 identical, 13 declared differences (our
+  word for word on 602 forms (`tests/oracle/encodings.list`): 589 identical, 13 declared differences (our
   `li`/`la`/`move`/`abs` expansions follow MARS/SPIM).
 
 **(f) What is trusted.** Lean and its kernel; the three standard axioms; the manuals *as read by the authors*
@@ -156,6 +161,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | R-type multiply-accumulate, SPECIAL2 | 4 | 4 | 4 | 4 | madd, maddu, msub, msubu |
 | R-type SPECIAL3 BSHFL sign-extend | 3 | 3 | 0 | 3 | seb, seh, wsbh |
 | R-type SPECIAL3 bitfield extract/insert | 2 | 2 | 0 | 2 | ext, ins |
+| SPECIAL3 RDHWR | 1 | 1 | 0 | 1 | rdhwr |
 | I-type arith/logic | 7 | 7 | 7 | 7 | addi, addiu, slti, sltiu, andi, ori, xori |
 | I-type lui | 1 | 1 | 1 | 1 | lui |
 | I-type load/store | 10 | 10 | 10 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
@@ -177,7 +183,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
 | Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
 | FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **178** | **178** | **119** | **177** | |
+| **Total** | **179** | **179** | **119** | **178** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->
@@ -187,12 +193,13 @@ Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_
 Nothing here is implemented, and an access raises Reserved Instruction (or Coprocessor Unusable for COP2 words).
 Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md`.
 
-- Instructions: `rdhwr`, `rdpgpr`, `wrpgpr`, `cache`, `tlbp`, `tlbr`, `tlbwi`, `tlbwr`, `sdbbp`, `deret`, the
+- Instructions: `rdpgpr`, `wrpgpr`, `cache`, `tlbp`, `tlbr`, `tlbwi`, `tlbwr`, `sdbbp`, `deret`, the
   coprocessor-2 family (`cop2`, `mfc2`, `mtc2`, `cfc2`, `ctc2`, `lwc2`, `swc2`, `ldc2`, `sdc2`, `bc2f`/`bc2t`/
   `bc2fl`/`bc2tl`), `luxc1`, `suxc1`, the L format (`cvt.l`, `round.l`, `trunc.l`, `ceil.l`, `floor.l`,
   `cvt.s.l`, `cvt.d.l`) and paired-single (`*.ps`, `alnv.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu`).
   `pause` and `nal` assemble and decode as `sll $0,$0,5` and `bltzal $0` (`PAUSE` executes as the NOP the manual permits).
-- State: `Count`/`Compare` and all interrupts, `HWREna`, `IntCtl`, `SRSCtl`, shadow register sets, the TLB (the
+- State: interrupts (the timer `Count`/`Compare`/`Cause.TI` runs, but no Interrupt exception is taken),
+  `IntCtl`, `SRSCtl`, `UserLocal` (so `rdhwr 29`), shadow register sets, the TLB (the
   MMU is the Fixed Mapping MMU, `Config.MT = 3`, with kseg0/kseg1 aliasing and the User-Mode Address Errors;
   SPEC-NOTES §9 item 27), caches, `WatchLo`/`WatchHi`, EJTAG,
   coprocessor 2, `Config2`..`Config5`.

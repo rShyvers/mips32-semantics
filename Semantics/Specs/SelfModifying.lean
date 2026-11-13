@@ -131,7 +131,7 @@ theorem store_changes_next_instruction (s : State) (w rs rt imm : W32) (instr' :
     (haddr : readReg s (regIdxSpec rs) + signExt16 imm = s.pc + 4#32)
     (hacc : accessAllowed s (s.pc + 4#32) = true)
     (hnew : decode (readReg s (regIdxSpec rt)) = some instr') :
-    step (step s) = execInstr (step s) instr' :=
+    step (step s) = timerTick (execInstr (step s) instr') :=
   step_fetches_from_memory (step s) _ instr'
     (sw_next_instruction_is_fetched s w rs rt imm hfetch hdecode hpb haddr hacc).2 hnew
 

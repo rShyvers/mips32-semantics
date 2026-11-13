@@ -196,7 +196,7 @@ theorem load_step_fetches_image (p : Program) (w : W32) (instr : Instruction)
     (hw : p.get? textBase = some w) (hdecode : decode w = some instr)
     (halign : ∀ b v, p.get? b = some v → b.toNat % 4 = 0)
     (hdisj : ∀ b v, p.get? b = some v → b ≠ textBase → loadAddr b ≠ loadAddr textBase) :
-    step (load p) = execInstr (load p) instr :=
+    step (load p) = timerTick (execInstr (load p) instr) :=
   step_fetches_from_memory (load p) w instr (load_readMemWord p textBase w hw halign hdisj) hdecode
 
 /-- **The reset loader**, for kernel segments (kseg0, kseg1, kseg2, kseg3, where `ERL` does not

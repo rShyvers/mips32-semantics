@@ -28,8 +28,8 @@ of a delay slot (`exceptionEntry_*` say what entry does in each case; in a delay
 the branch and `Cause.BD = 1`). -/
 theorem syscall_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.syscall code)) :
-    step s = takeException s excCodeSys := by
-  unfold step
+    step s = timerTick (takeException s excCodeSys) := by
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]

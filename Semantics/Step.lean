@@ -33,7 +33,9 @@ are in `Semantics/Env.lean`.
    `sll $0, $0, 0`, a no-op).
 2. **Decode** it (`Instruction.decode`, strict). A word that does not decode raises Reserved
    Instruction (or Coprocessor Unusable for an unusable coprocessor's encoding space).
-3. **Execute** it (`execInstr`).
+3. **Execute** it (`execInstr`). Steps 1-3 are `execute`.
+4. **Timer**: `Count` advances and is compared with `Compare` (`timerTick`; `step = timerTick ∘
+   execute`). The rate is a pin: one increment per `step`.
 
 Because fetch reads `physMem`, a store to the instruction stream changes what is executed (MD00086
 Vol II-A Rev 6.06, SYNCI, p.412). The model has no caches, so `synci` has nothing to synchronize.
@@ -94,7 +96,7 @@ kseg0/kseg1 → the low 512 MB, useg/kuseg → `VA + 1 GB` (`ERL = 0`) or `VA` (
 
 ## Not modeled
 
-Interrupts, timer, TLB (the MMU is the Fixed Mapping MMU), caches, shadow register sets (see
+Interrupts (the timer is modeled: `timerTick`; taking the Interrupt exception is not), TLB (the MMU is the Fixed Mapping MMU), caches, shadow register sets (see
 `docs/spec/SPEC-NOTES.md`).
 -/
 
@@ -465,6 +467,84 @@ the manual says nothing for a Fixed Mapping MMU (`MT = 3`), which has no TLB: 0 
 the field can take that claims no more than one entry (pin). -/
 def config1Value : W32 := 0x00000001
 
+/-! ## Timer (Count / Compare) -/
+
+/-- `Count` is counting: `Cause.DC = 0` ("Disable Count register ... 0 Enable counting of Count
+register; 1 Disable counting of Count register", MD00090 Vol III Rev 6.02 Table 9.52, p.210). -/
+def countEnabled (s : State) : Bool := s.cp0Cause &&& causeDcMask == 0#32
+
+/-- **The timer's part of one instruction time**, applied by `step` to the state the instruction
+(or exception) produced:
+
+* `Count` advances by one unless `Cause.DC = 1`. The manual makes the rate implementation-dependent
+  ("incrementing at a constant rate, whether or not an instruction is executed, retired, or any
+  forward progress is made through the pipeline. The rate at which the counter increments is
+  implementation-dependent", MD00090 Vol III Rev 6.02 §9.27, p.183); the model's pin is one
+  increment per `step` — every step, whether it completes an instruction or takes an exception — so
+  `rdhwr` register 3 (`CCRes`, "the number of cycles between update of the register") reads 1 with
+  one step counted as one cycle (`ccResValue`). `Count` wraps modulo 2^32.
+* "When the value of the Count register equals the value of the Compare register, an interrupt
+  request is made ... the presence of the interrupt is visible to software via the CauseTI bit"
+  (§9.30, p.187): `Cause.TI` (`State.cp0TimerInt`) becomes set when the new `Count` equals
+  `Compare`, and stays set until software writes `Compare` ("Writing a value to the Compare
+  register, as a side effect, clears the timer interrupt", p.187; the `mtc0` arm of `execBody`). The
+  comparison is made on every step, also while counting is disabled.
+
+Only `cp0Count` and `cp0TimerInt` change. The interrupt the request may cause (Interrupt exception,
+§6.2.26, p.102) is not taken by this model yet; when it is, the check belongs in `step`, before
+the fetch, at the one place marked there. -/
+def timerTick (s : State) : State :=
+  let c := if countEnabled s then s.cp0Count + 1#32 else s.cp0Count
+  { s with cp0Count := c, cp0TimerInt := s.cp0TimerInt || c == s.cp0Compare }
+
+/-- **`Cause` as software reads it** (`mfc0 $rt, $13`): the stored bits (`State.cp0Cause`: BD, CE,
+DC, IV, IP1..IP0, ExcCode) with the timer request added. `TI` (bit 30) is `State.cp0TimerInt`
+(MD00090 Vol III Rev 6.02 Table 9.52, p.209). In interrupt compatibility mode the timer request is
+also seen in an IP bit: "this field specifies the IP number to which the Timer Interrupt request is
+merged" (`IntCtl.IPTI`, §9.33, Table 9.48, p.199), and Table 6.2 (§6.1.1.1, p.73) lists "Timer
+Interrupt" under source HW5, "CauseIP7 and StatusIM7". **Pin:** `IPTI = 7`, so `IP7` (bit 15) is set
+while `TI` is (the model has no hardware interrupt inputs, so nothing else drives `IP7..IP2`; IntCtl
+itself is not implemented yet). -/
+def causeValue (s : State) : W32 :=
+  s.cp0Cause ||| (if s.cp0TimerInt then causeTiMask ||| causeIp7Mask else 0#32)
+
+/-! ## Hardware registers (`rdhwr`) -/
+
+/-- `SYNCI_Step` (`rdhwr` register 1): "Address step size to be used with the SYNCI instruction, or
+zero if no caches need be synchronized" (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4, p.332; MD00090
+Vol III Rev 6.02 Table 9.40, p.176: "this value should be zero if there are no caches in the system
+which must be synchronize"). The model has no caches (`Config1.IL = DL = 0`): `0`. -/
+def synciStepValue : W32 := 0#32
+
+/-- `CCRes` (`rdhwr` register 3): "Resolution of the CC register. This value denotes the number of
+cycles between update of the register" (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4, p.332). `Count`
+(= `CC`) advances once per `step` (`timerTick`), and one step is the model's cycle: `1` ("CC register
+increments every CPU cycle"). -/
+def ccResValue : W32 := 1#32
+
+/-- The value of hardware register `rd` (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Operation,
+p.332-333), or `none` if the model does not implement it: 0 `CPUNum` = `EBase.CPUNum` (bits 9..0 of
+`EBase`, which reads 0: one processor), 1 `SYNCI_Step`, 2 `CC` = `Count`, 3 `CCRes`. Not
+implemented: 4 (`PerfCtr`) and 5 (`XNP`) are Release 6; 6..28 are "reserved for future architecture
+use. Access results in a Reserved Instruction Exception"; 29 (`ULR`) reads UserLocal, "if it is
+implemented" (the register is "Pre-Release 6: Recommended", MD00090 Vol III §9.11, p.143, and the
+model has none); 30..31 are implementation-dependent, "If they are not implemented, access results in a
+Reserved Instruction Exception". -/
+def hwrValue (s : State) (rd : W32) : Option W32 :=
+  match rd.toNat with
+  | 0 => some (ebaseValue s &&& 0x3FF#32)
+  | 1 => some synciStepValue
+  | 2 => some s.cp0Count
+  | 3 => some ccResValue
+  | _ => none
+
+/-- **`rdhwr` access to register `rd` is allowed** (MD00086 Vol II-A Rev 6.06, RDHWR, Restrictions,
+p.333): "Access to the specified hardware register is enabled if Coprocessor 0 is enabled, or if the
+corresponding bit is set in the HWREna register" — `cp0Usable s` (Kernel Mode or `Status.CU0 = 1`,
+MD00090 Vol III §3.5.3, p.23), or bit `rd` of `HWREna`. -/
+def rdhwrAllowed (s : State) (rd : W32) : Bool :=
+  cp0Usable s || (s.cp0HWREna >>> rd) &&& 1#32 != 0#32
+
 /-- The effect of the already-fetched, already-decoded instruction `instr`
 in state `s`, **after** `execInstr`'s two guards (no control transfer in a
 delay slot; coprocessor 1 usable for the instructions that need it). Total:
@@ -664,6 +744,16 @@ def execBody (s : State) (instr : Instruction) : State :=
     let clearMask := ~~~(mask <<< pos.toNat)
     let newVal := (readReg s (regIdx rt) &&& clearMask) ||| srcField
     mkNext s (writeReg s (regIdx rt) newVal)
+  -- `rdhwr` (MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334): `GPR[rt] ← HWR[rd]` when the register is
+  -- implemented (`hwrValue`) and access is allowed (`rdhwrAllowed`); "If access is not allowed or the
+  -- register is not implemented, a Reserved Instruction Exception is signaled" (p.333). It is not a
+  -- coprocessor-0 instruction: outside Kernel Mode it raises Reserved Instruction, never
+  -- Coprocessor Unusable ("Exceptions: Reserved Instruction", p.334).
+  | .rdhwr rt rd =>
+    match hwrValue s rd with
+    | some v => if rdhwrAllowed s rd then mkNext s (writeReg s (regIdx rt) v)
+                else takeException s excCodeRI
+    | none => takeException s excCodeRI
   -- I-type arith/logic
   | .addi rs rt imm =>
     let av := readReg s (regIdx rs)
@@ -1322,7 +1412,8 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- break: unconditional trap (coprocessor-0 exception model).
   | .break _ => takeException s excCodeBp
   -- Coprocessor 0 register moves, for the `(rd, sel)` pairs of
-  -- `isModeledCp0Reg`: (8,0) BadVAddr, (12,0) Status, (13,0) Cause, (14,0)
+  -- `isModeledCp0Reg`: (7,0) HWREna, (8,0) BadVAddr, (9,0) Count, (11,0) Compare,
+  -- (12,0) Status, (13,0) Cause (read with the timer bits, `causeValue`), (14,0)
   -- EPC, (15,0) PRId, (15,1) EBase, (16,0) Config, (16,1) Config1, (30,0)
   -- ErrorEPC. `decode` only produces `mfc0`/`mtc0` for these; an
   -- `Instruction` value built by hand with any other pair raises Reserved
@@ -1331,9 +1422,12 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- this arm (`execInstr`, `usesCop0`).
   | .mfc0 rt rd sel =>
     match rd.toNat, sel.toNat with
+    | 7, 0 => mkNext s (writeReg s (regIdx rt) s.cp0HWREna)
     | 8, 0 => mkNext s (writeReg s (regIdx rt) s.cp0BadVAddr)
+    | 9, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Count)
+    | 11, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Compare)
     | 12, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Status)
-    | 13, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Cause)
+    | 13, 0 => mkNext s (writeReg s (regIdx rt) (causeValue s))
     | 14, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Epc)
     | 15, 0 => mkNext s (writeReg s (regIdx rt) prIdValue)
     | 15, 1 => mkNext s (writeReg s (regIdx rt) (ebaseValue s))
@@ -1342,7 +1436,10 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
     | _, _ => takeException s excCodeRI
   -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1` are
-  -- read-only (the write is ignored); `Config` takes only `K23` (30..28), `KU` (27..25) and `K0`
+  -- read-only (the write is ignored); `HWREna` keeps bits 3..0 (`hwrenaWriteMask`); `Count` is
+  -- fully writable ("can be written for functional or diagnostic purposes", MD00090 Vol III
+  -- Rev 6.02 §9.27, p.183); a write to `Compare` stores the value and clears the timer interrupt
+  -- (`Cause.TI`; §9.30, p.187); `Config` takes only `K23` (30..28), `KU` (27..25) and `K0`
   -- (2..0); `Status` keeps only `statusWriteMask`
   -- bits (others read as zero); `Cause` changes only `causeWriteMask` bits
   -- (DC, IV, IP1..0), keeping `BD`/`CE`/`ExcCode`/everything else; `EPC`/
@@ -1350,7 +1447,10 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- (bits 29..12) only.
   | .mtc0 rt rd sel =>
     match rd.toNat, sel.toNat with
+    | 7, 0 => mkNext s { s with cp0HWREna := readReg s (regIdx rt) &&& hwrenaWriteMask }
     | 8, 0 => mkNext s s
+    | 9, 0 => mkNext s { s with cp0Count := readReg s (regIdx rt) }
+    | 11, 0 => mkNext s { s with cp0Compare := readReg s (regIdx rt), cp0TimerInt := false }
     | 12, 0 => mkNext s { s with cp0Status := readReg s (regIdx rt) &&& statusWriteMask }
     | 13, 0 => mkNext s { s with cp0Cause :=
               (s.cp0Cause &&& ~~~causeWriteMask) ||| (readReg s (regIdx rt) &&& causeWriteMask) }
@@ -1435,7 +1535,7 @@ def execInstr (s : State) (instr : Instruction) : State :=
     takeCop0Unusable s
   else execBody s instr
 
-/-- One instruction time: fetch the word at `s.pc` from memory, decode, execute.
+/-- **Fetch, decode, execute**: the instruction part of one instruction time (`step` adds the timer).
 
 * Fetch is `readMemWord s s.pc`, a big-endian word read from physical memory through the MMU
   (`translate`); it fails only for a misaligned `pc` or a `pc` outside useg in User Mode, which
@@ -1447,10 +1547,8 @@ def execInstr (s : State) (instr : Instruction) : State :=
   `Status.CU1 = 0`, and a word in coprocessor 2's (`isCop2Word`) always raises
   Coprocessor Unusable (`CE = 2`): the model has no coprocessor 2 and
   `Status.CU2` reads 0.
-* Otherwise `execInstr`.
-
-There is no halting case: the result is always the next architectural state. -/
-def step (s : State) : State :=
+* Otherwise `execInstr`. -/
+def execute (s : State) : State :=
   match readMemWord s s.pc with
   | none => takeAddressException s excCodeAdEL s.pc
   | some w =>
@@ -1461,6 +1559,18 @@ def step (s : State) : State :=
       else if isCop2Word w then exceptionEntry s excCodeCpU 2#32
       else takeException s excCodeRI
     | some instr => execInstr s instr
+
+/-- **One instruction time**: fetch, decode and execute the instruction at `pc` (`execute`), then
+advance the timer (`timerTick`: `Count` + 1 unless `Cause.DC = 1`; `Cause.TI` set when `Count =
+Compare`). There is no halting case: the result is always the next architectural state.
+
+The timer is applied to the state the instruction (or the exception) produced, so an instruction
+reads the `Count` the step started with (`mfc0`, `rdhwr`), and a `Count`/`Compare`/`Cause.DC` written
+by `mtc0` is what the timer then compares and advances. **Interrupts** (not taken by this model
+yet; MD00090 Vol III Rev 6.02 §6.1, p.72; §6.2.26, p.102) belong here, in this one place: the
+argument of `timerTick` becomes "take the Interrupt exception if one is requested and enabled, else
+`execute s`". -/
+def step (s : State) : State := timerTick (execute s)
 
 /-- The bare machine run: `step` iterated `n` times from `s`. It knows nothing about programs,
 services or halting (those are `Semantics/Env.lean`'s `runHosted`). Total by structural
@@ -1479,6 +1589,7 @@ state"; the Operation (p.89-90), restricted to the registers this model has:
 StatusBEV ← 1;  StatusERL ← 1
 StatusRP ← 0;  StatusTS ← 0;  StatusSR ← 0;  StatusNMI ← 0   -- not implemented: read as 0
 CauseDC ← 0
+HWREna ← 0
 EBaseExceptionBase ← 0                                     -- EBase reads 0x8000_0000
 Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1 fixed
                                      -- K23, KU: reset "Undefined" (p.233), pinned to 2 like K0
@@ -1488,8 +1599,9 @@ PC ← 0xBFC0 0000
 ```
 
 The rest of the Operation names registers the model does not implement (Random, PageMask,
-PageGrain, Wired, HWREna, EntryHi, IntCtl, SRSCtl, SRSMap, Config2, Config3, WatchLo,
-PerfCnt): nothing to do. Every register the section does not list keeps whatever it held: its
+PageGrain, Wired, EntryHi, IntCtl, SRSCtl, SRSMap, Config2, Config3, WatchLo,
+PerfCnt): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
+"Undefined", Tables 9.44, 9.46, 9.52, p.183, 187, 209): they keep their values. Every register the section does not list keeps whatever it held: its
 reset state is undefined, and keeping it is one legal value (pin). In particular the other
 `Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor
 is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch is dropped (the
@@ -1499,6 +1611,7 @@ def resetException (s : State) : State :=
   { s with
       cp0Status := s.cp0Status ||| statusBevMask ||| statusErlMask
       cp0Cause := s.cp0Cause &&& ~~~causeDcMask
+      cp0HWREna := 0#32
       cp0EBase := ebaseFixedBits
       cp0ConfigK0 := 2#3
       cp0ConfigK23 := 2#3
@@ -1511,7 +1624,7 @@ def resetException (s : State) : State :=
 /-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose
 values for the registers the reset leaves undefined are all pinned to 0, `State.lean`). So
 `pc = 0xBFC0_0000`, `Status = BEV | ERL` (0x0040_0004: Kernel Mode, bootstrap vectors, CU0 = CU1
-= 0), `Cause = 0`, `EBase` reads 0x8000_0000, `Config.K0 = K23 = KU = 2`, `ErrorEPC = 0` (the restart PC
+= 0), `Cause = 0`, `Count = Compare = 0`, no timer interrupt pending, `HWREna = 0`, `EBase` reads 0x8000_0000, `Config.K0 = K23 = KU = 2`, `ErrorEPC = 0` (the restart PC
 of a power-on reset is not meaningful, p.89: "this value may or may not be predictable if the
 Reset Exception was taken as the result of power being applied to the processor"), every GPR,
 `HI`/`LO`, FPR and `FCSR` 0, memory empty. Properties: `Specs/Reset.lean`. -/

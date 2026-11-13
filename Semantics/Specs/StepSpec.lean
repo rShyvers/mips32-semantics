@@ -37,6 +37,7 @@ import Semantics.Specs.SelfModifying
 import Semantics.Specs.Mmu
 import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
+import Semantics.Specs.Timer
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -47,11 +48,14 @@ module that `lake comparator` judges against the statements-only `Semantics/Stat
 
 ## How to read the statements
 
-Each per-instruction theorem `<ctor>_spec_raw` is an equation `step s = …` whose right-hand
-side is written out with the state primitives (`readReg`, `writeReg`, `readMemWord`, …) and
+Each per-instruction theorem `<ctor>_spec_raw` is an equation `step s = timerTick (…)` whose
+argument is the instruction's effect written out with the state primitives (`readReg`, `writeReg`, `readMemWord`, …) and
 `Step.lean`'s small helpers. Names ending in `Spec` (`regIdxSpec`, `addOverflowsSpec`, …) are
 abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
 
+* `timerTick` (`Step.lean`) is the timer's part of every step: `Count` + 1 unless `Cause.DC = 1`,
+  `Cause.TI` set when `Count = Compare`; it changes nothing else (`timerTick_*` in `Lemmas.lean`,
+  `Timer.lean`).
 * `hfetch : readMemWord s s.pc = some w` and `hdecode : decode w = some instr` say "the word in
   memory at `pc` is `w`, and it decodes to `instr`": `step` fetches from `State.physMem` through the
   MMU (`translate`), so this is the fetch itself (there is no separate program). A misaligned `pc`, or
@@ -106,6 +110,7 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
 | `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
 | Hosted run (environment, not architecture) | `Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run` (where the hosted run differs from `step`); `hostStep_syscall_spec`, `hosted_print_int`, `hosted_exit` (the MARS-style services) |
+| Timer, hardware registers | `Timer.lean` | `step_count_advances`, `step_count_stopped` (Count + 1 per step unless `Cause.DC`), `step_timer_match_sets_ti`, `step_timerInt`, `mtc0_compare_clears_ti`, `causeValue_timer`; `rdhwr_spec_raw` and its access rule (`rdhwr_reserved_unimplemented`, `rdhwr_reserved_not_enabled`, `rdhwr_allowed`), `hwrValue_*` |
 | Coprocessor 0 | `Cp0.lean` | `mfc0`/`mtc0` register map and write masks; `eret`; `cp0_instruction_user_mode_unusable` |
 | Operating modes | `Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
 | Reset, boot convention | `Reset.lean` | `resetException_spec`, `resetException_keeps`, `resetState_spec`, `hostedStart_is_reset_then_boot` |

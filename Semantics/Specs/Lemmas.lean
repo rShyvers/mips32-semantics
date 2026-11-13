@@ -7,22 +7,27 @@ import Semantics.Specs.Defs
 Nothing here is a headline statement: these are small facts about `if`, bit masks, `writeReg`,
 `readCString`, `mkNext` and the `fpFinish*` helpers, used by the proofs in the family files.
 
-## Theorems in this file (53)
+## Theorems in this file (78)
 
   `ite_of_pos` `ite_of_neg` `mask_field_written` `mask_field_kept` `two_fields_first`
   `two_fields_second` `two_fields_kept` `bit_of_31` `bit_of_124` `excCode_field_roundtrip`
   `readCString_mem` `readCString_eq_ofMem` `writeReg_proj_pc` `writeReg_proj_hi` `writeReg_proj_lo`
-  `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem`
-  `writeReg_proj_pendingBranch` `writeReg_proj_llBit` `writeReg_proj_cp0Status`
-  `writeReg_proj_cp0Cause` `writeReg_proj_cp0Epc` `writeReg_proj_cp0BadVAddr`
-  `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr` `writeReg_proj_cp0EBase` `writeReg_proj_cp0ConfigK0`
-  `writeReg_proj_cp0ConfigK23` `writeReg_proj_cp0ConfigKU` `writeReg_proj_regs`
-  `writeReg_pc` `writeReg_hi` `writeReg_lo` `writeReg_reads_back`
-  `readReg_zero_of_regs_eq` `writeMemWord_regs` `writeMemHalf_regs` `writeMemByte_regs`
-  `writeFpReg_reads_back` `mkNext_of_none` `execInstr_eq_body` `fpFinishS_eq` `fpFinishD_eq`
-  `fpFinishCmp_eq` `readMemWord_misaligned` `writeMemWord_misaligned`
-  `readMemWord_isSome_of_aligned` `writeMemWord_isSome_of_aligned`
-  `translate_congr` `readMemByte_congr` `translate_of_allowed` `translate_of_not_allowed`
+  `writeReg_proj_fpRegs` `writeReg_proj_fcsr` `writeReg_proj_mem` `writeReg_proj_pendingBranch`
+  `writeReg_proj_llBit` `writeReg_proj_cp0Status` `writeReg_proj_cp0Cause` `writeReg_proj_cp0Epc`
+  `writeReg_proj_cp0BadVAddr` `writeReg_proj_cp0ErrorEpc` `writeReg_proj_llAddr`
+  `writeReg_proj_cp0EBase` `writeReg_proj_cp0ConfigK0` `writeReg_proj_cp0ConfigK23`
+  `writeReg_proj_cp0ConfigKU` `writeReg_proj_regs` `writeReg_pc` `writeReg_hi` `writeReg_lo`
+  `writeReg_reads_back` `readReg_zero_of_regs_eq` `writeMemWord_regs` `writeMemHalf_regs`
+  `writeMemByte_regs` `writeFpReg_reads_back` `mkNext_of_none` `execInstr_eq_body` `fpFinishS_eq`
+  `fpFinishD_eq` `fpFinishCmp_eq` `readMemWord_misaligned` `writeMemWord_misaligned`
+  `readMemWord_isSome_of_aligned` `writeMemWord_isSome_of_aligned` `translate_congr`
+  `readMemByte_congr` `translate_of_allowed` `translate_of_not_allowed` `writeReg_proj_cp0Count`
+  `writeReg_proj_cp0Compare` `writeReg_proj_cp0TimerInt` `writeReg_proj_cp0HWREna` `timerTick_pc`
+  `timerTick_regs` `timerTick_hi` `timerTick_lo` `timerTick_fpRegs` `timerTick_fcsr`
+  `timerTick_physMem` `timerTick_pendingBranch` `timerTick_llBit` `timerTick_cp0Status`
+  `timerTick_cp0Cause` `timerTick_cp0Epc` `timerTick_cp0BadVAddr` `timerTick_cp0ErrorEpc`
+  `timerTick_llAddr` `timerTick_cp0EBase` `timerTick_cp0ConfigK0` `timerTick_cp0ConfigK23`
+  `timerTick_cp0ConfigKU` `timerTick_cp0Compare` `timerTick_cp0HWREna`
 -/
 
 set_option maxRecDepth 4000
@@ -115,12 +120,13 @@ def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) 
 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
-    (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (f : Nat) :
+    (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (cnt cmp : W32) (ti : Bool)
+    (hwre : W32) (f : Nat) :
     readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-        k23, ku⟩ a f
+        k23, ku, cnt, cmp, ti, hwre⟩ a f
       = readCStringOfMem mem st a f :=
   readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-      k23, ku⟩
+      k23, ku, cnt, cmp, ti, hwre⟩
     { initialState 0#32 with physMem := mem, cp0Status := st } rfl rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
@@ -176,6 +182,46 @@ theorem writeReg_proj_cp0ConfigK23 (s : State) (i : Fin 32) (v : W32) : (writeRe
 
 theorem writeReg_proj_cp0ConfigKU (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0ConfigKU = s.cp0ConfigKU := by
   unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0Count (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0Count = s.cp0Count := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0Compare (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0Compare = s.cp0Compare := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0TimerInt (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0TimerInt = s.cp0TimerInt := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0HWREna (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).cp0HWREna = s.cp0HWREna := by
+  unfold writeReg; split <;> rfl
+
+/-! ### `timerTick` touches only `Count` and `Cause.TI`
+
+Every other field of `timerTick s` is the field of `s` (by definition: `timerTick` is a record
+update of `cp0Count` and `cp0TimerInt`). Tagged `simp` so that a proof about `step s` can see
+through the timer to the instruction's own effect. -/
+
+@[simp] theorem timerTick_pc (s : State) : (timerTick s).pc = s.pc := rfl
+@[simp] theorem timerTick_regs (s : State) : (timerTick s).regs = s.regs := rfl
+@[simp] theorem timerTick_hi (s : State) : (timerTick s).hi = s.hi := rfl
+@[simp] theorem timerTick_lo (s : State) : (timerTick s).lo = s.lo := rfl
+@[simp] theorem timerTick_fpRegs (s : State) : (timerTick s).fpRegs = s.fpRegs := rfl
+@[simp] theorem timerTick_fcsr (s : State) : (timerTick s).fcsr = s.fcsr := rfl
+@[simp] theorem timerTick_physMem (s : State) : (timerTick s).physMem = s.physMem := rfl
+@[simp] theorem timerTick_pendingBranch (s : State) : (timerTick s).pendingBranch = s.pendingBranch := rfl
+@[simp] theorem timerTick_llBit (s : State) : (timerTick s).llBit = s.llBit := rfl
+@[simp] theorem timerTick_cp0Status (s : State) : (timerTick s).cp0Status = s.cp0Status := rfl
+@[simp] theorem timerTick_cp0Cause (s : State) : (timerTick s).cp0Cause = s.cp0Cause := rfl
+@[simp] theorem timerTick_cp0Epc (s : State) : (timerTick s).cp0Epc = s.cp0Epc := rfl
+@[simp] theorem timerTick_cp0BadVAddr (s : State) : (timerTick s).cp0BadVAddr = s.cp0BadVAddr := rfl
+@[simp] theorem timerTick_cp0ErrorEpc (s : State) : (timerTick s).cp0ErrorEpc = s.cp0ErrorEpc := rfl
+@[simp] theorem timerTick_llAddr (s : State) : (timerTick s).llAddr = s.llAddr := rfl
+@[simp] theorem timerTick_cp0EBase (s : State) : (timerTick s).cp0EBase = s.cp0EBase := rfl
+@[simp] theorem timerTick_cp0ConfigK0 (s : State) : (timerTick s).cp0ConfigK0 = s.cp0ConfigK0 := rfl
+@[simp] theorem timerTick_cp0ConfigK23 (s : State) : (timerTick s).cp0ConfigK23 = s.cp0ConfigK23 := rfl
+@[simp] theorem timerTick_cp0ConfigKU (s : State) : (timerTick s).cp0ConfigKU = s.cp0ConfigKU := rfl
+@[simp] theorem timerTick_cp0Compare (s : State) : (timerTick s).cp0Compare = s.cp0Compare := rfl
+@[simp] theorem timerTick_cp0HWREna (s : State) : (timerTick s).cp0HWREna = s.cp0HWREna := rfl
 
 theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).regs = if i == 0 then s.regs else s.regs.set! i.val v := by

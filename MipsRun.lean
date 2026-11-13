@@ -210,9 +210,11 @@ def stateJson (s : State) : String :=
   s!"\"ll_addr\": {s.llAddr.toNat}, " ++
   s!"\"pending_branch\": {match s.pendingBranch with | some t => toString t.toNat | none => "null"}, " ++
   s!"\"cp0\": " ++ "{" ++
-    s!"\"status\": {s.cp0Status.toNat}, \"cause\": {s.cp0Cause.toNat}, " ++
+    s!"\"status\": {s.cp0Status.toNat}, \"cause\": {(causeValue s).toNat}, " ++
     s!"\"epc\": {s.cp0Epc.toNat}, \"badvaddr\": {s.cp0BadVAddr.toNat}, " ++
-    s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}" ++ "}" ++
+    s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}, " ++
+    s!"\"count\": {s.cp0Count.toNat}, \"compare\": {s.cp0Compare.toNat}, " ++
+    s!"\"hwrena\": {s.cp0HWREna.toNat}" ++ "}" ++
   "}"
 
 /-- Structured halt reason (`halt` field). -/

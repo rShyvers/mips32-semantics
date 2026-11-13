@@ -829,13 +829,17 @@ of the four fit `Cop1Form`/`RForm`/the existing zero-operand special cases
 exactly -- hand-encoded directly in `encodeInstruction` below, the same way
 `bshflMnemonics`/`jrJalrMnemonics` are. -/
 private def cop0Mnemonics : List String := ["mfc0", "mtc0", "eret", "wait"]
+/-- `rdhwr $rt, $rd` (MIPS32 Release 2, SPECIAL3 funct 0x3b; MD00086 Vol II-A Rev 6.06, RDHWR,
+p.332): read hardware register `rd` (0-31, written `$29` or `29`) into GPR `rt`. The Release 6
+`sel` operand does not exist before Release 6 (bits 10..6 are zero), so exactly two operands. -/
+private def hwRegMnemonics : List String := ["rdhwr"]
 
 private def isKnownMnemonic (m : String) : Bool :=
   rTable.any (·.1 == m) ∨ iTable.any (·.1 == m) ∨ jTable.any (·.1 == m) ∨
     bTable.any (·.1 == m) ∨ cop1Table.any (·.1 == m) ∨ pseudoSet.contains m ∨
     bshflMnemonics.contains m ∨ jrJalrMnemonics.contains m ∨
     multAccumMnemonics.contains m ∨ hiLoMoveMnemonics.contains m ∨
-    bitfieldMnemonics.contains m ∨ cop0Mnemonics.contains m
+    bitfieldMnemonics.contains m ∨ cop0Mnemonics.contains m ∨ hwRegMnemonics.contains m
 
 /-- Number of 32-bit words a `li $rt, v` expansion emits, per
 `PseudoOps.txt` lines 245-247: sign-extendable-16-bit values use a single
@@ -1984,6 +1988,14 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
   -- ISA, docs/spec/MIPS-COVERAGE-GAPS.md §3.10A; see `Instruction.lean`/
   -- `Step.lean`). `rd` is a CP0 register number (`$12` or `12`, 0-31);
   -- with an optional `sel`; see `isModeledCp0Reg` for the modeled pairs.
+  -- `rdhwr $rt, $rd` (MIPS32r2): SPECIAL3 (0x1f), `rs` = 0, bits 10..6 = 0, funct 0x3b.
+  | "rdhwr" =>
+    match item.operands with
+    | [rtT, rdT] => do
+        let rt ← parseRegister rtT item.lineNo
+        let rd ← parseCopRegister "hardware" rdT item.lineNo
+        pure [opRtWord 0x1f 0 rt rd 0 0x3b]
+    | _ => throw (.badOperand s!"rdhwr expects '$rt, $rd'" item.lineNo)
   | "mfc0" => do
       let (rt, rd, sel) ← parseCp0Operands name item.operands item.lineNo
       pure [cop0RtWord 0x00 rt rd 0 sel]

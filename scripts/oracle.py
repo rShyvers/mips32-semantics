@@ -725,7 +725,7 @@ def asm_mnemonics():
                 ms |= {"c.%s.s" % c, "c.%s.d" % c}
             ms -= {"s", "d"}
     for t in ("pseudoSet", "bshflMnemonics", "multAccumMnemonics", "jrJalrMnemonics", "hiLoMoveMnemonics",
-              "bitfieldMnemonics", "cop0Mnemonics"):
+              "bitfieldMnemonics", "cop0Mnemonics", "hwRegMnemonics"):
         ms |= set(re.findall(r'"([a-z0-9.]+)"', lean_def_body(src, t, r"\[(.*?)\]")))
     ms |= {"j", "jal"}
     return ms

@@ -35,10 +35,11 @@ Steps: (1) split `s` into its fields and substitute `pendingBranch := none`, so 
 the same term up to computation: `rfl`. -/
 macro "step_spec" : tactic => `(tactic| (
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
+    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
   simp only at hpb
   subst hpb
-  unfold step
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -59,7 +60,7 @@ once when the statement has no such call, so the alternatives are tried cheaply)
 non-arithmetic one (moves, loads, stores, control registers,
 branches) it is `rfl` after substituting `pendingBranch := none`, as in `step_spec`. -/
 macro "fp_step_spec" : tactic => `(tactic| (
-  unfold step
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -71,7 +72,8 @@ macro "fp_step_spec" : tactic => `(tactic| (
     | (rw [← fpFinishD_eq s _ _ hpb]; rfl)
     | (rw [← fpFinishCmp_eq s _ _ hpb]; rfl)
     | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-         cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
+         cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
        simp only at hpb
        subst hpb
        rfl)))
@@ -86,7 +88,7 @@ the delay-slot guard (`hpb`), the coprocessor-1 guard (the instruction does not 
 1: `rfl`) and the coprocessor-0 guard (`hcp0`); (3) substitute `pendingBranch := none` and close
 by `rfl`, as in `step_spec`. -/
 macro "cp0_step_spec" : tactic => `(tactic| (
-  unfold step
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -94,7 +96,8 @@ macro "cp0_step_spec" : tactic => `(tactic| (
   rw [execInstr_eq_body s _ (Or.inr hpb) (Or.inl ?hcop1) (Or.inr hcp0)]
   case hcop1 => rfl
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
-    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
+    cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
   simp only at hpb
   subst hpb
   try dsimp only

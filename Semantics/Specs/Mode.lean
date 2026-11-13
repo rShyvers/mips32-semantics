@@ -113,7 +113,7 @@ theorem eret_to_user_mode (s : State) (w : W32)
   rw [herl', ite_of_neg Bool.false_ne_true]
   refine ⟨rfl, ?_⟩
   rw [userMode_iff]
-  dsimp only
+  dsimp only [timerTick_cp0Status]
   refine ⟨?_, ?_, ?_⟩
   · rw [BitVec.and_assoc, show ~~~statusExlMask &&& statusUmMask = statusUmMask by decide]
     exact hum
@@ -134,10 +134,10 @@ theorem mtc0_status_enters_user_mode (s : State) (w rt : W32)
     (herl : readReg s (regIdxSpec rt) &&& statusErlMask = 0#32) :
     userMode (step s) = true := by
   rw [mtc0_spec_raw s w rt 12#32 0#32 hfetch hdecode hpb hcp0]
-  show userMode
-    { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 } = true
+  show userMode (timerTick
+    { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }) = true
   rw [userMode_iff]
-  dsimp only
+  dsimp only [timerTick_cp0Status]
   refine ⟨?_, ?_, ?_⟩
   · rw [BitVec.and_assoc, show statusWriteMask &&& statusUmMask = statusUmMask by decide]
     exact hum

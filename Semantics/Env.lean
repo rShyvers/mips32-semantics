@@ -32,7 +32,8 @@ bench does around the processor — and has no counterpart in the MIPS32 manuals
   stepping when the instruction at `pc` is a `syscall` selecting it, as if an operating system's
   handler had served the System Call exception and returned. Any other `$v0` is not intercepted:
   the processor then takes the architectural System Call exception (`step`). The output buffer
-  (`Hosted.out`) is environment state, not processor state.
+  (`Hosted.out`) is environment state, not processor state. A served `syscall` is not a processor
+  step, so it does not advance the timer (`Count`).
 * **Stopping conventions.** The processor never halts. The hosted run *stops observing* it when
   `pc` is word-aligned and outside the loaded image (`stopReason`): `unhandledException code epc
   badVAddr` when an exception was just taken to a vector the image does not cover (`Status.EXL =

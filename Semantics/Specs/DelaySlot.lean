@@ -7,7 +7,7 @@ import Semantics.Specs.Lemmas
 `branch_in_delay_slot_reserved_instruction` covers a control transfer in a delay slot. `DelaySlotRel`,
 `DelaySlotRel_ite` and `execInstr_delaySlotRel` are proof devices for the general theorem.
 
-## Theorems in this file (30)
+## Theorems in this file (34)
 
   `advance_not_in_delay_slot` `advance_in_delay_slot` `DelaySlotRel_ite` `execInstr_delaySlotRel`
   `execInstr_delay_slot` `delay_slot_commits_target` `branch_in_delay_slot_reserved_instruction`
@@ -15,7 +15,8 @@ import Semantics.Specs.Lemmas
   `takeAddressException_pc_pb` `writeMemWord_pb` `writeMemHalf_pb` `readFpReg_pb` `cu1Enabled_pb`
   `takeCoprocessorUnusable_pc_pb` `delaySlotRel_lwl` `delaySlotRel_lwr` `delaySlotRel_swl`
   `delaySlotRel_swr` `delaySlotRel_sw` `delaySlotRel_sh` `delaySlotRel_sb` `delaySlotRel_sc`
-  `delaySlotRel_swc1` `delaySlotRel_swxc1` `delaySlotRel_sdc1` `delaySlotRel_sdxc1`
+  `delaySlotRel_swc1` `delaySlotRel_swxc1` `delaySlotRel_sdc1` `delaySlotRel_sdxc1` `hwrValue_pb`
+  `rdhwrAllowed_pb` `takeException_pc_pb` `delaySlotRel_rdhwr`
 -/
 
 set_option maxRecDepth 4000
@@ -125,6 +126,29 @@ theorem cu1Enabled_pb (s : State) (x : Option W32) :
 
 theorem takeCoprocessorUnusable_pc_pb (s : State) (x : Option W32) :
     (takeCoprocessorUnusable { s with pendingBranch := x }).pc = exceptionVector s := rfl
+
+theorem hwrValue_pb (s : State) (x : Option W32) (rd : W32) :
+    hwrValue { s with pendingBranch := x } rd = hwrValue s rd := rfl
+
+theorem rdhwrAllowed_pb (s : State) (x : Option W32) (rd : W32) :
+    rdhwrAllowed { s with pendingBranch := x } rd = rdhwrAllowed s rd := rfl
+
+theorem takeException_pc_pb (s : State) (x : Option W32) (c : W32) :
+    (takeException { s with pendingBranch := x } c).pc = exceptionVector s := rfl
+
+theorem delaySlotRel_rdhwr (s : State) (t : W32) (rt rd : W32)
+    (hvec : s.pc + 4#32 ≠ exceptionVector s) :
+    DelaySlotRel (s.pc + 4#32) t
+      (execInstr { s with pendingBranch := none } (.rdhwr rt rd))
+      (execInstr { s with pendingBranch := some t } (.rdhwr rt rd)) := by
+  rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
+    execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
+  simp only [execBody, hwrValue_pb, rdhwrAllowed_pb]
+  split
+  · refine DelaySlotRel_ite _ _ _ _ _ _ _ (fun _ => ?_) (fun _ => ?_)
+    · intro _; simp only [mkNext, advance, writeReg_pb]
+    · intro h; exact absurd (h.symm.trans (takeException_pc_pb _ _ _)) hvec
+  · intro h; exact absurd (h.symm.trans (takeException_pc_pb _ _ _)) hvec
 
 theorem delaySlotRel_lwl (s : State) (t : W32) (rs rt imm : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
     DelaySlotRel (s.pc + 4#32) t
@@ -338,6 +362,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       (execInstr { s with pendingBranch := none } instr)
       (execInstr { s with pendingBranch := some t } instr) := by
   cases instr <;> first | exact Bool.noConfusion (hnb : true = false) | skip
+  case rdhwr rt rd => exact delaySlotRel_rdhwr s t rt rd hvec
   case lwl rs rt imm => exact delaySlotRel_lwl s t rs rt imm hvec
   case lwr rs rt imm => exact delaySlotRel_lwr s t rs rt imm hvec
   case swl rs rt imm => exact delaySlotRel_swl s t rs rt imm hvec
@@ -351,7 +376,8 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
   case sdc1 a b c => exact delaySlotRel_sdc1 s t a b c hvec
   case sdxc1 a b c => exact delaySlotRel_sdxc1 s t a b c hvec
   all_goals (
-    obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU⟩ := s
+    obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna⟩ := s
     unfold execInstr execBody
     dsimp only [isBranchLike]
     simp only [Bool.false_and, Bool.false_eq_true, ↓reduceIte, mkNext, advance,
@@ -363,7 +389,8 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       writeReg_proj_pendingBranch, writeReg_proj_llBit, writeReg_proj_cp0Status,
       writeReg_proj_cp0Cause, writeReg_proj_cp0Epc, writeReg_proj_cp0BadVAddr,
       writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_cp0ConfigK0, writeReg_proj_cp0ConfigK23, writeReg_proj_cp0ConfigKU,
-      writeReg_proj_regs]
+      writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt,
+      writeReg_proj_cp0HWREna, writeReg_proj_regs]
     repeat' (first
       | (show (_ : State).pc = _ → _ = _
          intro hnorm
@@ -401,12 +428,15 @@ theorem delay_slot_commits_target (s : State) (t w : W32) (instr : Instruction)
     (h0 : step { s with pendingBranch := none } = s')
     (hnormal : s'.pc = s.pc + 4#32) :
     step { s with pendingBranch := some t } = { s' with pc := t } := by
-  unfold step at h0 ⊢
+  unfold step execute at h0 ⊢
   rw [show readMemWord ({ s with pendingBranch := none } : State) ({ s with pendingBranch := none } : State).pc = some w from hfetch] at h0
   rw [show readMemWord ({ s with pendingBranch := some t } : State) ({ s with pendingBranch := some t } : State).pc = some w from hfetch]
   dsimp only at h0 ⊢
   rw [hdecode] at h0 ⊢
-  exact execInstr_delay_slot s t instr s' hnb hvec h0 hnormal
+  dsimp only at h0 ⊢
+  subst h0
+  rw [execInstr_delay_slot s t instr _ hnb hvec rfl hnormal]
+  rfl
 
 /-- **A control transfer in a branch delay slot raises Reserved Instruction** (pin). The
 architecture makes a branch, jump, `eret` or `wait` in a delay slot UNPREDICTABLE (pre-Release-6
@@ -420,9 +450,9 @@ branch and `Cause.BD = 1`, `exceptionEntry_exl0_in_delay_slot`). -/
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (hpb : s.pendingBranch.isSome = true) (hbr : isBranchLikeSpec instr = true) :
-    step s = takeException s excCodeRI := by
+    step s = timerTick (takeException s excCodeRI) := by
   have hbr' : isBranchLike instr = true := hbr
-  unfold step
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]

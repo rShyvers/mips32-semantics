@@ -26,16 +26,16 @@ set_option maxRecDepth 4000
 (and `EPC = pc`, by `exceptionEntry_*`). The fetch is a word read, which fails exactly for a
 misaligned address. -/
 theorem step_misaligned_pc (s : State) (h : s.pc.toNat % 4 ≠ 0) :
-    step s = takeAddressException s excCodeAdEL s.pc := by
-  unfold step
+    step s = timerTick (takeAddressException s excCodeAdEL s.pc) := by
+  unfold step execute
   rw [readMemWord_misaligned s s.pc h]
 
 /-- **`step` executes the word in memory at `pc`**: if the big-endian word at `pc` decodes to
 `instr`, the step is `execInstr s instr`, whatever else memory holds. -/
 theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr) :
-    step s = execInstr s instr := by
-  unfold step
+    step s = timerTick (execInstr s instr) := by
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -50,12 +50,12 @@ COP0 or CACHE) when coprocessor 0 is not usable (`cp0Usable`: not Kernel Mode an
 the model does not have, always, with `Cause.CE = 2`. -/
 theorem step_undecodable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none) :
-    step s =
+    step s = timerTick (
       if isCop0Word w && !cp0Usable s then (exceptionEntry s excCodeCpU 0#32)
       else if isCop1Word w && !cu1Enabled s then (exceptionEntry s excCodeCpU 1#32)
       else if isCop2Word w then (exceptionEntry s excCodeCpU 2#32)
-      else takeException s excCodeRI := by
-  unfold step
+      else takeException s excCodeRI) := by
+  unfold step execute
   rw [hfetch]
   dsimp only
   rw [hdecode]
@@ -68,7 +68,7 @@ theorem step_reserved_instruction (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc0 : isCop0Word w = false ∨ cp0Usable s = true)
     (hc1 : isCop1Word w = false) (hc2 : isCop2Word w = false) :
-    step s = takeException s excCodeRI := by
+    step s = timerTick (takeException s excCodeRI) := by
   have h0 : (isCop0Word w && !cp0Usable s) = false := by
     rcases hc0 with h | h <;> simp [h]
   rw [step_undecodable s w hfetch hdecode, h0, hc1, hc2]
@@ -79,7 +79,7 @@ Coprocessor Unusable**, not Reserved Instruction. -/
 theorem step_reserved_cop1_unusable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc1 : isCop1Word w = true) (hcu : cu1Enabled s = false) :
-    step s = takeCoprocessorUnusable s := by
+    step s = timerTick (takeCoprocessorUnusable s) := by
   have hc0 : isCop0Word w = false := by
     unfold isCop1Word at hc1
     unfold isCop0Word
@@ -100,6 +100,6 @@ TLBWR, TLBP, DERET, RDPGPR, WRPGPR, reserved encodings) and CACHE. -/
 theorem step_reserved_cop0_unusable (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc0 : isCop0Word w = true) (hcu : cp0Usable s = false) :
-    step s = takeCop0Unusable s := by
+    step s = timerTick (takeCop0Unusable s) := by
   rw [step_undecodable s w hfetch hdecode, hc0, hcu]
   rfl

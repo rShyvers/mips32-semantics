@@ -56,6 +56,7 @@ def Instruction.WellFormed : Instruction → Prop
   | .wsbh rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .ext rt rs pos size => rt.toNat < 32 ∧ rs.toNat < 32 ∧ pos.toNat < 32 ∧ 1 ≤ size.toNat ∧ pos.toNat + size.toNat ≤ 32
   | .ins rt rs pos size => rt.toNat < 32 ∧ rs.toNat < 32 ∧ pos.toNat < 32 ∧ 1 ≤ size.toNat ∧ pos.toNat + size.toNat ≤ 32
+  | .rdhwr rt rd => rt.toNat < 32 ∧ rd.toNat < 32
   | .addi rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .addiu rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .slti rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16

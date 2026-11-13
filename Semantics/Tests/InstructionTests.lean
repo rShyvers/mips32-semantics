@@ -600,7 +600,20 @@ example : decode (mkRT 29#32 8#32 3#32 3#32 0x06#32) = none := by decide
 example : decode 0x40086001#32 = none := by decide                              -- mfc0 $t0,$12,1
 example : decode 0x40886001#32 = none := by decide                              -- mtc0 $t0,$12,1
 example : decode 0x40086008#32 = none := by decide                              -- bit 3 set
-example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 9#32 0#32 0#32) = none := by decide  -- Count (9)
+example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 1#32 0#32 0#32) = none := by decide  -- Random (1)
+example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 10#32 0#32 0#32) = none := by decide  -- EntryHi (10)
+-- Count (9,0), Compare (11,0) and HWREna (7,0) are modeled since wave 5 (F12, F15).
+example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 9#32 0#32 0#32) = some (.mfc0 8#32 9#32 0#32) := by decide  -- Count
+example : decode (encode (.mtc0 8#32 11#32 0#32)) = some (.mtc0 8#32 11#32 0#32) := by decide   -- Compare
+example : decode (encode (.mtc0 8#32 7#32 0#32)) = some (.mtc0 8#32 7#32 0#32) := by decide     -- HWREna
+example : decode (encode (.mfc0 8#32 7#32 0#32)) = some (.mfc0 8#32 7#32 0#32) := by decide     -- HWREna
+-- `rdhwr` (SPECIAL3 funct 0x3b): `rdhwr $3, $29` is 0x7c03e83b (MD00086 Vol II-A Rev 6.06, RDHWR,
+-- p.332); `rs` and bits 10..6 must be zero before Release 6.
+example : encode (.rdhwr 3#32 29#32) = 0x7c03e83b#32 := by decide
+example : decode 0x7c03e83b#32 = some (.rdhwr 3#32 29#32) := by decide
+example : decode (encode (.rdhwr 8#32 2#32)) = some (.rdhwr 8#32 2#32) := by decide
+example : decode 0x7c03e87b#32 = none := by decide   -- bits 10..6 = 1 (Release 6 `sel`)
+example : decode 0x7c23e83b#32 = none := by decide   -- rs = 1
 example : decode (encode (.mfc0 8#32 8#32 0#32)) = some (.mfc0 8#32 8#32 0#32) := by decide     -- BadVAddr
 example : decode (encode (.mfc0 8#32 30#32 0#32)) = some (.mfc0 8#32 30#32 0#32) := by decide   -- ErrorEPC
 -- COP1 moves: bits 10..0 must be zero; unary ops: `ft` must be zero.

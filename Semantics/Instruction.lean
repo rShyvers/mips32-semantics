@@ -56,6 +56,8 @@ Field-shape summary (see each constructor's docstring for details):
   `seb seh` — `rs` unused/fixed 0; distinguished from each other (and from
   other BSHFL sub-ops, none of which are in scope here) by the
   shamt-position sub-field (`0x10` for `seb`, `0x18` for `seh`).
+- SPECIAL3 `rdhwr` (`rt rd`; opcode 0x1f, funct 0x3b, MIPS32 Release 2): `rs`
+  and bits 10..6 must be zero (no Release 6 `sel`).
 - I-type arith/logic (`rs rt imm`): `addi addiu slti sltiu andi ori xori`.
 - I-type `lui` (`rt imm`): `rs` is unused/fixed 0.
 - I-type load/store (`rs rt imm`): `lw sw lb lbu lh lhu sh` — `rs` is the base
@@ -337,6 +339,14 @@ inductive Instruction where
   bits of `$rt` outside `[pos+size-1 .. pos]` are left unchanged (SPECIAL3
   opcode 0x1f, funct 0x04). MIPS32r2. -/
   | ins (rt rs pos size : W32)
+  -- SPECIAL3 RDHWR (MIPS32 Release 2): read a hardware register (`HWREna`-gated).
+  /-- Read Hardware Register: `$rt = HWR[rd]` (SPECIAL3 opcode 0x1f, funct 0x3b, `rs` = 0, bits
+  10..6 = 0; MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334; "MIPS32 Release 2"). The model implements
+  `rd` = 0 `CPUNum`, 1 `SYNCI_Step`, 2 `CC` (= `Count`), 3 `CCRes`; access needs Coprocessor 0 to be
+  enabled or the `HWREna` bit `rd` set, otherwise (and for every other `rd`) Reserved Instruction
+  (`Step.lean`). The Release 6 `sel` field (bits 8..6) does not exist before Release 6 (Rev 2.50
+  RDHWR p.229: bits 10..6 are `0`), so a nonzero value does not decode. -/
+  | rdhwr (rt rd : W32)
   -- I-type arith/logic
   /-- `$rt = $rs + sext16(imm)`, traps on overflow (opcode 0x08). -/
   | addi  (rs rt imm : W32)
@@ -854,14 +864,14 @@ def mkWait (opcode co code funct : W32) : W32 :=
   field 6 26 opcode ||| field 1 25 co ||| field 19 6 code ||| field 6 0 funct
 
 /-- The coprocessor-0 registers this model implements, by `(rd, sel)`:
-select 0 — `8` BadVAddr, `12` Status, `13` Cause, `14` EPC, `15` PRId,
-`16` Config, `30` ErrorEPC; select 1 — `15` EBase, `16` Config1. `decode`
+select 0 — `7` HWREna, `8` BadVAddr, `9` Count, `11` Compare, `12` Status, `13` Cause, `14` EPC,
+`15` PRId, `16` Config, `30` ErrorEPC; select 1 — `15` EBase, `16` Config1. `decode`
 accepts `mfc0`/`mtc0` only for these; every other pair does not decode and so
 raises Reserved Instruction — a documented pin (the architecture leaves
 access to an unimplemented CP0 register UNDEFINED/implementation-dependent). -/
 def isModeledCp0Reg (rd sel : W32) : Bool :=
-  (sel == 0#32 && (rd == 8#32 || rd == 12#32 || rd == 13#32 || rd == 14#32 || rd == 15#32 ||
-      rd == 16#32 || rd == 30#32)) ||
+  (sel == 0#32 && (rd == 7#32 || rd == 8#32 || rd == 9#32 || rd == 11#32 || rd == 12#32 ||
+      rd == 13#32 || rd == 14#32 || rd == 15#32 || rd == 16#32 || rd == 30#32)) ||
   (sel == 1#32 && (rd == 15#32 || rd == 16#32))
 
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
@@ -990,6 +1000,8 @@ def decode (w : W32) : Option Instruction :=
     -- `ins`: the `rd` field holds `msb = pos + size - 1`; `msb < lsb` is
     -- UNPREDICTABLE and rejected.
     | 0x04 => decodeIf (decide (shamt.toNat ≤ rd.toNat)) (.ins rt rs shamt (rd - shamt + 1#32))
+    -- `rdhwr`: `rs` and bits 10..6 must be zero (pre-Release 6 has no `sel` field).
+    | 0x3b => decodeIf (z rs && z shamt) (.rdhwr rt rd)
     | _ => none
   | 0x08 => some (.addi rs rt imm)
   | 0x09 => some (.addiu rs rt imm)
@@ -1225,6 +1237,7 @@ def encode (i : Instruction) : W32 :=
   -- `pos + size - 1` for `ins` ("msb") -- see the `.ext`/`.ins` docstrings.
   | .ext rt rs pos size => (0x1f#32 <<< 26) ||| mkRT rs rt (size - 1#32) pos 0x00#32
   | .ins rt rs pos size => (0x1f#32 <<< 26) ||| mkRT rs rt (pos + size - 1#32) pos 0x04#32
+  | .rdhwr rt rd => (0x1f#32 <<< 26) ||| mkRT 0#32 rt rd 0#32 0x3b#32
   | .addi  rs rt imm => mkIT 0x08#32 rs rt imm
   | .addiu rs rt imm => mkIT 0x09#32 rs rt imm
   | .slti  rs rt imm => mkIT 0x0a#32 rs rt imm
