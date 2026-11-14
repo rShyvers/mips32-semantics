@@ -1,5 +1,6 @@
 import Semantics.Specs.Tactics
 import Semantics.Specs.Fixtures
+import Semantics.Specs.DecodeSpec
 
 /-!
 # Jump — jumps and calls (`j`/`jal`/`jr`/`jalr`)
@@ -11,13 +12,21 @@ Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Control flow"; "Register-indirect jump/call (real MIPS32 ISA)".
 
-## Theorems in this file (7)
+## Theorems in this file (8)
 
-  `jal_spec_raw` `jal_sets_ra` `j_spec_raw` `jr_spec_raw` `jalr_spec_raw` `jalr_sets_rd`
+  `target_mask_of_lt` `jal_spec_raw` `jal_sets_ra` `j_spec_raw` `jr_spec_raw` `jalr_spec_raw` `jalr_sets_rd`
   `jalr_rd_eq_rs_targets_original_value`
 -/
 
 set_option maxRecDepth 4000
+
+/-- A decoded jump's `target` fits the 26-bit `instr_index` field, so the model's mask of it is the
+identity (`decode_wellFormed`). -/
+theorem target_mask_of_lt (target : W32) (h : target.toNat < 2 ^ 26) :
+    target &&& 0x3FFFFFF#32 = target := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_and, show (0x3FFFFFF#32).toNat = 2 ^ 26 - 1 by rfl,
+    Nat.and_two_pow_sub_one_eq_mod, Nat.mod_eq_of_lt h]
 
 /-- **`jal` links `$ra` to `pc + 8` — past the delay slot, not `PC_next`
 (`pc + 4`) — and schedules a jump to a target whose top 4 bits come from
@@ -34,6 +43,8 @@ theorem jal_spec_raw (s : State) (w target : W32)
       let pcNext := s.pc + 4#32
       { (writeReg s 31 (pcNext + 4#32)) with
           pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
+  have hm := target_mask_of_lt target (decode_wellFormed w _ hdecode)
+  rw [← hm]
   step_spec
 
 /-- Corollary of `jal_spec_raw`: `$ra` (register 31) reads back exactly
@@ -72,6 +83,8 @@ theorem j_spec_raw (s : State) (w target : W32)
     step s = timerTick (
       let pcNext := s.pc + 4#32
       { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }) := by
+  have hm := target_mask_of_lt target (decode_wellFormed w _ hdecode)
+  rw [← hm]
   step_spec
 
 /-- **`jr` schedules a jump to the raw 32-bit value held in `$rs`** — not a

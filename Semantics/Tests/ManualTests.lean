@@ -47,3 +47,14 @@ def agree (s : State) : Bool :=
 #guard agree (loadImage (prog1 (.addS 0#32 2#32 4#32)) { regs0 with cp0Status := 0#32 })
 -- MTC0 to Compare clears the timer interrupt.
 #guard agree (loadImage (prog1 (.mtc0 8#32 11#32 0#32)) { setRegs regs0 [(8, 77#32)] with cp0TimerInt := true })
+-- 7C S3: a `j`/`jal` built by hand with `target` bits above the 26-bit `instr_index` (MD00086 Vol II-A
+-- Rev 6.06, J p.194, JAL p.195): spec and model use only its low 26 bits (model fix in 7C S3).
+#guard (match Execute { impl := modelImpl, oracle := modelOracle } 0#32 (.j 0xFFFFFFFF#32) (abs regs0) with
+        | some a => a.BranchDelay == (execInstr regs0 (.j 0xFFFFFFFF#32)).pendingBranch &&
+            a.BranchDelay == some (((regs0.pc + 4#32) &&& 0xF0000000#32) ||| 0x0FFFFFFC#32)
+        | none => false)
+#guard (match Execute { impl := modelImpl, oracle := modelOracle } 0#32 (.jal 0x0C000001#32) (abs regs0) with
+        | some a => a.BranchDelay == (execInstr regs0 (.jal 0x0C000001#32)).pendingBranch &&
+            a.BranchDelay == some (((regs0.pc + 4#32) &&& 0xF0000000#32) ||| 0x4#32)
+        | none => false)
+-- end 7C S3

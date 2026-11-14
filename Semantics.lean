@@ -41,6 +41,11 @@ import Semantics.Refine.BranchLikely
 import Semantics.Refine.FpuArith
 import Semantics.Refine.Cp0
 import Semantics.Refine.Unaligned
+-- 7C S3 control + system
+import Semantics.Refine.BridgeControl
+import Semantics.Refine.Jump
+import Semantics.Refine.System
+-- end 7C S3
 -- Tests (moved out of the definition files; they run in every build and under `lake check`).
 import Semantics.Tests.WordTests
 import Semantics.Tests.TypesTests
