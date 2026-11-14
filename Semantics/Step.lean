@@ -1224,9 +1224,13 @@ def execBody (s : State) (instr : Instruction) : State :=
       { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
       { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
+  -- `instr_index` is the 26-bit field of the J format (MD00086 Vol II-A Rev 6.06, J p.194, JAL
+  -- p.195: "PC <- PC_{GPRLEN-1..28} || instr_index || 0^2"): only the low 26 bits of `target`
+  -- are used (`decode` produces nothing wider; an `Instruction` built by hand may hold more).
   | .j target =>
     let pcNext := s.pc + 4#32
-    { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
+    { s with pc := pcNext,
+             pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| ((target &&& 0x3FFFFFF#32) <<< 2)) }
   | .jal target =>
     -- `$ra` links to `pc + 8` — past the delay slot — not `pcNext` (`pc + 4`):
     -- real MIPS32's `jal` link value is the address of the instruction
@@ -1235,7 +1239,8 @@ def execBody (s : State) (instr : Instruction) : State :=
     let pcNext := s.pc + 4#32
     let linkVal := pcNext + 4#32
     let s' := writeReg s 31 linkVal
-    { s' with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
+    { s' with pc := pcNext,
+              pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| ((target &&& 0x3FFFFFF#32) <<< 2)) }
   -- Register-indirect jump/call (real MIPS32 `jr`/`jalr`, MD00086 §3.2):
   -- same one-instruction delay-slot scheduling as `j`/`jal` above, but the
   -- target is the raw 32-bit value read from `$rs` instead of composed from

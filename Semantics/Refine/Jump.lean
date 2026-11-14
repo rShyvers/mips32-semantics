@@ -1,0 +1,171 @@
+import Semantics.Refine.BridgeControl
+import Semantics.Refine.BridgeIntAlu
+
+/-!
+# Refine.Jump — jumps with a delay slot against `execInstr`
+
+7C S3 proves `j` and `jal`. The target is the J format's 26-bit `instr_index` (MD00086 Vol II-A
+Rev 6.06, J p.194, JAL p.195), the low 26 bits of the constructor's `target` on both sides
+(`jump_target`). The 7C merge adds `jr`, `jalr` and the hazard-barrier forms `jrHb`, `jalrHb`
+(JR p.206, JALR p.196, JR.HB p.208, JALR.HB p.198; hint 0 and hint `10000` are separate
+constructors since 7R).
+-/
+
+namespace Refine
+
+open Manual
+
+/-- **J refines.** -/
+theorem j_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w : W32)
+    (hw : enc (.j target) = some w) :
+    Execute modelCtx w (.j target) (abs s) = some (abs (execInstr s (.j target))) := by
+  obtain ⟨-, -, h0⟩ := hg
+  have hw' : w = fld 6 26 0x02#32 ||| fld 26 0 target := (Option.some.inj hw).symm
+  have hc1 : InCop1Space w = false := by subst hw'; simp [InCop1Space, opcode_j]
+  have hc0 : InCop0Space w = false := by subst hw'; simp [InCop0Space, opcode_j]
+  have hbl : isBranchLike (.j target) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot w _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run w _ s (Ops.J target) hpb hc1 hc0 rfl]
+    have hex : execInstr s (.j target) =
+        { s with pc := s.pc + 4#32,
+                 pendingBranch :=
+                   some (((s.pc + 4#32) &&& 0xf0000000#32) ||| ((target &&& 0x3FFFFFF#32) <<< 2)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.J, bind, PC, jump_target]
+    simp [I1, Complete, abs, hn, readReg, readFpReg]
+
+/-- **JAL refines.** -/
+theorem jal_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w : W32)
+    (hw : enc (.jal target) = some w) :
+    Execute modelCtx w (.jal target) (abs s) = some (abs (execInstr s (.jal target))) := by
+  obtain ⟨hsz, -, h0⟩ := hg
+  have hw' : w = fld 6 26 0x03#32 ||| fld 26 0 target := (Option.some.inj hw).symm
+  have hc1 : InCop1Space w = false := by subst hw'; simp [InCop1Space, opcode_jal]
+  have hc0 : InCop0Space w = false := by subst hw'; simp [InCop0Space, opcode_jal]
+  have hbl : isBranchLike (.jal target) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot w _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run w _ s (Ops.JAL target) hpb hc1 hc0 rfl]
+    have hex : execInstr s (.jal target) =
+        { writeReg s 31 (s.pc + 4#32 + 4#32) with
+            pc := s.pc + 4#32,
+            pendingBranch :=
+              some (((s.pc + 4#32) &&& 0xf0000000#32) ||| ((target &&& 0x3FFFFFF#32) <<< 2)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JAL, bind, PC, setGPR, jump_target, abs_pc_pb, abs_writeReg _ _ _ hsz,
+      pc_add_eight]
+    simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg]
+
+/-- The model's oracle lets `JALR`/`JALR.HB` with `rs = rd` proceed: `temp` is read before
+`GPR[rd]` is written, the model's order too. -/
+theorem modelOracle_jalrRsIsRd (a : Arch) (i : Instruction) :
+    modelCtx.oracle.jalrRsIsRd a i = .proceed := rfl
+
+/-- An UNPREDICTABLE condition resolved as `.proceed` leaves the body. -/
+theorem unpredictable_proceed (p : Prop) [Decidable p] (body : Pseudo Unit) :
+    (if p then unpredictableOr .proceed body else body) = body := by
+  split <;> rfl
+
+/-- `Config1.CA` (bit 2) is 0 in `modelImpl`: no MIPS16e, so `JR`/`JALR` jump to `temp`. -/
+theorem config1_ca : bit modelImpl.Config1 2 = false := rfl
+
+/-- **JR refines.** -/
+theorem jr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs w : W32)
+    (hw : enc (.jr rs) = some w) :
+    Execute modelCtx w (.jr rs) (abs s) = some (abs (execInstr s (.jr rs))) := by
+  obtain ⟨-, -, h0⟩ := hg
+  obtain rfl : rFormat 0#32 rs 0#32 0#32 0#32 0x08#32 = w := Option.some.inj hw
+  have hbl : isBranchLike (.jr rs) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run _ _ s (Ops.JR rs) hpb (by alu_space) (by alu_space) rfl]
+    have hex : execInstr s (.jr rs) =
+        { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JR, bind, Pseudo.impl, GPR, show modelCtx.impl = modelImpl from rfl,
+      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg]
+    simp [I1, Complete, abs, hn, readReg, readFpReg]
+
+/-- **JR.HB refines** (`ClearHazards()` has no state on either side). -/
+theorem jrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs w : W32)
+    (hw : enc (.jrHb rs) = some w) :
+    Execute modelCtx w (.jrHb rs) (abs s) = some (abs (execInstr s (.jrHb rs))) := by
+  obtain ⟨-, -, h0⟩ := hg
+  obtain rfl : rFormat 0#32 rs 0#32 0#32 0x10#32 0x08#32 = w := Option.some.inj hw
+  have hbl : isBranchLike (.jrHb rs) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run _ _ s (Ops.JR_HB rs) hpb (by alu_space) (by alu_space) rfl]
+    have hex : execInstr s (.jrHb rs) =
+        { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JR_HB, bind, Pseudo.impl, GPR, show modelCtx.impl = modelImpl from rfl,
+      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg]
+    simp [I1, Complete, abs, hn, readReg, readFpReg]
+
+/-- **JALR refines**, `rs = rd` included (`modelOracle_jalrRsIsRd`). -/
+theorem jalr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd w : W32)
+    (hw : enc (.jalr rs rd) = some w) :
+    Execute modelCtx w (.jalr rs rd) (abs s) = some (abs (execInstr s (.jalr rs rd))) := by
+  obtain ⟨hsz, -, h0⟩ := hg
+  obtain rfl : rFormat 0#32 rs 0#32 rd 0#32 0x09#32 = w := Option.some.inj hw
+  have hbl : isBranchLike (.jalr rs rd) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run _ _ s (Ops.JALR rs rd) hpb (by alu_space) (by alu_space) rfl]
+    have hex : execInstr s (.jalr rs rd) =
+        { writeReg s (regIdx rd) (s.pc + 4#32 + 4#32) with
+            pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JALR, bind, Pseudo.impl, Pseudo.oracle, Pseudo.get, GPR, PC, setGPR,
+      show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
+      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
+      abs_writeReg _ _ _ hsz, pc_add_eight]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg, hd]
+
+/-- **JALR.HB refines**, `rs = rd` included. -/
+theorem jalrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd w : W32)
+    (hw : enc (.jalrHb rs rd) = some w) :
+    Execute modelCtx w (.jalrHb rs rd) (abs s) = some (abs (execInstr s (.jalrHb rs rd))) := by
+  obtain ⟨hsz, -, h0⟩ := hg
+  obtain rfl : rFormat 0#32 rs 0#32 rd 0x10#32 0x09#32 = w := Option.some.inj hw
+  have hbl : isBranchLike (.jalrHb rs rd) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run _ _ s (Ops.JALR_HB rs rd) hpb (by alu_space) (by alu_space) rfl]
+    have hex : execInstr s (.jalrHb rs rd) =
+        { writeReg s (regIdx rd) (s.pc + 4#32 + 4#32) with
+            pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JALR_HB, bind, Pseudo.impl, Pseudo.oracle, Pseudo.get, GPR, PC, setGPR,
+      show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
+      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
+      abs_writeReg _ _ _ hsz, pc_add_eight]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg, hd]
+
+end Refine
