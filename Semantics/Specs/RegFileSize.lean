@@ -227,6 +227,8 @@ theorem step_preserves_regfile_sizes (s : State) :
   · exact ⟨rfl, rfl⟩
   split
   · unfold standbyStep; split <;> exact ⟨rfl, rfl⟩
+  split
+  · exact ⟨rfl, rfl⟩
   unfold execute
   split
   · exact ⟨rfl, rfl⟩

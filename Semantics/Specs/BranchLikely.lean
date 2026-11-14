@@ -39,7 +39,7 @@ theorem beql_spec_raw (s : State) (w rs rt imm : W32)
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bnel`**: the mirror image of `beql` — taken on `$rs ≠ $rt`, squashes
@@ -49,7 +49,7 @@ theorem bnel_spec_raw (s : State) (w rs rt imm : W32)
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
-        { s with pc := s.pc + 8#32 }
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }
       else
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
   step_spec
@@ -63,7 +63,7 @@ theorem blezl_spec_raw (s : State) (w rs imm : W32)
       if asSigned (readReg s (regIdxSpec rs)) ≤ 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bgtzl`**: same condition as `bgtz` (`$rs > 0`, signed), not-taken
@@ -75,7 +75,7 @@ theorem bgtzl_spec_raw (s : State) (w rs imm : W32)
       if 0 < asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bltzl`** (REGIMM `rt = 0x02`): same condition as `bltz` (`$rs < 0`,
@@ -87,7 +87,7 @@ theorem bltzl_spec_raw (s : State) (w rs imm : W32)
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bgezl`** (REGIMM `rt = 0x03`): same condition as `bgez` (`$rs ≥ 0`,
@@ -99,7 +99,7 @@ theorem bgezl_spec_raw (s : State) (w rs imm : W32)
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bltzall`** (REGIMM `rt = 0x12`): same unconditional-`$ra`-link
@@ -118,7 +118,7 @@ theorem bltzall_spec_raw (s : State) (w rs imm : W32)
       if asSigned (readReg s (regIdxSpec rs)) < 0 then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := s.pc + 8#32 }) := by
+        { s' with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-- **`bgezall`** (REGIMM `rt = 0x13`): same unconditional link as
@@ -134,7 +134,7 @@ theorem bgezall_spec_raw (s : State) (w rs imm : W32)
       if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
         { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
       else
-        { s' with pc := s.pc + 8#32 }) := by
+        { s' with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   step_spec
 
 /-! ### Satisfiable examples
@@ -151,7 +151,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.beql 8#32 9#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32), (9, 6#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 -- `bnel`: opposite polarity to `beql`, same squash mechanism.
 #guard (let s := stepIn (prog1Spec (.bnel 8#32 9#32 3#32))
@@ -160,7 +160,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bnel 8#32 9#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32), (9, 5#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 -- `blezl`/`bgtzl`: same conditions as `blez`/`bgtz`, squash instead of
 -- plain fall-through on not-taken.
@@ -170,7 +170,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.blezl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 #guard (let s := stepIn (prog1Spec (.bgtzl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
@@ -178,7 +178,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bgtzl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 -- `bltzl`/`bgezl` (REGIMM): same conditions as `bltz`/`bgez`.
 #guard (let s := stepIn (prog1Spec (.bltzl 8#32 3#32))
@@ -187,7 +187,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bltzl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 #guard (let s := stepIn (prog1Spec (.bgezl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
@@ -195,7 +195,7 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bgezl 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 -- `bltzall`/`bgezall` (REGIMM): `$ra` links to `pc + 8` unconditionally in
 -- both the taken and squashed cases, mirroring `bltzal`/`bgezal`'s own
@@ -207,8 +207,8 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bltzall 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
-        readReg s 31 == textBase + 8#32 && s.pc == textBase + 8#32 &&
-            s.pendingBranch == none) = true
+        readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 &&
+            s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
 #guard (let s := stepIn (prog1Spec (.bgezall 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32)])
@@ -217,35 +217,54 @@ Each pair exercises the taken case (ordinary `pendingBranch` scheduling) and the
 
 #guard (let s := stepIn (prog1Spec (.bgezall 8#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
-        readReg s 31 == textBase + 8#32 && s.pc == textBase + 8#32 &&
-            s.pendingBranch == none) = true
+        readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 &&
+            s.pendingBranch == some (textBase + 8#32) && s.nullified) = true
 
-/-! ## Branch-likely nullification is a property of `step`
+/-! ## Branch-likely nullification: the nullified slot has its own instruction time
 
-A not-taken branch-likely nullifies its delay-slot instruction. That is
-part of the branch-likely's own `step` (it moves `pc` to `pc + 8` and
-leaves no pending branch), so the theorem below needs **no hypothesis about
-what memory holds at `s.pc + 4`**: a real instruction, undecodable garbage, or
-nothing at all — it is never fetched. `run`, being `step` iterated, agrees. -/
+A not-taken branch-likely nullifies its delay-slot instruction ("I+1: if condition then PC ← PC +
+target_offset else NullifyCurrentInstruction()", MD00086 Vol II-A Rev 6.06, BEQL, p.73). Its `I+1`
+part happens in the delay-slot instruction's own instruction time (§1.3, Table 1.1, p.6), so the
+branch's `step` only marks the slot (`nullified`), and the next `step` consumes it
+(`nullifiedStep`, `step_nullified`) — unless an interrupt is taken there first. The theorem below
+needs **no hypothesis about what memory holds at `s.pc + 4`**: a real instruction, undecodable
+garbage, or nothing at all — it is never fetched. -/
 
-/-- **A not-taken `beql` skips its delay slot in one `step`**, whatever the
-memory holds there; `run` for one step lands in the same state. -/
+/-- **A not-taken `beql` nullifies its delay slot in the next instruction time**, whatever the
+memory holds there: the first `step` marks the slot as nullified, and, unless an interrupt is taken
+at the slot, the second reaches `pc + 8` with nothing executed and nothing pending; the timer
+ticks once per step (two ticks in all). -/
 theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 8#32 }) ∧
-      run s 1 = timerTick ({ s with pc := s.pc + 8#32 }) := by
-  have hstep : step s = timerTick ({ s with pc := s.pc + 8#32 }) := by
+    step s = timerTick
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true } ∧
+      (interruptTaken (step s) = false →
+        run s 2 = timerTick (timerTick { s with pc := s.pc + 8#32 })) := by
+  have hstep : step s = timerTick
+      { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true } := by
     rw [beql_spec_raw s w rs rt imm hfetch hdecode hpb hexec]
     simp [hnot]
-  refine ⟨hstep, ?_⟩
-  show step s = _
-  exact hstep
+  refine ⟨hstep, fun hint => ?_⟩
+  have hsb : s.standby = false := by
+    unfold executesInstr at hexec; cases hh : s.standby <;> simp_all
+  have hnl : s.nullified = false := by
+    unfold executesInstr at hexec; cases hh : s.nullified <;> simp_all
+  show step (step s) = _
+  rw [step_nullified (step s) hint (by rw [hstep]; exact hsb) (by rw [hstep]; rfl), hstep]
+  have hpc : s.pc + 4#32 + 4#32 = s.pc + 8#32 := by rw [BitVec.add_assoc]; rfl
+  simp only [nullifiedStep, timerTick, countEnabled, State.mk.injEq, hpc, hpb, hnl, true_and]
+  exact ⟨rfl, rfl, trivial⟩
 
 -- Concrete instance: `prog1Spec` maps *only* `textBase` (the `beql`); there
--- is no instruction at `textBase + 4`. One bare `step` reaches
--- `textBase + 8` with no pending branch and no exception.
+-- is no instruction at `textBase + 4`. One bare `step` marks the slot as nullified;
+-- a second reaches `textBase + 8` with no pending branch and no exception.
 #guard (let s := stepIn (prog1Spec (.beql 8#32 9#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 5#32), (9, 6#32)])
-        s.pc == textBase + 8#32 && s.pendingBranch == none && s.cp0Status == statusCu1Mask) = true
+        s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified &&
+          s.cp0Status == statusCu1Mask) = true
+#guard (let s := step (stepIn (prog1Spec (.beql 8#32 9#32 3#32))
+          (setRegsSpec (initialState textBase) [(8, 5#32), (9, 6#32)]))
+        s.pc == textBase + 8#32 && s.pendingBranch == none && !s.nullified &&
+          s.cp0Status == statusCu1Mask) = true

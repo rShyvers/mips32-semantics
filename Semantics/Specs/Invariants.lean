@@ -209,7 +209,7 @@ theorem execInstr_zeroKept (s : State) (instr : Instruction) :
 /-- **Global invariant: `$zero` is never changed by a step.** Register `0` reads the same thing
 after a step as before — for **every** state and instruction, with no side conditions
 (INSTRUCTION-REF Global rule 2, "writes to `$zero` are a no-op"). Proof: `step` is an interrupt
-entry, a standby step (neither writes a GPR), or fetch/decode (whose failures are exceptions)
+entry, a standby step, a nullified step (none writes a GPR), or fetch/decode (whose failures are exceptions)
 followed by `execInstr`; see `execInstr_zeroKept`. -/
 theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg s 0 := by
   unfold step stepCore
@@ -217,6 +217,8 @@ theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg 
   · rfl
   split
   · unfold standbyStep; split <;> rfl
+  split
+  · rfl
   unfold execute
   split
   · rfl

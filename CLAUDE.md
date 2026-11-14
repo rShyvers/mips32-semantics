@@ -22,9 +22,9 @@ Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals
 
 ## The gate (one command)
 `scripts/gate.sh` is the single source of truth. Steps: 1 forbidden constructs (code only, comments/strings
-stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
+stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's names); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
-(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness; 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
+(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness (incl. the manual-spec check: `Manual.InstructionTime` vs `step` through `Refine.abs`); 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
 (`trace.py --check`, `--check-readme`, `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
 - While iterating: `scripts/gate.sh --quick` (steps 1,8,9,10; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
 - Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates TRACE.md). Only a full green run
@@ -35,9 +35,9 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
 - The `/gate` skill wraps this. `lake check` takes ~2-5 min; do not run it in parallel with other lake jobs in one tree.
 
 ## File map
-- Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State` incl. `hwInt` = environment-driven HW5..HW0 lines, never written by `step`, and `standby` after WAIT; `Program`, `VAddr`/`PAddr`), `State.lean`
+- Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State` incl. `hwInt` = environment-driven HW5..HW0 lines, never written by `step`, `standby` after WAIT, and `nullified` = the next instruction time is a nullified branch-likely delay slot; `Program`, `VAddr`/`PAddr`), `State.lean`
   (accessors, Kernel/User Mode, the Fixed Mapping MMU `translate`, the six memory-access functions on physical `physMem`), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
-  bit patterns, no host floats), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
+  bit patterns, no host floats), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `nullifiedStep` for a nullified delay slot, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
   architecture (`load` by physical address `loadAddr`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
   `Semantics.lean`/`Checked.lean` roots
 
@@ -45,8 +45,13 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (142 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (143 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
+- Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
+  pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
+  `Ops/*` one def per manual page, `Operation`, `Cycle` (`InstructionTime`), `Choices` (`modelImpl`/`modelOracle` pins)). It may import
+  only `Word`, `Types` (W32/VAddr/PAddr), `Instruction` (constructor names), `FpOps` rounding core; enforced by gate step 1.
+  `Semantics/Refine/` = proofs that `step` refines it (`Abs.lean` `abs : State → Manual.Arch`, `Bridge`, `Fetch`, `<Family>.lean` `<ctor>_refines`).
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
   `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).
@@ -54,7 +59,7 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
   comparator arrangement), `docs/TRACE.md` (GENERATED), `docs/AUDIT.md`, `docs/spec/{INSTRUCTION-REF,SPEC-NOTES,MIPS-COVERAGE-GAPS}.md`,
   `docs/spec/manuals/` (lookup tool `mipsdoc.py`, see its `AGENTS.md`). `scripts/` gate, oracle, trace (`scripts/README.md`).
 - Trusted surface changes need explicit owner-visible mention: the model files, `comparator.json`, `lakefile.toml`, `Checked.lean`,
-  and the statements in `Statements.lean`.
+  the statements in `Statements.lean`, everything in `Semantics/Manual/`, and `Refine.abs`.
 - Per-instruction `_spec_raw` theorems restate what `step` computes (proved by `rfl`-style scripts); they are NOT independent of
   `Step.lean`. Do not describe them as a correctness proof (README, "What is proved, what is tested, what is trusted").
 

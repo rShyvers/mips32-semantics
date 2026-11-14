@@ -98,11 +98,14 @@ theorem no_interrupt_masked (s : State) (h : interruptRequests s = 0#32) :
     interruptTaken s = false := by
   unfold interruptTaken; simp [h]
 
-/-- **The hypothesis of every per-instruction theorem**, unfolded: no interrupt is taken and the
-processor is not in standby. -/
+/-- **The hypothesis of every per-instruction theorem**, unfolded: no interrupt is taken, the
+processor is not in standby, and the instruction at `pc` is not nullified (the delay slot of a
+not-taken branch-likely). -/
 theorem executesInstr_iff (s : State) :
-    executesInstr s = true ↔ interruptTaken s = false ∧ s.standby = false := by
-  unfold executesInstr; cases interruptTaken s <;> cases s.standby <;> simp
+    executesInstr s = true ↔
+      interruptTaken s = false ∧ s.standby = false ∧ s.nullified = false := by
+  unfold executesInstr
+  cases interruptTaken s <;> cases s.standby <;> cases s.nullified <;> simp
 
 /-! ## The entry -/
 
@@ -268,6 +271,8 @@ theorem step_hwInt (s : State) : (step s).hwInt = s.hwInt := by
   · rfl
   split
   · unfold standbyStep; split <;> rfl
+  split
+  · rfl
   unfold execute
   split
   · rfl

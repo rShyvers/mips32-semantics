@@ -377,7 +377,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
   case sdxc1 a b c => exact delaySlotRel_sdxc1 s t a b c hvec
   all_goals (
     obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, nullified⟩ := s
     unfold execInstr execBody
     dsimp only [isBranchLike]
     simp only [Bool.false_and, Bool.false_eq_true, ↓reduceIte, mkNext, advance,
@@ -390,7 +390,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       writeReg_proj_cp0Cause, writeReg_proj_cp0Epc, writeReg_proj_cp0BadVAddr,
       writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_cp0ConfigK0, writeReg_proj_cp0ConfigK23, writeReg_proj_cp0ConfigKU,
       writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt,
-      writeReg_proj_cp0HWREna, writeReg_proj_hwInt, writeReg_proj_standby, writeReg_proj_regs]
+      writeReg_proj_cp0HWREna, writeReg_proj_hwInt, writeReg_proj_standby, writeReg_proj_nullified, writeReg_proj_regs]
     repeat' (first
       | (show (_ : State).pc = _ → _ = _
          intro hnorm

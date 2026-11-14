@@ -256,7 +256,8 @@ theorem execute_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
 
 /-- **`stepCore` keeps the timer state** unless it executes an `mtc0` to `Count`, `Compare` or
 `Cause`: the Interrupt exception is an exception entry (which writes only `BD`, `CE`, `ExcCode` of
-`Cause`), and a standby step changes only `standby`. -/
+`Cause`), a standby step changes only `standby`, and a nullified step only `pc`, `pendingBranch` and
+`nullified`. -/
 theorem stepCore_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
     TimerKept s (stepCore s) := by
   unfold stepCore
@@ -265,6 +266,8 @@ theorem stepCore_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
     exact ⟨rfl, rfl, rfl, exceptionEntry_dc s _ _, rfl⟩
   split
   · unfold standbyStep; split <;> exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+  split
+  · exact ⟨rfl, rfl, rfl, rfl, rfl⟩
   exact execute_timerKept s hw
 
 /-! ## Count, TI and Compare at the level of `step` -/

@@ -43,6 +43,7 @@
     "Trusted.beq_taken_spec",
     "Trusted.beql_spec_raw",
     "Trusted.beql_not_taken_squashes_delay_slot",
+    "Trusted.step_nullified",
     "Trusted.j_spec_raw",
     "Trusted.jal_spec_raw",
     "Trusted.jal_sets_ra",

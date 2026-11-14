@@ -109,7 +109,8 @@ a boot ROM would execute in Kernel Mode:
 Every other register keeps its reset value. This is an environment convention, not an
 architectural requirement. -/
 def bootConvention (entry : W32) (s : State) : State :=
-  { (writeReg s 29 spInit) with cp0Status := statusCu1Mask, pc := entry, pendingBranch := none }
+  { (writeReg s 29 spInit) with
+      cp0Status := statusCu1Mask, pc := entry, pendingBranch := none, nullified := false }
 
 /-- **The hosted start state**: the architectural reset state (`resetState`, MD00090 Vol III
 Rev 6.02 §6.2.5, p.89-90) followed by the boot convention with entry point `textBase`

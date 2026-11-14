@@ -246,6 +246,7 @@ def stateJson (s : State) : String :=
   s!"\"ll_addr\": {s.llAddr.toNat}, " ++
   s!"\"pending_branch\": {match s.pendingBranch with | some t => toString t.toNat | none => "null"}, " ++
   s!"\"standby\": {s.standby}, " ++
+  s!"\"nullified\": {s.nullified}, " ++
   s!"\"hw_int\": {s.hwInt.toNat}, " ++
   s!"\"fir\": {Mips.Fp.firValue.toNat}, " ++
   s!"\"fcr\": {fcrJson s}, " ++

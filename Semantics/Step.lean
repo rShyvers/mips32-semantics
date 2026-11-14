@@ -51,7 +51,8 @@ target; not taken: `pc + 8`). Every non-control-flow instruction goes
 through `mkNext`/`advance`, which commits a pending target. A control-transfer
 instruction in a delay slot (UNPREDICTABLE, or UNDEFINED for `eret`/`wait`, in the
 architecture) raises Reserved Instruction (pin; `execInstr`). A not-taken branch-likely
-nullifies its delay slot: its own step goes straight to `pc + 8`.
+nullifies its delay slot: it sets `State.nullified`, and the next step consumes the slot without
+fetching it (`nullifiedStep`): the nullified instruction has its own instruction time.
 
 ## Exceptions
 
@@ -276,8 +277,8 @@ exception the field "is loaded, but not defined" (p.87) and the model loads
 `0` (the default argument).
 
 "In a branch delay slot" is `s.pendingBranch.isSome`. The pending branch is
-abandoned (`pendingBranch := none`): the handler runs sequentially from the
-vector, and `eret` to `EPC` re-executes the branch. `LLbit` is cleared
+abandoned (`pendingBranch := none`, and a pending nullification with it, `nullified := false`):
+the handler runs sequentially from the vector, and `eret` to `EPC` re-executes the branch. `LLbit` is cleared
 (MD00086 Vol II-A Rev 6.06, SC, p.350: "Exceptions between the LL and SC
 cause SC to fail"). -/
 def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) : State :=
@@ -293,6 +294,7 @@ def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) : State :=
       cp0Status := s.cp0Status ||| statusExlMask
       pc := exceptionVector s
       pendingBranch := none
+      nullified := false
       llBit := false }
 
 /-- Raise a general exception: the state after exception entry (the
@@ -595,10 +597,20 @@ masked_out`, p.443, and the restart itself takes the step). -/
 def standbyStep (s : State) : State :=
   if interruptRequests s != 0#32 then { s with standby := false } else s
 
-/-- **This step executes the instruction at `pc`**: no interrupt is taken and the processor is
-not in standby. Every per-instruction theorem about `step` assumes it (`step_of_executesInstr`,
-`Specs/Interrupt.lean`). -/
-def executesInstr (s : State) : Bool := !interruptTaken s && !s.standby
+/-- **The step of a nullified instruction** (`State.nullified`: the delay slot of a not-taken
+branch-likely): the instruction at `pc` is neither fetched nor executed and raises no exception
+(MD00086 Vol II-A Rev 6.06 §2.2.2.5.4, NullifyCurrentInstruction, p.26: "inhibiting not only the
+functional effect of the instruction, but also inhibiting all exceptions detected during fetch,
+decode, or execution of the instruction in question"). No statement assigns `PC`, so it "is
+automatically incremented by ... 4 before the next instruction time" (§1.3, Table 1.1, p.6): `pc ←
+pc + 4`, the instruction after the delay slot; the delay slot is over (`pendingBranch := none`). -/
+def nullifiedStep (s : State) : State :=
+  { s with pc := s.pc + 4#32, pendingBranch := none, nullified := false }
+
+/-- **This step executes the instruction at `pc`**: no interrupt is taken, the processor is
+not in standby and the instruction is not nullified. Every per-instruction theorem about `step`
+assumes it (`step_of_executesInstr`, `Specs/Interrupt.lean`). -/
+def executesInstr (s : State) : Bool := !interruptTaken s && !s.standby && !s.nullified
 
 /-! ## Hardware registers (`rdhwr`) -/
 
@@ -1127,23 +1139,25 @@ def execBody (s : State) (instr : Instruction) : State :=
       { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
       { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
-  -- "Branch likely" family (deprecated in MIPS32, removed in Release 6 --
-  -- MD00086 Rev 2.50 Table 3-10). **Taken**: exactly like the non-likely
-  -- counterpart (delay slot executes, then the target). **Not taken**: the
-  -- delay-slot instruction is nullified -- never fetched, decoded or
-  -- executed -- so this step moves `pc` directly to `pc + 8` and leaves
-  -- `pendingBranch = none`. The nullification is therefore part of `step`
-  -- itself. `bltzall`/`bgezall` still link `$ra` unconditionally.
+  -- "Branch likely" family (deprecated in MIPS32, removed in Release 6;
+  -- MD00086 Vol II-A Rev 6.06, BEQL p.73). **Taken**: exactly like the non-likely
+  -- counterpart (delay slot executes, then the target). **Not taken**: "I+1: ...
+  -- else NullifyCurrentInstruction()": the delay-slot instruction is nullified in
+  -- its own instruction time. This step moves `pc` to the delay slot (`pc + 4`),
+  -- marks it as a delay slot (`pendingBranch := some (pc + 8)`) and sets
+  -- `nullified`; the next `step` consumes the slot without fetching it
+  -- (`nullifiedStep`), unless an interrupt is taken first (EPC = the branch,
+  -- BD = 1). `bltzall`/`bgezall` still link `$ra` unconditionally.
   | .beql rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bnel rs rt imm =>
     let pcNext := s.pc + 4#32
     if readReg s (regIdx rs) == readReg s (regIdx rt) then
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
     else
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .blezl rs imm =>
@@ -1151,39 +1165,39 @@ def execBody (s : State) (instr : Instruction) : State :=
     if asSigned (readReg s (regIdx rs)) ≤ 0 then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bgtzl rs imm =>
     let pcNext := s.pc + 4#32
     if 0 < asSigned (readReg s (regIdx rs)) then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bltzl rs imm =>
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) < 0 then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bgezl rs imm =>
     let pcNext := s.pc + 4#32
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bltzall rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if asSigned (readReg s (regIdx rs)) < 0 then
       { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s' with pc := s.pc + 8#32 }
+      { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .bgezall rs imm =>
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     if 0 ≤ asSigned (readReg s (regIdx rs)) then
       { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s' with pc := s.pc + 8#32 }
+      { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   | .j target =>
     let pcNext := s.pc + 4#32
     { s with pc := pcNext, pendingBranch := some ((pcNext &&& 0xf0000000#32) ||| (target <<< 2)) }
@@ -1443,7 +1457,7 @@ def execBody (s : State) (instr : Instruction) : State :=
   | .bc1fl cc imm =>
     let pcNext := s.pc + 4#32
     if readFcc s cc then
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
     else
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
   | .bc1tl cc imm =>
@@ -1451,7 +1465,7 @@ def execBody (s : State) (instr : Instruction) : State :=
     if readFcc s cc then
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
-      { s with pc := s.pc + 8#32 }
+      { s with pc := pcNext, pendingBranch := some (s.pc + 8#32), nullified := true }
   -- `syscall`: "A system call exception occurs, immediately and
   -- unconditionally transferring control to the exception handler";
   -- Operation: `SignalException(SystemCall)` (MD00086 Vol II-A Rev 6.06,
@@ -1680,7 +1694,9 @@ def execute (s : State) : State :=
    Soft Reset, the EJTAG debug exceptions, NMI and Machine Check, none of which `step` raises (Reset
    is applied by the environment, `resetException`). So the check comes before the fetch.
 2. Else, in standby (`State.standby`, after `wait`): `standbyStep` (stay, or restart).
-3. Else fetch, decode and execute the instruction at `pc` (`execute`).
+3. Else, if the instruction at `pc` is nullified (`State.nullified`, the delay slot of a not-taken
+   branch-likely): `nullifiedStep` (no fetch, no effect, no exception; `pc ← pc + 4`).
+4. Else fetch, decode and execute the instruction at `pc` (`execute`).
 
 Execution hazards on the interrupt state (MD00090 Vol III §6.1.2.1, Table 6.5, p.82: `mtc0` to
 `Status` IM/ERL/EXL/IE or to `Cause` IP1..0, `ei`, `di`, made visible "no later than the instruction
@@ -1689,6 +1705,7 @@ following the EHB") are cleared at once: the change is seen by the next step's c
 def stepCore (s : State) : State :=
   if interruptTaken s then takeInterrupt s
   else if s.standby then standbyStep s
+  else if s.nullified then nullifiedStep s
   else execute s
 
 /-- **One instruction time**: the processor's part (`stepCore`: take an interrupt, or stay in
@@ -1736,7 +1753,7 @@ Config3, WatchLo, PerfCnt): nothing to do. `Count`, `Compare` and `Cause.TI` are
 "Undefined", Tables 9.44, 9.46, 9.52, p.183, 187, 209): they keep their values. Every register the section does not list keeps whatever it held: its
 reset state is undefined, and keeping it is one legal value (pin). In particular the other
 `Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor
-is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch is dropped (the
+is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch (and a pending nullification) is dropped (the
 reset "aborts state machines", p.89; "restart PC" is the branch when the interrupted instruction
 was in a delay slot, `s.pc - 4`), and `LLbit` is cleared (its reset state is not given). A processor
 in standby restarts ("The assertion of any reset or NMI must restart the pipeline and the
@@ -1754,6 +1771,7 @@ def resetException (s : State) : State :=
       cp0ErrorEpc := if s.pendingBranch.isSome then s.pc - 4#32 else s.pc
       pc := resetVector
       pendingBranch := none
+      nullified := false
       llBit := false
       standby := false }
 

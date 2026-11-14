@@ -396,16 +396,23 @@ theorem beql_spec_raw (s : State) (w rs rt imm : W32)
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) :=
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) :=
   _root_.beql_spec_raw s w rs rt imm hfetch hdecode hpb hexec
 
 theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 8#32 }) ∧
-      run s 1 = timerTick ({ s with pc := s.pc + 8#32 }) :=
+    step s = timerTick
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true } ∧
+      (interruptTaken (step s) = false →
+        run s 2 = timerTick (timerTick { s with pc := s.pc + 8#32 })) :=
   _root_.beql_not_taken_squashes_delay_slot s w rs rt imm hfetch hdecode hpb hnot hexec
+
+theorem step_nullified (s : State) (hi : interruptTaken s = false) (hs : s.standby = false)
+    (hn : s.nullified = true) :
+    step s = timerTick { s with pc := s.pc + 4#32, pendingBranch := none, nullified := false } :=
+  _root_.step_nullified s hi hs hn
 
 theorem j_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.j target))

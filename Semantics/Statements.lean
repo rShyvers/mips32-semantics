@@ -614,9 +614,9 @@ theorem beq_taken_spec (s : State) (w rs rt imm : W32)
   sorry
 
 /-- **`beql`/`bnel` step-level shape**: identical field layout and taken
-condition to `beq` (`$rs == $rt`), but the not-taken case skips the delay
-slot (`pc := pc + 8`, no pending branch) instead of executing it
-(INSTRUCTION-REF "beql / bnel" section). -/
+condition to `beq` (`$rs == $rt`), but the not-taken case nullifies the delay
+slot (`pc := pc + 4`, the slot marked `nullified`, consumed by the next step
+without being fetched) instead of executing it (INSTRUCTION-REF "beql / bnel" section). -/
 theorem beql_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -624,17 +624,32 @@ theorem beql_spec_raw (s : State) (w rs rt imm : W32)
       if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
         { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
       else
-        { s with pc := s.pc + 8#32 }) := by
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   sorry
 
-/-- **A not-taken `beql` skips its delay slot in one `step`**, whatever the
-memory holds there; `run` for one step lands in the same state. -/
+/-- **A not-taken `beql` nullifies its delay slot in the next instruction time**, whatever the
+memory holds there (MD00086 Vol II-A Rev 6.06, BEQL p.73: "I+1: ... else
+NullifyCurrentInstruction()"; §2.2.2.5.4 p.26): the first `step` marks the slot as nullified, and,
+unless an interrupt is taken at the slot, the second reaches `pc + 8` with nothing executed and
+nothing pending; the timer ticks once per step. -/
 theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
     (hpb : s.pendingBranch = none)
     (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 8#32 }) ∧
-      run s 1 = timerTick ({ s with pc := s.pc + 8#32 }) := by
+    step s = timerTick
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true } ∧
+      (interruptTaken (step s) = false →
+        run s 2 = timerTick (timerTick { s with pc := s.pc + 8#32 })) := by
+  sorry
+
+/-- **The nullified instruction's own instruction time**: when the instruction at `pc` is nullified
+(`nullified`, the delay slot of a not-taken branch-likely), no interrupt is taken and the processor
+is not in standby, `step` neither fetches nor executes it and raises no exception
+(NullifyCurrentInstruction, MD00086 Vol II-A Rev 6.06 §2.2.2.5.4, p.26): `pc ← pc + 4`, the delay
+slot is over, and the timer advances. -/
+theorem step_nullified (s : State) (hi : interruptTaken s = false) (hs : s.standby = false)
+    (hn : s.nullified = true) :
+    step s = timerTick { s with pc := s.pc + 4#32, pendingBranch := none, nullified := false } := by
   sorry
 
 /-- **`j` unconditionally schedules a jump whose top 4 bits come from

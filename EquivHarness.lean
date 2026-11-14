@@ -6,6 +6,7 @@ import Semantics.Instruction
 import Semantics.Asm
 import Semantics.Step
 import Semantics.Env
+import Semantics.Refine.Abs
 
 /-!
 # EquivHarness — arithmetic equivalence corpus (thin interpreter, no MARS)
@@ -215,6 +216,123 @@ def checkAsmProgram (path : String) : IO (Option (Bool × String)) := do
       else pure (some (false,
         s!"expected output {repr expected} halt {expectedHalt}; got output {repr out} halt {halt}"))
 
+/-! ## The manual spec against `step` (`docs/MANUAL-SPEC.md`, "Validate before proving")
+
+On every state of the hosted run of every program in `tests/corpus` and `tests/oracle`, the
+independent spec's instruction time `Manual.InstructionTime modelImpl modelOracle decode (abs s)` is
+compared with `abs (step s)`, field by field (memory: the bytes the model wrote in this step and the
+aligned word around the effective address of a load or store). A state whose instruction's page is
+not transcribed yet (`Manual.Operation` is `none`) is skipped and counted. Every mismatch is a FAIL. -/
+
+open Manual Refine in
+/-- The fields where two architectural states differ, on the given physical addresses. -/
+def archDiff (x y : Arch) (addrs : List PAddr) : List String := Id.run do
+  let mut d : List String := []
+  if x.PC != y.PC then d := d ++ [s!"PC {x.PC} vs {y.PC}"]
+  for k in List.finRange 32 do
+    if x.GPR k != y.GPR k then d := d ++ [s!"GPR[{k}] {x.GPR k} vs {y.GPR k}"]
+    if x.FPR k != y.FPR k then d := d ++ [s!"FPR[{k}] {x.FPR k} vs {y.FPR k}"]
+  if x.HI != y.HI then d := d ++ ["HI"]
+  if x.LO != y.LO then d := d ++ ["LO"]
+  if x.FCSR != y.FCSR then d := d ++ [s!"FCSR {x.FCSR} vs {y.FCSR}"]
+  for p in addrs do
+    if x.Mem p != y.Mem p then d := d ++ [s!"Mem[{p}] {x.Mem p} vs {y.Mem p}"]
+  if x.LLbit != y.LLbit then d := d ++ ["LLbit"]
+  if x.LLAddr != y.LLAddr then d := d ++ ["LLAddr"]
+  if x.Status != y.Status then d := d ++ [s!"Status {x.Status} vs {y.Status}"]
+  if x.Cause != y.Cause then d := d ++ [s!"Cause {x.Cause} vs {y.Cause}"]
+  if x.EPC != y.EPC then d := d ++ [s!"EPC {x.EPC} vs {y.EPC}"]
+  if x.BadVAddr != y.BadVAddr then d := d ++ ["BadVAddr"]
+  if x.ErrorEPC != y.ErrorEPC then d := d ++ ["ErrorEPC"]
+  if x.EBase != y.EBase then d := d ++ ["EBase"]
+  if x.ConfigK0 != y.ConfigK0 || x.ConfigK23 != y.ConfigK23 || x.ConfigKU != y.ConfigKU then
+    d := d ++ ["Config"]
+  if x.Count != y.Count then d := d ++ [s!"Count {x.Count} vs {y.Count}"]
+  if x.Compare != y.Compare then d := d ++ ["Compare"]
+  if x.CauseTI != y.CauseTI then d := d ++ ["CauseTI"]
+  if x.HWREna != y.HWREna then d := d ++ ["HWREna"]
+  if x.HW != y.HW then d := d ++ ["HW"]
+  if x.LowPower != y.LowPower then d := d ++ ["LowPower"]
+  if x.BranchDelay != y.BranchDelay then d := d ++ [s!"BranchDelay {x.BranchDelay} vs {y.BranchDelay}"]
+  if x.Nullify != y.Nullify then d := d ++ ["Nullify"]
+  return d
+
+/-- The physical bytes to compare after the step from `s` to `s'`: the keys the model added, and the
+aligned word around the effective address of a pilot load or store at `pc`. -/
+def memCheckAddrs (s s' : State) : List PAddr :=
+  let added := s'.physMem.keys.filter (fun k => !s.physMem.contains k)
+  let ea : List PAddr :=
+    match readMemWord s s.pc |>.bind decode with
+    | some (.lw b _ o) | some (.sw b _ o) | some (.lwl b _ o) =>
+      let va := readReg s (regIdx b) + signExt16 o
+      let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
+      [pa, pa + 1#32, pa + 2#32, pa + 3#32]
+    | _ => []
+  added ++ ea
+
+/-- The mnemonic (constructor name) of the instruction at `pc`, for the skip counts. -/
+def ctorAt (s : State) : String :=
+  match readMemWord s s.pc |>.bind decode with
+  | some i => ((toString (repr i)).splitOn " ").head!.replace "Instruction." ""
+  | none => "<undecodable>"
+
+structure ManualStats where
+  compared : Nat := 0
+  skipped : Nat := 0
+  mismatches : Nat := 0
+  skippedBy : Std.HashMap String Nat := {}
+
+/-- Run one program hosted and compare the spec with `step` on every state. -/
+def manualCheckProgram (path : String) (stats : ManualStats) (fuel : Nat) :
+    IO (ManualStats × List String) := do
+  let src ← IO.FS.readFile path
+  match assemble src with
+  | .error _ => pure (stats, [])   -- not assemblable (the other harnesses report that)
+  | .ok prog =>
+    let services := !(src.splitOn "# oracle: bare").length > 1
+    let env : HostEnv := { image := prog, services := services }
+    let mut h : Hosted := { machine := load prog }
+    let mut st := stats
+    let mut msgs : List String := []
+    for _ in [0:fuel] do
+      let s := h.machine
+      match Manual.InstructionTime Manual.modelImpl Manual.modelOracle decode (Refine.abs s) with
+      | none =>
+        let c := ctorAt s
+        st := { st with skipped := st.skipped + 1,
+                        skippedBy := st.skippedBy.insert c ((st.skippedBy.getD c 0) + 1) }
+      | some a' =>
+        let s' := step s
+        let d := archDiff a' (Refine.abs s') (memCheckAddrs s s')
+        st := { st with compared := st.compared + 1 }
+        if !d.isEmpty then
+          st := { st with mismatches := st.mismatches + 1 }
+          if msgs.length < 5 then
+            msgs := msgs ++ [s!"{path}: pc={s.pc} {ctorAt s}: {String.intercalate "; " (d.take 6)}"]
+      match hostStep env h with
+      | .next h' => h := h'
+      | .halt _ => break
+    pure (st, msgs)
+
+/-- The manual-spec check over `tests/corpus` and `tests/oracle`; `true` iff no mismatch. -/
+def manualCheck : IO Bool := do
+  let mut st : ManualStats := {}
+  let mut allMsgs : List String := []
+  let mut programs := 0
+  for dir in ["tests/corpus", "tests/oracle"] do
+    let entries ← System.FilePath.readDir dir
+    let paths := (entries.map (·.path.toString)).filter (·.endsWith ".asm") |>.qsort (· < ·)
+    for path in paths do
+      programs := programs + 1
+      let (st', msgs) ← manualCheckProgram path st 20000
+      st := st'
+      allMsgs := allMsgs ++ msgs
+  for m in allMsgs do IO.println s!"FAIL  manual: {m}"
+  let skips := st.skippedBy.toList.mergeSort (fun a b => a.2 ≥ b.2)
+  IO.println s!"manual spec vs step: {programs} programs, {st.compared} states compared, {st.mismatches} mismatches, {st.skipped} skipped (instruction not transcribed yet)"
+  IO.println s!"  skipped by instruction: {String.intercalate ", " (skips.map fun (c, n) => s!"{c} {n}")}"
+  pure (st.mismatches == 0)
+
 def main : IO UInt32 := do
   let fuel := 1000
   let mut allOk := true
@@ -253,6 +371,10 @@ def main : IO UInt32 := do
   if checked == 0 then
     IO.println "FAIL  no expected-output program found under tests/asm"
     allOk := false
+  IO.println ""
+  -- the manual spec against `step`
+  let manualOk ← manualCheck
+  allOk := allOk && manualOk
   IO.println ""
   if allOk then
     IO.println s!"SUMMARY: all {corpus.length} equivalence cases behaved as claimed"

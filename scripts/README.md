@@ -14,12 +14,12 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 
 | # | name | PASS when |
 |---|---|---|
-| 1 | forbidden | no `sorry admit native_decide bv_decide axiom partial def unsafe @[implemented_by @[extern` in CODE of `Semantics/**`, `Checked/Semantics/DiffHarness/EquivHarness/MipsRun.lean` (comments, docstrings, strings stripped first; `gate.sh --selftest` shows the stripper's cases) |
+| 1 | forbidden | no `sorry admit native_decide bv_decide axiom partial def unsafe @[implemented_by @[extern` in CODE of `Semantics/**`, `Checked/Semantics/DiffHarness/EquivHarness/MipsRun.lean` (comments, docstrings, strings stripped first; `gate.sh --selftest` shows the stripper's cases), and `scripts/manual_independence.py` passes: `Semantics/Manual/**` imports only `Word`/`Types`/`Instruction`/`FpOps`/`Manual.*` and names no model definition (`Step.lean`, `State.lean`, `Types.lean` except `W32`/`VAddr`/`PAddr`, `decode`/`encode`, `*Mask`, the FCSR helpers of `FpOps.lean`) |
 | 2 | build | `lake build Semantics Checked DiffHarness EquivHarness MipsRun` exits 0 and has 0 compiler warnings from project files (`--allow-warnings` relaxes) |
 | 3 | check | `lake check` exits 0 and its `Uses axioms:` line is a subset of propext, Classical.choice, Quot.sound (missing line = FAIL) |
 | 4 | comparator | `lake comparator` exits 0 and prints `Your solution is okay!` |
 | 5 | diffharness | `lake exe DiffHarness` exits 0, and `SUMMARY: all N corpus programs PASS` has N = number of `tests/corpus/*.asm`; java and `vendor/mars/Mars4_5.jar` required (missing = FAIL) |
-| 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed` |
+| 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed`; this includes the manual-spec check (`Manual.InstructionTime` against `step` through `Refine.abs` on every state of every `tests/corpus` and `tests/oracle` program; any mismatch fails; states whose instruction is not transcribed yet are counted as skipped) |
 | 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU 24Kf vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mips` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
 | 8 | trace | `trace.py --check` passes, regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line), and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites both. The TRACE.md comparison needs the manual texts (its manual column), so it fails on a machine that has not run `docs/spec/manuals/fetch.sh` |
 | 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent; a SKIP in a full run makes the verdict RED |
@@ -193,6 +193,7 @@ State render (`initial` / `final`):
 - `ll_addr` -- raw, virtual: `State.llAddr`, the aligned effective (virtual) address of the last `ll` (meaningful while `ll_bit`).
 - `pending_branch` -- raw, virtual: `State.pendingBranch` (the delay-slot target), `null` when no branch is pending.
 - `standby` -- raw: `State.standby` (after `wait`, until an interrupt request restarts the processor).
+- `nullified` -- raw: `State.nullified` (the instruction at `pc` is the delay slot of a not-taken branch-likely; the next step consumes it without fetching it).
 - `hw_int` -- raw: `State.hwInt`, the six hardware interrupt lines HW5..HW0 in bits 5..0 (this environment never asserts them).
 - `fir` -- derived: `firValue`, FIR as `cfc1 $0` reads it (a constant).
 - `fcr` -- derived: the FPU control registers as `cfc1` reads them: `{fir, fccr, fexr, fenr, fcsr}` (registers 0, 25, 26, 28, 31).

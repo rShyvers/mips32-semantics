@@ -264,7 +264,10 @@ step_forbidden() {
   [ ${#files[@]} -gt 0 ] || { echo "no Lean sources found under $ROOT"; return 1; }
   python3 -I -c "$PYSCAN" scan "$ROOT" "$ALLOW_FILE" "${files[@]}"
   local rc=$?
-  NOTE="${#files[@]} files scanned"
+  # The independence rule of the manual spec (docs/MANUAL-SPEC.md): Semantics/Manual/* imports only
+  # Word/Types/Instruction/FpOps and names nothing of the model (Step/State, decode, masks, FCSR helpers).
+  python3 -I scripts/manual_independence.py || rc=1
+  NOTE="${#files[@]} files scanned; manual spec independence checked"
   return $rc
 }
 

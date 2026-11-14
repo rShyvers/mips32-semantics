@@ -234,14 +234,14 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   (some (textBase + 4#32 + 16#32))
 #guard nextPendingEq (hstep (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x7e800000#32 })
   (some (textBase + 8#32))
--- bc1tl/bc1fl: taken → as bc1t; not taken → delay slot nullified (pc + 8, nothing pending)
+-- bc1tl/bc1fl: taken → as bc1t; not taken → delay slot nullified (pc + 4 marked `nullified`)
 #guard nextPendingEq (hstep (prog1 (.bc1tl 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
   (some (textBase + 4#32 + 16#32))
 #guard (match hstep (prog1 (.bc1tl 0#32 4#32)) regs0 with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch.isNone
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 #guard (match hstep (prog1 (.bc1fl 1#32 4#32)) { regs0 with fcsr := 0x02000000#32 } with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch.isNone
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 #guard nextPendingEq (hstep (prog1 (.bc1fl 1#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
 -- an FP branch in a delay slot raises Reserved Instruction like any other branch

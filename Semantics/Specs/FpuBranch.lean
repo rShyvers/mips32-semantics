@@ -48,7 +48,7 @@ theorem bc1fl_spec_raw (s : State) (w cc imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1fl cc imm))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      if readFcc s cc then { s with pc := s.pc + 8#32 }
+      if readFcc s cc then { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }
       else
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }) := by
   fp_step_spec
@@ -61,5 +61,5 @@ theorem bc1tl_spec_raw (s : State) (w cc imm : W32)
     step s = timerTick (
       if readFcc s cc then
         { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
-      else { s with pc := s.pc + 8#32 }) := by
+      else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) := by
   fp_step_spec

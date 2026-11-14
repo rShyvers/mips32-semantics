@@ -82,9 +82,10 @@ structure State where
   separate Boolean) keeps one field for one fact: `pendingBranch.isSome` *is*
   "in a delay slot", for taken and not-taken branches alike.
 
-  The branch-likely family does not use this when not taken: its delay-slot
-  instruction is nullified, so the branch-likely's own step moves `pc`
-  straight to `pc + 8` and leaves this `none`. -/
+  A **not-taken branch-likely** also sets this to `some (pc + 8)` (its delay-slot
+  instruction is in a delay slot, `Cause.BD` rules apply) and additionally sets
+  `nullified` (below): the delay-slot instruction is then nullified in its own
+  instruction time. -/
   pendingBranch : Option W32 := none
   /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
   Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure), by `eret`,
@@ -221,6 +222,25 @@ structure State where
   restarts (`Step.lean`, `step`) and by the Reset exception ("The assertion of any reset or NMI must
   restart the pipeline", p.442). `false` at power-on. -/
   standby : Bool := false
+  /-- **The instruction at `pc` is nullified**: it is the delay-slot instruction of a branch-likely
+  instruction whose branch was not taken. The branch-likely's Operation (MD00086 Vol II-A Rev 6.06,
+  BEQL, p.73) is "I+1: if condition then PC ← PC + target_offset else NullifyCurrentInstruction()",
+  and its `I+1` statements take effect in the instruction time of the delay-slot instruction
+  (§1.3, Table 1.1, p.6: "The effect of pseudocode statements for the current instruction labeled
+  I+1 appears to occur “at the same time” as the effect of pseudocode statements labeled I for the
+  following instruction"). NullifyCurrentInstruction (§2.2.2.5.4, p.26): "The instruction is
+  aborted, inhibiting not only the functional effect of the instruction, but also inhibiting all
+  exceptions detected during fetch, decode, or execution of the instruction in question. For
+  branch-likely instructions, nullification kills the instruction in the delay slot of the branch
+  likely instruction."
+
+  So the nullified instruction occupies its own instruction time (`step`): `Count` advances, and an
+  interrupt can be taken at it (with `pendingBranch = some _` set alongside, the usual delay-slot
+  rule gives `EPC` = the branch-likely, `Cause.BD = 1`; MD00090 Vol III Rev 6.02 Table 6.11, p.87).
+  Set only by a not-taken branch-likely (always together with `pc := pc + 4` and
+  `pendingBranch := some (pc + 8)`); cleared by the nullifying step (`nullifiedStep`, `Step.lean`),
+  by every exception entry and by the Reset exception. `false` at power-on. -/
+  nullified : Bool := false
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/

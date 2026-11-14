@@ -91,23 +91,26 @@ open StepTest
 -- ### Branch-likely family (deprecated in MIPS32, removed in Release 6).
 -- A **taken** instance behaves exactly like its non-likely counterpart
 -- (`stepThroughDelaySlot`); a **not-taken** instance nullifies its own
--- delay-slot instruction: its single `step` moves `pc` straight to `pc + 8`
--- with no pending branch, so the delay-slot word is never fetched, decoded
--- or executed -- even if it is undecodable garbage.
+-- delay-slot instruction ("I+1: ... else NullifyCurrentInstruction()", MD00086
+-- Vol II-A Rev 6.06, BEQL p.73): its `step` moves `pc` to the delay slot, marks
+-- it (`pendingBranch = some (pc + 8)`) and sets `nullified`; the next `step` is the
+-- nullified instruction's own instruction time: the delay-slot word is never
+-- fetched, decoded or executed -- even if it is undecodable garbage -- and `pc`
+-- moves on to `pc + 8`.
 
 -- `beql` taken: identical two-step shape to `beq` taken.
 #guard stepThroughDelaySlot textBase (.beql 8#32 9#32 3#32) (setRegs regs0 [(8, 5#32), (9, 5#32)])
   = some (textBase + 4#32 + 12#32)
--- `beql` not taken: one bare `step` skips the delay slot.
+-- `beql` not taken: the step marks the delay slot as nullified.
 #guard (match hstep (prog1 (.beql 8#32 9#32 3#32)) (setRegs regs0 [(8, 5#32), (9, 6#32)]) with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 
 -- The nullified delay-slot word is never looked at: here it is undecodable
 -- garbage (it would raise Reserved Instruction if executed) followed by an
--- `addiu`. Two bare `step`s execute the `beql` and then the `addiu` at
--- `pc + 8`; no exception is raised (`EXL` stays 0). `run` (which is just
--- `step` iterated) agrees.
+-- `addiu`. Three bare `step`s execute the `beql`, nullify the garbage word and
+-- execute the `addiu` at `pc + 8`; no exception is raised (`EXL` stays 0). `run`
+-- (which is just `step` iterated) agrees.
 private def squashGarbageWord : W32 := (0x11#32 <<< 26) ||| (0x1f#32 <<< 21)  -- undecodable: COP1 fmt 0x1f
 private def beqlNotTakenGarbageProg : Program :=
   (((∅ : Program).insert textBase (encode (.beql 8#32 9#32 3#32))).insert (textBase + 4#32) squashGarbageWord).insert
@@ -115,18 +118,37 @@ private def beqlNotTakenGarbageProg : Program :=
 #guard decode squashGarbageWord = none
 #guard (match stepState beqlNotTakenGarbageProg (setRegs regs0 [(8, 5#32), (9, 6#32)]) with
         | some s1 =>
-          (match hstep beqlNotTakenGarbageProg s1 with
-           | .next s2 => s2.pc == textBase + 12#32 && readReg s2 10 == 7#32 && s2.cp0Status == statusCu1Mask
-           | .halt _ => false)
+          (match stepState beqlNotTakenGarbageProg s1 with
+           | some s2 =>
+             s2.pc == textBase + 8#32 && s2.pendingBranch == none && !s2.nullified &&
+               (match hstep beqlNotTakenGarbageProg s2 with
+                | .next s3 => s3.pc == textBase + 12#32 && readReg s3 10 == 7#32 &&
+                    s3.cp0Status == statusCu1Mask
+                | .halt _ => false)
+           | none => false)
         | none => false)
-#guard (let s2 := run (loadImage beqlNotTakenGarbageProg (setRegs regs0 [(8, 5#32), (9, 6#32)])) 2
-        s2.pc == textBase + 12#32 && readReg s2 10 == 7#32)
+#guard (let s3 := run (loadImage beqlNotTakenGarbageProg (setRegs regs0 [(8, 5#32), (9, 6#32)])) 3
+        s3.pc == textBase + 12#32 && readReg s3 10 == 7#32)
+-- The nullified delay slot has its own instruction time: `Count` advances by one for the
+-- `beql` and by one more for the nullified slot (the model's rate pin, one per `step`).
+#guard (let s0 := loadImage beqlNotTakenGarbageProg (setRegs regs0 [(8, 5#32), (9, 6#32)])
+        (run s0 1).cp0Count == s0.cp0Count + 1#32 && (run s0 2).cp0Count == s0.cp0Count + 2#32 &&
+          (run s0 2).pc == textBase + 8#32)
+-- An interrupt can be taken at the nullified slot: the instruction at `pc` is in a delay slot, so
+-- `EPC` = the branch-likely and `Cause.BD = 1` (MD00090 Vol III Rev 6.02 Table 6.11, p.87); the
+-- nullification is abandoned with the pending branch. Here a software interrupt (`Cause.IP0`) is
+-- requested and enabled (`Status.IE = 1`, `IM0 = 1`) in the state after the `beql`.
+#guard (let s1 := run (loadImage beqlNotTakenGarbageProg (setRegs regs0 [(8, 5#32), (9, 6#32)])) 1
+        let s1' := { s1 with cp0Status := s1.cp0Status ||| 0x101#32, cp0Cause := 0x100#32 }
+        let s2 := step s1'
+        s2.cp0Epc == textBase && s2.cp0Cause &&& causeBdMask != 0#32 && !s2.nullified &&
+          s2.pendingBranch == none && s2.pc == exceptionVector s1')
 
 -- `bnel`: opposite polarity to `beql`, same mechanism.
 #guard stepThroughDelaySlot textBase (.bnel 8#32 9#32 3#32) (setRegs regs0 [(8, 5#32), (9, 6#32)])
   = some (textBase + 4#32 + 12#32)
 #guard (match hstep (prog1 (.bnel 8#32 9#32 3#32)) (setRegs regs0 [(8, 5#32), (9, 5#32)]) with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 
 -- `blezl`/`bgtzl`: same conditions as `blez`/`bgtz`, squash instead of
@@ -134,24 +156,24 @@ private def beqlNotTakenGarbageProg : Program :=
 #guard stepThroughDelaySlot textBase (.blezl 8#32 2#32) (setRegs regs0 [(8, 0xfffffffb#32)])  -- -5 \u2264 0
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.blezl 8#32 2#32)) (setRegs regs0 [(8, 5#32)]) with  -- 5 \u2264 0 is false
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 #guard stepThroughDelaySlot textBase (.bgtzl 8#32 2#32) (setRegs regs0 [(8, 5#32)])  -- 5 > 0
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.bgtzl 8#32 2#32)) (setRegs regs0 [(8, 0#32)]) with  -- 0 > 0 is false
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 
 -- `bltzl`/`bgezl` (REGIMM): same conditions as `bltz`/`bgez`.
 #guard stepThroughDelaySlot textBase (.bltzl 8#32 2#32) (setRegs regs0 [(8, 0xfffffffb#32)])  -- -5 < 0
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.bltzl 8#32 2#32)) (setRegs regs0 [(8, 0#32)]) with  -- 0 < 0 is false
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 #guard stepThroughDelaySlot textBase (.bgezl 8#32 2#32) (setRegs regs0 [(8, 0#32)])  -- 0 >= 0
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.bgezl 8#32 2#32)) (setRegs regs0 [(8, 0xfffffffb#32)]) with  -- -5>=0 false
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 
 -- `bltzall`/`bgezall` (REGIMM): same unconditional-`$ra`-link convention as
@@ -164,7 +186,7 @@ private def beqlNotTakenGarbageProg : Program :=
 #guard stepThroughDelaySlot textBase (.bltzall 8#32 2#32) (setRegs regs0 [(8, 0xfffffffb#32)])
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.bltzall 8#32 2#32)) (setRegs regs0 [(8, 5#32)]) with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 #guard nextRegEq (hstep (prog1 (.bgezall 8#32 2#32)) (setRegs regs0 [(8, 5#32)])) 31
   (textBase + 8#32)  -- taken: 5 >= 0
@@ -173,7 +195,7 @@ private def beqlNotTakenGarbageProg : Program :=
 #guard stepThroughDelaySlot textBase (.bgezall 8#32 2#32) (setRegs regs0 [(8, 5#32)])
   = some (textBase + 4#32 + 8#32)
 #guard (match hstep (prog1 (.bgezall 8#32 2#32)) (setRegs regs0 [(8, 0xfffffffb#32)]) with
-        | .next s => s.pc == textBase + 8#32 && s.pendingBranch == none
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
         | .halt _ => false)
 
 -- ### j/jal: exact targets including top-4-bit preservation from `pc_next`;

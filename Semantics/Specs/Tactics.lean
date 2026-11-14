@@ -38,7 +38,7 @@ the same term up to computation: `rfl`. -/
 macro "step_spec" : tactic => `(tactic| (
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
     cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, nullified⟩ := s
   simp only at hpb
   subst hpb
   rw [step_of_executesInstr _ hexec]
@@ -77,7 +77,7 @@ macro "fp_step_spec" : tactic => `(tactic| (
     | (rw [← fpFinishCmp_eq s _ _ hpb]; rfl)
     | (obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
          cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, nullified⟩ := s
        simp only at hpb
        subst hpb
        rfl)))
@@ -102,7 +102,7 @@ macro "cp0_step_spec" : tactic => `(tactic| (
   case hcop1 => rfl
   obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc,
     cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, nullified⟩ := s
   simp only at hpb
   subst hpb
   try dsimp only
