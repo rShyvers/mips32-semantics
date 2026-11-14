@@ -103,20 +103,31 @@ def laneByte (w : W32) (k : Nat) : UInt8 := ⟨w.extractLsb' (24 - 8 * k) 8⟩
 def updMem (m : PAddr → UInt8) (p : PAddr) (b : UInt8) : PAddr → UInt8 :=
   fun q => if p == q then b else m q
 
+/-- **The byte lanes `StoreMemory` changes** (7B S2). The manual says only that "The low-order two (or
+three) bits of pAddr and the AccessLength field indicate which of the bytes within the MemElem data
+should be stored" (MD00086 Vol II-A Rev 6.06 §2.2.2.2.4, p.20) and gives AccessLength as "Length, in
+bytes, of access" (Table 2.1, p.20-21: value = bytes - 1). For `p = pAddr1..0` and `a = AccessLength`
+the stores of the pages need these lanes (lane 0 = lowest address = most significant byte of the
+big-endian word): `SB`/`SH`/`SW` `p..p+a` (aligned, p+a <= 3); `SWL` (SWL p.398, Figure 5.10) `p..p+a`
+with `a = 3 - p`, i.e. `p..3`; `SWR` (SWR p.402, Figure 5.14) lanes `0..p` with `a = p` (`WORD - byte`).
+`p = a` occurs for no other store (SB, `a = 0 = p` selects lane 0 either way; SH/SW are aligned), so
+the manual's two readings are told apart by `a = p`. This reading is recorded in SPEC-NOTES §11. -/
+def storedLanes (p a : Nat) : List Nat :=
+  if a == p then List.range (p + 1) else (List.range (a + 1)).map (p + ·)
+
 /-- **`StoreMemory(CCA, AccessLength, MemElem, pAddr, vAddr)`** (§2.2.2.2.4, Figure 2.19, p.20):
 "The low-order two (or three) bits of pAddr and the AccessLength field indicate which of the bytes
 within the MemElem data should be stored; only these bytes in memory will actually be changed." The
-bytes stored are lanes `pAddr1..0` through `pAddr1..0 + AccessLength` of the aligned word, each at
-its own address, in increasing address order. A store may make a following `SC` fail
-(`Oracle.storeClearsLL`; SC p.347). -/
+bytes stored are `storedLanes`, each at its own address, in increasing address order. A store may
+make a following `SC` fail (`Oracle.storeClearsLL`; SC p.347). -/
 def StoreMemory (_cca : BitVec 3) (accessLength : Nat) (memElem : W32) (pAddr : PAddr)
     (_vAddr : W32) : Pseudo Unit := do
   let o ← Pseudo.oracle
   Pseudo.modify fun a =>
     let base := pAddr &&& ~~~3#32
     let first := (pAddr &&& 3#32).toNat
-    let mem := (List.range (accessLength + 1)).foldl
-      (fun m j => updMem m (base + BitVec.ofNat 32 (first + j)) (laneByte memElem (first + j))) a.Mem
+    let mem := (storedLanes first accessLength).foldl
+      (fun m l => updMem m (base + BitVec.ofNat 32 l) (laneByte memElem l)) a.Mem
     { a with Mem := mem, LLbit := if o.storeClearsLL a then false else a.LLbit }
 
 /-- **Instruction fetch** (§2.2.2.4.2, Figure 2.29, p.25: "PC ← memory_address(PC); (instruction_data,

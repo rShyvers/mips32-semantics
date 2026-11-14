@@ -71,6 +71,13 @@ structure Impl where
   interrupts are not enabled (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "It is implementation-dependent
   whether the pipeline restarts when a non-enabled interrupt is requested"). -/
   WaitRestartsOnNotEnabled : Bool
+  -- 7B S2
+  /-- `SYNCI` from User Mode with an effective address in kernel address space signals Address Error
+  (AdEL): "An Address Error Exception (with cause code equal AdEL) may occur if the effective address
+  references a portion of the kernel address space which would normally result in such an exception.
+  It is implementation dependent whether such an exception does occur" (MD00086 Vol II-A Rev 6.06,
+  SYNCI, p.412). -/
+  SynciAddressError : Bool
 
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
 need it (later sub-waves add fields as they transcribe more pages). -/
@@ -133,6 +140,7 @@ def modelImpl : Impl where
   CCRes := 1#32
   SYNCIStep := 0#32
   WaitRestartsOnNotEnabled := true
+  SynciAddressError := false   -- 7B S2: SPEC-NOTES §11
 
 /-- **The model's choices** (SPEC-NOTES §9): a CTI in a delay slot signals Reserved Instruction,
 except `PAUSE`, which the model executes as the `SLL` it is encoded as (item 1); an `MTC0`/`MFC0` of

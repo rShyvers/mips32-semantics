@@ -263,7 +263,11 @@ def memCheckAddrs (s s' : State) : List PAddr :=
   let added := s'.physMem.keys.filter (fun k => !s.physMem.contains k)
   let ea : List PAddr :=
     match readMemWord s s.pc |>.bind decode with
-    | some (.lw b _ o) | some (.sw b _ o) | some (.lwl b _ o) =>
+    | some (.lw b _ o) | some (.sw b _ o) | some (.lwl b _ o)
+    -- 7B S2: every other load/store of the memory, atomic and unaligned families
+    | some (.lb b _ o) | some (.lbu b _ o) | some (.lh b _ o) | some (.lhu b _ o) | some (.sb b _ o)
+    | some (.sh b _ o) | some (.ll b _ o) | some (.sc b _ o) | some (.lwr b _ o) | some (.swl b _ o)
+    | some (.swr b _ o) =>
       let va := readReg s (regIdx b) + signExt16 o
       let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
       [pa, pa + 1#32, pa + 2#32, pa + 3#32]
