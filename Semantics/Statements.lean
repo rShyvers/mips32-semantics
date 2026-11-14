@@ -1800,6 +1800,17 @@ theorem interrupt_choice_exists (i : Manual.Impl) (dec : W32 → Option Instruct
       Manual.InstructionTime i o₁ dec a ≠ Manual.InstructionTime i o₂ dec a := by
   sorry
 
+/-- **`ChoiceFree` is exact** (wave 9; the other direction of `manual_step_deterministic`): with the
+model's implementation constants and any decoder, at every state where `Manual.ChoiceFree` is
+`false`, two valid resolutions of the manual's choices give different instruction times. Together
+with `manual_step_deterministic`, `ChoiceFree` holds exactly where the manual's instruction time is
+determined. -/
+theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
+    (h : Manual.ChoiceFree Manual.modelImpl dec a = false) :
+    ∃ o₁ o₂ : Manual.Oracle, o₁.Valid ∧ o₂.Valid ∧
+      Manual.InstructionTime Manual.modelImpl o₁ dec a ≠ Manual.InstructionTime Manual.modelImpl o₂ dec a := by
+  sorry
+
 /-- **The model's implementation constants are valid**: of this profile (`Manual.Impl.WF`) and with
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation of `1.0 / fs` (MD00086 Vol II-A Rev
 6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`). -/

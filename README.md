@@ -57,15 +57,15 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1823 lines) states **158 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1857 lines) states **159 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
-each by the real theorem of the same name in `Semantics/Specs/` (the last 15: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Manual/Choices.lean`). `lake comparator` (config: `comparator.json`)
+each by the real theorem of the same name in `Semantics/Specs/` (the last 16: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Manual/Choices.lean`). `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements), the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 15 refinement statements, the manual specification
-`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`). The 158 statements are a
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 16 refinement statements, the manual specification
+`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`). The 159 statements are a
 selection: every global theorem below and at least one per-instruction statement per family. The arrangement and
 its limits are in `docs/PROOF-NOTES.md`.
 
@@ -95,7 +95,7 @@ With it, on the trusted surface: `step_refines_manual` (`step` is a `Manual.Step
 diagrams), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
 `step_preserves_inv`). So a mistake in `Step.lean` survives only if the same mistake is in the independent
 transcription, or in what is trusted below. Limits, stated plainly:
-- `Manual.ChoiceFree` decides where the manual leaves a choice that can change the result: `false` at an
+- `Manual.ChoiceFree` decides exactly where the manual leaves a choice that can change the result: `false` at an
   interrupt and at every exception other than Coprocessor Unusable (`Cause.CE` "is loaded, but not
   defined"), at a CTI in a delay slot, at a word with an UNPREDICTABLE field whose coprocessor is
   usable, and where the Operation reaches an oracle choice (`Manual.ConsultsOracle`: a load or store
@@ -104,10 +104,15 @@ transcription, or in what is trusted below. Limits, stated plainly:
   register into `rt ≠ 0`, the UNPREDICTABLE arms of `CTC1`/`EXT`/`INS`, `rs = 31` links, `JALR rs = rd`,
   an MTC0/MFC0 of a missing register, an `EBase` write with `BEV = 0`). Soundness (`ChoiceFree` ⇒ every
   valid oracle gives the same instruction time) is proved for all 183 instructions
-  (`Refine/ChoicePoints.lean`, `manual_step_deterministic`). The other direction (`ChoiceFree = false` ⇒
-  two valid oracles differ) is proved for interrupts (`interrupt_choice_exists`) and, at the level of
-  the exception processing, for every exception other than Coprocessor Unusable (`gep_causeCE_choice`);
-  for the `ConsultsOracle` rows it is argued in that definition's docstring, not proved.
+  (`Refine/ChoicePoints.lean`, `manual_step_deterministic`). Exactness (`ChoiceFree modelImpl dec a = false` ⇒
+  two valid oracles give different instruction times) is proved for every case and every row since wave 9
+  (`choiceFree_exact`, on the trusted surface; `Refine/ChoiceExact.lean`, the rows in
+  `Refine/ChoiceRows*.lean`), so `ChoiceFree modelImpl dec a = true` holds exactly where the manual's
+  instruction time is determined (`Refine.choiceFree_iff`). Proving it made three rows exact that were
+  conservative before: `MFHC1` into `rt = 0`, `C.cond.D` whose even operand decides the comparison alone
+  (`Manual.CmpAbsorbs`), and a corner of `MADD.D`/`MSUB.D` (`Manual.MaddAbsorbs`). Exactness is stated for the
+  model's implementation constants `modelImpl` (for another `Impl` a `RECIP`/`RSQRT` approximation could hide
+  the value read from an odd register); soundness holds for every `Impl`.
 - `Manual.Oracle.Valid` formalizes the three restrictions on UNPREDICTABLE operations of MD00086 Vol II-A
   Rev 6.06 §1.2.1 (p.3-4): no dependence on the state inaccessible in the current mode (non-interference,
   `NIValue`/`NIOutcome`), no change to that state (`UnpredictableLimits`), no entry into the lower power
@@ -116,9 +121,12 @@ transcription, or in what is trusted below. Limits, stated plainly:
   formalized: "when possible, this QNaN result is one of the operand QNaN values" (p.82), and
   `causeCE`/`storeClearsLL`/`loadClearsLL`, which the manual leaves open without these restrictions.
 - `Manual.Impl.Valid` (`modelImpl_valid`) formalizes `RECIP.fmt`'s bound against the IEEE-mandated
-  representation (1 ULP of the IEEE core's correctly rounded `1.0 / fs`, RECIP.fmt p.336); the bound
-  against the exact real result and `RSQRT.fmt`'s 2-ULP bound (p.343) are not formalized (the IEEE core
-  has no real-number view of `1/sqrt(x)`).
+  representation (1 ULP of the IEEE core's correctly rounded `1.0 / fs`, RECIP.fmt p.336). Not formalized:
+  `RECIP.fmt`'s bound against the exact real result (it follows from the 0-ULP result only if the core's
+  division is correctly rounded, which the core is trusted for, not proved), and `RSQRT.fmt`'s 2-ULP bound
+  (p.343). For `RSQRT` the model computes `SQRT.fmt` then `DIV.fmt` (two roundings); a proof that this stays
+  within 2 ULP of `1/sqrt(x)` needs an error bound for the core's rounding (`Mips.Fp.Format.roundCore`) and
+  for its integer square root, which the repository does not have; wave 9 did not prove it (`docs/MANUAL-SPEC.md` I.7).
 - The environment layer (`Env.lean`: loader, hosted services, stopping conventions) is outside `step` and outside
   the theorem; `inv_load` only says the loader's start state satisfies the invariant.
 
@@ -143,7 +151,7 @@ The results that are genuinely global, or independent of how an individual instr
 
 | Result | Where | In the trusted surface |
 |---|---|---|
-| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; an interrupt is a real choice; Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/ChoicePoints.lean`, `Refine/Decode.lean`, `Manual/Choices.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `interrupt_choice_exists`, `modelImpl_valid`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
+| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; an interrupt is a real choice; `ChoiceFree` is exact (every state it rejects has two valid oracles that differ); Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/ChoicePoints.lean`, `Refine/ChoiceExact.lean`, `Refine/Decode.lean`, `Manual/Choices.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `interrupt_choice_exists`, `choiceFree_exact`, `modelImpl_valid`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
 | `decode (encode i) = some i` for every constructor, under `WellFormed` | `Specs/DecodeSpec.lean` | `decode_encode` |
 | `$zero` is unchanged by every `step`, every `run` and every hosted run; a write to `$zero` is never observable | `Specs/Invariants.lean`, `Specs/Hosted.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable`, `runHosted_preserves_zero_register` |
 | register files keep size 32 under `step`; `run` from `initialState` is well-formed | `Specs/RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed` |
@@ -315,7 +323,7 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 158 trusted theorem names, challenge and solution modules
+comparator.json                the 159 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
 Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
@@ -327,7 +335,7 @@ Semantics/Manual/              the independent transcription of the manuals (Arc
                                Exceptions, Interrupts, Timer, Reset, Encoding, Ops/<Family>, Operation, Cycle, Relation)
 Semantics/Refine/              the refinement of Manual by step: Defs (abs, Inv), bridges, one file per family
                                (<ctor>_refines), Cycle, Decode, Invariant, Instr (allInstrRefines), Step, Determinism
-Semantics/Statements.lean      the trusted surface (158 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (159 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs and Refine
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables
@@ -348,7 +356,7 @@ vendor/mars/                   the MARS 4.5 jar, used by DiffHarness only
 2. The model (4344 lines in all): `Semantics/Word.lean` (32), `Types.lean` (240), `State.lean` (148),
    `Instruction.lean` (1370), `FpOps.lean` (1172), `Step.lean` (1382). `DESIGN.md` is the map. The environment
    around it (not the architecture): `Env.lean` (195).
-3. The statements: `Semantics/Specs/Defs.lean` (109), `WellFormed.lean` (194), then `Semantics/Statements.lean` (1823).
+3. The statements: `Semantics/Specs/Defs.lean` (109), `WellFormed.lean` (194), then `Semantics/Statements.lean` (1857).
    For the refinement statements (its last section): `docs/MANUAL-SPEC.md`, `Semantics/Manual/Cycle.lean` and
    `Relation.lean` (the instruction time and the relation), `Manual/Ops/*` (one Operation per manual page),
    `Manual/Choices.lean` (the pins), `Semantics/Refine/Defs.lean` (`abs`, `Inv`).

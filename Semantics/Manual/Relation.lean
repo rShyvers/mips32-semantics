@@ -190,6 +190,28 @@ def CTC1Unpredictable (fs temp : W32) : Bool :=
   else if fs == 31#32 then bits temp 22 18 != 0#5
   else true
 
+/-- **A `C.cond.D` operand that decides the comparison alone** (wave 9): with `y` a signaling NaN, or a
+quiet NaN under a predicate with `cond3 = 1`, the comparison is unordered and Invalid Operation is
+raised whatever the other operand is ("If one of the values is an SNaN, or cond3 is set and at least
+one of the values is a QNaN, an Invalid Operation condition is raised", MD00086 Vol II-A Rev 6.06,
+C.cond.fmt, Description, p.110; Operation, p.112-113). The other operand, read from an odd register
+(`ValueFPR` UNPREDICTABLE), then cannot change the result. -/
+def CmpAbsorbs (cond : W32) (y : BitVec 64) : Bool :=
+  Mips.Fp.isSNaN64 y || (bit cond 3 && Mips.Fp.isQNaN64 y)
+
+/-- **The corner of `MADD.D`/`MSUB.D` where the odd `ft` cannot change the result** (wave 9): `fs` even
+holding a quiet NaN `x`, `ft` odd, `fr` even. The multiply delivers `x` whatever `ft` reads (the first
+quiet NaN operand, `Mips.Fp.Format.nanResult`); the read shows only as Invalid Operation of the
+multiply when it is a signaling NaN. That condition does not trap when the Invalid enable (`FCSR` bit
+11) is 0; its `Cause` bit is overwritten by the add ("The Cause bits are written during each floating
+point arithmetic operation", MD00082 Vol I-A Rev 6.01 §6.7.1, p.99); and its `Flag` bit (`FCSR` bit 6)
+is set anyway when it is already 1 or when the add signals Invalid (`fr` a signaling NaN). "The
+results and flags are as if separate floating-point multiply and add instructions were executed"
+(MD00086 Vol II-A Rev 6.06, MADD.fmt, p.256; MSUB.fmt, p.287). -/
+def MaddAbsorbs (a : Arch) (fr fs ft : W32) : Bool :=
+  !OddFPR fs && OddFPR ft && !OddFPR fr && Mips.Fp.isQNaN64 (FPRPair a fs) && !bit a.FCSR 11 &&
+    (bit a.FCSR 6 || Mips.Fp.isSNaN64 (FPRPair a fr))
+
 /-- **The Operation of `ins`, run from `a`, reaches an oracle choice whose value can change the
 result** (exact, provided the Operation does not signal before reaching it; an Operation that signals
 is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the oracle:
@@ -206,7 +228,13 @@ is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the o
 * `EXT`/`INS` with an UNPREDICTABLE field combination; a branch-and-link with `rs = 31`; `JALR`/
   `JALR.HB` with `rs = rd`;
 * `ABS.fmt`/`NEG.fmt` of a quiet NaN and `NMADD.fmt`/`NMSUB.fmt` whose sum is a quiet NaN
-  (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN (`cvtQNaNToD`, `cvtQNaNToS`). -/
+  (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN (`cvtQNaNToD`, `cvtQNaNToS`).
+
+Wave 9 made three rows exact (each of them was `true` at states where no oracle can change the
+result; `Refine.choiceFree_exact` is the proof that the rows are now exact):
+* `MFHC1` with `rt = 0`: the odd-register value is written to `GPR[0]`, which has no effect;
+* `C.cond.D` with exactly one odd register, when the other operand absorbs it (`CmpAbsorbs`);
+* `MADD.D`/`MSUB.D` in the corner `MaddAbsorbs`. -/
 def ConsultsOracle : Instruction → Arch → Bool
   | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a | .lwl .., a | .lwr .., a
   | .lwc1 .., a | .lwxc1 .., a | .sb .., a | .sh .., a | .sw .., a | .swl .., a | .swr .., a
@@ -239,7 +267,8 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .nmsubD fd fr fs ft, a =>
     OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd ||
       Mips.Fp.isQNaN64 (IEEE.subD a (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).1 (FPRPair a fr)).1
-  | .maddD fd fr fs ft, _ | .msubD fd fr fs ft, _ => OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd
+  | .maddD fd fr fs ft, a | .msubD fd fr fs ft, a =>
+    OddFPR fd || ((OddFPR fr || OddFPR fs || OddFPR ft) && !MaddAbsorbs a fr fs ft)
   | .addD fd fs ft, _ | .subD fd fs ft, _ | .mulD fd fs ft, _ | .divD fd fs ft, _ =>
     OddFPR fs || OddFPR ft || OddFPR fd
   | .sqrtD fd fs, _ | .recipD fd fs, _ | .rsqrtD fd fs, _ | .movD fd fs, _ => OddFPR fs || OddFPR fd
@@ -248,12 +277,15 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .cvtDS fd fs, a => OddFPR fd || Mips.Fp.isQNaN32 (a.FPR (reg fs))
   | .cvtDW fd _, _ => OddFPR fd
   | .cvtSD _ fs, a => OddFPR fs || Mips.Fp.isQNaN64 (FPRPair a fs)
-  | .cCondD _ _ fs ft, _ => OddFPR fs || OddFPR ft
+  | .cCondD cond _ fs ft, a =>
+    (OddFPR fs && OddFPR ft) || (OddFPR fs && !OddFPR ft && !CmpAbsorbs cond (FPRPair a ft)) ||
+      (!OddFPR fs && OddFPR ft && !CmpAbsorbs cond (FPRPair a fs))
   | .movfD fd fs cc, a => OddFPR fd || (FPCC a cc == false && OddFPR fs)
   | .movtD fd fs cc, a => OddFPR fd || (FPCC a cc == true && OddFPR fs)
   | .movnD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) != 0#32 && OddFPR fs)
   | .movzD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) == 0#32 && OddFPR fs)
-  | .mfhc1 _ fs, _ | .mthc1 _ fs, _ => OddFPR fs
+  | .mfhc1 rt fs, _ => OddFPR fs && reg rt != 0
+  | .mthc1 _ fs, _ => OddFPR fs
   | _, _ => false
 
 /-- A context that differs from another in the oracle only. -/

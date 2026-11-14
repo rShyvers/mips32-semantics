@@ -152,6 +152,7 @@
     "Trusted.modelOracle_valid",
     "Trusted.manual_step_deterministic",
     "Trusted.interrupt_choice_exists",
+    "Trusted.choiceFree_exact",
     "Trusted.modelImpl_valid",
     "Trusted.decoderSound_decode",
     "Trusted.resetException_refines_manual",

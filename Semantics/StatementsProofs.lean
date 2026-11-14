@@ -1,5 +1,6 @@
 import Semantics.Specs.StepSpec
 import Semantics.Refine.Determinism
+import Semantics.Refine.ChoiceExact
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -1170,6 +1171,12 @@ theorem interrupt_choice_exists (i : Manual.Impl) (dec : W32 → Option Instruct
     ∃ o₁ o₂ : Manual.Oracle, o₁.Valid ∧ o₂.Valid ∧
       Manual.InstructionTime i o₁ dec a ≠ Manual.InstructionTime i o₂ dec a :=
   _root_.Refine.interrupt_choice_exists i dec a h
+
+theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
+    (h : Manual.ChoiceFree Manual.modelImpl dec a = false) :
+    ∃ o₁ o₂ : Manual.Oracle, o₁.Valid ∧ o₂.Valid ∧
+      Manual.InstructionTime Manual.modelImpl o₁ dec a ≠ Manual.InstructionTime Manual.modelImpl o₂ dec a :=
+  _root_.Refine.choiceFree_exact dec a h
 
 theorem modelImpl_valid : Manual.modelImpl.Valid :=
   _root_.Manual.modelImpl_valid

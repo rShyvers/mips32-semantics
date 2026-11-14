@@ -12,8 +12,8 @@ import Semantics.Refine.ChoicePoints
   `Refine/ChoicePoints.lean`).
 * The other direction, proved for the `Cause.CE` choice only: `gep_causeCE_choice` (every exception
   other than Coprocessor Unusable gives two different `Cause` values under two valid oracles) and
-  `interrupt_choice_exists` (an interrupt is a real choice). That `ConsultsOracle = true` is a real
-  choice is argued per row in its docstring, not proved.
+  `interrupt_choice_exists` (an interrupt is a real choice). The full other direction, every row of
+  `ConsultsOracle` included, is `choiceFree_exact` (wave 9, `Refine/ChoiceExact.lean`).
 -/
 
 namespace Refine

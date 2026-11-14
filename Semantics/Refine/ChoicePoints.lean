@@ -1,4 +1,4 @@
-import Semantics.Refine.Step
+import Semantics.Refine.ChoiceFp
 
 /-!
 # Refine.ChoicePoints — the Operations are oracle-free where `ConsultsOracle` says so (wave 8)
@@ -273,9 +273,16 @@ theorem cf_swr (base rt off : W32) (a : Arch) (h : ConsultsOracle (.swr base rt 
     Ops.SWR base rt off (ctxOf i o₁) { arch := a } = Ops.SWR base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SWR]; ofree
 
+set_option linter.unusedSimpArgs false in
 theorem cf_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MFHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MFHC1 rt fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MFHC1]; ofree
+  simp only [ConsultsOracle, Bool.and_eq_false_iff, OddFPR, bne_eq_false_iff_eq] at h
+  rcases h with h | h
+  · simp only [Ops.MFHC1]; ofree
+  · -- `rt = 0`: the value read is written to `GPR[0]`, which has no effect (wave 9)
+    simp only [Ops.MFHC1, bind, ValueFPR64, setGPR, writeGPR, h, ↓reduceIte, FP32RegistersMode,
+      beq_self_eq_true]
+    by_cases hb : bit (BitVec.ofNat 5 (reg fs).val) 0 = true <;> simp only [hb, ↓reduceIte] <;> rfl
 
 theorem cf_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MTHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MTHC1 rt fs (ctxOf i o₂) { arch := a } := by
@@ -401,9 +408,37 @@ theorem cf_cvtSD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtSD fd fs) a =
     Ops.CVT_S_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_S_D fd fs (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.CVT_S_D]; ofree
 
+/-- `C.cond.D` when the even operand `y` absorbs the odd one (`CmpAbsorbs`): unordered, Invalid. -/
+theorem cmp_absorbs (cond : W32) (y : BitVec 64) (h : CmpAbsorbs cond y = true) :
+    Mips.Fp.isSNaN64 y = true ∨ (Mips.Fp.isSNaN64 y = false ∧ Mips.Fp.isQNaN64 y = true ∧ bit cond 3 = true) := by
+  simp only [CmpAbsorbs, Bool.or_eq_true, Bool.and_eq_true] at h
+  rcases h with h | ⟨h3, hq⟩
+  · exact Or.inl h
+  · exact Or.inr ⟨qnan64_not_snan y hq, hq, h3⟩
+
+set_option linter.unusedSimpArgs false in
 theorem cf_cCondD (cond cc fs ft : W32) (a : Arch) (h : ConsultsOracle (.cCondD cond cc fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.C_cond_D cond cc fs ft (ctxOf i o₁) { arch := a } = Ops.C_cond_D cond cc fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.C_cond_D]; ofree
+  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h
+  cases hs : OddFPR fs <;> cases ht : OddFPR ft <;> simp only [hs, ht, Bool.false_eq_true, false_or,
+    or_false, Bool.true_eq_false, Bool.not_true, Bool.not_false, true_or, or_true] at h1 h2 h3
+  · simp only [OddFPR] at hs ht; simp only [Ops.C_cond_D]; ofree
+  · -- `ft` odd, `fs` even and absorbing (wave 9)
+    simp only [OddFPR] at hs ht
+    rcases cmp_absorbs cond _ h3 with hy | ⟨hy, hq, h3'⟩ <;> simp only [FPRPair] at hy <;>
+      simp only [Ops.C_cond_D, bind, ValueFPR64, FP32RegistersMode, beq_self_eq_true, ↓reduceIte, hs, ht,
+        Bool.false_eq_true, IEEE.isSNaND, IEEE.isQNaND, hy, Bool.or_true, Bool.true_or, Bool.and_true,
+        Bool.true_and, Bool.or_false, Bool.false_or, ctxOf] <;> (try simp only [FPRPair] at hq) <;>
+      (try simp only [hq, h3', Bool.or_true, Bool.true_or, Bool.and_true, Bool.true_and]) <;>
+      (try simp only [↓reduceIte, ite_true]) <;> ofree
+  · simp only [OddFPR] at hs ht
+    rcases cmp_absorbs cond _ h2 with hy | ⟨hy, hq, h3'⟩ <;> simp only [FPRPair] at hy <;>
+      simp only [Ops.C_cond_D, bind, ValueFPR64, FP32RegistersMode, beq_self_eq_true, ↓reduceIte, hs, ht,
+        Bool.false_eq_true, IEEE.isSNaND, IEEE.isQNaND, hy, Bool.or_true, Bool.true_or, Bool.and_true,
+        Bool.true_and, Bool.or_false, Bool.false_or, ctxOf] <;> (try simp only [FPRPair] at hq) <;>
+      (try simp only [hq, h3', Bool.or_true, Bool.true_or, Bool.and_true, Bool.true_and]) <;>
+      (try simp only [↓reduceIte, ite_true]) <;> ofree
 
 theorem cf_movfD (fd fs cc : W32) (a : Arch) (h : ConsultsOracle (.movfD fd fs cc) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MOVF_D fd fs cc (ctxOf i o₁) { arch := a } = Ops.MOVF_D fd fs cc (ctxOf i o₂) { arch := a } := by
@@ -421,13 +456,51 @@ theorem cf_movzD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movzD fd fs r
     Ops.MOVZ_D fd fs rt (ctxOf i o₁) { arch := a } = Ops.MOVZ_D fd fs rt (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.MOVZ_D]; ofree_all
 
+theorem env_fpf (a : Arch) (fl : Mips.Fp.Flags) : IEEE.env { a with FCSR := fpf a.FCSR fl } = IEEE.env a :=
+  env_fpResult a fl.toBits
+
+/-- The pieces of `MaddAbsorbs`. -/
+theorem maddAbsorbs_parts (a : Arch) (fr fs ft : W32) (h : MaddAbsorbs a fr fs ft = true) :
+    OddFPR fs = false ∧ OddFPR ft = true ∧ OddFPR fr = false ∧ Mips.Fp.isQNaN64 (FPRPair a fs) = true ∧
+      bit a.FCSR 11 = false ∧ (bit a.FCSR 6 || Mips.Fp.isSNaN64 (FPRPair a fr)) = true := by
+  simp only [MaddAbsorbs, Bool.and_eq_true, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
+  exact ⟨h1, h2, h3, h4, h5, h6⟩
+
+set_option linter.unusedSimpArgs false in
+/-- **`MADD.D`/`MSUB.D` in the corner `MaddAbsorbs` do not depend on the oracle** (wave 9): the
+multiply delivers the quiet NaN of `fs` and raises at most Invalid, which does not trap (`FCSR` bit 11
+is 0), whose `Cause` bit the add overwrites and whose `Flag` bit is set anyway (`fpf_fpf`). -/
 theorem cf_maddD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.maddD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MADD_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.MADD_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MADD_D]; ofree
+  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
+  obtain ⟨hd, h | h⟩ := h
+  · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MADD_D]; ofree
+  · obtain ⟨hs, ht, hr, hq, h11, h6⟩ := maddAbsorbs_parts a fr fs ft h
+    simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
+    simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPResult_eq, FP32RegistersMode, hd, hs,
+      ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, mul_qnan_left _ _ _ hq, trapC_inv _ _ h11, env_fpf,
+      trapC_fpf, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true]
+    rw [add_qnan_left _ _ _ hq, trapC_inv _ _ h11]
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    rw [fpf_fpf _ (Mips.Fp.isSNaN64 (o₁.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6),
+      fpf_fpf _ (Mips.Fp.isSNaN64 (o₂.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6)]
 
+set_option linter.unusedSimpArgs false in
 theorem cf_msubD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.msubD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MSUB_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.MSUB_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MSUB_D]; ofree
+  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
+  obtain ⟨hd, h | h⟩ := h
+  · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MSUB_D]; ofree
+  · obtain ⟨hs, ht, hr, hq, h11, h6⟩ := maddAbsorbs_parts a fr fs ft h
+    simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
+    simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPResult_eq, FP32RegistersMode, hd, hs,
+      ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, mul_qnan_left _ _ _ hq, trapC_inv _ _ h11, env_fpf,
+      trapC_fpf, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true]
+    rw [sub_qnan_left _ _ _ hq, trapC_inv _ _ h11]
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    rw [fpf_fpf _ (Mips.Fp.isSNaN64 (o₁.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6),
+      fpf_fpf _ (Mips.Fp.isSNaN64 (o₂.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6)]
 
 theorem cf_nmaddS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddS fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.NMADD_S fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMADD_S fd fr fs ft (ctxOf i o₂) { arch := a } := by

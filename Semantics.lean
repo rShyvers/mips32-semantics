@@ -78,6 +78,7 @@ import Semantics.Refine.Invariant
 import Semantics.Refine.Instr
 import Semantics.Refine.Step
 import Semantics.Refine.Determinism
+import Semantics.Refine.ChoiceExact
 -- end 7D
 -- Tests (moved out of the definition files; they run in every build and under `lake check`).
 import Semantics.Tests.WordTests
