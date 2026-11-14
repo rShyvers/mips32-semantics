@@ -69,16 +69,15 @@ theorem low2_of_aligned (pa : W32) (h : pa.toNat % 4 = 0) : (pa &&& 3#32).toNat 
 /-- **`StoreMemory` of a word against `writeMemWord`**: the four bytes at the aligned physical
 address, most significant first. -/
 theorem storeWord_mem (m : Std.HashMap PAddr UInt8) (pa : PAddr) (v : W32) (h : pa.toNat % 4 = 0) :
-    (List.range (WORD + 1)).foldl
-        (fun mm j => updMem mm ((pa &&& ~~~3#32) + BitVec.ofNat 32 ((pa &&& 3#32).toNat + j))
-          (laneByte v ((pa &&& 3#32).toNat + j))) (memOf m) =
+    (storedLanes (pa &&& 3#32).toNat WORD).foldl
+        (fun mm l => updMem mm ((pa &&& ~~~3#32) + BitVec.ofNat 32 l) (laneByte v l)) (memOf m) =
       memOf ((((m.insert pa ((v >>> 24) &&& 0xff#32).toNat.toUInt8).insert (pa + 1#32)
         ((v >>> 16) &&& 0xff#32).toNat.toUInt8).insert (pa + 2#32) ((v >>> 8) &&& 0xff#32).toNat.toUInt8).insert
         (pa + 3#32) (v &&& 0xff#32).toNat.toUInt8) := by
   rw [base_of_aligned pa h, low2_of_aligned pa h]
   simp only [memOf_insert]
-  rw [show List.range (WORD + 1) = [0, 1, 2, 3] by rfl]
-  simp only [List.foldl, Nat.zero_add, laneByte_eq v 0 (by omega), laneByte_eq v 1 (by omega),
+  rw [show storedLanes 0 WORD = [0, 1, 2, 3] by rfl]
+  simp only [List.foldl, laneByte_eq v 0 (by omega), laneByte_eq v 1 (by omega),
     laneByte_eq v 2 (by omega), laneByte_eq v 3 (by omega)]
   simp only [Nat.reduceMul, Nat.reduceSub, BitVec.add_zero, BitVec.ushiftRight_zero]
 
