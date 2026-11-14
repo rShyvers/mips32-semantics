@@ -1388,6 +1388,27 @@ theorem loadAtReset_readMemWord_kseg (p : Program) (a w : W32) (hw : p.get? a = 
     readMemWord (loadAtReset p) a = some w := by
   sorry
 
+/-- **The observer's virtual name of a loaded word is its image address, outside kseg1.**
+`Env.canonicalVAddr` (the virtual address `MipsRun`'s `memory` field reports a physical word under)
+inverts the loader's `Env.loadAddr` on every virtual address not in kseg1. -/
+theorem canonicalVAddr_loadAddr (va : VAddr) (h : isKseg1 va = false) :
+    canonicalVAddr (loadAddr va) = va := by
+  sorry
+
+/-- **A kseg1 address comes back as its kseg0 alias**: kseg0 and kseg1 load to the same physical
+address, so `loadAddr` is not injective and `canonicalVAddr` names the kseg0 alias. -/
+theorem canonicalVAddr_loadAddr_kseg1 (va : VAddr) (h : isKseg1 va = true) :
+    canonicalVAddr (loadAddr va) = va - 0x20000000#32 := by
+  sorry
+
+/-- **`canonicalVAddr` is a right inverse of `loadAddr` on the loader's range**: every physical
+address outside `0x2000_0000`-`0x3FFF_FFFF` (the part only kuseg with `ERL = 1` reaches) is
+`loadAddr` of its canonical virtual name. -/
+theorem loadAddr_canonicalVAddr (pa : PAddr)
+    (h : ¬ (0x20000000 ≤ pa.toNat ∧ pa.toNat < 0x40000000)) :
+    loadAddr (canonicalVAddr pa) = pa := by
+  sorry
+
 /-! ## Self-modifying code and the hosted environment
 
 Proved in `Semantics/Specs/` — SelfModifying.lean, Hosted.lean. The hosted run is NOT the

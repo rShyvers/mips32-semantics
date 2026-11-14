@@ -22,7 +22,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed` |
 | 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU 24Kf vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mips` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
 | 8 | trace | `trace.py --check` passes, regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line), and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites both. The TRACE.md comparison needs the manual texts (its manual column), so it fails on a machine that has not run `docs/spec/manuals/fetch.sh` |
-| 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent |
+| 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent; a SKIP in a full run makes the verdict RED |
 | 10 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
 
 Flags: `--quick` (1,8,9,10 only; NOT green, no stamp), `--from STEP`, `--only STEP` (number, letter a-j or name), `--allow-warnings`,
@@ -38,21 +38,21 @@ scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, loc
 ```
 
 ## CI
-`.github/workflows/ci.yml` runs the gate: it installs elan, a JRE, `qemu-system-mips`, `llvm` + `lld` and `poppler-utils`,
-sets `ORACLE_LLVM_DIR`, restores the `.lake` cache, runs `lake exe cache get`, tries `docs/spec/manuals/fetch.sh`
-(best effort, `continue-on-error`) and then `scripts/gate.sh`, and uploads `.gate/` as an artifact. The manual texts are not
-committed. If `fetch.sh` fails, step 9 (manuals) is a SKIP, which does not fail the gate, but step 8 compares
-`docs/TRACE.md`, whose manual column needs those texts, so it fails too; CI is therefore only meaningful when the fetch works.
-The snippet for the oracle tools:
-```yaml
-      - name: Install the differential-oracle tools (QEMU MIPS system emulator + LLVM)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-mips llvm lld poppler-utils
-          echo "ORACLE_LLVM_DIR=$(dirname "$(readlink -f "$(command -v llvm-mc || ls /usr/lib/llvm-*/bin/llvm-mc | tail -1)")")" >> "$GITHUB_ENV"
-```
-(`oracle.py` looks in `$ORACLE_LLVM_DIR`, then `/usr/lib/llvm-21/bin`, then `PATH`; `ld.lld` and `llvm-objcopy` must sit next to `llvm-mc`; on Debian/Ubuntu they do under `/usr/lib/llvm-N/bin`.)
-The stamp written in CI is irrelevant; the exit code is the verdict. The workflow has not been run by its author (no CI access from the authoring environment).
+`.github/workflows/ci.yml` (job `gate`, `ubuntu-24.04`, on pull requests and pushes to `main`) runs the same gate as a developer.
+**It has never run on GitHub Actions**: treat it as untested until the first run is inspected. Its steps, in order:
+1. `actions/checkout`; install **elan** (`--default-toolchain none`), then the toolchain pinned in `lean-toolchain` (`elan toolchain install`).
+2. Java: `actions/setup-java`, **Temurin 17** (DiffHarness runs the MARS jar).
+3. apt: `qemu-system-mips` and `poppler-utils` (`pdftotext`); **LLVM 21** (`llvm-21`, `lld-21`) from `apt.llvm.org`, with
+   `ORACLE_LLVM_DIR=/usr/lib/llvm-21/bin` set for the job; the step fails unless `llvm-mc`, `ld.lld`, `llvm-objdump`, `llvm-objcopy` are there.
+4. `actions/cache` of `.lake` only (Lean packages and build products), keyed by `lake-manifest.json` and `lean-toolchain`; then `lake exe cache get`.
+5. `docs/spec/manuals/fetch.sh`: fetches the manuals into the runner workspace (fatal on failure; checks `SHA256SUMS`). The manual texts are
+   derived from copyrighted PDFs: no cache path covers them and they are never uploaded.
+6. `scripts/gate.sh` (full run, all ten steps).
+7. Skip guard (`if: always()`): reads `.gate/last-run.json` and fails unless `full_run` is true, the verdict is `GREEN` and every one of the
+   ten steps is `PASS`. Kept as defence in depth (since the housekeeping wave, `gate.sh` itself turns any SKIP in a full run into RED).
+8. Upload (`if: always()`): only `.gate/last-run.json` (step names, statuses, counts) as artifact `gate-summary`; the step logs are not
+   uploaded, since they can quote the manuals.
+Missing java / qemu / LLVM already FAIL inside `gate.sh`. The `.gate/green` stamp written in CI is irrelevant; the job result is the verdict.
 
 ## Troubleshooting
 - "stale stamp" / hook blocks: something changed after the gate (even a whitespace edit or a regenerated TRACE.md). Re-run `scripts/gate.sh`.
@@ -61,7 +61,7 @@ The stamp written in CI is irrelevant; the exit code is the verdict. The workflo
 - Lock contention ("waiting for lock", hangs): another `lake` is running in the same tree. Wait, or gate from your own worktree
   (`git worktree add`, copy `.lake` in). `lake check` alone takes 2-5 min.
 - TRACE.md stale: `python3 scripts/trace.py` (or `gate.sh --fix`) and include it in the commit.
-- manuals SKIP: run `docs/spec/manuals/fetch.sh` (needs `pdftotext`); a SKIP does not block the stamp but is recorded in the commit trailer.
+- manuals SKIP: run `docs/spec/manuals/fetch.sh` (needs `pdftotext`); a SKIP makes a full run RED (no stamp).
 - Reading failures: logs are `.gate/logs/NN-name.log`; `.gate/` is gitignored.
 
 
@@ -90,7 +90,7 @@ Many of the tests (FP compare/convert/flag/trap/CpU/random-pool programs) are pr
 ### How a test runs
 1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
    oracle extension: `image` (`[addr, word]` for every assembled word: text 0x00400000, data 0x10010000, `.ktext` 0x80000180),
-   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause (as `mfc0` reads it: with `TI`/`IP7` and the hardware lines in `IP7..IP2`),epc,badvaddr,errorepc,ebase,count,compare,hwrena}),
+   `initial`/`final` (pc, gpr[32], hi, lo, fpr[32] raw bits, fcsr, fp_cond_flag (= FCSR bit 23, kept for compatibility), ll_bit, ll_addr, pending_branch, cp0{status,cause (as `mfc0` reads it: with `TI`/`IP7` and the hardware lines in `IP7..IP2`),epc,badvaddr,errorepc,ebase,count,compare,hwrena}, and more; every field: "JSON render" below),
    `halt` (`kind` = exit | unhandled_exception{code,epc,badvaddr} | no_instruction{pc} | limit), `fcsr_mask` (= 0xFF83FFFF: every FCSR bit the model implements; bits 22..18 are reserved and read zero), `memory`
    (every nonzero aligned word of the final **physical** memory, keyed by its **virtual** address `Env.canonicalVAddr`: the model has the Fixed
    Mapping MMU, so the loaded data at virtual 0x10010000 lives at physical 0x50010000 and is reported as 0x10010000) and `physical_memory`
@@ -159,3 +159,61 @@ It is reported in its own section (`KNOWN-MODEL-BUG`), counted separately in the
 ### Programs of `tests/asm`
 `--asm` also runs the `tests/asm/*.asm` programs (names `asm/NAME`), using sidecar directives kept in `oracle.py` (`ASM_DIRECTIVES`; the programs are not edited because EquivHarness reads them).
 Programs the harness cannot judge are listed as `SKIP name: reason` and counted (`ASM_SKIP` plus an automatic rule: a `.ktext` handler containing `syscall`, and EBase relocation `mtc0 $x,$15,1`).
+
+## JSON render (`MipsRun`)
+`lake exe MipsRun [--max-steps N] [--bare] [--reset] prog.asm` prints one JSON object. It is a **read-out** of the model's `State`, computed outside
+`step` (`MipsRun.lean`: `stateJson`, `cp0Json`, `fcrJson`); nothing in it changes the semantics. It exists so that a front end can render the machine
+as other simulators do, and so that `oracle.py` is data-driven. Tags: **raw** = a stored `State` field as is; **derived** = computed from `State`
+(the value software reads, or an observer's summary); **virtual** / **physical** = which address space an address-valued field speaks.
+Numbers are unsigned decimal; Booleans are JSON `true`/`false`.
+
+Top level:
+- `assembled` -- derived: `true` iff `Asm.assemble` accepted the source (on `false` only `error` is non-null).
+- `halted` -- derived: `true` iff the hosted run stopped by an environment convention (`false`: step limit reached).
+- `halt_reason` -- derived: `exit` | `unhandled_exception:<name>:epc=0x..[:badvaddr=0x..]` | `no_instruction:0x<pc>` (virtual), or `null` at the limit.
+- `steps` -- derived: `hostStep` calls of the hosted run (each a `step` or a served `syscall`), the one that stopped it included.
+- `output` -- derived (environment): the hosted services' output buffer (`Hosted.out`), not processor state.
+- `registers` -- raw: the 32 GPRs of the final state by ABI name (`zero`..`ra`).
+- `error` -- derived: the assembler error message, or `null`.
+- `halt` -- derived: `{kind: exit | unhandled_exception{code, epc (virtual), badvaddr (virtual)} | no_instruction{pc (virtual)} | limit}`.
+- `initial`, `final` -- the state render below, for the start state (`hostedStart` + image, or `resetState` + image with `--reset`) and the last state.
+- `fcsr_mask` -- derived: `fcsrWritableMask` (0xFF83FFFF), the FCSR bits the model implements.
+- `image` -- virtual: `[address, word]` for every assembled word (`Program`), sorted.
+- `memory` -- virtual: every nonzero aligned word of the final physical memory, keyed by `Env.canonicalVAddr` of its physical address (`Specs/Loader.lean`: `canonicalVAddr (loadAddr va) = va` for every `va` outside kseg1, so loaded words appear at their image address; kseg1 words appear under their kseg0 alias).
+- `physical_memory` -- physical: the same words keyed by physical address.
+
+State render (`initial` / `final`):
+- `pc` -- raw, virtual: `State.pc`.
+- `gpr` -- raw: `State.regs`, 32 words (`gpr[0]` = 0).
+- `hi`, `lo` -- raw: `State.hi`, `State.lo`.
+- `fpr` -- raw: `State.fpRegs`, 32 words of raw bits (a double occupies an even/odd pair).
+- `fcsr` -- raw: `State.fcsr` (the `cfc1 $31` read is `fcr.fcsr`).
+- `fp_cond_flag` -- derived: FCSR bit 23 (FCC0), kept for compatibility.
+- `ll_bit` -- raw: `State.llBit`.
+- `ll_addr` -- raw, virtual: `State.llAddr`, the aligned effective (virtual) address of the last `ll` (meaningful while `ll_bit`).
+- `pending_branch` -- raw, virtual: `State.pendingBranch` (the delay-slot target), `null` when no branch is pending.
+- `standby` -- raw: `State.standby` (after `wait`, until an interrupt request restarts the processor).
+- `hw_int` -- raw: `State.hwInt`, the six hardware interrupt lines HW5..HW0 in bits 5..0 (this environment never asserts them).
+- `fir` -- derived: `firValue`, FIR as `cfc1 $0` reads it (a constant).
+- `fcr` -- derived: the FPU control registers as `cfc1` reads them: `{fir, fccr, fexr, fenr, fcsr}` (registers 0, 25, 26, 28, 31).
+- `kernel_mode` -- derived: `kernelMode` (UM = 0, or EXL = 1, or ERL = 1).
+- `interrupt_requests` -- derived: `interruptRequests` = `causeValue & Status & IM7..IM0` (bits 15..8).
+- `cp0` -- every CP0 register of the model:
+  - `status` -- raw (= the `mfc0` read): Status (12,0).
+  - `cause` -- derived: Cause (13,0) as `mfc0` reads it (`causeValue`: stored bits + `TI`/`IP7` from the timer + `hwInt` in `IP7..IP2`).
+  - `cause_raw` -- raw: `State.cp0Cause`, the stored bits (BD, CE, DC, IV, IP1..0, ExcCode).
+  - `timer_int` -- raw: `State.cp0TimerInt`, the timer request (`Cause.TI`).
+  - `epc` -- raw, virtual: EPC (14,0).
+  - `badvaddr` -- raw, virtual: BadVAddr (8,0).
+  - `errorepc` -- raw, virtual: ErrorEPC (30,0).
+  - `ebase` -- raw: `State.cp0EBase` as stored (original meaning of the key).
+  - `ebase_read` -- derived: EBase (15,1) as `mfc0` reads it (`ebaseValue`: bits 31..30 = `10`, bits 11..0 zero).
+  - `count`, `compare` -- raw: Count (9,0), Compare (11,0).
+  - `hwrena` -- raw: HWREna (7,0).
+  - `intctl`, `srsctl` -- derived: IntCtl (12,1), SRSCtl (12,2), constants (`intCtlValue`, `srsCtlValue`).
+  - `prid` -- derived: PRId (15,0), a constant (`prIdValue`).
+  - `config` -- derived: Config (16,0) as `mfc0` reads it (`configValue`).
+  - `config1` -- derived: Config1 (16,1), a constant (`config1Value`).
+  - `config_k0_raw`, `config_k23_raw`, `config_ku_raw` -- raw: the stored Config cacheability fields K0, K23, KU (3 bits each).
+
+Physical memory itself (`State.physMem`) is rendered as `memory` / `physical_memory` (nonzero words only: an unwritten byte reads 0).

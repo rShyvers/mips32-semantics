@@ -228,8 +228,8 @@ private def swlSwrIdiomProg : Program :=
         | some s' => s'.llBit == false
         | none => false)
 
--- wait: a documented no-op (no interrupt/timer model exists to wait for),
--- falls through to `pc + 4` with all state otherwise untouched.
+-- wait: advances to `pc + 4` and enters standby (`State.standby`; `Specs/Interrupt.lean` has the
+-- standby/restart theorems); Status, Cause and EPC are untouched (the fields checked here).
 #guard nextPcEq (hstep (prog1 (.wait 0#32)) regs0) (textBase + 4#32)
 #guard (match stepState (prog1 (.wait 0#32)) regs0 with
         | some s' => s'.cp0Status == regs0.cp0Status && s'.cp0Cause == regs0.cp0Cause

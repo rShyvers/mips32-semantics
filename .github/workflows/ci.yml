@@ -6,49 +6,83 @@ on:
     branches: [main]
 
 # CI runs the same gate as a developer (scripts/gate.sh, ten steps: see scripts/README.md).
-# NOT YET RUN: this workflow was written without access to GitHub Actions; treat it as untested.
+# NOT YET RUN on GitHub Actions: treat it as untested until the first run is inspected.
 #
-# The manual texts (docs/spec/manuals/*.txt) are not committed (copyright, .gitignore). Two consequences:
-#  * step 9 (manuals selftest) is a SKIP when the texts are absent; a SKIP does not fail the gate
-#    (gate.sh exits 0 iff no step FAILed);
-#  * step 8 (trace) regenerates docs/TRACE.md, whose manual column needs the texts, so it can only pass
-#    when they are present. The fetch step below tries to provide them (best effort, from the download
-#    locations in docs/spec/manuals/fetch.sh); if it fails, step 8 fails and the log says why.
+# Skips must not look green. scripts/gate.sh exits 0 iff no step FAILed, so a SKIP (step 9 when the manual texts
+# are absent) still exits 0. The last step below therefore reads .gate/last-run.json and fails unless the run was
+# a full run and every one of the ten steps is PASS. Missing java / qemu / LLVM already FAIL inside gate.sh.
+#
+# The manual texts (docs/spec/manuals/*.pdf, *.txt) are derived from copyrighted PDFs. They are fetched into the
+# runner workspace on every run, are never cached (no actions/cache path covers them), and are never uploaded:
+# only .gate/last-run.json (step names, statuses, counts) is uploaded, not the step logs, which can quote them.
+
+permissions:
+  contents: read
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ORACLE_LLVM_DIR: /usr/lib/llvm-21/bin
     steps:
       - uses: actions/checkout@v4
-      - name: Install elan + Lean toolchain (pinned in lean-toolchain)
+      - name: Install elan (the Lean toolchain itself is fetched from lean-toolchain on first use)
         run: |
-          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Install the toolchain pinned in lean-toolchain
+        run: |
+          elan toolchain install "$(cat lean-toolchain)"
+          lean --version
+          lake --version
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install the differential-oracle tools (QEMU MIPS system emulator + LLVM) and pdftotext
+      - name: Install QEMU (MIPS system emulator), pdftotext and LLVM 21 (apt.llvm.org; oracle.py wants llvm-mc, ld.lld, llvm-objdump, llvm-objcopy)
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-mips llvm lld poppler-utils
-          echo "ORACLE_LLVM_DIR=$(dirname "$(readlink -f "$(command -v llvm-mc || ls /usr/lib/llvm-*/bin/llvm-mc | tail -1)")")" >> "$GITHUB_ENV"
-      - name: Restore .lake cache (packages + mathlib build)
+          sudo apt-get install -y qemu-system-mips poppler-utils wget gnupg
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y llvm-21 lld-21
+          for t in llvm-mc ld.lld llvm-objdump llvm-objcopy; do test -x "$ORACLE_LLVM_DIR/$t" || { echo "missing $ORACLE_LLVM_DIR/$t"; exit 1; }; done
+          "$ORACLE_LLVM_DIR/llvm-mc" --version | head -3
+          qemu-system-mips --version | head -1
+      - name: Restore .lake cache (Lean packages and build products only; no manual texts)
         uses: actions/cache@v4
         with:
           path: .lake
-          key: lake-${{ hashFiles('lake-manifest.json') }}-${{ hashFiles('lean-toolchain') }}
-      - name: Fetch mathlib build cache (no-op when restored from cache)
+          key: lake-${{ runner.os }}-${{ hashFiles('lake-manifest.json') }}-${{ hashFiles('lean-toolchain') }}
+          restore-keys: |
+            lake-${{ runner.os }}-${{ hashFiles('lake-manifest.json') }}-
+      - name: Fetch the mathlib build cache
         run: lake exe cache get
-      - name: Fetch the manuals (best effort; without them step 9 is a SKIP and step 8 cannot pass)
-        continue-on-error: true
+      - name: Fetch the manuals into the workspace (fatal on failure; checks SHA256SUMS; never cached or uploaded)
         run: docs/spec/manuals/fetch.sh
       - name: Gate (forbidden, build, check, comparator, DiffHarness, EquivHarness, oracle, trace, manuals, hygiene)
         run: scripts/gate.sh
-      - name: Upload gate logs
+      - name: Require a full run with every step PASS (a SKIP is not green)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open(".gate/last-run.json"))
+          bad = [(s["n"], s["name"], s["status"]) for s in d["steps"] if s["status"] != "PASS"]
+          print("verdict:", d["verdict"], "full_run:", d["full_run"])
+          for s in d["steps"]:
+              print(f'{s["n"]:>2} {s["name"]:<12} {s["status"]:<5} {s["note"]}')
+          if not d["full_run"] or bad or d["verdict"] != "GREEN":
+              print("NOT GREEN:", bad or "partial run / verdict", file=sys.stderr)
+              sys.exit(1)
+          PY
+      - name: Upload gate summary (no logs, they may quote the manuals)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gate-logs
-          path: .gate/
+          name: gate-summary
+          path: .gate/last-run.json
+          if-no-files-found: ignore

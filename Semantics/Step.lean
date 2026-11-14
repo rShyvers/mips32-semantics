@@ -154,7 +154,8 @@ branch-likely instructions, the FP branches `bc1f`/`bc1t`/`bc1fl`/`bc1tl`,
 `eret` and `wait` (26 in all): the control transfer instructions (CTIs) that
 MD00082 Vol I-A Rev 6.01 §5.3.2.1 (p.62) forbids in a branch delay slot ("any
 CTI, including branches and jumps, ERET, ERETNC, DERET, WAIT, and PAUSE";
-`ERETNC`, `DERET`, `PAUSE` and `NAL` are not modeled). `execInstr` raises
+`ERETNC` and `DERET` are not modeled; `NAL` is the encoding of `bltzal $0` and is covered by it;
+`PAUSE` has the encoding of `sll $0, $0, 5` and decodes as that `sll`, so it is not in this list). `execInstr` raises
 Reserved Instruction when one of these is reached with `s.pendingBranch = some _`,
 i.e. directly after *any* branch/jump, taken or not (pin; see `execInstr`). -/
 def isBranchLike (instr : Instruction) : Bool :=
@@ -504,8 +505,8 @@ def countEnabled (s : State) : Bool := s.cp0Cause &&& causeDcMask == 0#32
   comparison is made on every step, also while counting is disabled.
 
 Only `cp0Count` and `cp0TimerInt` change. The interrupt the request may cause (Interrupt exception,
-§6.2.26, p.102) is not taken by this model yet; when it is, the check belongs in `step`, before
-the fetch, at the one place marked there. -/
+§6.2.26, p.102) is not taken here: `step` checks for it before the fetch (`interruptTaken`,
+`takeInterrupt`), on the state this function produced in the previous step. -/
 def timerTick (s : State) : State :=
   let c := if countEnabled s then s.cp0Count + 1#32 else s.cp0Count
   { s with cp0Count := c, cp0TimerInt := s.cp0TimerInt || c == s.cp0Compare }

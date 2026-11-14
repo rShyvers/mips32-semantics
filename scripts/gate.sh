@@ -479,7 +479,11 @@ done
 
 TREE1=$(current_tree) || TREE1=""
 STAMPED=0; VERDICT=
+ANY_SKIP=0
+for ((i = 1; i <= NSTEPS; i++)); do [ "${RES[$i]}" = SKIP ] && ANY_SKIP=1; done
 if [ $ANY_FAIL = 1 ]; then VERDICT="RED"
+elif [ $ANY_SKIP = 1 ] && [ $FULL = 1 ]; then
+  VERDICT="RED (a step was skipped; a green gate needs every step to PASS)"; ANY_FAIL=1
 elif [ $FULL = 0 ]; then VERDICT="PARTIAL-PASS (not a green gate)"
 elif [ -z "$TREE1" ] || [ "$TREE0" != "$TREE1" ]; then
   VERDICT="RED (the working tree changed while the gate ran; re-run)"; ANY_FAIL=1

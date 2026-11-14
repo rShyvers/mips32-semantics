@@ -53,14 +53,14 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1677 lines) states **139 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1698 lines) states **142 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
 each by the real theorem of the same name in `Semantics/Specs/`. `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements) and the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 139 statements are a selection: every global theorem below and at least one per-instruction
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 142 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
 **(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 181
@@ -252,7 +252,7 @@ Semantics/Specs/               the specification: Defs, WellFormed (vocabulary);
                                DecodeSpec, Exception, Fetch, SelfModifying, DelaySlot, Invariants, RegFileSize,
                                Mode, Reset, Mmu, Loader, Hosted (global theorems);
                                one file per instruction family (Arith, Shift, MulDiv, ..., FpuArith, ...); StepSpec (index)
-Semantics/Statements.lean      the trusted surface (98 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (142 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables

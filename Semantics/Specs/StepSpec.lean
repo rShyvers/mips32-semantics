@@ -96,7 +96,7 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Fetch / decode failure | `Fetch.lean` | `step_misaligned_pc`, `step_fetches_from_memory`, `step_undecodable`, `step_reserved_instruction`, `step_reserved_cop0_unusable` |
 | Self-modifying code | `SelfModifying.lean` | `sw_next_instruction_is_fetched`, `store_changes_next_instruction` (and `readMemWord_writeMemWord_alias`) |
 | Address translation (Fixed Mapping MMU) | `Mmu.lean` | `fixedMappingPA_*` (each segment, `ERL`, kseg0/kseg1 alias), `translate_*`, the `*_user_kernel_address` Address Errors (every access function, fetch, `lw`, `sw`), `kseg1_store_visible_through_kseg0` |
-| Loader | `Loader.lean` | `loadImage_readMemWord`, `load_readMemWord`, `load_step_fetches_image`, `loadAtReset_readMemWord_kseg` |
+| Loader | `Loader.lean` | `loadImage_readMemWord`, `load_readMemWord`, `load_step_fetches_image`, `loadAtReset_readMemWord_kseg`, `canonicalVAddr_loadAddr`, `canonicalVAddr_loadAddr_kseg1`, `loadAddr_canonicalVAddr` |
 | Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
 | Register-file sizes | `RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed`: the `regs.size = 32` / `fpRegs.size = 32` side conditions are invariants (the rest is proof device) |

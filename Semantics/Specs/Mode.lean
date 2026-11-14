@@ -17,7 +17,8 @@ Mode at `EPC`. Coprocessor Unusable for coprocessor-0 instructions outside Kerne
 `cp0_instruction_user_mode_unusable` (`Cp0.lean`) and `step_reserved_cop0_unusable` (`Fetch.lean`).
 
 User-Mode address checks (a reference to kseg0/kseg1/kseg2/kseg3 from User Mode raises Address
-Error, Vol III Table 4.2, p.30) belong to the MMU and are not modeled yet.
+Error, Vol III Table 4.2, p.30) belong to the MMU: `translate` in `State.lean`, theorems in
+`Mmu.lean` (`translate_user_kernel_address`, `step_fetch_user_kernel_address`, ...).
 
 `orMask_and_self`, `or_and_disjoint` are bit-mask proof devices.
 

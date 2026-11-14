@@ -184,10 +184,11 @@ def physWords (s : State) : Array (Nat × Nat) :=
     if w == 0#32 then acc else acc.push (a, w.toNat)) #[]
 
 /-- The `memory` field: every nonzero aligned word of physical memory, reported at its **virtual**
-address `Env.canonicalVAddr pa` (the inverse of the loader's `loadAddr`: kuseg for the loaded
-text/data/stack, kseg0 for the low 512 MB, identity for kseg2/kseg3), sorted. So `memory` speaks
-the same (virtual) addresses as `image` and the registers. Words reachable through several
-virtual names (kseg0/kseg1 aliases) appear once, under the kseg0 name. -/
+address `Env.canonicalVAddr pa` (kuseg for the loaded text/data/stack, kseg0 for the low 512 MB,
+identity for kseg2/kseg3), sorted. It inverts the loader: `canonicalVAddr (loadAddr va) = va` for
+every `va` outside kseg1 (`canonicalVAddr_loadAddr`, `Specs/Loader.lean`), so `memory` speaks the
+same (virtual) addresses as `image` and the registers. Words reachable through several virtual
+names (kseg0/kseg1 aliases) appear once, under the kseg0 name (`canonicalVAddr_loadAddr_kseg1`). -/
 def memoryJson (s : State) : String :=
   jsonPairs ((physWords s).map (fun (a, w) => ((canonicalVAddr (BitVec.ofNat 32 a)).toNat, w)))
 
@@ -195,9 +196,44 @@ def memoryJson (s : State) : String :=
 def physicalMemoryJson (s : State) : String :=
   jsonPairs (physWords s)
 
-/-- The registers a loader faithful to `Env.hostedStart` needs, as JSON. Emitted
-for the *initial* state so that other executors (QEMU harness) are
-data-driven from this binary rather than hard-coding its conventions. -/
+/-- The FPU control registers as `cfc1` reads them (`Mips.Fp.readControl`): FIR (0), FCCR (25),
+FEXR (26), FENR (28), FCSR (31). Derived from `State.fcsr`; FIR is a constant. -/
+def fcrJson (s : State) : String :=
+  "{" ++
+  s!"\"fir\": {Mips.Fp.firValue.toNat}, " ++
+  s!"\"fccr\": {(Mips.Fp.readFCCR s.fcsr).toNat}, " ++
+  s!"\"fexr\": {(Mips.Fp.readFEXR s.fcsr).toNat}, " ++
+  s!"\"fenr\": {(Mips.Fp.readFENR s.fcsr).toNat}, " ++
+  s!"\"fcsr\": {(Mips.Fp.readFCSR s.fcsr).toNat}" ++
+  "}"
+
+/-- Every coprocessor-0 register the model has (the `(rd, sel)` pairs of `mfc0`), each as
+`mfc0` reads it (the same functions `Step.lean`'s `mfc0` arm uses), plus the stored fields where
+they differ from the read value (`_raw` suffix; `ebase` keeps its original meaning, the stored
+field, and `ebase_read` is the read value). A read-out only: computed outside `step`. -/
+def cp0Json (s : State) : String :=
+  "{" ++
+  s!"\"status\": {s.cp0Status.toNat}, \"cause\": {(causeValue s).toNat}, " ++
+  s!"\"epc\": {s.cp0Epc.toNat}, \"badvaddr\": {s.cp0BadVAddr.toNat}, " ++
+  s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}, " ++
+  s!"\"count\": {s.cp0Count.toNat}, \"compare\": {s.cp0Compare.toNat}, " ++
+  s!"\"hwrena\": {s.cp0HWREna.toNat}, " ++
+  s!"\"cause_raw\": {s.cp0Cause.toNat}, \"timer_int\": {s.cp0TimerInt}, " ++
+  s!"\"ebase_read\": {(ebaseValue s).toNat}, " ++
+  s!"\"intctl\": {intCtlValue.toNat}, \"srsctl\": {srsCtlValue.toNat}, " ++
+  s!"\"prid\": {prIdValue.toNat}, " ++
+  s!"\"config\": {(configValue s).toNat}, \"config1\": {config1Value.toNat}, " ++
+  s!"\"config_k0_raw\": {s.cp0ConfigK0.toNat}, \"config_k23_raw\": {s.cp0ConfigK23.toNat}, " ++
+  s!"\"config_ku_raw\": {s.cp0ConfigKU.toNat}" ++
+  "}"
+
+/-- **The JSON render of a `State`** (`initial` and `final`): every field of `State` except
+`physMem` (rendered separately as `memory`/`physical_memory`), plus read-outs derived from it
+(`fcr`, the CP0 read values, `kernel_mode`, `interrupt_requests`). Every value is computed
+outside `step` and changes nothing; it exists so that a front end can show the machine as other
+simulators do. Emitted for the *initial* state too, so that other executors (QEMU harness) are
+data-driven from this binary rather than hard-coding its conventions. Field list:
+`scripts/README.md`, "JSON render". -/
 def stateJson (s : State) : String :=
   "{" ++
   s!"\"pc\": {s.pc.toNat}, " ++
@@ -209,12 +245,13 @@ def stateJson (s : State) : String :=
   s!"\"ll_bit\": {s.llBit}, " ++
   s!"\"ll_addr\": {s.llAddr.toNat}, " ++
   s!"\"pending_branch\": {match s.pendingBranch with | some t => toString t.toNat | none => "null"}, " ++
-  s!"\"cp0\": " ++ "{" ++
-    s!"\"status\": {s.cp0Status.toNat}, \"cause\": {(causeValue s).toNat}, " ++
-    s!"\"epc\": {s.cp0Epc.toNat}, \"badvaddr\": {s.cp0BadVAddr.toNat}, " ++
-    s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}, " ++
-    s!"\"count\": {s.cp0Count.toNat}, \"compare\": {s.cp0Compare.toNat}, " ++
-    s!"\"hwrena\": {s.cp0HWREna.toNat}" ++ "}" ++
+  s!"\"standby\": {s.standby}, " ++
+  s!"\"hw_int\": {s.hwInt.toNat}, " ++
+  s!"\"fir\": {Mips.Fp.firValue.toNat}, " ++
+  s!"\"fcr\": {fcrJson s}, " ++
+  s!"\"kernel_mode\": {kernelMode s}, " ++
+  s!"\"interrupt_requests\": {(interruptRequests s).toNat}, " ++
+  s!"\"cp0\": {cp0Json s}" ++
   "}"
 
 /-- Structured halt reason (`halt` field). -/

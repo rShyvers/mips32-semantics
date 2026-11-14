@@ -129,9 +129,8 @@ words directly via `mkRT` / `mkIT` / `mkJT` (Types.lean) — this module does
   `round.w.s`/`trunc.w.s`/`ceil.w.s`/`floor.w.s`, `cvt.s.w`/`cvt.w.s`,
   `c.eq.s`/`c.lt.s`/`c.le.s`/`c.f.s`/`c.un.s`/`c.ueq.s`/`c.olt.s`/`c.ult.s`/
   `c.ole.s`/`c.ule.s`, `bc1t`/`bc1f`.
-- Coprocessor-1 (FPU) double-precision subset (
-  `docs/spec/MIPS-COVERAGE-GAPS.md` §3.9A; `docs/spec/INSTRUCTION-REF.md`'s
-  double-precision section): `ldc1`/`sdc1`, `add.d`/`sub.d`/`mul.d`/`div.d`,
+- Coprocessor-1 (FPU) double-precision subset (`docs/spec/MIPS-COVERAGE-GAPS.md`
+  §3.9A; `docs/spec/INSTRUCTION-REF.md`'s double-precision section): `ldc1`/`sdc1`, `add.d`/`sub.d`/`mul.d`/`div.d`,
   `mov.d`, `sqrt.d`/`abs.d`/`neg.d`, `cvt.d.s`/`cvt.s.d`/`cvt.d.w`/`cvt.w.d`,
   `c.eq.d`/`c.lt.d`/`c.le.d`/`c.f.d`/`c.un.d`/`c.ueq.d`/`c.olt.d`/`c.ult.d`/
   `c.ole.d`/`c.ule.d`. `$fN` operands name the *low* register of the

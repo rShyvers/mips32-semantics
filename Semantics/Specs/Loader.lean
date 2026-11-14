@@ -17,12 +17,24 @@ addresses are word-aligned, and no two of them are loaded at the same physical a
 holding both `0x8000_0180` and `0xA000_0180` would load two words at physical `0x180`; the later
 one wins).
 
-## Theorems in this file (14)
+The last section relates the loader to the observer's naming of physical addresses,
+`Env.canonicalVAddr` (used by `MipsRun`'s `memory` JSON field). `loadAddr` is not injective (kseg0
+and kseg1 alias the low 512 MB) and not surjective (it never yields `0x2000_0000`-`0x3FFF_FFFF`,
+which only kuseg with `ERL = 1` reaches), so there is no two-sided inverse. What holds:
+`canonicalVAddr` is a left inverse of `loadAddr` on every virtual address outside kseg1
+(`canonicalVAddr_loadAddr`; a kseg1 address comes back as its kseg0 alias,
+`canonicalVAddr_loadAddr_kseg1`), and a right inverse on the range of `loadAddr`, i.e. on every
+physical address outside `0x2000_0000`-`0x3FFF_FFFF` (`loadAddr_canonicalVAddr`,
+`loadAddr_not_hole`).
+
+## Theorems in this file (21)
 
   `loadAddr_mod4` `addr_ne_of_aligned` `get?_loadWord_other` `get?_loadWord_same`
   `foldl_loadWord_other` `foldl_loadWord_mem` `loadImage_readMemWord` `translate_hostedStart`
   `load_readMemWord` `executesInstr_load` `load_step_fetches_image` `loadAtReset_readMemWord_kseg`
-  `loadAddr_examples` `ofNat_0`
+  `loadAddr_examples` `ofNat_0` `and_1fff_toNat` `loadAddr_toNat` `canonicalVAddr_toNat`
+  `loadAddr_not_hole` `canonicalVAddr_loadAddr` `canonicalVAddr_loadAddr_kseg1`
+  `loadAddr_canonicalVAddr`
 -/
 
 set_option maxRecDepth 4000
@@ -231,3 +243,80 @@ theorem loadAddr_examples :
     loadAddr 0x90000000#32 = 0x10000000#32 ∧ loadAddr 0xBFC00000#32 = 0x1FC00000#32 ∧
     loadAddr 0xC0000000#32 = 0xC0000000#32 := by
   decide
+
+/-! ## `canonicalVAddr`, the observer's inverse of `loadAddr` -/
+
+private theorem and_1fff_toNat (va : W32) : (va &&& 0x1FFFFFFF#32).toNat = va.toNat % 2 ^ 29 := by
+  rw [BitVec.toNat_and]
+  have : (0x1FFFFFFF#32).toNat = 2 ^ 29 - 1 := by simp
+  rw [this, Nat.and_two_pow_sub_one_eq_mod]
+
+/-- `loadAddr` on numbers: kuseg `+ 0x4000_0000`, kseg0/kseg1 the low 29 bits, kseg2/kseg3 identity. -/
+theorem loadAddr_toNat (va : VAddr) :
+    (loadAddr va).toNat =
+      if va.toNat < 0x80000000 then va.toNat + 0x40000000
+      else if va.toNat < 0xC0000000 then va.toNat % 2 ^ 29 else va.toNat := by
+  unfold loadAddr fixedMappingPA
+  by_cases h1 : va.toNat < 0x80000000
+  · simp only [h1, ↓reduceIte, Bool.false_eq_true]; bv_omega
+  · by_cases h2 : va.toNat < 0xC0000000
+    · simp only [h1, h2, ↓reduceIte, and_1fff_toNat]
+    · simp only [h1, h2, ↓reduceIte]
+
+/-- `canonicalVAddr` on numbers. -/
+theorem canonicalVAddr_toNat (pa : PAddr) :
+    (canonicalVAddr pa).toNat =
+      if pa.toNat < 0x20000000 then pa.toNat + 0x80000000
+      else if pa.toNat < 0x40000000 then pa.toNat
+      else if pa.toNat < 0xC0000000 then pa.toNat - 0x40000000 else pa.toNat := by
+  unfold canonicalVAddr
+  by_cases h1 : pa.toNat < 0x20000000
+  · simp only [h1, ↓reduceIte]; bv_omega
+  · by_cases h2 : pa.toNat < 0x40000000
+    · simp only [h1, h2, ↓reduceIte]
+    · by_cases h3 : pa.toNat < 0xC0000000
+      · simp only [h1, h2, h3, ↓reduceIte]; bv_omega
+      · simp only [h1, h2, h3, ↓reduceIte]
+
+/-- **The range of `loadAddr`** misses `0x2000_0000`-`0x3FFF_FFFF` (reached only by kuseg with
+`ERL = 1`, MD00090 Vol III Rev 6.02 Table A.1, p.314). -/
+theorem loadAddr_not_hole (va : VAddr) :
+    ¬ (0x20000000 ≤ (loadAddr va).toNat ∧ (loadAddr va).toNat < 0x40000000) := by
+  rw [loadAddr_toNat]
+  split <;> (try split) <;> omega
+
+/-- **`canonicalVAddr` is a left inverse of `loadAddr` outside kseg1**: for every virtual address
+not in kseg1 (`0xA000_0000`-`0xBFFF_FFFF`), the observer names the loaded physical address by the
+virtual address it was loaded from. So every image word outside kseg1 appears in `MipsRun`'s
+`memory` at its image address. -/
+theorem canonicalVAddr_loadAddr (va : VAddr) (h : isKseg1 va = false) :
+    canonicalVAddr (loadAddr va) = va := by
+  unfold isKseg1 at h
+  simp only [Bool.and_eq_false_iff, decide_eq_false_iff_not, Nat.not_le, Nat.not_lt] at h
+  apply BitVec.eq_of_toNat_eq
+  rw [canonicalVAddr_toNat, loadAddr_toNat]
+  have := va.isLt
+  split <;> (try split) <;> (try split) <;> (try split) <;> (try split) <;> omega
+
+/-- **A kseg1 address comes back as its kseg0 alias** (`va - 0x2000_0000`): kseg0 and kseg1 map to
+the same physical address, and `canonicalVAddr` picks the kseg0 name. -/
+theorem canonicalVAddr_loadAddr_kseg1 (va : VAddr) (h : isKseg1 va = true) :
+    canonicalVAddr (loadAddr va) = va - 0x20000000#32 := by
+  unfold isKseg1 at h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+  apply BitVec.eq_of_toNat_eq
+  rw [canonicalVAddr_toNat, loadAddr_toNat, BitVec.toNat_sub]
+  simp only [BitVec.toNat_ofNat]
+  have := va.isLt
+  split <;> (try split) <;> (try split) <;> (try split) <;> (try split) <;> omega
+
+/-- **`canonicalVAddr` is a right inverse of `loadAddr` on its range**: every physical address
+outside `0x2000_0000`-`0x3FFF_FFFF` (the range of `loadAddr`, `loadAddr_not_hole`) is `loadAddr` of
+its canonical virtual name. -/
+theorem loadAddr_canonicalVAddr (pa : PAddr)
+    (h : ¬ (0x20000000 ≤ pa.toNat ∧ pa.toNat < 0x40000000)) :
+    loadAddr (canonicalVAddr pa) = pa := by
+  apply BitVec.eq_of_toNat_eq
+  rw [loadAddr_toNat, canonicalVAddr_toNat]
+  have := pa.isLt
+  split <;> (try split) <;> (try split) <;> (try split) <;> (try split) <;> omega

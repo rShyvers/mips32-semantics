@@ -25,7 +25,7 @@ Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals
 stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
 (needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness; 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
-(`trace.py --check`, `--check-readme`, `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent); 10 hygiene.
+(`trace.py --check`, `--check-readme`, `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
 - While iterating: `scripts/gate.sh --quick` (steps 1,8,9,10; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
 - Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates TRACE.md). Only a full green run
   writes `.gate/green`, bound to the exact tree content.
@@ -45,7 +45,7 @@ stripped); 2 `lake build` of all targets, zero project warnings; 3 `lake check` 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (139 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (142 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,

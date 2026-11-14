@@ -922,6 +922,19 @@ theorem loadAtReset_readMemWord_kseg (p : Program) (a w : W32) (hw : p.get? a = 
     readMemWord (loadAtReset p) a = some w :=
   _root_.loadAtReset_readMemWord_kseg p a w hw hk halign hdisj
 
+theorem canonicalVAddr_loadAddr (va : VAddr) (h : isKseg1 va = false) :
+    canonicalVAddr (loadAddr va) = va :=
+  _root_.canonicalVAddr_loadAddr va h
+
+theorem canonicalVAddr_loadAddr_kseg1 (va : VAddr) (h : isKseg1 va = true) :
+    canonicalVAddr (loadAddr va) = va - 0x20000000#32 :=
+  _root_.canonicalVAddr_loadAddr_kseg1 va h
+
+theorem loadAddr_canonicalVAddr (pa : PAddr)
+    (h : ¬ (0x20000000 ≤ pa.toNat ∧ pa.toNat < 0x40000000)) :
+    loadAddr (canonicalVAddr pa) = pa :=
+  _root_.loadAddr_canonicalVAddr pa h
+
 /-! ## Self-modifying code and the hosted environment -/
 
 theorem sw_next_instruction_is_fetched (s : State) (w rs rt imm : W32)
