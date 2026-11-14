@@ -92,7 +92,8 @@ structure Impl where
   the both the exact result and the IEEE-mandated representation of the exact result by no more than
   one unit in the least-significant place (ULP). It is implementation dependent whether the result
   is affected by the current rounding mode in FCSR" (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336).
-  The 1-ULP bound against the IEEE-mandated representation is `Impl.RecipAccurate`. -/
+  The 1-ULP bound against the IEEE-mandated representation is `Impl.RecipAccurate`, against the exact
+  result `Impl.RecipExact` (`Manual/Accuracy.lean`). -/
   recipS : Mips.Fp.Env → W32 → W32 × Mips.Fp.Flags
   /-- `RECIP.D`, as `recipS` (RECIP.fmt, p.336). -/
   recipD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
@@ -100,8 +101,8 @@ structure Impl where
   implementation dependent ... The computed result differs from both the exact result and the
   IEEE-mandated representation of the exact result by no more than two units in the
   least-significant place (ULP). The effect of the current FCSR rounding mode on the result is
-  implementation dependent" (MD00086 Vol II-A Rev 6.06, RSQRT.fmt, p.343). The 2-ULP bound is a
-  constraint the spec states here but does not formalize (`Impl.RecipAccurate` says why). -/
+  implementation dependent" (MD00086 Vol II-A Rev 6.06, RSQRT.fmt, p.343). The 2-ULP bound is
+  `Impl.RsqrtAccurate` (`Manual/Accuracy.lean`). -/
   rsqrtS : Mips.Fp.Env → W32 → W32 × Mips.Fp.Flags
   /-- `RSQRT.D`, as `rsqrtS` (RSQRT.fmt, p.343). -/
   rsqrtD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
@@ -274,9 +275,9 @@ result differs from the both the exact result and the IEEE-mandated representati
 by no more than one unit in the least-significant place (ULP)." Formalized against the IEEE-mandated
 representation, which is the IEEE core's correctly rounded `1.0 / fs` under the same environment
 (`Mips.Fp.f32Div`/`f64Div`, shared with the model): wherever that is a finite value, the
-implementation's result is finite and at most 1 ULP from it. The bound against the exact (real) result
-and the 2-ULP bound of `RSQRT.fmt` (p.343) need a real-number view of `1/x` and `1/sqrt(x)` that the IEEE
-core does not have; they are not formalized. -/
+implementation's result is finite and at most 1 ULP from it. The bound against the exact result and
+the 2-ULP bound of `RSQRT.fmt` (p.343) are `Impl.RecipExact` and `Impl.RsqrtAccurate`
+(`Manual/Accuracy.lean`; wave 10). -/
 def Impl.RecipAccurate (i : Impl) : Prop :=
   (∀ e x, Mips.Fp.binary32.isFinite (Mips.Fp.f32Div e 0x3F800000#32 x).1.toNat = true →
     Mips.Fp.binary32.isFinite (i.recipS e x).1.toNat = true ∧
@@ -284,10 +285,6 @@ def Impl.RecipAccurate (i : Impl) : Prop :=
   (∀ e x, Mips.Fp.binary64.isFinite (Mips.Fp.f64Div e 0x3FF0000000000000#64 x).1.toNat = true →
     Mips.Fp.binary64.isFinite (i.recipD e x).1.toNat = true ∧
       ULPDistD (i.recipD e x).1 (Mips.Fp.f64Div e 0x3FF0000000000000#64 x).1 ≤ 1)
-
-/-- **A valid implementation**: of this profile (`Impl.WF`) and with the accuracy the pages require
-(`Impl.RecipAccurate`). -/
-def Impl.Valid (i : Impl) : Prop := i.WF ∧ i.RecipAccurate
 
 /-- **The model's implementation constants** (SPEC-NOTES §9, the pins listed there): `Count` + 1 per
 instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_8580`
@@ -376,8 +373,5 @@ theorem modelImpl_WF : modelImpl.WF := by decide
 /-- `modelImpl`'s `RECIP` is the correctly rounded `1.0 / fs`: 0 ULP from the IEEE-mandated result. -/
 theorem modelImpl_recipAccurate : modelImpl.RecipAccurate :=
   ⟨fun _ _ h => ⟨h, by simp [ULPDistS, modelImpl]⟩, fun _ _ h => ⟨h, by simp [ULPDistD, modelImpl]⟩⟩
-
-/-- `modelImpl` is a valid implementation. -/
-theorem modelImpl_valid : modelImpl.Valid := ⟨modelImpl_WF, modelImpl_recipAccurate⟩
 
 end Manual

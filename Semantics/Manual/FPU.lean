@@ -8,10 +8,13 @@ MD00086 Vol II-A Rev 6.06 §2.2.2.3 (p.21-24): `ValueFPR`, `StoreFPR`, `CheckFPE
 `FPConditionCode`, `SetFPConditionCode`. FCSR fields: MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8
 (p.92-95). Exception handling: §6.7.1 (p.98-99).
 
-**Trusted dependency.** The IEEE 754 arithmetic itself (the exact result, the one correctly rounded
+**Shared dependency.** The IEEE 754 arithmetic itself (the exact result, the one correctly rounded
 pack under the rounding mode, the five IEEE flags) is the rounding core of `Semantics/FpOps.lean`
 (`Mips.Fp.f32Add`, `f32Sub`, `f32Mul`, `f32Div`, `f32Sqrt`, the conversions, and their 64-bit
-forms), wrapped below as `Manual.IEEE.*`. The FCSR bookkeeping around it (Cause, Enables, Flags,
+forms), wrapped below as `Manual.IEEE.*`. Since wave 10 the core's rounding and `ADD`/`SUB`/`MUL`/
+`DIV`/`SQRT` are proved correct against the IEEE definition of `Semantics/FpOpsSpec.lean`
+(`Semantics/FpOpsCorrect*.lean`; docs/MANUAL-SPEC.md I.8); what stays trusted is that definition
+and the parts the theorems do not cover (special operands, conversions, compares). The FCSR bookkeeping around it (Cause, Enables, Flags,
 the trap) is transcribed here again from the manual; `Mips.Fp.fpUpdate`, `Mips.Fp.envOf` and the
 FCSR masks of `FpOps.lean` are not used.
 
@@ -44,7 +47,7 @@ def FCSR_Enables (a : Arch) : BitVec 5 := a.FCSR.extractLsb' 7 5
 /-- `FCSR.FS` (bit 24), flush to zero. -/
 def FCSR_FS (a : Arch) : Bool := bit a.FCSR 24
 
-/-! ## The IEEE core (trusted, `Semantics/FpOps.lean`) -/
+/-! ## The IEEE core (shared, `Semantics/FpOps.lean`; proved correct in wave 10) -/
 
 namespace IEEE
 

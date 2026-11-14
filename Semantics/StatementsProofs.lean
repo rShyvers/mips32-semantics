@@ -1,6 +1,8 @@
 import Semantics.Specs.StepSpec
 import Semantics.Refine.Determinism
 import Semantics.Refine.ChoiceExact
+import Semantics.Refine.ImplValid
+import Semantics.FpOpsCorrectApi
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -1203,5 +1205,101 @@ theorem inv_hostedStart : Refine.Inv hostedStart :=
 
 theorem inv_load (p : Program) : Refine.Inv (load p) :=
   _root_.Refine.inv_load p
+
+/-! ## Wave 10: the IEEE rounding core is proved correct
+
+`Mips.Fp.Format.RoundSpec` (`Semantics/FpOpsSpec.lean`) is the IEEE 754 definition the manual
+references, written from the manual and not from the core: the values of the encodings
+(`Format.value`, Table 6.2), correct rounding to the representable values in each direction
+(`CorrectlyRounded`, Table 6.10, ties to even), overflow and its result (§6.7.2.5, Table 6.14),
+inexact (§6.7.2.6), tininess after rounding (§6.7.2.3). The exact result is a `Cut` (its order
+relation with the rationals) so that `√x` can be stated. -/
+
+theorem value_eq_toExact (f : Mips.Fp.Format) (n : Nat) (hn : n < 2 ^ f.width)
+    (he : f.expField n ≠ f.expMax) : f.value n = some (f.toExact n).toRat :=
+  _root_.Mips.Fp.value_eq_toExact f n hn he
+
+theorem roundCore_correct_binary32 (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact) (hw : w.sig ≠ 0) :
+    Mips.Fp.binary32.RoundSpec rm (Mips.Fp.Cut.ofRat w.toRat) (Mips.Fp.binary32.roundCore rm false w) :=
+  _root_.Mips.Fp.roundCore_correct_binary32 rm w hw
+
+theorem roundCore_correct_binary64 (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact) (hw : w.sig ≠ 0) :
+    Mips.Fp.binary64.RoundSpec rm (Mips.Fp.Cut.ofRat w.toRat) (Mips.Fp.binary64.roundCore rm false w) :=
+  _root_.Mips.Fp.roundCore_correct_binary64 rm w hw
+
+theorem roundSpec_representable (f : Mips.Fp.Format) {rm : Mips.Fp.RoundingMode} {c : Mips.Fp.Cut}
+    {R : Mips.Fp.Format.Rounded} (h : f.RoundSpec rm c R) (hov : R.overflow = false) :
+    ∃ r, f.value R.bits = some r ∧ Mips.Fp.CorrectlyRounded f.Representable f.UnboundedEven rm c r :=
+  _root_.Mips.Fp.roundSpec_representable f h hov
+
+theorem roundCore_flush_tiny (f : Mips.Fp.Format) (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact)
+    (hw : w.sig ≠ 0) (ht : w.toRat.abs < (2 : Rat) ^ f.emin) :
+    f.roundCore rm true w = ⟨f.zero w.sign, false, true, true⟩ :=
+  _root_.Mips.Fp.roundCore_flush_tiny f rm w hw ht
+
+theorem roundCore_flush_normal (f : Mips.Fp.Format) (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact)
+    (hw : w.sig ≠ 0) (ht : ¬ w.toRat.abs < (2 : Rat) ^ f.emin) :
+    f.roundCore rm true w = f.roundCore rm false w :=
+  _root_.Mips.Fp.roundCore_flush_normal f rm w hw ht
+
+theorem f32Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hxy : x + y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x + y)) R ∧
+      Mips.Fp.f32Add e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f32Add_correct e he ha hb hxy
+
+theorem f32Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hxy : x - y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x - y)) R ∧
+      Mips.Fp.f32Sub e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f32Sub_correct e he ha hb hxy
+
+theorem f32Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x * y)) R ∧
+      Mips.Fp.f32Mul e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f32Mul_correct e he ha hb hx hy
+
+theorem f32Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x / y)) R ∧
+      Mips.Fp.f32Div e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f32Div_correct e he ha hb hx hy
+
+theorem f32Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 32} {x : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hx : 0 < x) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.sqrt x) R ∧
+      Mips.Fp.f32Sqrt e a = (BitVec.ofNat 32 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f32Sqrt_correct e he ha hx
+
+theorem f64Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hxy : x + y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x + y)) R ∧
+      Mips.Fp.f64Add e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f64Add_correct e he ha hb hxy
+
+theorem f64Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hxy : x - y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x - y)) R ∧
+      Mips.Fp.f64Sub e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f64Sub_correct e he ha hb hxy
+
+theorem f64Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x * y)) R ∧
+      Mips.Fp.f64Mul e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f64Mul_correct e he ha hb hx hy
+
+theorem f64Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x / y)) R ∧
+      Mips.Fp.f64Div e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f64Div_correct e he ha hb hx hy
+
+theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64} {x : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hx : 0 < x) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.sqrt x) R ∧
+      Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
+  _root_.Mips.Fp.f64Sqrt_correct e he ha hx
 
 end Trusted

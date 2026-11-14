@@ -57,15 +57,16 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1857 lines) states **159 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (2004 lines) states **175 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
-each by the real theorem of the same name in `Semantics/Specs/` (the last 16: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Manual/Choices.lean`). `lake comparator` (config: `comparator.json`)
+each by the real theorem of the same name in `Semantics/Specs/` (the 16 refinement statements: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Refine/ImplValid.lean`; the 16 wave-10 floating-point statements: in `Semantics/FpOpsCorrect*.lean`). `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements), the statement vocabulary
 `Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 16 refinement statements, the manual specification
-`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`). The 159 statements are a
+`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`), and, for the 16 floating-point
+statements, the IEEE 754 vocabulary `Semantics/FpOpsSpec.lean` (see (d)). The 175 statements are a
 selection: every global theorem below and at least one per-instruction statement per family. The arrangement and
 its limits are in `docs/PROOF-NOTES.md`.
 
@@ -74,7 +75,8 @@ transcribes the manuals' pseudocode (each Operation copied from its instruction 
 interrupt, timer and reset processing of Vol III, the instruction diagrams as `Manual.enc`) into an executable
 specification `Manual.InstructionTime`, written independently of the model: it names no definition of
 `Step.lean`/`State.lean` and shares with the model only the words, the `Instruction` names and the IEEE rounding core
-of `FpOps.lean` (gate step 1 checks the imports and names, `scripts/manual_independence.py`). The theorem
+of `FpOps.lean` (gate step 1 checks the imports and names, `scripts/manual_independence.py`). Since wave 10 that shared
+core is itself proved correct against the IEEE 754 definition the manual references (see (d)). The theorem
 
 ```lean
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
@@ -120,13 +122,16 @@ transcription, or in what is trusted below. Limits, stated plainly:
   (§1.2.2, p.4); and quiet-NaN results for the QNaN choices of `CVT` (MD00082 §6.3.1.5, p.82). Not
   formalized: "when possible, this QNaN result is one of the operand QNaN values" (p.82), and
   `causeCE`/`storeClearsLL`/`loadClearsLL`, which the manual leaves open without these restrictions.
-- `Manual.Impl.Valid` (`modelImpl_valid`) formalizes `RECIP.fmt`'s bound against the IEEE-mandated
-  representation (1 ULP of the IEEE core's correctly rounded `1.0 / fs`, RECIP.fmt p.336). Not formalized:
-  `RECIP.fmt`'s bound against the exact real result (it follows from the 0-ULP result only if the core's
-  division is correctly rounded, which the core is trusted for, not proved), and `RSQRT.fmt`'s 2-ULP bound
-  (p.343). For `RSQRT` the model computes `SQRT.fmt` then `DIV.fmt` (two roundings); a proof that this stays
-  within 2 ULP of `1/sqrt(x)` needs an error bound for the core's rounding (`Mips.Fp.Format.roundCore`) and
-  for its integer square root, which the repository does not have; wave 9 did not prove it (`docs/MANUAL-SPEC.md` I.7).
+- `Manual.Impl.Valid` (`modelImpl_valid`, `Manual/Accuracy.lean`) formalizes the accuracy the pages require of
+  `RECIP.fmt` (p.336) and `RSQRT.fmt` (p.343): `RECIP` within 1 ULP of the IEEE-mandated representation (order-key
+  distance to the core's `1.0 / fs`) and within 1 ULP of the exact `1/fs` (`Impl.RecipExact`), `RSQRT` within 2 ULP
+  of the exact `1/√fs` (`Impl.RsqrtAccurate`, stated by squares since `1/√fs` need not be rational). The ULP is the
+  one of the exact result's binade (`Manual.ULP`, the denormalized unit below `2^E_min`). Restrictions, stated
+  plainly: the exact-result bounds assume no flushing (FCSR.FS = 0; with FS = 1 a tiny result may become zero, which
+  no ULP bound survives) and, for `RECIP`, an exact `1/fs` at most the largest finite number (beyond it the
+  IEEE-mandated representation itself overflows); they constrain finite results only. For the model (`RECIP` =
+  `DIV.fmt` of 1.0, `RSQRT` = `SQRT.fmt` then `DIV.fmt`) they are proved from the correctness of the core
+  (`Semantics/FpOpsCorrectRecip.lean`, `FpOpsCorrectRsqrt.lean`, in every rounding mode).
 - The environment layer (`Env.lean`: loader, hosted services, stopping conventions) is outside `step` and outside
   the theorem; `inv_load` only says the loader's start state satisfies the invariant.
 
@@ -151,7 +156,8 @@ The results that are genuinely global, or independent of how an individual instr
 
 | Result | Where | In the trusted surface |
 |---|---|---|
-| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; an interrupt is a real choice; `ChoiceFree` is exact (every state it rejects has two valid oracles that differ); Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/ChoicePoints.lean`, `Refine/ChoiceExact.lean`, `Refine/Decode.lean`, `Manual/Choices.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `interrupt_choice_exists`, `choiceFree_exact`, `modelImpl_valid`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
+| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; an interrupt is a real choice; `ChoiceFree` is exact (every state it rejects has two valid oracles that differ); Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/ChoicePoints.lean`, `Refine/ChoiceExact.lean`, `Refine/Decode.lean`, `Manual/Choices.lean`, `Refine/ImplValid.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `interrupt_choice_exists`, `choiceFree_exact`, `modelImpl_valid`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
+| the IEEE rounding core is correct: `roundCore` delivers the correctly rounded value (each mode, ties to even), overflow and its Table 6.14 result, the sign, inexact, tininess after rounding; flush to zero; `ADD`/`SUB`/`MUL`/`DIV`/`SQRT` (`.S`, `.D`) are correctly rounded; `Format.value` (Table 6.2) is the core's `toExact` | `FpOpsSpec.lean` (definitions), `FpOpsCorrect*.lean` | `value_eq_toExact`, `roundCore_correct_binary32`/`_binary64`, `roundSpec_representable`, `roundCore_flush_tiny`/`_normal`, `f32Add_correct` … `f32Sqrt_correct`, `f64Add_correct` … `f64Sqrt_correct` |
 | `decode (encode i) = some i` for every constructor, under `WellFormed` | `Specs/DecodeSpec.lean` | `decode_encode` |
 | `$zero` is unchanged by every `step`, every `run` and every hosted run; a write to `$zero` is never observable | `Specs/Invariants.lean`, `Specs/Hosted.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable`, `runHosted_preserves_zero_register` |
 | register files keep size 32 under `step`; `run` from `initialState` is well-formed | `Specs/RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed` |
@@ -177,11 +183,26 @@ with `pc + 4`, and then in a delay slot with pending target `t` it yields the sa
 
 **(d) Floating point.** Arithmetic is exact rational arithmetic followed by one rounding (add, subtract, multiply
 exactly; divide and square root to `prec + 2` bits with a sticky bit; then `Format.roundCore`), defined on bit
-patterns with no host floats in any definition. Its correctness against IEEE-754 is established by kernel-checked
-corner-case theorems (`Semantics/FpOpsFacts.lean`) and by differential `#guard` tests against Lean's `Float32`/
-`Float` (`Semantics/Tests/FpOpsTests.lean`) plus the QEMU oracle. **There is no general correctness proof of the
-rounding core (`Format.roundCore`) or of the integer square root (`isqrt`).** That the compare predicates' field
-order equals the order of the rational values is tested, not proved (`FpCompareFacts.lean` says so).
+patterns with no host floats in any definition. **Since wave 10 the rounding core is proved correct** against the
+IEEE 754 definition the manual references, written independently of the core in `Semantics/FpOpsSpec.lean`:
+`Format.value` (the value of an encoding, MD00082 Vol I-A Rev 6.01 Table 6.2, p.80-81), `CorrectlyRounded` (the
+largest/least/nearest representable value, ties to the even one, Table 6.10, p.95, over an explicit set of
+representable values), and `Format.RoundSpec` (overflow per §6.7.2.5 with the Table 6.14 result, p.100-102; inexact
+per §6.7.2.6; tininess after rounding per §6.7.2.3, p.101, "The MIPS architecture specifies that tininess be
+detected after rounding"). An exact result is a `Cut` (its comparisons with the rationals), so `√x` is stated
+exactly. Proved (`Semantics/FpOpsCorrect*.lean`, kernel-checked, no Mathlib): for every nonzero exact value and every
+format with at least two exponent and two fraction bits, `roundCore f rm false` meets `RoundSpec`
+(`roundCore_correct`; for binary32/64 on the trusted surface), and without overflow its value is correctly rounded to
+the format's finite values; an exact zero gives the zero of its sign; with FCSR.FS = 1, a value tiny before rounding
+becomes zero, tiny and inexact, any other is rounded as with FS = 0 (`roundCore_flush_*`); `Exact.add`/`Exact.mul`
+are exact, `Exact.div`/`Exact.sqrt` (with `isqrt`) agree with the true quotient / root on every grid the rounding uses
+(the sticky-bit argument); hence `f32Add` … `f64Sqrt` are correctly rounded for finite operands with a nonzero exact
+result (no flushing). Not covered by these theorems: NaN/∞/zero operands and an exactly zero sum (the special-value
+rules of each operation, still covered by the corner-case facts `Semantics/FpOpsFacts.lean`), flushed *operands*
+(the model never flushes operands), the conversions (`CVT`, `ROUND` … `FLOOR`), the multiply-add family as a whole
+(each step is a proved operation) and the compare predicates (`FpCompareFacts.lean`; that their field order is the
+order of the values is tested, not proved). Differential `#guard` tests against Lean's `Float32`/`Float`
+(`Semantics/Tests/FpOpsTests.lean`) and the QEMU oracle remain.
 
 **(e) Differential evidence.**
 - *MARS 4.5* (`tests/corpus`, 37 programs, `DiffHarness`): the model and the real simulator agree on every program.
@@ -214,8 +235,12 @@ model itself). For the refinement result (b′) that is precisely: the `Semantic
 transcription; each Operation cites its page), the choices `Manual.modelImpl`/`Manual.modelOracle` (each a
 documented pin in `SPEC-NOTES.md`, and `modelOracle_valid` checks them against the manual's limits), `Refine.abs` (a
 field-by-field projection) and `Refine.Inv` (established at reset and load and preserved by `step`, so not vacuous),
-and the IEEE rounding core of `FpOps.lean` (`Mips.Fp.f32Add` …, wrapped as `Manual.IEEE.*`), which both sides share,
-so a rounding bug there would not be caught by the refinement (see (d)); not their proofs (`Semantics/Refine/*`,
+and the IEEE rounding core of `FpOps.lean` (`Mips.Fp.f32Add` …, wrapped as `Manual.IEEE.*`), which both sides share;
+since wave 10 its arithmetic and rounding are **proved** against the IEEE definition (see (d)), so what remains
+trusted of it is that definition (`Semantics/FpOpsSpec.lean`: `Format.value`, `Grid` and the `Unbounded*` sets of
+representable values, `Cut`, `CorrectlyRounded`, `RoundSpec`, `overflowResult`) and the parts the theorems do not
+cover (special operands, the NaN choices, conversions, the operations' flags beyond `Rounded.flags` with the
+FCSR.Enables, flushing of operands); not their proofs (`Semantics/Refine/*`,
 kernel-replayed). Also trusted: the assembler, which is **tested but not proved** (`Semantics/Tests/AsmTests.lean`, the LLVM oracle,
 the MARS corpus); the harnesses, `scripts/oracle.py` and the QEMU boot stub; and `docs/spec`, which is
 human-written.
@@ -323,19 +348,21 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 159 trusted theorem names, challenge and solution modules
+comparator.json                the 175 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
 Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
+Semantics/FpOpsSpec.lean       the IEEE 754 definition the rounding core is proved against (definitions only)
+Semantics/FpOpsCorrect*.lean   the proof that the rounding core and the arithmetic meet it (wave 10)
 Semantics/Specs/               the specification: Defs, WellFormed (vocabulary); Lemmas, Tactics, Fixtures (plumbing);
                                DecodeSpec, Exception, Fetch, SelfModifying, DelaySlot, Invariants, RegFileSize,
                                Mode, Reset, Mmu, Loader, Hosted (global theorems);
                                one file per instruction family (Arith, Shift, MulDiv, ..., FpuArith, ...); StepSpec (index)
 Semantics/Manual/              the independent transcription of the manuals (Arch, Pseudocode, CP0, Memory, FPU,
-                               Exceptions, Interrupts, Timer, Reset, Encoding, Ops/<Family>, Operation, Cycle, Relation)
+                               Exceptions, Interrupts, Timer, Reset, Encoding, Ops/<Family>, Operation, Cycle, Relation, Accuracy)
 Semantics/Refine/              the refinement of Manual by step: Defs (abs, Inv), bridges, one file per family
-                               (<ctor>_refines), Cycle, Decode, Invariant, Instr (allInstrRefines), Step, Determinism
-Semantics/Statements.lean      the trusted surface (159 statements, proofs elided)
+                               (<ctor>_refines), Cycle, Decode, Invariant, Instr (allInstrRefines), Step, Determinism, ImplValid
+Semantics/Statements.lean      the trusted surface (175 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs and Refine
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables
@@ -356,7 +383,8 @@ vendor/mars/                   the MARS 4.5 jar, used by DiffHarness only
 2. The model (4344 lines in all): `Semantics/Word.lean` (32), `Types.lean` (240), `State.lean` (148),
    `Instruction.lean` (1370), `FpOps.lean` (1172), `Step.lean` (1382). `DESIGN.md` is the map. The environment
    around it (not the architecture): `Env.lean` (195).
-3. The statements: `Semantics/Specs/Defs.lean` (109), `WellFormed.lean` (194), then `Semantics/Statements.lean` (1857).
+3. The statements: `Semantics/Specs/Defs.lean` (109), `WellFormed.lean` (194), then `Semantics/Statements.lean` (2004).
+   For the floating-point statements: `Semantics/FpOpsSpec.lean` (the IEEE definition, read it in full).
    For the refinement statements (its last section): `docs/MANUAL-SPEC.md`, `Semantics/Manual/Cycle.lean` and
    `Relation.lean` (the instruction time and the relation), `Manual/Ops/*` (one Operation per manual page),
    `Manual/Choices.lean` (the pins), `Semantics/Refine/Defs.lean` (`abs`, `Inv`).

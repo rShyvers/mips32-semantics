@@ -45,7 +45,7 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (158 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs` and `Manual/*` for the top theorems) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (159 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs` and `Manual/*` for the top theorems) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
   pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
@@ -54,9 +54,10 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Semantics/Refine/` = proofs that `step` refines it: `Defs.lean` (`abs : State → Manual.Arch`, `Good`, `Inv` — trusted definitions),
   `Abs`/`Bridge*`/`Fetch` plumbing, `<Family>.lean` `<ctor>_refines` (all 183), `Instr.lean` (`allInstrRefines`), `Cycle` (non-instruction
   paths), `Decode` (`decoderSound_decode`), `Invariant` (`step_preserves_inv`), `Step.lean` (TOP: `step_eq_manual`, `run_refines_manual`),
-  `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`);
+  `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`;
+  imports `ChoiceFp`), `ChoiceWitness`/`ChoiceRows{,Fp,Fma}`/`ChoiceExact` (`choiceFree_exact`, `choiceFree_iff`: ChoiceFree is exact);
   `Manual/Relation.lean` = `Step`/`Oracle.Valid` (§1.2.1 limits incl. non-interference, §1.2.2 UNDEFINED, QNaN)/`UnpredictableLimits`/
-  `ConsultsOracle`/exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`, `Impl.Valid` (`modelImpl_valid`).
+  `ConsultsOracle` (with `CmpAbsorbs`/`MaddAbsorbs`)/exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`, `Impl.Valid` (`modelImpl_valid`).
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
   `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).

@@ -1,5 +1,7 @@
 import Semantics.Specs.Defs
 import Semantics.Refine.Defs
+import Semantics.FpOpsSpec
+import Semantics.Manual.Accuracy
 
 /-!
 # Statements — the trusted surface, statements only
@@ -1811,9 +1813,11 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
       Manual.InstructionTime Manual.modelImpl o₁ dec a ≠ Manual.InstructionTime Manual.modelImpl o₂ dec a := by
   sorry
 
-/-- **The model's implementation constants are valid**: of this profile (`Manual.Impl.WF`) and with
+/-- **The model's implementation constants are valid**: of this profile (`Manual.Impl.WF`), with
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation of `1.0 / fs` (MD00086 Vol II-A Rev
-6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`). -/
+6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`) and of the exact `1/fs`
+(`Manual.Impl.RecipExact`), and `RSQRT.fmt` within 2 ULP of the exact `1/√fs` (RSQRT.fmt, p.343;
+`Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`, wave 10). -/
 theorem modelImpl_valid : Manual.modelImpl.Valid := by
   sorry
 
@@ -1852,6 +1856,149 @@ theorem inv_hostedStart : Refine.Inv hostedStart := by
 /-- **Every loaded program starts in a state of the invariant**, so `run_refines_manual` applies to
 `run (load p) n` for every `n`. -/
 theorem inv_load (p : Program) : Refine.Inv (load p) := by
+  sorry
+
+/-! ## Wave 10: the IEEE rounding core is proved correct
+
+`Mips.Fp.Format.RoundSpec` (`Semantics/FpOpsSpec.lean`) is the IEEE 754 definition the manual
+references, written from the manual and not from the core: the values of the encodings
+(`Format.value`, Table 6.2), correct rounding to the representable values in each direction
+(`CorrectlyRounded`, Table 6.10, ties to even), overflow and its result (§6.7.2.5, Table 6.14),
+inexact (§6.7.2.6), tininess after rounding (§6.7.2.3). The exact result is a `Cut` (its order
+relation with the rationals) so that `√x` can be stated. -/
+
+/-- **The value of a finite encoding is the core's exact value**: `Mips.Fp.Format.value` (the
+manual's Table 6.2, MD00082 Vol I-A Rev 6.01 p.80-81: `(-1)^s × 2^E × 1.f`, `(-1)^s × 2^E_min × 0.f`)
+of every `width`-bit pattern that is not ±∞/NaN is the rational value of `toExact`, the exact value
+the arithmetic of the core starts from. -/
+theorem value_eq_toExact (f : Mips.Fp.Format) (n : Nat) (hn : n < 2 ^ f.width)
+    (he : f.expField n ≠ f.expMax) : f.value n = some (f.toExact n).toRat := by
+  sorry
+
+/-- **The rounding core is correct for binary32** (Wave 10; FCSR.FS = 0): for every nonzero exact
+value, `roundCore` delivers what `Mips.Fp.Format.RoundSpec` requires: the value correctly rounded in
+direction `rm` (MD00082 Vol I-A Rev 6.01 Table 6.10, p.95; ties to even), overflow per §6.7.2.5 with
+the Table 6.14 result (p.100-102), the sign of the exact value, inexact iff the rounded value is not
+the exact one (§6.7.2.6), tininess after rounding (§6.7.2.3, p.101). -/
+theorem roundCore_correct_binary32 (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact) (hw : w.sig ≠ 0) :
+    Mips.Fp.binary32.RoundSpec rm (Mips.Fp.Cut.ofRat w.toRat) (Mips.Fp.binary32.roundCore rm false w) := by
+  sorry
+
+/-- **The rounding core is correct for binary64** (as `roundCore_correct_binary32`). -/
+theorem roundCore_correct_binary64 (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact) (hw : w.sig ≠ 0) :
+    Mips.Fp.binary64.RoundSpec rm (Mips.Fp.Cut.ofRat w.toRat) (Mips.Fp.binary64.roundCore rm false w) := by
+  sorry
+
+/-- **Without overflow the delivered value is correctly rounded to the format's finite values**
+(`Mips.Fp.Format.Representable`, the values of the encodings), with the same ties-to-even rule. -/
+theorem roundSpec_representable (f : Mips.Fp.Format) {rm : Mips.Fp.RoundingMode} {c : Mips.Fp.Cut}
+    {R : Mips.Fp.Format.Rounded} (h : f.RoundSpec rm c R) (hov : R.overflow = false) :
+    ∃ r, f.value R.bits = some r ∧ Mips.Fp.CorrectlyRounded f.Representable f.UnboundedEven rm c r := by
+  sorry
+
+/-- **Flush to zero (FCSR.FS = 1), tiny case**: a nonzero exact value strictly between `±2^E_min`
+(tininess before rounding, MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102) becomes the zero of its sign,
+reported tiny and inexact ("Flushing of tiny non-zero results causes Inexact and Underflow exceptions
+to be signaled"). -/
+theorem roundCore_flush_tiny (f : Mips.Fp.Format) (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact)
+    (hw : w.sig ≠ 0) (ht : w.toRat.abs < (2 : Rat) ^ f.emin) :
+    f.roundCore rm true w = ⟨f.zero w.sign, false, true, true⟩ := by
+  sorry
+
+/-- **Flush to zero (FCSR.FS = 1), other values**: rounded as with FS = 0. -/
+theorem roundCore_flush_normal (f : Mips.Fp.Format) (rm : Mips.Fp.RoundingMode) (w : Mips.Fp.Exact)
+    (hw : w.sig ≠ 0) (ht : ¬ w.toRat.abs < (2 : Rat) ^ f.emin) :
+    f.roundCore rm true w = f.roundCore rm false w := by
+  sorry
+
+/-- **`ADD.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+sum is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact sum. -/
+theorem f32Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hxy : x + y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x + y)) R ∧
+      Mips.Fp.f32Add e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`SUB.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+difference is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact difference. -/
+theorem f32Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hxy : x - y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x - y)) R ∧
+      Mips.Fp.f32Sub e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`MUL.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+product is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact product. -/
+theorem f32Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x * y)) R ∧
+      Mips.Fp.f32Mul e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`DIV.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+quotient is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact quotient. -/
+theorem f32Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hb : Mips.Fp.binary32.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x / y)) R ∧
+      Mips.Fp.f32Div e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`SQRT.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+square root is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact square root `√x` (`Mips.Fp.Cut.sqrt`). -/
+theorem f32Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 32} {x : Rat}
+    (ha : Mips.Fp.binary32.value a.toNat = some x) (hx : 0 < x) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary32.RoundSpec e.rm (Mips.Fp.Cut.sqrt x) R ∧
+      Mips.Fp.f32Sqrt e a = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`ADD.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+sum is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact sum. -/
+theorem f64Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hxy : x + y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x + y)) R ∧
+      Mips.Fp.f64Add e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`SUB.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+difference is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact difference. -/
+theorem f64Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hxy : x - y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x - y)) R ∧
+      Mips.Fp.f64Sub e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`MUL.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+product is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact product. -/
+theorem f64Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x * y)) R ∧
+      Mips.Fp.f64Mul e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`DIV.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+quotient is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact quotient. -/
+theorem f64Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hb : Mips.Fp.binary64.value b.toNat = some y) (hx : x ≠ 0) (hy : y ≠ 0) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.ofRat (x / y)) R ∧
+      Mips.Fp.f64Div e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
+  sorry
+
+/-- **`SQRT.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+square root is nonzero, the result and the flags are those of a rounding record meeting
+`Mips.Fp.Format.RoundSpec` for the exact square root `√x` (`Mips.Fp.Cut.sqrt`). -/
+theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64} {x : Rat}
+    (ha : Mips.Fp.binary64.value a.toNat = some x) (hx : 0 < x) :
+    ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.sqrt x) R ∧
+      Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
 end Trusted

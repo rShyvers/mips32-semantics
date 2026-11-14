@@ -10,6 +10,24 @@ import Semantics.Asm
 import Semantics.FpOps
 import Semantics.FpOpsFacts
 import Semantics.FpCompareFacts
+-- Wave 10: the IEEE rounding core proved against the IEEE 754 definition (FpOpsSpec).
+import Semantics.FpOpsSpec
+import Semantics.FpOpsCorrectNat
+import Semantics.FpOpsCorrectGrid
+import Semantics.FpOpsCorrectValue
+import Semantics.FpOpsCorrectShape
+import Semantics.FpOpsCorrectScale
+import Semantics.FpOpsCorrectPack
+import Semantics.FpOpsCorrectCore
+import Semantics.FpOpsCorrectMain
+import Semantics.FpOpsCorrectExact
+import Semantics.FpOpsCorrectDivSqrt
+import Semantics.FpOpsCorrectOps
+import Semantics.FpOpsCorrectApi
+import Semantics.FpOpsCorrectAcc
+import Semantics.FpOpsCorrectRecip
+import Semantics.FpOpsCorrectRsqrtAux
+import Semantics.FpOpsCorrectRsqrt
 import Semantics.Step
 -- The environment layer (loader, hosted run): not part of the architecture.
 import Semantics.Env
@@ -20,6 +38,7 @@ import Semantics.StatementsProofs
 -- The independent manual specification (docs/MANUAL-SPEC.md) and the refinement proofs.
 import Semantics.Manual.Arch
 import Semantics.Manual.Choices
+import Semantics.Manual.Accuracy
 import Semantics.Manual.Pseudocode
 import Semantics.Manual.CP0
 import Semantics.Manual.Memory
@@ -95,3 +114,5 @@ import Semantics.Tests.StepExceptionTests
 import Semantics.Tests.StepFpTests
 import Semantics.Tests.EnvTests
 import Semantics.Tests.ManualTests
+-- Wave 10: `Manual.modelImpl_valid` (RECIP/RSQRT accuracy from the proved core)
+import Semantics.Refine.ImplValid
