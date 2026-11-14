@@ -95,6 +95,22 @@ structure Oracle where
   following registers have defined state" (MD00090 Vol III Rev 6.02 §6.2.5, p.89). The oracle gives
   the state before the listed assignments of the Operation are made (p.89-90). -/
   resetUndefined : Arch → Arch
+  -- 7B S3 control + system
+  /-- A branch-and-link with `rs = 31`: "GPR 31 must not be used for the source register rs, because
+  such an instruction does not have the same effect when re-executed. The result of executing such
+  an instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, BLTZAL p.98, BGEZAL p.76, BLTZALL
+  p.99, BGEZALL p.80). -/
+  linkSourceIs31 : Arch → Instruction → Outcome
+  /-- `JALR` with `rs = rd`: "Register specifiers rs and rd must not be equal, because such an
+  instruction does not have the same effect when re-executed. The result of executing such an
+  instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, JALR, p.196). -/
+  jalrRsIsRd : Arch → Instruction → Outcome
+  /-- A shadow register set that is not implemented: `SRSCtl.PSS` larger than `SRSCtl.HSS`: "The
+  operation of the processor is UNDEFINED if a value larger than the one in this field is written
+  to any of these other values" (MD00090 Vol III Rev 6.02, SRSCtl, Table 9.49, p.203). Under
+  `modelImpl` (`HSS = PSS = CSS = 0`) never reached by `RDPGPR`, `WRPGPR`, `ERET`. -/
+  shadowSetUndefined : Arch → Instruction → Outcome
+  -- end 7B S3
 
 /-- Whether an instruction is `PAUSE`, whose format diagram is SPECIAL, `0`, `0`, `0`, `5`, SLL
 (MD00086 Vol II-A Rev 6.06, PAUSE, p.317): the encoding of `SLL r0, r0, 5`. -/
@@ -130,5 +146,10 @@ def modelOracle : Oracle where
   storeClearsLL := fun _ => true
   causeCE := fun _ _ => 0#2
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
+  -- 7B S3 control + system
+  linkSourceIs31 := fun _ _ => .proceed
+  jalrRsIsRd := fun _ _ => .proceed
+  shadowSetUndefined := fun _ _ => .signal .ReservedInstruction
+  -- end 7B S3
 
 end Manual

@@ -95,6 +95,16 @@ def resolve (out : Outcome) : Pseudo Unit := fun _ f =>
   | .proceed => (.ok (), f)
   | .arbitrary a => (.ok (), { f with arch := a })
 
+-- 7B S3 control + system
+/-- **UNPREDICTABLE with a result the oracle may leave as the ordinary one**: if the oracle resolves
+the operation as `.proceed`, the Operation goes on as written (`normal`); otherwise the resolution
+(a signalled exception or another architectural state) replaces it. -/
+def unpredictableOr (out : Outcome) (normal : Pseudo Unit) : Pseudo Unit :=
+  match out with
+  | .proceed => normal
+  | o => resolve o
+-- end 7B S3
+
 /-- `PC ← v` at time `I` (an instruction without a delay slot, e.g. `ERET`). -/
 def setPC (v : W32) : Pseudo Unit := fun _ f => (.ok (), { f with pcSet := some v })
 

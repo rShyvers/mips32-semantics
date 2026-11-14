@@ -39,7 +39,20 @@ page of the diagram):
 * `BEQL rs, rt, offset`: BEQL `010100` | rs | rt | offset (BEQL, p.73).
 * `ADD.S fd, fs, ft`: COP1 `010001` | fmt | ft | fs | fd | ADD `000000` (ADD.fmt, p.34), fmt S =
   16 (`10000`; Table A.22, p.459).
-* `MTC0 rt, rd, sel`: COP0 `010000` | MT `00100` | rt | rd | `0000 0000` | sel (MTC0, p.290). -/
+* `MTC0 rt, rd, sel`: COP0 `010000` | MT `00100` | rt | rd | `0000 0000` | sel (MTC0, p.290).
+* 7B S3 control + system (printed pages of the diagrams; opcode `000001` is REGIMM):
+  BNE `000101` rs rt offset (p.103); BLEZ `000110`, BGTZ `000111` with `rt = 00000` (p.94, p.88);
+  BLTZ `00000`, BGEZ `00001`, BLTZAL `10000`, BGEZAL `10001` in the REGIMM `rt` field (p.97, p.75,
+  p.98, p.76); BNEL `010101`, BLEZL `010110`, BGTZL `010111` (p.104, p.95, p.89); BLTZL `00010`,
+  BGEZL `00011`, BLTZALL `10010`, BGEZALL `10011` (p.101, p.86, p.99, p.80); J `000010`, JAL
+  `000011` with the 26-bit `instr_index` (p.194, p.195); JR SPECIAL, `rs`, 0, hint 0, `001000` (p.206,
+  pre-Release 6 diagram); JALR SPECIAL, `rs`, 0, `rd`, hint 0, `001001` (p.196, pre-Release 6
+  diagram); MFC0 COP0 `010000` | MF `00000` | rt | rd | 0 | sel (p.266); DI/EI COP0 | MFMC0 `01011` |
+  rt | 12 `01100` | 0 | sc (0: DI, 1: EI) | `00` | `000` (p.164, p.176); ERET COP0 | CO 1 | 0^19 |
+  `011000` (p.177); WAIT COP0 | CO 1 | code (19 bits) | `100000` (p.442); RDPGPR COP0 | `01010` |
+  rt | rd | 0^11 (p.335); WRPGPR COP0 | `01110` | rt | rd | 0^11 (p.444); RDHWR SPECIAL3 `011111` |
+  0 | rt | rd | 0 | `111011` (p.332; the `sel` of the Release 6 diagram is zero here).
+ -/
 def enc : Instruction → Option W32
   | .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)
   | .lw base rt off => some (iFormat 0x23#32 base rt off)
@@ -50,6 +63,37 @@ def enc : Instruction → Option W32
   | .addS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0#32)
   | .mtc0 rt rd sel => some (fld 6 26 0x10#32 ||| fld 5 21 0x04#32 ||| fld 5 16 rt ||| fld 5 11 rd |||
       fld 3 0 sel)
+  -- 7B S3 control + system
+  | .bne rs rt off => some (iFormat 0x05#32 rs rt off)
+  | .blez rs off => some (iFormat 0x06#32 rs 0#32 off)
+  | .bgtz rs off => some (iFormat 0x07#32 rs 0#32 off)
+  | .bltz rs off => some (iFormat 0x01#32 rs 0x00#32 off)
+  | .bgez rs off => some (iFormat 0x01#32 rs 0x01#32 off)
+  | .bltzal rs off => some (iFormat 0x01#32 rs 0x10#32 off)
+  | .bgezal rs off => some (iFormat 0x01#32 rs 0x11#32 off)
+  | .bnel rs rt off => some (iFormat 0x15#32 rs rt off)
+  | .blezl rs off => some (iFormat 0x16#32 rs 0#32 off)
+  | .bgtzl rs off => some (iFormat 0x17#32 rs 0#32 off)
+  | .bltzl rs off => some (iFormat 0x01#32 rs 0x02#32 off)
+  | .bgezl rs off => some (iFormat 0x01#32 rs 0x03#32 off)
+  | .bltzall rs off => some (iFormat 0x01#32 rs 0x12#32 off)
+  | .bgezall rs off => some (iFormat 0x01#32 rs 0x13#32 off)
+  | .j target => some (fld 6 26 0x02#32 ||| fld 26 0 target)
+  | .jal target => some (fld 6 26 0x03#32 ||| fld 26 0 target)
+  | .jr rs => some (rFormat 0#32 rs 0#32 0#32 0#32 0x08#32)
+  | .jalr rs rd => some (rFormat 0#32 rs 0#32 rd 0#32 0x09#32)
+  | .mfc0 rt rd sel => some (fld 6 26 0x10#32 ||| fld 5 21 0x00#32 ||| fld 5 16 rt ||| fld 5 11 rd |||
+      fld 3 0 sel)
+  | .di rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 5 11 12#32 |||
+      fld 1 5 0#32)
+  | .ei rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 5 11 12#32 |||
+      fld 1 5 1#32)
+  | .eret => some (fld 6 26 0x10#32 ||| fld 1 25 1#32 ||| fld 6 0 0x18#32)
+  | .wait code => some (fld 6 26 0x10#32 ||| fld 1 25 1#32 ||| fld 19 6 code ||| fld 6 0 0x20#32)
+  | .rdpgpr rd rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0A#32 ||| fld 5 16 rt ||| fld 5 11 rd)
+  | .wrpgpr rd rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0E#32 ||| fld 5 16 rt ||| fld 5 11 rd)
+  | .rdhwr rt rd => some (fld 6 26 0x1F#32 ||| fld 5 16 rt ||| fld 5 11 rd ||| fld 6 0 0x3B#32)
+  -- end 7B S3
   | _ => none
 
 /-- The `opcode` field (bits 31..26). -/
