@@ -17,6 +17,8 @@ The manuals are reference documents, so lookups are structural first:
   mipsdoc.py cite v3 87          one-line citation for a printed page
   mipsdoc.py selftest            check the tool against both revisions
 
+Document p754 is the IEEE P754 working-group public DRAFT 1.2.5 (2006-10-04), not the
+published IEEE 754 (section/search/grep/page/cite work on it; insn does not).
 Documents: v1 / v2 / v3 are the latest revisions (normative). Add --rev 2.50
 (insn/list only) or use v2old / v3old / v1r3 / v1r0 for the historical ones.
 Output starts each page with "== <document> p.<printed page> (pdf page N) ==" so
@@ -39,6 +41,8 @@ DOCS = {
     "v3old": ("MD00090-2B-MIPS32PRA-AFP-02.50", "MD00090 Vol III Rev 2.50"),
     "v1r3": ("MD00082-2B-MIPS32INT-AFP-03.02", "MD00082 Vol I-A Rev 3.02"),
     "v1r0": ("MD00082-2B-MIPS32INT-AFP-00.95", "MD00082 Vol I Rev 0.95"),
+    # public working-group DRAFT of what became IEEE 754-2008 (not the published standard)
+    "p754": ("IEEE-P754-D1.2.5-2006-10-04", "IEEE P754 Draft 1.2.5 (2006-10-04)"),
 }
 LATEST = ["v2", "v3", "v1"]
 
@@ -72,6 +76,10 @@ class Doc:
         manual and on odd/even pages). Copyright lines after it are skipped."""
         lines = [l for l in page.split("\n") if l.strip()]
         for line in reversed(lines[-4:]):
+            # IEEE P754 draft footer: "Page N   Copyright (c) 2006 IEEE ..." (even) or "... Page N" (odd)
+            if "IEEE" in line and "Copyright" in line:
+                m = re.match(r"^\s*Page\s+(\d+)\s", line) or re.search(r"\sPage\s+(\d+)\s*$", line)
+                return int(m.group(1)) if m else None
             if "MIPS" not in line or not re.search(r"Revision|Rev\.|Manual", line):
                 continue
             m = re.match(r"^\s*(\d+)\s{2,}\S", line) or re.search(r"\S\s{2,}(\d+)\s*$", line)
@@ -662,6 +670,20 @@ def cmd_selftest(a):
         ok = err is None and all(p in text for p in must) and not any(p in text for p in mustnot)
         check(f"section {key} {q!r}", ok, err or "missing " + str([p for p in must if p not in text]) +
               " unexpected " + str([p for p in mustnot if p in text]))
+    # IEEE P754 draft: sections, printed pages (footer "Page N"), citation
+    text, err = _run(cmd_section, dict(doc="p754", query="The sign bit", all=False))
+    must = ["8.3 The sign bit", "When the sum of two operands with opposite signs",
+            "squareRoot(\u20130) shall be \u20130", "exclusive OR of the"]
+    check("section p754 'The sign bit'", err is None and all(p in text for p in must) and "p.44" in text,
+          err or "missing " + str([p for p in must if p not in text]))
+    text, err = _run(cmd_section, dict(doc="p754", query="8.3", all=False))
+    check("section p754 '8.3' (by number)", err is None and "8.3 The sign bit" in text and "9.1 Overview" not in text, err or "")
+    text, err = _run(cmd_cite, dict(doc="p754", number=44))
+    check("cite p754 44", err is None and "IEEE P754 Draft 1.2.5 (2006-10-04), printed p.44" in text, err or text)
+    text, err = _run(cmd_page, dict(doc="p754", number=43, count=1))
+    check("page p754 43 (odd-page footer)", err is None and "Page 43" in text, err or "")
+    text, err = _run(cmd_grep, dict(regex="roundTowardNegative", doc="p754", max=500, case=True))
+    check("grep p754 roundTowardNegative hits p.44", err is None and "p754 p.44:" in text, err or "")
     # search: (query, doc or None, expected (doc key, printed page) within the top 3)
     searches = [
         ("value stored in EPC branch delay slot", None, ("v3", 87)),
@@ -675,6 +697,7 @@ def cmd_selftest(a):
         ("Status BEV exception vector base", None, ("v3", 85)),
         ("default result float to fixed conversion invalid 2^31-1", None, ("v1", 100)),
         ("integer overflow exception ADD", "v2old", ("v2old", 34)),
+        ("sign of exact zero sum roundTowardNegative", "p754", ("p754", 44)),
     ]
     for query, doc, (ekey, epage) in searches:
         scored, _ = rank_pages(query, [doc] if doc else LATEST)

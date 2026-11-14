@@ -27,6 +27,9 @@ checks the setup and the tool (and skips cleanly if the `.txt` files are absent)
 ```
 Documents: `v1` Vol I-A 6.01, `v2` Vol II-A 6.06, `v3` Vol III 6.02 (latest);
 historical `v2old`/`v3old` (Rev 2.50), `v1r3` (3.02), `v1r0` (0.95).
+`p754` is the IEEE P754 working-group public DRAFT 1.2.5 (2006-10-04), the draft of what became
+IEEE 754-2008 (see "IEEE P754 draft" below); `section`/`toc`/`search -d p754`/`grep -d p754`/`page`/`cite`
+work on it, `insn` does not.
 
 ## Which revision to trust
 The latest revisions (v1/v2/v3) are normative. The model targets a pre-Release-6
@@ -44,6 +47,18 @@ Give document number, revision, instruction or section name, and printed page
 (not the PDF page), e.g. `MD00090 Vol III Rev 6.02, 6.2.3 General Exception
 Processing, p.86` or `MD00086 Vol II-A Rev 6.06, ERET, p.177`. `cite DOC PAGE`
 prints the document/revision/page part.
+
+## IEEE P754 draft (`p754`)
+A public working-group DRAFT (Draft 1.2.5, October 4 2006, 59 pages), not the published IEEE 754. The MIPS
+manual (MD00082 Vol I-A Rev 6.01 §6.2, p.77, footnote 1) names IEEE 754 as its standard; the published
+standard is sold by IEEE and is not vendored. Use the draft only to check what the manuals defer to IEEE,
+and say it is a draft when citing. Headings look like `8.3 The sign bit`; printed page = footer "Page N".
+```
+./mipsdoc.py section p754 "The sign bit"   # 8.3, p.44: zero-sum signs, product sign, squareRoot(-0)
+./mipsdoc.py search "exact zero sum" -d p754
+./mipsdoc.py cite p754 44
+```
+Cite as `IEEE P754 Draft 1.2.5 (2006-10-04) §8.3 p.44`.
 
 ## Known limits
 - Some instruction pages have no extracted text (image-only in the PDF);

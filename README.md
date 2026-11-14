@@ -218,7 +218,7 @@ trap uniquely; `step` on each of the eight multiply-add instructions yields an o
 manual leaves a choice, a definition either allows every choice — which operand QNaN is returned (the model's is the
 first, `nanResult_first`, SPEC-NOTES §9 item 13), the QNaN of a format conversion (item 22) — or fixes the model's
 reading, named as a pin: `ABS`/`NEG` of a QNaN (reading A′, item 21), operands never flushed (item 13), and the signs
-of exact zero results, where the manuals are silent and the model follows IEEE 754-1985 §6.3 (item 30). `RECIP`/`RSQRT` are the
+of exact zero results, where the manuals are silent and the model follows IEEE 754 (the 1985 standard the MIPS manual names; checked against the public P754 Draft 1.2.5 §8.3 p.44, item 30). `RECIP`/`RSQRT` are the
 implementation-dependent `1/x` and `1/√x` (`DIV`, `SQRT` then `DIV`; their accuracy bounds are wave 10). No proof
 found a model bug: `FpOps.lean` is unchanged. Differential `#guard` tests against Lean's `Float32`/`Float`
 (`Semantics/Tests/FpOpsTests.lean`) and the QEMU oracle remain.
@@ -259,7 +259,7 @@ since waves 10 and 11 the core is **proved** against reference definitions (see 
 and every operand, so what remains trusted of floating point is **the definitions in `Semantics/FpOpsSpec.lean`**
 (read them in full: they are the reading of the manual) **and the listed pins** (SPEC-NOTES §9 items 13, 21, 22, 30:
 the first-QNaN choice, `ABS`/`NEG` of a QNaN, the QNaN of a format conversion, operands not flushed, the signs of
-exact zeros), plus the implementation-dependent `RECIP`/`RSQRT` (bounded by wave 10); not their proofs (`Semantics/Refine/*`,
+exact zeros; that last one checked against the vendored P754 draft, a working-group draft and not the published standard), plus the implementation-dependent `RECIP`/`RSQRT` (bounded by wave 10); not their proofs (`Semantics/Refine/*`,
 kernel-replayed). Also trusted: the assembler, which is **tested but not proved** (`Semantics/Tests/AsmTests.lean`, the LLVM oracle,
 the MARS corpus); the harnesses, `scripts/oracle.py` and the QEMU boot stub; and `docs/spec`, which is
 human-written.
