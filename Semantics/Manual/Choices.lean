@@ -95,6 +95,24 @@ structure Oracle where
   following registers have defined state" (MD00090 Vol III Rev 6.02 §6.2.5, p.89). The oracle gives
   the state before the listed assignments of the Operation are made (p.89-90). -/
   resetUndefined : Arch → Arch
+  -- 7B S1 integer ALU: begin
+  /-- `DIV` by a zero divisor: "If the divisor in GPR rt is zero, the arithmetic result value is
+  UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, DIV, Restrictions, p.165). The `(HI, LO)` pair the
+  instruction leaves; no exception ("No arithmetic exception occurs under any circumstances", p.165). -/
+  divByZero : Arch → W32 × W32
+  /-- `DIVU` by a zero divisor: "If the divisor in GPR rt is zero, the arithmetic result value is
+  UNPREDICTABLE" (DIVU, Restrictions, p.171). The `(HI, LO)` pair the instruction leaves. -/
+  divuByZero : Arch → W32 × W32
+  /-- `MUL`: "The contents of HI and LO are UNPREDICTABLE after the operation" (MUL, Description and
+  Operation `HI ← UNPREDICTABLE`, `LO ← UNPREDICTABLE`, p.299). The `(HI, LO)` pair left. -/
+  mulHILO : Arch → W32 × W32
+  /-- `EXT` with `lsb + msbd > 31`: "The operation is UNPREDICTABLE if lsb+msbd > 31" (EXT,
+  Restrictions and Operation, p.183). `.proceed`: compute the Operation's formula anyway. -/
+  extOutOfRange : Arch → Outcome
+  /-- `INS` with `lsb > msb`: "The operation is UNPREDICTABLE if lsb > msb" (INS, Restrictions,
+  p.193). `.proceed`: compute the Operation's formula anyway. -/
+  insLsbAboveMsb : Arch → Outcome
+  -- 7B S1 integer ALU: end
 
 /-- Whether an instruction is `PAUSE`, whose format diagram is SPECIAL, `0`, `0`, `0`, `5`, SLL
 (MD00086 Vol II-A Rev 6.06, PAUSE, p.317): the encoding of `SLL r0, r0, 5`. -/
@@ -130,5 +148,12 @@ def modelOracle : Oracle where
   storeClearsLL := fun _ => true
   causeCE := fun _ _ => 0#2
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
+  -- 7B S1 integer ALU: begin (SPEC-NOTES §11 rows)
+  divByZero := fun a => (a.HI, a.LO)
+  divuByZero := fun a => (a.HI, a.LO)
+  mulHILO := fun a => (a.HI, a.LO)
+  extOutOfRange := fun _ => .proceed
+  insLsbAboveMsb := fun _ => .proceed
+  -- 7B S1 integer ALU: end
 
 end Manual
