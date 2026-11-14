@@ -8,8 +8,7 @@ of the `Instruction` constructor (MD00086 Vol II-A Rev 6.06, the diagram at the 
 The spec decodes a fetched word as the instruction whose diagram it matches
 (`Manual.DecoderCorrect`, `Manual/Cycle.lean`); the model's `decode`/`encode` are not used here.
 
-Sub-wave 7A transcribes the diagrams of the pilot instructions; `enc` is `none` for the rest until
-7B (`docs/MANUAL-SPEC.md`). The encoding spaces of the coprocessors, which decide the exception for a
+Since 7B every `Instruction` constructor has a diagram line (`docs/MANUAL-SPEC.md`). The encoding spaces of the coprocessors, which decide the exception for a
 word that matches no diagram, are at the end.
 -/
 
@@ -60,7 +59,22 @@ page of the diagram):
   `011000` (p.177); WAIT COP0 | CO 1 | code (19 bits) | `100000` (p.442); RDPGPR COP0 | `01010` |
   rt | rd | 0^11 (p.335); WRPGPR COP0 | `01110` | rt | rd | 0^11 (p.444); RDHWR SPECIAL3 `011111` |
   0 | rt | rd | 0 | `111011` (p.332; the `sel` of the Release 6 diagram is zero here).
- -/
+* 7B S1 integer ALU (all MD00086 Vol II-A Rev 6.06, printed page of the diagram):
+  SPECIAL `000000` R-format, `00000` in the unused fields: ADDU p.38 (`100001`), SUB p.388 (`100010`),
+  SUBU p.390 (`100011`), AND p.44 (`100100`), OR p.314 (`100101`), XOR p.446 (`100110`), NOR p.313
+  (`100111`), SLT p.378 (`101010`), SLTU p.381 (`101011`), MOVN p.279 (`001011`), MOVZ p.284 (`001010`);
+  shifts: SLL p.376 (`000000`), SRL p.385 (`000010`, `R = 0` is bit 21), SRA p.383 (`000011`), SLLV p.377
+  (`000100`), SRLV p.386 (`000110`, `R = 0` is bit 6), SRAV p.384 (`000111`), ROTR p.339 (SRL function,
+  `R = 1`), ROTRV p.340 (SRLV function, `R = 1`); MULT p.303 (`011000`), MULTU p.304 (`011001`), DIV p.165
+  (`011010`), DIVU p.171 (`011011`), MFHI p.273 (`010000`), MTHI p.297 (`010001`), MFLO p.274 (`010010`),
+  MTLO p.298 (`010011`); SPECIAL2 `011100`: MUL p.299 (`000010`), MADD p.255 (`000000`), MADDU p.261
+  (`000001`), MSUB p.286 (`000100`), MSUBU p.289 (`000101`), CLZ p.135 (`100000`) and CLO p.134 (`100001`)
+  with `rt = rd` (their Restrictions); SPECIAL3 `011111`: SEB p.365, SEH p.366, WSBH p.445 (BSHFL `100000`
+  with sub-function `10000`, `11000`, `00010`), EXT p.183 (`000000`, `msbd = size-1`, `lsb = pos`), INS
+  p.192 (`000100`, `msb = pos+size-1`, `lsb = pos`); I-format: ADDI p.35 (`001000`), ADDIU p.36
+  (`001001`), SLTI p.379 (`001010`), SLTIU p.380 (`001011`), ANDI p.45 (`001100`), ORI p.315 (`001101`),
+  XORI p.447 (`001110`), LUI p.233 (`001111`, `rs = 00000`).
+-/
 def enc : Instruction → Option W32
   | .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)
   | .lw base rt off => some (iFormat 0x23#32 base rt off)
@@ -204,7 +218,55 @@ def enc : Instruction → Option W32
   | .bc1t cc imm => some (fld 6 26 0x11#32 ||| fld 5 21 0x08#32 ||| fld 3 18 cc ||| fld 1 17 0#32 ||| fld 1 16 1#32 ||| fld 16 0 imm)
   | .bc1fl cc imm => some (fld 6 26 0x11#32 ||| fld 5 21 0x08#32 ||| fld 3 18 cc ||| fld 1 17 1#32 ||| fld 1 16 0#32 ||| fld 16 0 imm)
   | .bc1tl cc imm => some (fld 6 26 0x11#32 ||| fld 5 21 0x08#32 ||| fld 3 18 cc ||| fld 1 17 1#32 ||| fld 1 16 1#32 ||| fld 16 0 imm)
-  | _ => none
+  -- 7B S1 integer ALU: begin
+  | .addu rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x21#32)
+  | .sub rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x22#32)
+  | .subu rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x23#32)
+  | .and rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x24#32)
+  | .or rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x25#32)
+  | .xor rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x26#32)
+  | .nor rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x27#32)
+  | .slt rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x2A#32)
+  | .sltu rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x2B#32)
+  | .movn rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x0B#32)
+  | .movz rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x0A#32)
+  | .sll rd rt shamt => some (rFormat 0#32 0#32 rt rd shamt 0x00#32)
+  | .srl rd rt shamt => some (rFormat 0#32 0#32 rt rd shamt 0x02#32)
+  | .sra rd rt shamt => some (rFormat 0#32 0#32 rt rd shamt 0x03#32)
+  | .sllv rd rt rs => some (rFormat 0#32 rs rt rd 0#32 0x04#32)
+  | .srlv rd rt rs => some (rFormat 0#32 rs rt rd 0#32 0x06#32)
+  | .srav rd rt rs => some (rFormat 0#32 rs rt rd 0#32 0x07#32)
+  | .rotr rd rt sa => some (rFormat 0#32 1#32 rt rd sa 0x02#32)
+  | .rotrv rd rt rs => some (rFormat 0#32 rs rt rd 1#32 0x06#32)
+  | .mult rs rt => some (rFormat 0#32 rs rt 0#32 0#32 0x18#32)
+  | .multu rs rt => some (rFormat 0#32 rs rt 0#32 0#32 0x19#32)
+  | .div rs rt => some (rFormat 0#32 rs rt 0#32 0#32 0x1A#32)
+  | .divu rs rt => some (rFormat 0#32 rs rt 0#32 0#32 0x1B#32)
+  | .mfhi rd => some (rFormat 0#32 0#32 0#32 rd 0#32 0x10#32)
+  | .mthi rs => some (rFormat 0#32 rs 0#32 0#32 0#32 0x11#32)
+  | .mflo rd => some (rFormat 0#32 0#32 0#32 rd 0#32 0x12#32)
+  | .mtlo rs => some (rFormat 0#32 rs 0#32 0#32 0#32 0x13#32)
+  | .mul rs rt rd => some (rFormat 0x1C#32 rs rt rd 0#32 0x02#32)
+  | .madd rs rt => some (rFormat 0x1C#32 rs rt 0#32 0#32 0x00#32)
+  | .maddu rs rt => some (rFormat 0x1C#32 rs rt 0#32 0#32 0x01#32)
+  | .msub rs rt => some (rFormat 0x1C#32 rs rt 0#32 0#32 0x04#32)
+  | .msubu rs rt => some (rFormat 0x1C#32 rs rt 0#32 0#32 0x05#32)
+  | .clz rs rd => some (rFormat 0x1C#32 rs rd rd 0#32 0x20#32)
+  | .clo rs rd => some (rFormat 0x1C#32 rs rd rd 0#32 0x21#32)
+  | .seb rd rt => some (rFormat 0x1F#32 0#32 rt rd 0x10#32 0x20#32)
+  | .seh rd rt => some (rFormat 0x1F#32 0#32 rt rd 0x18#32 0x20#32)
+  | .wsbh rd rt => some (rFormat 0x1F#32 0#32 rt rd 0x02#32 0x20#32)
+  | .ext rt rs pos size => some (rFormat 0x1F#32 rs rt (size - 1#32) pos 0x00#32)
+  | .ins rt rs pos size => some (rFormat 0x1F#32 rs rt (pos + size - 1#32) pos 0x04#32)
+  | .addi rs rt imm => some (iFormat 0x08#32 rs rt imm)
+  | .addiu rs rt imm => some (iFormat 0x09#32 rs rt imm)
+  | .slti rs rt imm => some (iFormat 0x0A#32 rs rt imm)
+  | .sltiu rs rt imm => some (iFormat 0x0B#32 rs rt imm)
+  | .andi rs rt imm => some (iFormat 0x0C#32 rs rt imm)
+  | .ori rs rt imm => some (iFormat 0x0D#32 rs rt imm)
+  | .xori rs rt imm => some (iFormat 0x0E#32 rs rt imm)
+  | .lui rt imm => some (iFormat 0x0F#32 0#32 rt imm)
+  -- 7B S1 integer ALU: end
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26

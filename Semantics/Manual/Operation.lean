@@ -1,4 +1,8 @@
 import Semantics.Manual.Ops.IntArith
+import Semantics.Manual.Ops.Shift
+import Semantics.Manual.Ops.MulDiv
+import Semantics.Manual.Ops.BitOps
+import Semantics.Manual.Ops.Immediate
 import Semantics.Manual.Ops.Memory
 import Semantics.Manual.Ops.Unaligned
 import Semantics.Manual.Ops.Atomic
@@ -170,6 +174,54 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .bc1t cc imm => some (Ops.BC1T cc imm)
   | .bc1fl cc imm => some (Ops.BC1FL cc imm)
   | .bc1tl cc imm => some (Ops.BC1TL cc imm)
-  | _ => none
+  -- 7B S1 integer ALU: begin
+  | .addu rs rt rd => some (Ops.ADDU rs rt rd)
+  | .sub rs rt rd => some (Ops.SUB rs rt rd)
+  | .subu rs rt rd => some (Ops.SUBU rs rt rd)
+  | .and rs rt rd => some (Ops.AND rs rt rd)
+  | .or rs rt rd => some (Ops.OR rs rt rd)
+  | .xor rs rt rd => some (Ops.XOR rs rt rd)
+  | .nor rs rt rd => some (Ops.NOR rs rt rd)
+  | .slt rs rt rd => some (Ops.SLT rs rt rd)
+  | .sltu rs rt rd => some (Ops.SLTU rs rt rd)
+  | .movn rs rt rd => some (Ops.MOVN rs rt rd)
+  | .movz rs rt rd => some (Ops.MOVZ rs rt rd)
+  | .sll rd rt shamt => some (Ops.SLL rd rt shamt)
+  | .srl rd rt shamt => some (Ops.SRL rd rt shamt)
+  | .sra rd rt shamt => some (Ops.SRA rd rt shamt)
+  | .sllv rd rt rs => some (Ops.SLLV rd rt rs)
+  | .srlv rd rt rs => some (Ops.SRLV rd rt rs)
+  | .srav rd rt rs => some (Ops.SRAV rd rt rs)
+  | .rotr rd rt sa => some (Ops.ROTR rd rt sa)
+  | .rotrv rd rt rs => some (Ops.ROTRV rd rt rs)
+  | .mult rs rt => some (Ops.MULT rs rt)
+  | .multu rs rt => some (Ops.MULTU rs rt)
+  | .div rs rt => some (Ops.DIV rs rt)
+  | .divu rs rt => some (Ops.DIVU rs rt)
+  | .mflo rd => some (Ops.MFLO rd)
+  | .mfhi rd => some (Ops.MFHI rd)
+  | .mthi rs => some (Ops.MTHI rs)
+  | .mtlo rs => some (Ops.MTLO rs)
+  | .mul rs rt rd => some (Ops.MUL rs rt rd)
+  | .madd rs rt => some (Ops.MADD rs rt)
+  | .maddu rs rt => some (Ops.MADDU rs rt)
+  | .msub rs rt => some (Ops.MSUB rs rt)
+  | .msubu rs rt => some (Ops.MSUBU rs rt)
+  | .clo rs rd => some (Ops.CLO rs rd)
+  | .clz rs rd => some (Ops.CLZ rs rd)
+  | .seb rd rt => some (Ops.SEB rd rt)
+  | .seh rd rt => some (Ops.SEH rd rt)
+  | .wsbh rd rt => some (Ops.WSBH rd rt)
+  | .ext rt rs pos size => some (Ops.EXT rt rs pos size)
+  | .ins rt rs pos size => some (Ops.INS rt rs pos size)
+  | .addi rs rt imm => some (Ops.ADDI rs rt imm)
+  | .addiu rs rt imm => some (Ops.ADDIU rs rt imm)
+  | .slti rs rt imm => some (Ops.SLTI rs rt imm)
+  | .sltiu rs rt imm => some (Ops.SLTIU rs rt imm)
+  | .andi rs rt imm => some (Ops.ANDI rs rt imm)
+  | .ori rs rt imm => some (Ops.ORI rs rt imm)
+  | .xori rs rt imm => some (Ops.XORI rs rt imm)
+  | .lui rt imm => some (Ops.LUI rt imm)
+  -- 7B S1 integer ALU: end
 
 end Manual
