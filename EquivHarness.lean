@@ -271,6 +271,15 @@ def memCheckAddrs (s s' : State) : List PAddr :=
       let va := readReg s (regIdx b) + signExt16 o
       let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
       [pa, pa + 1#32, pa + 2#32, pa + 3#32]
+    -- 7B S4 FPU: the bytes an FP store may write (aligned word, or the doubleword)
+    | some (.swc1 b _ o) | some (.sdc1 b _ o) =>
+      let va := readReg s (regIdx b) + signExt16 o
+      let pa := fixedMappingPA (erlSet s) va &&& ~~~7#32
+      (List.range 8).map fun k => pa + BitVec.ofNat 32 k
+    | some (.swxc1 _ i b) | some (.sdxc1 _ i b) =>
+      let va := readReg s (regIdx b) + readReg s (regIdx i)
+      let pa := fixedMappingPA (erlSet s) va &&& ~~~7#32
+      (List.range 8).map fun k => pa + BitVec.ofNat 32 k
     | _ => []
   added ++ ea
 

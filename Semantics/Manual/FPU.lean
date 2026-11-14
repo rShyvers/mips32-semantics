@@ -90,4 +90,159 @@ def FPResult {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
   Pseudo.modify fun a => { a with FCSR := a.FCSR ||| (fl <<< 2) }
   pure r.1
 
+/-! ## 7B S4 FPU: the rest of the FP vocabulary -/
+
+namespace IEEE
+
+/-- `fs -S ft`. -/
+def subS (a : Arch) (x y : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Sub (env a) x y
+/-- `fs xS ft`. -/
+def mulS (a : Arch) (x y : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Mul (env a) x y
+/-- `fs /S ft`. -/
+def divS (a : Arch) (x y : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Div (env a) x y
+/-- `SquareRoot(fs)`, single. -/
+def sqrtS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Sqrt (env a) x
+/-- `AbsoluteValue(fs)`, single (arithmetic with `FIR.Has2008 = 0`, ABS.fmt p.32). -/
+def absS (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Abs x
+/-- `Negate(fs)`, single (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307). -/
+def negS (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Neg x
+/-- `1.0 / fs`, single (RECIP.fmt p.336: accuracy implementation dependent; `DIV` pin). -/
+def recipS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Recip (env a) x
+/-- `1.0 / SquareRoot(fs)`, single (RSQRT.fmt p.343; `SQRT` then `DIV` pin). -/
+def rsqrtS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Rsqrt (env a) x
+/-- `(vfs x vft) + vfr`, single, as separate multiply and add (MADD.fmt p.256). -/
+def maddS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Madd (env a) fr fs ft
+/-- `(vfs x vft) - vfr`, single (MSUB.fmt p.287). -/
+def msubS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Msub (env a) fr fs ft
+/-- `-((vfs x vft) + vfr)`, single (NMADD.fmt p.308). -/
+def nmaddS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Nmadd (env a) fr fs ft
+/-- `-((vfs x vft) - vfr)`, single (NMSUB.fmt p.310). -/
+def nmsubS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Nmsub (env a) fr fs ft
+
+/-- `fs +D ft`. -/
+def addD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Add (env a) x y
+/-- `fs -D ft`. -/
+def subD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Sub (env a) x y
+/-- `fs xD ft`. -/
+def mulD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Mul (env a) x y
+/-- `fs /D ft`. -/
+def divD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Div (env a) x y
+/-- `SquareRoot(fs)`, double. -/
+def sqrtD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Sqrt (env a) x
+/-- `AbsoluteValue(fs)`, double. -/
+def absD (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Abs x
+/-- `Negate(fs)`, double. -/
+def negD (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Neg x
+/-- `1.0 / fs`, double. -/
+def recipD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Recip (env a) x
+/-- `1.0 / SquareRoot(fs)`, double. -/
+def rsqrtD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Rsqrt (env a) x
+/-- Multiply-add family, double. -/
+def maddD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64Madd (env a) fr fs ft
+/-- `(vfs x vft) - vfr`, double. -/
+def msubD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64Msub (env a) fr fs ft
+/-- `-((vfs x vft) + vfr)`, double. -/
+def nmaddD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64Nmadd (env a) fr fs ft
+/-- `-((vfs x vft) - vfr)`, double. -/
+def nmsubD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64Nmsub (env a) fr fs ft
+
+/-- The rounding modes by their number (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95: `RM` 0 RN,
+1 RZ, 2 RP, 3 RM), as the `convert_and_round` of `ROUND/TRUNC/CEIL/FLOOR.W.fmt` fixes them (pages
+342, 441, 128, 186: "rounding mode 0/1/2/3"). -/
+def roundingMode (n : BitVec 2) : Mips.Fp.RoundingMode := Mips.Fp.RoundingMode.ofBits n
+
+/-- `ConvertFmt(fs, S, W)` rounding in mode `rm`: the word and the exceptions (Invalid, with the
+default result `2^31 - 1`, for Infinity, NaN and out of range, p.342; Inexact). -/
+def toWordS (rm : Mips.Fp.RoundingMode) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32ToW32 rm x
+/-- `ConvertFmt(fs, D, W)` rounding in mode `rm`. -/
+def toWordD (rm : Mips.Fp.RoundingMode) (x : BitVec 64) : W32 × Mips.Fp.Flags :=
+  Mips.Fp.f64ToW32 rm x
+/-- `ConvertFmt(fs, S, D)`, exact (CVT.D.fmt p.153: "If fmt is S or W, then the operation is always
+exact"). -/
+def cvtDS (x : W32) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f32ToF64 x
+/-- `ConvertFmt(fs, W, D)`, exact. -/
+def cvtDW (x : W32) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.w32ToF64F x
+/-- `ConvertFmt(fs, D, S)`, rounded per `FCSR.RM`. -/
+def cvtSD (a : Arch) (x : BitVec 64) : W32 × Mips.Fp.Flags := Mips.Fp.f64ToF32 (env a) x
+/-- `ConvertFmt(fs, W, S)`, rounded per `FCSR.RM`. -/
+def cvtSW (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.w32ToF32 (env a) x
+
+/-- `SNaN(x)`, single. -/
+def isSNaNS (x : W32) : Bool := Mips.Fp.isSNaN32 x
+/-- `QNaN(x)`, single. -/
+def isQNaNS (x : W32) : Bool := Mips.Fp.isQNaN32 x
+/-- `SNaN(x)`, double. -/
+def isSNaND (x : BitVec 64) : Bool := Mips.Fp.isSNaN64 x
+/-- `QNaN(x)`, double. -/
+def isQNaND (x : BitVec 64) : Bool := Mips.Fp.isQNaN64 x
+/-- `x <S y` (IEEE less than; false when unordered). -/
+def ltS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).less
+/-- `x =S y` (IEEE equal; `+0 = -0`, false when unordered). -/
+def eqS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).equal
+/-- `x <D y`. -/
+def ltD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).less
+/-- `x =D y`. -/
+def eqD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).equal
+
+end IEEE
+
+/-! ### `ValueFPR` / `StoreFPR` for the 64-bit formats (Figures 2.22, 2.23, p.22-23) -/
+
+/-- `FP32RegistersMode` (MD00086 Vol II-A Rev 6.06, "About This Book" symbol table, p.7: "computed
+from the FR bit in the Status register"): 0 when the FPU has 32 32-bit FPRs (`Status.FR = 0`,
+bit 26). On this profile `Status.FR` reads 0 (not writable, `Manual/CP0.lean`). -/
+def FP32RegistersMode : Bool := false
+
+/-- **`ValueFPR(fpr, D)`** and `UNINTERPRETED_DOUBLEWORD` (Figure 2.22, p.22), 32-bit FPR model:
+```
+if (FP32RegistersMode = 0)
+   if (fpr_0 != 0) then valueFPR <- UNPREDICTABLE
+   else valueFPR <- FPR[fpr+1]31..0 || FPR[fpr]31..0
+   endif
+else valueFPR <- FPR[fpr] endif
+```
+(The comparison glyphs of the pseudocode are lost in the text extraction; the 32-bit model is the
+one where the doubleword is a pair of registers, "In MIPS32 Release 1 ... 64-bit data types are
+stored in even-odd pairs of FPRs", p.7.) The `FR = 1` arm names a 64-bit FPR, which `Arch.FPR` does
+not have; it is unreachable here. -/
+def ValueFPR64 (fpr : Fin 32) : Pseudo (BitVec 64) := fun c f =>
+  if FP32RegistersMode == false then
+    if bit (BitVec.ofNat 5 fpr.val) 0 then (.ok (c.oracle.fprOddRead f.arch fpr), f)
+    else (.ok (f.arch.FPR (fpr + 1) ++ f.arch.FPR fpr), f)
+  else (.ok (f.arch.FPR (fpr + 1) ++ f.arch.FPR fpr), f)
+
+/-- **`StoreFPR(fpr, D, value)`** and `UNINTERPRETED_DOUBLEWORD` (Figure 2.23, p.22-23), 32-bit FPR
+model:
+```
+if (fpr_0 != 0) then UNPREDICTABLE
+else FPR[fpr] <- UNPREDICTABLE32 || value31..0 ; FPR[fpr+1] <- UNPREDICTABLE32 || value63..32
+```
+`UNPREDICTABLE32` is the upper half of a 64-bit register, which a 32-bit FPR does not have. -/
+def StoreFPR64 (fpr : Fin 32) (value : BitVec 64) : Pseudo Unit := fun c f =>
+  if bit (BitVec.ofNat 5 fpr.val) 0 then
+    (.ok (), { f with arch := c.oracle.fprOddWrite f.arch fpr value })
+  else
+    (.ok (), { f with arch := { f.arch with
+      FPR := update (update f.arch.FPR fpr (value.extractLsb' 0 32)) (fpr + 1)
+        (value.extractLsb' 32 32) } })
+
+/-! ### Condition codes (Figures 2.25, 2.26, p.23-24) -/
+
+/-- **`FPConditionCode(cc)`** (Figure 2.25, p.23): `cc = 0: FCSR23`, else `FCSR24+cc`. -/
+def FPConditionCode (cc : Nat) : Pseudo Bool := do
+  let a ← Pseudo.get
+  if cc == 0 then pure (bit a.FCSR 23) else pure (bit a.FCSR (24 + cc))
+
+/-- **`SetFPConditionCode(cc, tf)`** (Figure 2.26, p.24): `cc = 0: FCSR <- FCSR31..24 || tf || FCSR22..0`,
+else `FCSR <- FCSR31..25+cc || tf || FCSR23+cc..0`: bit `23` (cc = 0) or `24+cc` becomes `tf`. -/
+def SetFPConditionCode (cc : Nat) (tf : Bool) : Pseudo Unit :=
+  let p := if cc == 0 then 23 else 24 + cc
+  Pseudo.modify fun a =>
+    { a with FCSR := (a.FCSR &&& ~~~(1#32 <<< p)) ||| ((BitVec.ofBool tf).setWidth 32 <<< p) }
+
+
 end Manual

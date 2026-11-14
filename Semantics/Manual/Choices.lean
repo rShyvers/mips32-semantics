@@ -78,6 +78,10 @@ structure Impl where
   It is implementation dependent whether such an exception does occur" (MD00086 Vol II-A Rev 6.06,
   SYNCI, p.412). -/
   SynciAddressError : Bool
+  -- 7B S4 FPU
+  /-- `FIR`, the FP Implementation Register (`CFC1` with `fs = 0`; MD00082 Vol I-A Rev 6.01 §6.5.1,
+  Table 6.5 p.87-88), read-only and implementation-dependent. -/
+  FIR : W32
 
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
 need it (later sub-waves add fields as they transcribe more pages). -/
@@ -118,6 +122,22 @@ structure Oracle where
   `modelImpl` (`HSS = PSS = CSS = 0`) never reached by `RDPGPR`, `WRPGPR`, `ERET`. -/
   shadowSetUndefined : Arch → Instruction → Outcome
   -- end 7B S3
+  -- 7B S4 FPU
+  /-- `valueFPR ← UNPREDICTABLE` of `ValueFPR(fpr, D)` / `UNINTERPRETED_DOUBLEWORD` with the 32-bit
+  FPR model (`FP32RegistersMode = 0`) and `fpr` odd (MD00086 Vol II-A Rev 6.06, Figure 2.22, p.22). -/
+  fprOddRead : Arch → Fin 32 → BitVec 64
+  /-- `UNPREDICTABLE` of `StoreFPR(fpr, D, value)` / `UNINTERPRETED_DOUBLEWORD` with the 32-bit FPR
+  model and `fpr` odd (Figure 2.23, p.22-23): the state after the store. -/
+  fprOddWrite : Arch → Fin 32 → BitVec 64 → Arch
+  /-- `CFC1 rt, fs` with `fs` naming no FP control register: "Prior to Release 6, the result is
+  UNPREDICTABLE if fs specifies a register that does not exist" (MD00086 Vol II-A Rev 6.06, CFC1,
+  Restrictions, p.129; Operation `temp ← UNPREDICTABLE`, p.130). Gives the value `temp`. -/
+  cfc1Unpredictable : Arch → W32 → W32
+  /-- `CTC1 rt, fs` where the Operation says `UNPREDICTABLE`: `fs` names no FP control register, or
+  the written value has a reserved bit set (MD00086 Vol II-A Rev 6.06, CTC1, Restrictions p.149,
+  Operation p.150). Arguments: the state, `fs`, `temp ← GPR[rt]31..0`; gives the `FCSR` the
+  instruction leaves behind (before its `CheckFPException()`). -/
+  ctc1Unpredictable : Arch → W32 → W32 → W32
 
 /-- Whether an instruction is `PAUSE`, whose format diagram is SPECIAL, `0`, `0`, `0`, `5`, SLL
 (MD00086 Vol II-A Rev 6.06, PAUSE, p.317): the encoding of `SLL r0, r0, 5`. -/
@@ -141,6 +161,8 @@ def modelImpl : Impl where
   SYNCIStep := 0#32
   WaitRestartsOnNotEnabled := true
   SynciAddressError := false   -- 7B S2: SPEC-NOTES §11
+  -- 7B S4 FPU
+  FIR := 0x00330000#32
 
 /-- **The model's choices** (SPEC-NOTES §9): a CTI in a delay slot signals Reserved Instruction,
 except `PAUSE`, which the model executes as the `SLL` it is encoded as (item 1); an `MTC0`/`MFC0` of
@@ -159,5 +181,24 @@ def modelOracle : Oracle where
   jalrRsIsRd := fun _ _ => .proceed
   shadowSetUndefined := fun _ _ => .signal .ReservedInstruction
   -- end 7B S3
+  -- 7B S4 FPU
+  fprOddRead := fun a fpr => a.FPR (fpr + 1) ++ a.FPR fpr
+  fprOddWrite := fun a fpr v =>
+    { a with FPR := update (update a.FPR fpr (v.extractLsb' 0 32)) (fpr + 1) (v.extractLsb' 32 32) }
+  cfc1Unpredictable := fun _ _ => 0#32
+  ctc1Unpredictable := fun a fs temp =>
+    -- the write of the page's Operation with the reserved bits ignored; a register that does not
+    -- exist is not written
+    if fs == 25#32 then
+      (temp.extractLsb' 1 7 ++ BitVec.ofBool (a.FCSR.getLsbD 24) ++ BitVec.ofBool (temp.getLsbD 0) ++
+        a.FCSR.extractLsb' 0 23 : BitVec 32)
+    else if fs == 26#32 then
+      (a.FCSR.extractLsb' 18 14 ++ temp.extractLsb' 12 6 ++ a.FCSR.extractLsb' 7 5 ++
+        temp.extractLsb' 2 5 ++ a.FCSR.extractLsb' 0 2 : BitVec 32)
+    else if fs == 28#32 then
+      (a.FCSR.extractLsb' 25 7 ++ BitVec.ofBool (temp.getLsbD 2) ++ a.FCSR.extractLsb' 12 12 ++
+        temp.extractLsb' 7 5 ++ a.FCSR.extractLsb' 2 5 ++ temp.extractLsb' 0 2 : BitVec 32)
+    else if fs == 31#32 then temp &&& ~~~(0x1F#32 <<< 18)
+    else a.FCSR
 
 end Manual
