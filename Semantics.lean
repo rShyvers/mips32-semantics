@@ -28,6 +28,16 @@ import Semantics.FpOpsCorrectAcc
 import Semantics.FpOpsCorrectRecip
 import Semantics.FpOpsCorrectRsqrtAux
 import Semantics.FpOpsCorrectRsqrt
+-- Wave 11: every FP operand, conversions, compares and the FCSR proved against FpOpsSpec.
+import Semantics.FpOpsCorrectSpecial
+import Semantics.FpOpsCorrectEnv
+import Semantics.FpOpsCorrectArith
+import Semantics.FpOpsCorrectWord
+import Semantics.FpOpsCorrectConv
+import Semantics.FpOpsCorrectCompare
+import Semantics.FpOpsCorrectFcsr
+import Semantics.FpOpsCorrectIEEE
+import Semantics.FpOpsCorrectStep
 import Semantics.Step
 -- The environment layer (loader, hosted run): not part of the architecture.
 import Semantics.Env

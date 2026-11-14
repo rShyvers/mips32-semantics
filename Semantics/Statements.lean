@@ -2001,4 +2001,330 @@ theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64}
       Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
+/-! ## Wave 11: every FP operand, the conversions, the compares, the FCSR
+
+The reference definitions extend `Semantics/FpOpsSpec.lean` (definitions only, written from MD00082
+Vol I-A Rev 6.01 ch.6 with `FIR.Has2008 = 0` and the MD00086 Vol II-A Rev 6.06 instruction pages):
+the classes of an encoding (`Format.datum`, `IsSNaN`/`IsQNaN`, Table 6.2), the new QNaN (Table 6.3),
+the NaN rule (`NaNResult`, §6.3.1.4-5), the signaled exceptions (`Signaled`, §6.7.2.3/5/6), rounding
+under the whole FCSR including flush to zero (`RoundEnvSpec`, §6.7.2.4), each operation on every
+operand (`AddSpec`, `MulSpec`, `DivSpec`, `SqrtSpec`, `SignOpSpec`, `ConvertSpec`, `WidenSpec`,
+`FromIntSpec`, `ExactSpec`, `ToWordSpec`, `CompareSpec` with the 16-row `condTable`), the FCSR
+update (`FcsrSpec`, §6.7.1, CheckFPException) and the multiply-add family as separate operations
+(`MaddSpec`). -/
+
+/-- **Table 6.3 (MD00082 Vol I-A Rev 6.01 p.82), single**: the reference `Format.newQNaN` is `0x7fbf ffff`. -/
+theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FBFFFFF := by
+  sorry
+
+/-- **Table 6.3, double**: the reference `Format.newQNaN` is `0x7ff7 ffff ffff ffff`. -/
+theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF7FFFFFFFFFFFF := by
+  sorry
+
+/-- **The NaN pin** (SPEC-NOTES §9 item 13): with a quiet NaN among the operands the model returns the
+first one in operand order. `NaNResult` allows any operand QNaN; this names the model's choice. -/
+theorem nanResult_first (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (h : ops.find? (fun x => f.isQNaN x) = some q) : f.nanResult ops = q := by
+  sorry
+
+/-- **`ADD.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.AddSpec e false a.toNat b.toNat
+      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
+  sorry
+
+/-- **`SUB.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.AddSpec e true a.toNat b.toNat
+      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
+  sorry
+
+/-- **`MUL.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.MulSpec e a.toNat b.toNat
+      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
+  sorry
+
+/-- **`DIV.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.DivSpec e a.toNat b.toNat
+      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
+  sorry
+
+/-- **`SQRT.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
+    Mips.Fp.binary32.SqrtSpec e a.toNat
+      ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) := by
+  sorry
+
+/-- **`ADD.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.AddSpec e false a.toNat b.toNat
+      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
+  sorry
+
+/-- **`SUB.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.AddSpec e true a.toNat b.toNat
+      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
+  sorry
+
+/-- **`MUL.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.MulSpec e a.toNat b.toNat
+      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
+  sorry
+
+/-- **`DIV.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.DivSpec e a.toNat b.toNat
+      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
+  sorry
+
+/-- **`SQRT.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
+result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
+    Mips.Fp.binary64.SqrtSpec e a.toNat
+      ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) := by
+  sorry
+
+/-- **`CVT.S.D` on every operand** (MD00086 p.159): `Mips.Fp.Format.ConvertSpec` (SNaN: Invalid and the
+new QNaN; QNaN: a QNaN, no exception; ±∞, ±0 kept; otherwise rounded under FCSR.RM/Enables/FS). -/
+theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e x.toNat
+      ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) := by
+  sorry
+
+/-- **`CVT.D.S` on every operand** (MD00086 p.153, "always exact"): `Mips.Fp.Format.WidenSpec` — a
+finite operand gives the double of the same value and sign, no exception. -/
+theorem f32ToF64_spec (x : BitVec 32) :
+    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 x.toNat
+      ((Mips.Fp.f32ToF64 x).1.toNat, (Mips.Fp.f32ToF64 x).2) := by
+  sorry
+
+/-- **`CVT.S.W` on every word** (MD00086 p.159): `0 ↦ +0`, otherwise the integer rounded under the FCSR
+environment (`Mips.Fp.Format.FromIntSpec`). -/
+theorem w32ToF32_spec (e : Mips.Fp.Env) (x : BitVec 32) :
+    Mips.Fp.binary32.FromIntSpec e x.toInt ((Mips.Fp.w32ToF32 e x).1.toNat, (Mips.Fp.w32ToF32 e x).2) := by
+  sorry
+
+/-- **`CVT.D.W` on every word** (MD00086 p.153, "always exact"): the double of value `x.toInt`, sign
+bit set iff negative (`+0` for 0), no exception. -/
+theorem w32ToF64_spec (x : BitVec 32) :
+    Mips.Fp.binary64.ExactSpec (decide (x.toInt < 0)) x.toInt
+      ((Mips.Fp.w32ToF64F x).1.toNat, (Mips.Fp.w32ToF64F x).2) := by
+  sorry
+
+/-- **`CVT.W.S`, `ROUND/TRUNC/CEIL/FLOOR.W.S`** in every direction `rm`, on every operand (MD00086
+p.160, p.342, p.441, p.128, p.186): `Mips.Fp.Format.ToWordSpec` — NaN, ±∞ and values rounding
+outside `[-2^31, 2^31-1]` give `2^31-1` with Invalid only; otherwise the value correctly rounded to
+an integer in direction `rm` (ties to even), Inexact iff not exact. -/
+theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 32) :
+    Mips.Fp.binary32.ToWordSpec rm x.toNat (Mips.Fp.f32ToW32 rm x) := by
+  sorry
+
+/-- **`CVT.W.D`, `ROUND/TRUNC/CEIL/FLOOR.W.D`** in every direction `rm`, on every operand (MD00086
+p.160, p.342, p.441, p.128, p.186): `Mips.Fp.Format.ToWordSpec` — NaN, ±∞ and values rounding
+outside `[-2^31, 2^31-1]` give `2^31-1` with Invalid only; otherwise the value correctly rounded to
+an integer in direction `rm` (ties to even), Inexact iff not exact. -/
+theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 64) :
+    Mips.Fp.binary64.ToWordSpec rm x.toNat (Mips.Fp.f64ToW32 rm x) := by
+  sorry
+
+/-- **Tables 3.1/3.2 are the Operation's predicate** (MD00086 C.cond.fmt p.111-113): for every
+condition field and relation, `(cond2 and less) or (cond1 and equal) or (cond0 and unordered)` is the
+table entry, and the "Inv Op Excp. if QNaN?" column is `cond3`. -/
+theorem condTable_formula : ∀ (cond : BitVec 4) (r : Mips.Fp.Format.Relation),
+    Mips.Fp.fpCompare cond (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
+      Mips.Fp.condHolds cond.toNat r ∧
+    (Mips.Fp.condTable cond.toNat).2.2.2.2 = cond.getLsbD 3 := by
+  sorry
+
+/-- **`C.cond.S` for all 16 conditions and all operands** (MD00086 p.110-113):
+`Mips.Fp.Format.CompareSpec` — the condition bit is the table entry of the operands' relation in
+the extended reals (`+0 = -0`, NaN unordered); Invalid iff an SNaN, or `cond3` and a QNaN. -/
+theorem f32Compare_spec (cond : BitVec 4) (a b : BitVec 32) :
+    Mips.Fp.binary32.CompareSpec cond a.toNat b.toNat (Mips.Fp.f32Compare cond a b) := by
+  sorry
+
+/-- **`C.cond.D` for all 16 conditions and all operands** (MD00086 p.110-113):
+`Mips.Fp.Format.CompareSpec` — the condition bit is the table entry of the operands' relation in
+the extended reals (`+0 = -0`, NaN unordered); Invalid iff an SNaN, or `cond3` and a QNaN. -/
+theorem f64Compare_spec (cond : BitVec 4) (a b : BitVec 64) :
+    Mips.Fp.binary64.CompareSpec cond a.toNat b.toNat (Mips.Fp.f64Compare cond a b) := by
+  sorry
+
+/-- **`ABS.S`** (MD00086 ABS.fmt p.32, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
+SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
+SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+theorem f32Abs_spec (x : BitVec 32) :
+    Mips.Fp.binary32.SignOpSpec true x.toNat ((Mips.Fp.f32Abs x).1.toNat, (Mips.Fp.f32Abs x).2) := by
+  sorry
+
+/-- **`NEG.S`** (MD00086 NEG.fmt p.307, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
+SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
+SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+theorem f32Neg_spec (x : BitVec 32) :
+    Mips.Fp.binary32.SignOpSpec false x.toNat ((Mips.Fp.f32Neg x).1.toNat, (Mips.Fp.f32Neg x).2) := by
+  sorry
+
+/-- **`ABS.D`** (MD00086 ABS.fmt p.32, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
+SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
+SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+theorem f64Abs_spec (x : BitVec 64) :
+    Mips.Fp.binary64.SignOpSpec true x.toNat ((Mips.Fp.f64Abs x).1.toNat, (Mips.Fp.f64Abs x).2) := by
+  sorry
+
+/-- **`NEG.D`** (MD00086 NEG.fmt p.307, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
+SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
+SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+theorem f64Neg_spec (x : BitVec 64) :
+    Mips.Fp.binary64.SignOpSpec false x.toNat ((Mips.Fp.f64Neg x).1.toNat, (Mips.Fp.f64Neg x).2) := by
+  sorry
+
+/-- **The FCSR update of an FP operation** (MD00082 Vol I-A Rev 6.01 §6.7.1 p.99; CheckFPException,
+MD00086 §2.2.2.3.3 Figure 2.24 p.23): `Mips.Fp.fpUpdate`, which `step` uses for every FP
+arithmetic instruction (`fpFinishS`/`fpFinishD`/`fpFinishCmp`/`fpThen`), meets `Mips.Fp.FcsrSpec`:
+Cause ← the exceptions (E = 0), trap iff CheckFPException on the new FCSR, Flags |= the exceptions
+unless trapping, every other bit unchanged. -/
+theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
+    Mips.Fp.FcsrSpec fcsr fl (Mips.Fp.fpUpdate fcsr fl).1 (Mips.Fp.fpUpdate fcsr fl).2 := by
+  sorry
+
+/-- **`FcsrSpec` is a complete description**: it determines the new FCSR and the trap decision. -/
+theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 32} {t1 t2 : Bool}
+    (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 := by
+  sorry
+
+/-- **`MADD.S` is "as if separate floating-point" operations "were executed"** (MD00086 MADD.fmt p.256):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 0): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.maddS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
+  sorry
+
+/-- **`MSUB.S` is "as if separate floating-point" operations "were executed"** (MD00086 MSUB.fmt p.287):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 1): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.msubS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
+  sorry
+
+/-- **`NMADD.S` is "as if separate floating-point" operations "were executed"** (MD00086 NMADD.fmt p.308):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 2): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmaddS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
+  sorry
+
+/-- **`NMSUB.S` is "as if separate floating-point" operations "were executed"** (MD00086 NMSUB.fmt p.310):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 3): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmsubS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
+  sorry
+
+/-- **`MADD.D` is "as if separate floating-point" operations "were executed"** (MD00086 MADD.fmt p.256):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 0): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.maddD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
+  sorry
+
+/-- **`MSUB.D` is "as if separate floating-point" operations "were executed"** (MD00086 MSUB.fmt p.287):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 1): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.msubD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
+  sorry
+
+/-- **`NMADD.D` is "as if separate floating-point" operations "were executed"** (MD00086 NMADD.fmt p.308):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 2): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmaddD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
+  sorry
+
+/-- **`NMSUB.D` is "as if separate floating-point" operations "were executed"** (MD00086 NMSUB.fmt p.310):
+`step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 3): each step
+(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
+trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+theorem nmsubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmsubD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
+  sorry
+
 end Trusted

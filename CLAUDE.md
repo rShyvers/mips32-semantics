@@ -37,7 +37,8 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
 ## File map
 - Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State` incl. `hwInt` = environment-driven HW5..HW0 lines, never written by `step`, `standby` after WAIT, and `nullified` = the next instruction time is a nullified branch-likely delay slot; `Program`, `VAddr`/`PAddr`), `State.lean`
   (accessors, Kernel/User Mode, the Fixed Mapping MMU `translate`, the six memory-access functions on physical `physMem`), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
-  bit patterns, no host floats), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `nullifiedStep` for a nullified delay slot, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
+  bit patterns, no host floats; `FpOpsSpec.lean` = IEEE 754 reference definition written from MD00082 ch.6 (trusted), `FpOpsCorrect*.lean` =
+  proofs that `roundCore` and add/sub/mul/div/sqrt meet it, plus RECIP/RSQRT error bounds), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `nullifiedStep` for a nullified delay slot, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
   architecture (`load` by physical address `loadAddr`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
   `Semantics.lean`/`Checked.lean` roots
 
@@ -45,7 +46,7 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (159 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs` and `Manual/*` for the top theorems) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (175 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
   pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
@@ -57,7 +58,8 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`;
   imports `ChoiceFp`), `ChoiceWitness`/`ChoiceRows{,Fp,Fma}`/`ChoiceExact` (`choiceFree_exact`, `choiceFree_iff`: ChoiceFree is exact);
   `Manual/Relation.lean` = `Step`/`Oracle.Valid` (§1.2.1 limits incl. non-interference, §1.2.2 UNDEFINED, QNaN)/`UnpredictableLimits`/
-  `ConsultsOracle` (with `CmpAbsorbs`/`MaddAbsorbs`)/exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`, `Impl.Valid` (`modelImpl_valid`).
+  `ConsultsOracle` (with `CmpAbsorbs`/`MaddAbsorbs`)/exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`; `Manual/Accuracy.lean` = `Impl.Valid` (WF, RECIP/RSQRT ULP bounds;
+  re-transcribes Table 6.2 as `FPValue` because `Manual/` may not import `FpOpsSpec`); `Refine/ImplValid.lean` = `modelImpl_valid`.
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
   `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).

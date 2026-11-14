@@ -3,6 +3,7 @@ import Semantics.Refine.Determinism
 import Semantics.Refine.ChoiceExact
 import Semantics.Refine.ImplValid
 import Semantics.FpOpsCorrectApi
+import Semantics.FpOpsCorrectStep
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -1301,5 +1302,222 @@ theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64}
     ∃ R : Mips.Fp.Format.Rounded, Mips.Fp.binary64.RoundSpec e.rm (Mips.Fp.Cut.sqrt x) R ∧
       Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
   _root_.Mips.Fp.f64Sqrt_correct e he ha hx
+
+/-! ## Wave 11: every FP operand, the conversions, the compares, the FCSR
+
+The reference definitions extend `Semantics/FpOpsSpec.lean` (definitions only, written from MD00082
+Vol I-A Rev 6.01 ch.6 with `FIR.Has2008 = 0` and the MD00086 Vol II-A Rev 6.06 instruction pages):
+the classes of an encoding (`Format.datum`, `IsSNaN`/`IsQNaN`, Table 6.2), the new QNaN (Table 6.3),
+the NaN rule (`NaNResult`, §6.3.1.4-5), the signaled exceptions (`Signaled`, §6.7.2.3/5/6), rounding
+under the whole FCSR including flush to zero (`RoundEnvSpec`, §6.7.2.4), each operation on every
+operand (`AddSpec`, `MulSpec`, `DivSpec`, `SqrtSpec`, `SignOpSpec`, `ConvertSpec`, `WidenSpec`,
+`FromIntSpec`, `ExactSpec`, `ToWordSpec`, `CompareSpec` with the 16-row `condTable`), the FCSR
+update (`FcsrSpec`, §6.7.1, CheckFPException) and the multiply-add family as separate operations
+(`MaddSpec`). -/
+
+theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FBFFFFF :=
+  _root_.Mips.Fp.newQNaN_binary32
+
+theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF7FFFFFFFFFFFF :=
+  _root_.Mips.Fp.newQNaN_binary64
+
+theorem nanResult_first (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (h : ops.find? (fun x => f.isQNaN x) = some q) : f.nanResult ops = q :=
+  _root_.Mips.Fp.Format.nanResult_first f ops q h
+
+theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.AddSpec e false a.toNat b.toNat
+      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) :=
+  _root_.Mips.Fp.f32Add_spec e a b
+
+theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.AddSpec e true a.toNat b.toNat
+      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) :=
+  _root_.Mips.Fp.f32Sub_spec e a b
+
+theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.MulSpec e a.toNat b.toNat
+      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) :=
+  _root_.Mips.Fp.f32Mul_spec e a b
+
+theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.DivSpec e a.toNat b.toNat
+      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) :=
+  _root_.Mips.Fp.f32Div_spec e a b
+
+theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
+    Mips.Fp.binary32.SqrtSpec e a.toNat
+      ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) :=
+  _root_.Mips.Fp.f32Sqrt_spec e a
+
+theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.AddSpec e false a.toNat b.toNat
+      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) :=
+  _root_.Mips.Fp.f64Add_spec e a b
+
+theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.AddSpec e true a.toNat b.toNat
+      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) :=
+  _root_.Mips.Fp.f64Sub_spec e a b
+
+theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.MulSpec e a.toNat b.toNat
+      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) :=
+  _root_.Mips.Fp.f64Mul_spec e a b
+
+theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.DivSpec e a.toNat b.toNat
+      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) :=
+  _root_.Mips.Fp.f64Div_spec e a b
+
+theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
+    Mips.Fp.binary64.SqrtSpec e a.toNat
+      ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) :=
+  _root_.Mips.Fp.f64Sqrt_spec e a
+
+theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e x.toNat
+      ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) :=
+  _root_.Mips.Fp.f64ToF32_spec e x
+
+theorem f32ToF64_spec (x : BitVec 32) :
+    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 x.toNat
+      ((Mips.Fp.f32ToF64 x).1.toNat, (Mips.Fp.f32ToF64 x).2) :=
+  _root_.Mips.Fp.f32ToF64_spec x
+
+theorem w32ToF32_spec (e : Mips.Fp.Env) (x : BitVec 32) :
+    Mips.Fp.binary32.FromIntSpec e x.toInt ((Mips.Fp.w32ToF32 e x).1.toNat, (Mips.Fp.w32ToF32 e x).2) :=
+  _root_.Mips.Fp.w32ToF32_spec e x
+
+theorem w32ToF64_spec (x : BitVec 32) :
+    Mips.Fp.binary64.ExactSpec (decide (x.toInt < 0)) x.toInt
+      ((Mips.Fp.w32ToF64F x).1.toNat, (Mips.Fp.w32ToF64F x).2) :=
+  _root_.Mips.Fp.w32ToF64_spec x
+
+theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 32) :
+    Mips.Fp.binary32.ToWordSpec rm x.toNat (Mips.Fp.f32ToW32 rm x) :=
+  _root_.Mips.Fp.f32ToW32_spec rm x
+
+theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 64) :
+    Mips.Fp.binary64.ToWordSpec rm x.toNat (Mips.Fp.f64ToW32 rm x) :=
+  _root_.Mips.Fp.f64ToW32_spec rm x
+
+theorem condTable_formula : ∀ (cond : BitVec 4) (r : Mips.Fp.Format.Relation),
+    Mips.Fp.fpCompare cond (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
+      Mips.Fp.condHolds cond.toNat r ∧
+    (Mips.Fp.condTable cond.toNat).2.2.2.2 = cond.getLsbD 3 :=
+  _root_.Mips.Fp.condTable_formula
+
+theorem f32Compare_spec (cond : BitVec 4) (a b : BitVec 32) :
+    Mips.Fp.binary32.CompareSpec cond a.toNat b.toNat (Mips.Fp.f32Compare cond a b) :=
+  _root_.Mips.Fp.f32Compare_spec cond a b
+
+theorem f64Compare_spec (cond : BitVec 4) (a b : BitVec 64) :
+    Mips.Fp.binary64.CompareSpec cond a.toNat b.toNat (Mips.Fp.f64Compare cond a b) :=
+  _root_.Mips.Fp.f64Compare_spec cond a b
+
+theorem f32Abs_spec (x : BitVec 32) :
+    Mips.Fp.binary32.SignOpSpec true x.toNat ((Mips.Fp.f32Abs x).1.toNat, (Mips.Fp.f32Abs x).2) :=
+  _root_.Mips.Fp.f32Abs_spec x
+
+theorem f32Neg_spec (x : BitVec 32) :
+    Mips.Fp.binary32.SignOpSpec false x.toNat ((Mips.Fp.f32Neg x).1.toNat, (Mips.Fp.f32Neg x).2) :=
+  _root_.Mips.Fp.f32Neg_spec x
+
+theorem f64Abs_spec (x : BitVec 64) :
+    Mips.Fp.binary64.SignOpSpec true x.toNat ((Mips.Fp.f64Abs x).1.toNat, (Mips.Fp.f64Abs x).2) :=
+  _root_.Mips.Fp.f64Abs_spec x
+
+theorem f64Neg_spec (x : BitVec 64) :
+    Mips.Fp.binary64.SignOpSpec false x.toNat ((Mips.Fp.f64Neg x).1.toNat, (Mips.Fp.f64Neg x).2) :=
+  _root_.Mips.Fp.f64Neg_spec x
+
+theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
+    Mips.Fp.FcsrSpec fcsr fl (Mips.Fp.fpUpdate fcsr fl).1 (Mips.Fp.fpUpdate fcsr fl).2 :=
+  _root_.Mips.Fp.fpUpdate_spec fcsr fl
+
+theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 32} {t1 t2 : Bool}
+    (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 :=
+  _root_.Mips.Fp.fcsrSpec_unique h1 h2
+
+theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.maddS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
+  _root_.maddS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.msubS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
+  _root_.msubS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmaddS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
+  _root_.nmaddS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmsubS fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
+        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
+  _root_.nmsubS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.maddD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
+  _root_.maddD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.msubD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
+  _root_.msubD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmaddD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
+  _root_.nmaddD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
+
+theorem nmsubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
+    (hdecode : decode w = some (.nmsubD fd fr fs ft)) (hpb : s.pendingBranch = none)
+    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
+    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
+        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
+      step s = timerTick (match out with
+        | .trap c => takeException { s with fcsr := c } excCodeFPE
+        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
+  _root_.nmsubD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
 
 end Trusted

@@ -13,8 +13,9 @@ pack under the rounding mode, the five IEEE flags) is the rounding core of `Sema
 (`Mips.Fp.f32Add`, `f32Sub`, `f32Mul`, `f32Div`, `f32Sqrt`, the conversions, and their 64-bit
 forms), wrapped below as `Manual.IEEE.*`. Since wave 10 the core's rounding and `ADD`/`SUB`/`MUL`/
 `DIV`/`SQRT` are proved correct against the IEEE definition of `Semantics/FpOpsSpec.lean`
-(`Semantics/FpOpsCorrect*.lean`; docs/MANUAL-SPEC.md I.8); what stays trusted is that definition
-and the parts the theorems do not cover (special operands, conversions, compares). The FCSR bookkeeping around it (Cause, Enables, Flags,
+(`Semantics/FpOpsCorrect*.lean`; docs/MANUAL-SPEC.md I.8), and since wave 11 every function used here
+on every operand (special operands, the NaN rule, conversions, compares; MANUAL-SPEC I.9); what stays
+trusted is the reference of `Semantics/FpOpsSpec.lean` and the pins it names. The FCSR bookkeeping around it (Cause, Enables, Flags,
 the trap) is transcribed here again from the manual; `Mips.Fp.fpUpdate`, `Mips.Fp.envOf` and the
 FCSR masks of `FpOps.lean` are not used.
 
