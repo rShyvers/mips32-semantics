@@ -48,7 +48,7 @@ theorem add_refines (s : State) (hg : Good s) (rs rt rd w : W32)
   · have hP := of_decide_eq_true hov
     simp only [ne_eq] at hP ⊢
     simp only [hP, not_false_eq_true, ↓reduceIte]
-    show some (GeneralExceptionProcessing modelOracle .IntegerOverflow (abs s)) = _
+    show some (GeneralExceptionProcessing modelImpl modelOracle .IntegerOverflow (abs s)) = _
     rw [gep_take s .IntegerOverflow rfl excCodeOv (by decide)]
 
 end Refine

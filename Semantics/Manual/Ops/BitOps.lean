@@ -93,20 +93,24 @@ endif
 temp ← 032-(msbd+1) || GPR[rs]msbd+lsb..lsb
 GPR[rt] ← temp
 ```
-With `msbd ← size-1` and `lsb ← pos` (Description, p.183). `Oracle.extOutOfRange` resolves the
-UNPREDICTABLE case; when it says `.proceed` the formula is evaluated with bits above 31 read as 0. -/
+With `msbd ← size-1` and `lsb ← pos` (Description, p.183), read as the 5-bit fields of the diagram
+(`Manual.enc` writes `size - 1` and `pos` there, so a constructor `size = 0` is `msbd = 31`). `Oracle.extOutOfRange` resolves the
+UNPREDICTABLE case (`unpredictableOr`): `.proceed` evaluates the formula with bits above 31 read as
+0; a signal or another state replaces the rest of the Operation. -/
 def EXT (rt rs pos size : W32) : Pseudo Unit := do
   let x ← GPR (reg rs)
-  -- msbd ← size-1
-  let msbd := size.toNat - 1
-  -- lsb ← pos
-  let lsb := pos.toNat
+  -- msbd ← size-1 (the 5-bit msbd field of the diagram, as `enc` writes it)
+  let msbd := (low (size - 1#32) 5).toNat
+  -- lsb ← pos (the 5-bit lsb field)
+  let lsb := (low pos 5).toNat
+  let body : Pseudo Unit := do
+    -- temp ← 0^(32-(msbd+1)) || GPR[rs]msbd+lsb..lsb
+    let temp : W32 := (0#(32 - (msbd + 1)) ++ low (x >>> lsb) (msbd + 1)).setWidth 32
+    -- GPR[rt] ← temp
+    setGPR (reg rt) temp
   -- if (lsb + msbd) > 31 then UNPREDICTABLE endif
-  if lsb + msbd > 31 then resolve ((← Pseudo.oracle).extOutOfRange (← Pseudo.get))
-  -- temp ← 0^(32-(msbd+1)) || GPR[rs]msbd+lsb..lsb
-  let temp : W32 := (0#(32 - (msbd + 1)) ++ low (x >>> lsb) (msbd + 1)).setWidth 32
-  -- GPR[rt] ← temp
-  setGPR (reg rt) temp
+  if lsb + msbd > 31 then unpredictableOr ((← Pseudo.oracle).extOutOfRange (← Pseudo.get)) body
+  else body
 
 /-- **INS rt, rs, pos, size** — MD00086 Vol II-A Rev 6.06, INS, p.192-193 (p.192 image-only, read from
 the PDF).
@@ -116,21 +120,25 @@ if lsb > msb then
 endif
 GPR[rt] ← GPR[rt]31..msb+1 || GPR[rs]msb-lsb..0 || GPR[rt]lsb-1..0
 ```
-With `msb ← pos+size-1` and `lsb ← pos` (Description, p.192); `msb` is an integer (`-1` for the empty
-field `pos = 0`, `size = 0`). `Oracle.insLsbAboveMsb` resolves the UNPREDICTABLE case; when it says
-`.proceed` the formula is evaluated as written (a negative width is the empty string). -/
+With `msb ← pos+size-1` and `lsb ← pos` (Description, p.192), read as the 5-bit fields of the diagram
+(as `Manual.enc` writes them). `Oracle.insLsbAboveMsb` resolves the UNPREDICTABLE case
+(`unpredictableOr`); when it says `.proceed` the formula is evaluated as written (a negative width is
+the empty string). -/
 def INS (rt rs pos size : W32) : Pseudo Unit := do
   let x ← GPR (reg rs)
   let t ← GPR (reg rt)
-  -- msb ← pos+size-1
-  let msb : Int := (pos.toNat : Int) + size.toNat - 1
-  -- lsb ← pos
-  let lsb := pos.toNat
+  -- msb ← pos+size-1 (the 5-bit msb field of the diagram, as `enc` writes it)
+  let msb : Int := ((low (pos + size - 1#32) 5).toNat : Int)
+  -- lsb ← pos (the 5-bit lsb field)
+  let lsb := (low pos 5).toNat
+  let body : Pseudo Unit := do
+    -- GPR[rt] ← GPR[rt]31..msb+1 || GPR[rs]msb-lsb..0 || GPR[rt]lsb-1..0
+    let temp : W32 :=
+      (low (t >>> (msb + 1).toNat) (31 - msb).toNat ++ low x (msb - lsb + 1).toNat ++
+        low t lsb).setWidth 32
+    setGPR (reg rt) temp
   -- if lsb > msb then UNPREDICTABLE endif
-  if (lsb : Int) > msb then resolve ((← Pseudo.oracle).insLsbAboveMsb (← Pseudo.get))
-  -- GPR[rt] ← GPR[rt]31..msb+1 || GPR[rs]msb-lsb..0 || GPR[rt]lsb-1..0
-  let temp : W32 :=
-    (low (t >>> (msb + 1).toNat) (31 - msb).toNat ++ low x (msb - lsb + 1).toNat ++ low t lsb).setWidth 32
-  setGPR (reg rt) temp
+  if (lsb : Int) > msb then unpredictableOr ((← Pseudo.oracle).insLsbAboveMsb (← Pseudo.get)) body
+  else body
 
 end Manual.Ops

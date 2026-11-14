@@ -326,6 +326,8 @@ example : encode (.mthi 29#32) = mkRT 29#32 0#32 0#32 0#32 0x11#32 := by decide
 example : encode (.mtlo 29#32) = mkRT 29#32 0#32 0#32 0#32 0x13#32 := by decide
 example : encode (.jr 29#32) = mkRT 29#32 0#32 0#32 0#32 0x08#32 := by decide
 example : encode (.jalr 29#32 3#32) = mkRT 29#32 0#32 3#32 0#32 0x09#32 := by decide
+example : encode (.jrHb 29#32) = mkRT 29#32 0#32 0#32 0x10#32 0x08#32 := by decide
+example : encode (.jalrHb 29#32 3#32) = mkRT 29#32 0#32 3#32 0x10#32 0x09#32 := by decide
 -- full round trip for every new instruction (decode ∘ encode = id on the field values we store)
 example : decode (encode (.movn 29#32 8#32 3#32)) = some (.movn 29#32 8#32 3#32) := by decide
 example : decode (encode (.movz 29#32 8#32 3#32)) = some (.movz 29#32 8#32 3#32) := by decide
@@ -355,6 +357,8 @@ example : decode (encode (.mthi 29#32)) = some (.mthi 29#32) := by decide
 example : decode (encode (.mtlo 29#32)) = some (.mtlo 29#32) := by decide
 example : decode (encode (.jr 29#32)) = some (.jr 29#32) := by decide
 example : decode (encode (.jalr 29#32 3#32)) = some (.jalr 29#32 3#32) := by decide
+example : decode (encode (.jrHb 29#32)) = some (.jrHb 29#32) := by decide
+example : decode (encode (.jalrHb 29#32 3#32)) = some (.jalrHb 29#32 3#32) := by decide
 example : encode (.break 0#32) = mkRT 0#32 0#32 0#32 0#32 0x0d#32 := by decide
 example : encode (.teq 29#32 8#32 0#32) = mkRT 29#32 8#32 0#32 0#32 0x34#32 := by decide
 
@@ -637,7 +641,7 @@ example : decode ((0x11#32 <<< 26) ||| mkRT 0x11#32 1#32 7#32 8#32 0x04#32) = no
 example : decode ((0x1f#32 <<< 26) ||| mkRT 29#32 8#32 31#32 1#32 0x00#32) = none := by decide   -- ext lsb+msbd = 32
 example : decode ((0x1f#32 <<< 26) ||| mkRT 29#32 8#32 3#32 6#32 0x04#32) = none := by decide    -- ins msb < lsb
 
--- Deliberately tolerated don't-care fields (see `decode`'s docstring).
+-- Software `code` fields carried in the constructors, and the jr/jalr hint values (see `decode`'s docstring).
 example : decode 0x42000020#32 = some (.wait 0#32) := by decide                                          -- wait, code 0
 example : decode 0x43ffffe0#32 = some (.wait 0x7ffff#32) := by decide                                          -- wait, code all ones
 example : decode 0x40000020#32 = none := by decide                                                -- CO bit clear
@@ -645,8 +649,10 @@ example : decode (mkRT 0#32 0#32 0#32 0x1f#32 0x0f#32) = some (.sync 0x1f#32) :=
 example : decode (mkRT 0x1f#32 0x1f#32 0x1f#32 0x1f#32 0x0c#32) = some (.syscall 0xfffff#32) := by decide     -- syscall code
 example : decode (mkRT 0x1f#32 0x1f#32 0x1f#32 0x1f#32 0x0d#32) = some (.break 0xfffff#32) := by decide       -- break code
 example : decode (mkRT 29#32 8#32 0x1f#32 0x1f#32 0x34#32) = some (.teq 29#32 8#32 0x3ff#32) := by decide -- trap code
-example : decode (mkRT 29#32 0#32 0#32 0x10#32 0x08#32) = some (.jr 29#32) := by decide          -- jr.hb
-example : decode (mkRT 29#32 0#32 31#32 0x10#32 0x09#32) = some (.jalr 29#32 31#32) := by decide -- jalr.hb
+example : decode (mkRT 29#32 0#32 0#32 0x10#32 0x08#32) = some (.jrHb 29#32) := by decide         -- jr.hb
+example : decode (mkRT 29#32 0#32 31#32 0x10#32 0x09#32) = some (.jalrHb 29#32 31#32) := by decide -- jalr.hb
+example : decode (mkRT 29#32 0#32 0#32 0x11#32 0x08#32) = none := by decide                   -- jr, hint 17
+example : decode (mkRT 29#32 0#32 31#32 0x01#32 0x09#32) = none := by decide                  -- jalr, hint 1
 -- `nop` / `ssnop` / `ehb` are `sll $0,$0,{0,1,3}`.
 example : decode 0x00000000#32 = some (.sll 0#32 0#32 0#32) := by decide
 example : decode 0x00000040#32 = some (.sll 0#32 0#32 1#32) := by decide

@@ -12,12 +12,12 @@ namespace Refine
 open Manual
 
 theorem gep_adel (s : State) (va : W32) :
-    GeneralExceptionProcessing modelOracle (.AddressErrorLoad va) (abs s) =
+    GeneralExceptionProcessing modelImpl modelOracle (.AddressErrorLoad va) (abs s) =
       abs (takeAddressException s excCodeAdEL va) := by
   rw [gep_eq s _ (by intro h; cases h) (by intro u h; cases h)]; rfl
 
 theorem gep_ades (s : State) (va : W32) :
-    GeneralExceptionProcessing modelOracle (.AddressErrorStore va) (abs s) =
+    GeneralExceptionProcessing modelImpl modelOracle (.AddressErrorStore va) (abs s) =
       abs (takeAddressException s excCodeAdES va) := by
   rw [gep_eq s _ (by intro h; cases h) (by intro u h; cases h)]; rfl
 
@@ -50,8 +50,8 @@ theorem lw_refines (s : State) (hg : Good s) (base rt off w : W32)
     unfold translate
     cases accessAllowed s va
     · simp only [Bool.false_eq_true, ↓reduceIte, Option.map_none]
-      rw [show modelCtx.oracle = modelOracle from rfl, gep_adel]
-    · simp only [↓reduceIte, Option.map_some, LoadMemory, bind, Pseudo.get, pure, setGPR, abs_Mem]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+    · simp only [↓reduceIte, Option.map_some, loadMemory_model, setGPR, abs_Mem]
       rw [complete_plain, mkNext, abs_advance _ _ (by unfold writeReg; split <;> rfl),
         abs_writeReg _ _ _ hsz]
       have hpc : ∀ v, (writeReg s (regIdx rt) v).pc = s.pc := by
@@ -60,7 +60,7 @@ theorem lw_refines (s : State) (hg : Good s) (base rt off w : W32)
   · have hm : (bits va 1 0 != 0#2) = true := by rw [misaligned_eq]; simp [hal]
     have hr : readMemWord s va = none := by unfold readMemWord; simp [hal]
     simp only [hm, ↓reduceIte, SignalException, hr]
-    rw [show modelCtx.oracle = modelOracle from rfl, gep_adel]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
 
 theorem low2_of_aligned (pa : W32) (h : pa.toNat % 4 = 0) : (pa &&& 3#32).toNat = 0 := by
   rw [BitVec.toNat_and, show (3#32).toNat = 2 ^ 2 - 1 by rfl, Nat.and_two_pow_sub_one_eq_mod]
@@ -111,7 +111,7 @@ theorem sw_refines (s : State) (hg : Good s) (base rt off w : W32)
     simp only [hal, ne_eq, not_true_eq_false, ↓reduceIte]
     cases accessAllowed s va
     · simp only [Bool.false_eq_true, ↓reduceIte]
-      rw [show modelCtx.oracle = modelOracle from rfl, gep_ades]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
     · simp only [↓reduceIte, StoreMemory, bind, Pseudo.oracle, Pseudo.modify, abs_Mem]
       have hst : modelCtx.oracle.storeClearsLL (abs s) = true := rfl
       simp only [hst, ↓reduceIte]
@@ -121,6 +121,6 @@ theorem sw_refines (s : State) (hg : Good s) (base rt off w : W32)
   · have hm : (bits va 1 0 != 0#2) = true := by rw [misaligned_eq]; simp [hal]
     have hr : ∀ v, writeMemWord s va v = none := by intro v; unfold writeMemWord; simp [hal]
     simp only [hm, ↓reduceIte, SignalException, hr]
-    rw [show modelCtx.oracle = modelOracle from rfl, gep_ades]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
 
 end Refine

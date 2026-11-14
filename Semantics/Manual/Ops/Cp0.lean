@@ -25,7 +25,8 @@ endif
 ```
 Restrictions (p.290): "Pre-Release 6: The results are UNDEFINED if coprocessor 0 does not contain a
 register as specified by rd and sel" (`Oracle.cp0Undefined`). The effect of a write on each register
-is its field table (`CPRWrite`). -/
+is its field table (`CPRWrite`); a write of a different Exception Base to `EBase` with `Status.BEV = 0`
+is UNDEFINED (MD00090 Vol III Rev 6.02 §9.41, p.223; `Oracle.ebaseWriteBEV0`). -/
 def MTC0 (rt rd sel : W32) : Pseudo Unit := do
   -- data ← GPR[rt]
   let data ← GPR (reg rt)
@@ -33,7 +34,14 @@ def MTC0 (rt rd sel : W32) : Pseudo Unit := do
   let r := rd.toNat
   -- if IsCoprocessorRegisterImplemented (0, reg, sel) then CPR[0,reg,sel] ← data
   if IsCoprocessorRegisterImplemented r sel.toNat then
-    Pseudo.modify (CPRWrite r sel.toNat data)
+    let a ← Pseudo.get
+    let o ← Pseudo.oracle
+    let write := Pseudo.modify (CPRWrite r sel.toNat data)
+    -- EBase (15, 1): "The operation of the processor is UNDEFINED if the Exception Base field is
+    -- written with a different value when StatusBEV is 0" (Vol III §9.41, p.223)
+    if r == 15 && sel.toNat == 1 && !StatusBEV a && bits data 29 12 != bits a.EBase 29 12 then
+      unpredictableOr (o.ebaseWriteBEV0 a data) write
+    else write
   -- else UNDEFINED
   else
     let o ← Pseudo.oracle
@@ -110,32 +118,34 @@ def EI (rt : W32) : Pseudo Unit := do
   -- StatusIE ← 1
   Pseudo.modify fun a => { a with Status := a.Status ||| (1#32 <<< 0) }
 
+/-- `SGPR[s, r]`, register `r` of shadow set `s`. "The normal GPRs are logically considered shadow set
+0" (MD00090 Vol III Rev 6.02, Chapter 7, p.103); with `SRSCtl.HSS = 0` "only the normal GPRs are
+implemented" (Table 9.49, p.203), which `Impl.WF` requires, so set 0 is the only set and every
+`SRSCtl` set field reads 0 (`PSS`, `Impl.WF`). The spec's state has no other set: an `s ≠ 0` (an
+implementation outside `Impl.WF`) also reads the normal GPRs. -/
+def SGPR (_s : BitVec 4) (r : Fin 32) : Pseudo W32 := GPR r
+
+/-- `SGPR[s, r] ← v` (set 0 only, as `SGPR`). -/
+def setSGPR (_s : BitVec 4) (r : Fin 32) (v : W32) : Pseudo Unit := setGPR r v
+
 /-- **RDPGPR rd, rt** — MD00086 Vol II-A Rev 6.06, RDPGPR, p.335 (MIPS32 Release 2).
 ```
 GPR[rd] ← SGPR[SRSCtlPSS, rt]
 ```
-"The normal GPRs are logically considered shadow set 0" (MD00090 Vol III Rev 6.02, Chapter 7, p.103),
-so set `PSS = 0` is the current GPRs. `SRSCtl.HSS = 0` here (`Impl.SRSCtl`): no other set exists
-(`Oracle.shadowSetUndefined`). -/
+`SRSCtl.PSS = 0` under `Impl.WF`: set 0 is the normal GPRs (`SGPR`). -/
 def RDPGPR (rd rt : W32) : Pseudo Unit := do
   let impl ← Pseudo.impl
-  let o ← Pseudo.oracle
-  let a ← Pseudo.get
   -- GPR[rd] ← SGPR[SRSCtlPSS, rt]
-  if SRSCtlPSS impl == 0#4 then setGPR (reg rd) (← GPR (reg rt))
-  else resolve (o.shadowSetUndefined a (.rdpgpr rd rt))
+  setGPR (reg rd) (← SGPR (SRSCtlPSS impl) (reg rt))
 
 /-- **WRPGPR rd, rt** — MD00086 Vol II-A Rev 6.06, WRPGPR, p.444 (MIPS32 Release 2).
 ```
 SGPR[SRSCtlPSS, rd] ← GPR[rt]
 ```
-Set `PSS = 0` is the normal GPRs, as for `RDPGPR`. -/
+As `RDPGPR`: set 0 is the normal GPRs. -/
 def WRPGPR (rd rt : W32) : Pseudo Unit := do
   let impl ← Pseudo.impl
-  let o ← Pseudo.oracle
-  let a ← Pseudo.get
   -- SGPR[SRSCtlPSS, rd] ← GPR[rt]
-  if SRSCtlPSS impl == 0#4 then setGPR (reg rd) (← GPR (reg rt))
-  else resolve (o.shadowSetUndefined a (.wrpgpr rd rt))
+  setSGPR (SRSCtlPSS impl) (reg rd) (← GPR (reg rt))
 
 end Manual.Ops

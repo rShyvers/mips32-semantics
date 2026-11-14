@@ -174,8 +174,10 @@ StoreFPR(fd, fmt, AbsoluteValue(ValueFPR(fs, fmt)))
 def ABS_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32)
-  let r ← FPResult (IEEE.absS x)
+  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32),
+  -- a QNaN operand per `Oracle.absNegNaN`
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.absS o.absNegNaN x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -187,8 +189,10 @@ StoreFPR(fd, fmt, AbsoluteValue(ValueFPR(fs, fmt)))
 def ABS_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32)
-  let r ← FPResult (IEEE.absD x)
+  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32),
+  -- a QNaN operand per `Oracle.absNegNaN`
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.absD o.absNegNaN x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -200,8 +204,10 @@ StoreFPR(fd, fmt, Negate(ValueFPR(fs, fmt)))
 def NEG_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307)
-  let r ← FPResult (IEEE.negS x)
+  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307),
+  -- a QNaN operand per `Oracle.absNegNaN`
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negS o.absNegNaN x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -213,8 +219,10 @@ StoreFPR(fd, fmt, Negate(ValueFPR(fs, fmt)))
 def NEG_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307)
-  let r ← FPResult (IEEE.negD x)
+  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307),
+  -- a QNaN operand per `Oracle.absNegNaN`
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negD o.absNegNaN x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -226,9 +234,10 @@ StoreFPR(fd, fmt, 1.0 / valueFPR(fs, fmt))
 def RECIP_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- 1.0 / valueFPR(fs, fmt) (accuracy implementation dependent, p.336: pinned to DIV)
+  -- 1.0 / valueFPR(fs, fmt): the implementation's approximation (`Impl.recipS`, p.336)
+  let i ← Pseudo.impl
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.recipS a x)
+  let r ← FPResult (i.recipS (IEEE.env a) x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -240,9 +249,10 @@ StoreFPR(fd, fmt, 1.0 / valueFPR(fs, fmt))
 def RECIP_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- 1.0 / valueFPR(fs, fmt) (accuracy implementation dependent, p.336: pinned to DIV)
+  -- 1.0 / valueFPR(fs, fmt): the implementation's approximation (`Impl.recipD`, p.336)
+  let i ← Pseudo.impl
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.recipD a x)
+  let r ← FPResult (i.recipD (IEEE.env a) x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -254,9 +264,10 @@ StoreFPR(fd, fmt, 1.0 / SquareRoot(valueFPR(fs, fmt)))
 def RSQRT_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- 1.0 / SquareRoot(valueFPR(fs, fmt)) (accuracy implementation dependent, p.343: SQRT then DIV)
+  -- 1.0 / SquareRoot(valueFPR(fs, fmt)): the implementation's approximation (`Impl.rsqrtS`, p.343)
+  let i ← Pseudo.impl
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.rsqrtS a x)
+  let r ← FPResult (i.rsqrtS (IEEE.env a) x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -268,9 +279,10 @@ StoreFPR(fd, fmt, 1.0 / SquareRoot(valueFPR(fs, fmt)))
 def RSQRT_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- 1.0 / SquareRoot(valueFPR(fs, fmt)) (accuracy implementation dependent, p.343: SQRT then DIV)
+  -- 1.0 / SquareRoot(valueFPR(fs, fmt)): the implementation's approximation (`Impl.rsqrtD`, p.343)
+  let i ← Pseudo.impl
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.rsqrtD a x)
+  let r ← FPResult (i.rsqrtD (IEEE.env a) x)
   -- StoreFPR (fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -281,9 +293,13 @@ vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
 StoreFPR(fd, fmt, (vfs xfmt vft) +fmt vfr)
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add instructions were executed" (p.256).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.256): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and add instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. -/
 def MADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -291,9 +307,12 @@ def MADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.maddS a vfr vfs vft)
+  let p ← FPResult (IEEE.mulS a vfs vft)
+  -- (...) +fmt vfr (the add, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.addS a p vfr)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -304,9 +323,13 @@ vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
 StoreFPR(fd, fmt, (vfs xfmt vft) +fmt vfr)
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add instructions were executed" (p.256).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.256): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and add instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. -/
 def MADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -314,9 +337,12 @@ def MADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.maddD a vfr vfs vft)
+  let p ← FPResult (IEEE.mulD a vfs vft)
+  -- (...) +fmt vfr (the add, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.addD a p vfr)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -327,9 +353,13 @@ vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
 StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr)
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add instructions were executed" (p.287).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.287): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and subtract instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. -/
 def MSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -337,9 +367,12 @@ def MSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.msubS a vfr vfs vft)
+  let p ← FPResult (IEEE.mulS a vfs vft)
+  -- (...) -fmt vfr (the subtract, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.subS a p vfr)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -350,9 +383,13 @@ vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
 StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr)
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add instructions were executed" (p.287).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.287): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and subtract instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. -/
 def MSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -360,9 +397,12 @@ def MSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.msubD a vfr vfs vft)
+  let p ← FPResult (IEEE.mulD a vfs vft)
+  -- (...) -fmt vfr (the subtract, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.subD a p vfr)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -371,11 +411,15 @@ def MSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
 vfr <- ValueFPR(fr, fmt)
 vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
-StoreFPR(fd, fmt, vfr +fmt (vfs xfmt vft)   [printed with a leading negation glyph, lost in the text])
+StoreFPR(fd, fmt, -(vfr +fmt (vfs xfmt vft)))
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add and negate instructions were executed" (p.308).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.308): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and add and negate instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -383,9 +427,15 @@ def NMADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.nmaddS a vfr vfs vft)
+  let p ← FPResult (IEEE.mulS a vfs vft)
+  -- vfr +fmt (...) (the add, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.addS a vfr p)
+  -- -(...) (the negate)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negS o.absNegNaN r)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -394,11 +444,15 @@ def NMADD_S (fd fr fs ft : W32) : Pseudo Unit := do
 vfr <- ValueFPR(fr, fmt)
 vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
-StoreFPR(fd, fmt, vfr +fmt (vfs xfmt vft)   [printed with a leading negation glyph, lost in the text])
+StoreFPR(fd, fmt, -(vfr +fmt (vfs xfmt vft)))
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add and negate instructions were executed" (p.308).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.308): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and add and negate instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -406,9 +460,15 @@ def NMADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.nmaddD a vfr vfs vft)
+  let p ← FPResult (IEEE.mulD a vfs vft)
+  -- vfr +fmt (...) (the add, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.addD a vfr p)
+  -- -(...) (the negate)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negD o.absNegNaN r)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR64 (reg fd) r
 
@@ -417,11 +477,15 @@ def NMADD_D (fd fr fs ft : W32) : Pseudo Unit := do
 vfr <- ValueFPR(fr, fmt)
 vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
-StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr   [printed with a leading negation glyph, lost in the text])
+StoreFPR(fd, fmt, -((vfs xfmt vft) -fmt vfr))
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add and negate instructions were executed" (p.310).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.310): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and subtract and negate instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -429,9 +493,15 @@ def NMSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.nmsubS a vfr vfs vft)
+  let p ← FPResult (IEEE.mulS a vfs vft)
+  -- (...) -fmt vfr (the subtract, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.subS a p vfr)
+  -- -(...) (the negate)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negS o.absNegNaN r)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR32 (reg fd) r
 
@@ -440,11 +510,15 @@ def NMSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
 vfr <- ValueFPR(fr, fmt)
 vfs <- ValueFPR(fs, fmt)
 vft <- ValueFPR(ft, fmt)
-StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr   [printed with a leading negation glyph, lost in the text])
+StoreFPR(fd, fmt, -((vfs xfmt vft) -fmt vfr))
 ```
-"The intermediate product is rounded according to the current rounding mode in FCSR ... The results
-and flags are as if separate floating-point multiply and add and negate instructions were executed" (p.310).
--/
+(the operators of the last line are lost in the text extraction; read from the PDF page.)
+Description (p.310): "The intermediate product is rounded according to the current rounding mode in
+FCSR ... The results and flags are as if separate floating-point multiply and subtract and negate instructions were
+executed." Each operation is therefore written as the instruction it stands for: its result is
+rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
+Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
+Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -452,9 +526,15 @@ def NMSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- (vfs xfmt vft) combined with vfr, with FCSR Cause/Flags and CheckFPException
+  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.nmsubD a vfr vfs vft)
+  let p ← FPResult (IEEE.mulD a vfs vft)
+  -- (...) -fmt vfr (the subtract, of the rounded product)
+  let a ← Pseudo.get
+  let r ← FPResult (IEEE.subD a p vfr)
+  -- -(...) (the negate)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.negD o.absNegNaN r)
   -- StoreFPR(fd, fmt, ...)
   StoreFPR64 (reg fd) r
 

@@ -1,4 +1,5 @@
 import Semantics.Specs.Tactics
+import Semantics.Specs.DecodeSpec
 import Semantics.Specs.Fixtures
 
 /-!
@@ -137,12 +138,28 @@ theorem wsbh_spec_raw (s : State) (w rd rt : W32)
           (setRegsSpec (initialState textBase) [(8, 0x12345678#32)])
         readReg s 10 == 0x34127856#32) = true
 
+/-- **`ext`, as `step` computes it for any constructor values**: the diagram's 5-bit fields
+`lsb = pos`, `msbd = size - 1` (MD00086 Vol II-A Rev 6.06, EXT p.183); `lsb + msbd > 31`
+(UNPREDICTABLE) raises Reserved Instruction (SPEC-NOTES §11). -/
+theorem ext_spec_fields (s : State) (w rt rs pos size : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ext rt rs pos size))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let lsb := (pos &&& 31#32).toNat
+      let msbd := ((size - 1#32) &&& 31#32).toNat
+      if lsb + msbd > 31 then takeException s excCodeRI
+      else
+        let field := (readReg s (regIdxSpec rs) >>> lsb) &&& lowBitsMaskSpec (msbd + 1)
+        { (writeReg s (regIdxSpec rt) field) with
+            pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 }) := by
+  step_spec
+
 /-- **`ext` extracts a `size`-bit field of `$rs` starting at bit `pos`,
 zero-extended, into `$rt`** (SPECIAL3 opcode 0x1f, funct 0x00;
-INSTRUCTION-REF "ext"). `pos`/`size` are already the semantic values here —
-`decode` did the raw-field +-1 arithmetic — so this is pure bit masking,
-with no special case for the real `pos + size <= 32` hardware constraint
-(matching `Step.lean`'s own documented choice). -/
+INSTRUCTION-REF "ext"). `pos`/`size` are the semantic values `decode` produces
+(`pos < 32`, `1 ≤ size`, `pos + size ≤ 32`: `decode_wellFormed`), so the
+diagram fields of `ext_spec_fields` are `pos` and `size - 1` and the
+UNPREDICTABLE range is not reached. -/
 theorem ext_spec_raw (s : State) (w rt rs pos size : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ext rt rs pos size))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -150,11 +167,40 @@ theorem ext_spec_raw (s : State) (w rt rs pos size : W32)
       let field := (readReg s (regIdxSpec rs) >>> pos.toNat) &&& lowBitsMaskSpec size.toNat
       { (writeReg s (regIdxSpec rt) field) with
           pc := (writeReg s (regIdxSpec rt) field).pc + 4#32 }) := by
+  have hwf := decode_wellFormed w _ hdecode
+  simp only [Instruction.WellFormed] at hwf
+  obtain ⟨-, -, hpos, hs1, hs2⟩ := hwf
+  have e1 : (pos &&& 31#32).toNat = pos.toNat := by rw [DecodeSpec.and_31 _ hpos]
+  have e2 : ((size - 1#32) &&& 31#32).toNat + 1 = size.toNat := by
+    rw [DecodeSpec.and_31 _ (by bv_omega)]; bv_omega
+  have hc : ¬ ((pos &&& 31#32).toNat + ((size - 1#32) &&& 31#32).toNat > 31) := by omega
+  rw [ext_spec_fields s w rt rs pos size hfetch hdecode hpb hexec]
+  simp only [hc, ↓reduceIte]
+  rw [e1, e2]
+
+/-- **`ins`, as `step` computes it for any constructor values**: the diagram's 5-bit fields
+`lsb = pos`, `msb = pos + size - 1` (MD00086 Vol II-A Rev 6.06, INS p.192-193); `lsb > msb`
+(UNPREDICTABLE) raises Reserved Instruction (SPEC-NOTES §11). -/
+theorem ins_spec_fields (s : State) (w rt rs pos size : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ins rt rs pos size))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let lsb := (pos &&& 31#32).toNat
+      let msb := ((pos + size - 1#32) &&& 31#32).toNat
+      if lsb > msb then takeException s excCodeRI
+      else
+        let mask := lowBitsMaskSpec (msb + 1 - lsb)
+        let srcField := (readReg s (regIdxSpec rs) &&& mask) <<< lsb
+        let clearMask := ~~~(mask <<< lsb)
+        let newVal := (readReg s (regIdxSpec rt) &&& clearMask) ||| srcField
+        { (writeReg s (regIdxSpec rt) newVal) with
+            pc := (writeReg s (regIdxSpec rt) newVal).pc + 4#32 }) := by
   step_spec
 
 /-- **`ins` inserts the low `size` bits of `$rs`, shifted up to bit `pos`,
 into `$rt`, leaving every other bit of `$rt` untouched** (SPECIAL3 opcode
-0x1f, funct 0x04; INSTRUCTION-REF "ins"). See `ins_outside_field_unchanged`
+0x1f, funct 0x04; INSTRUCTION-REF "ins"), for the values `decode` produces
+(`decode_wellFormed`). See `ins_outside_field_unchanged`
 below for the "every other bit" half of this claim isolated and proved on
 its own, the same way `movn`/`movz`'s "genuinely unchanged" properties are
 proved elsewhere in this file. -/
@@ -168,7 +214,18 @@ theorem ins_spec_raw (s : State) (w rt rs pos size : W32)
       let newVal := (readReg s (regIdxSpec rt) &&& clearMask) ||| srcField
       { (writeReg s (regIdxSpec rt) newVal) with
           pc := (writeReg s (regIdxSpec rt) newVal).pc + 4#32 }) := by
-  step_spec
+  have hwf := decode_wellFormed w _ hdecode
+  simp only [Instruction.WellFormed] at hwf
+  obtain ⟨-, -, hpos, hs1, hs2⟩ := hwf
+  have e1 : (pos &&& 31#32).toNat = pos.toNat := by rw [DecodeSpec.and_31 _ hpos]
+  have e2 : ((pos + size - 1#32) &&& 31#32).toNat = pos.toNat + size.toNat - 1 := by
+    rw [DecodeSpec.and_31 _ (by bv_omega)]; bv_omega
+  have hc : ¬ ((pos &&& 31#32).toNat > ((pos + size - 1#32) &&& 31#32).toNat) := by omega
+  have e3 : ((pos + size - 1#32) &&& 31#32).toNat + 1 - (pos &&& 31#32).toNat = size.toNat := by
+    omega
+  rw [ins_spec_fields s w rt rs pos size hfetch hdecode hpb hexec]
+  simp only [hc, ↓reduceIte]
+  rw [e3, e1]
 
 /-- Bitvector identity behind `ins_outside_field_unchanged`: ORing in a
 field that lies entirely inside `l <<< k` cannot change the bits outside

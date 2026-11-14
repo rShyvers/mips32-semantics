@@ -118,9 +118,9 @@ theorem ce_eq (e : Exception) (hu : ∀ u, e = .CoprocessorUnusable u → u < 4)
 (whose vector the model's `takeInterrupt` sets afterwards), with the model's `Cause.CE` choice. -/
 theorem gep_eq (s : State) (e : Exception) (he : e ≠ .Interrupt)
     (hu : ∀ u, e = .CoprocessorUnusable u → u < 4) :
-    GeneralExceptionProcessing modelOracle e (abs s) =
+    GeneralExceptionProcessing modelImpl modelOracle e (abs s) =
       abs (exceptionEntry (badv e s) ((ExcCode e).setWidth 32) (ceOf e)) := by
-  have hoff : vectorOffset (abs s) e = 0x180#32 := by
+  have hoff : vectorOffset modelImpl (abs s) e = 0x180#32 := by
     unfold vectorOffset; split
     · rfl
     · cases e <;> first | rfl | exact absurd rfl he
@@ -231,7 +231,7 @@ theorem execute_run (c : Ctx) (w : W32) (i : Instruction) (a : Arch) (op : Pseud
     Execute c w i a =
       match op.run c { arch := a } with
       | (.ok (), f) => some (Complete a f)
-      | (.signal e, f) => some (GeneralExceptionProcessing c.oracle e f.arch) := by
+      | (.signal e, f) => some (GeneralExceptionProcessing c.impl c.oracle e f.arch) := by
   simp only [Execute, Execute.runOperation, hcti, h1, h0, hop, Bool.false_and, Bool.false_eq_true, ite_false]
   rfl
 
@@ -244,7 +244,7 @@ def Simple : Exception → Bool
 the model's `takeException`. -/
 theorem gep_take (s : State) (e : Exception) (hs : Simple e = true)
     (code : W32) (hc : code = (ExcCode e).setWidth 32) :
-    GeneralExceptionProcessing modelOracle e (abs s) = abs (takeException s code) := by
+    GeneralExceptionProcessing modelImpl modelOracle e (abs s) = abs (takeException s code) := by
   have he : e ≠ .Interrupt := by intro h; subst h; cases hs
   rw [gep_eq s e he (fun u h => by subst h; cases hs), hc]
   have hb : badv e s = s := by cases e <;> first | rfl | cases hs
@@ -259,7 +259,7 @@ theorem execute_cti_slot (w : W32) (i : Instruction) (s : State) (t : W32)
   have hc : modelCtx.oracle.ctiInSlot (abs s) i = .signal .ReservedInstruction := by
     simp [modelCtx, modelOracle, hp]
   simp only [Execute, hcti, hb, Bool.and_self, ↓reduceIte, hc]
-  rw [show modelCtx.oracle = modelOracle from rfl,
+  rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
     gep_take s .ReservedInstruction rfl excCodeRI (by decide)]
 
 /-- A CTI outside a delay slot runs its Operation. -/
@@ -269,7 +269,7 @@ theorem execute_cti_run (w : W32) (i : Instruction) (s : State) (op : Pseudo Uni
     Execute modelCtx w i (abs s) =
       match op.run modelCtx { arch := abs s } with
       | (.ok (), f) => some (Complete (abs s) f)
-      | (.signal e, f) => some (GeneralExceptionProcessing modelCtx.oracle e f.arch) := by
+      | (.signal e, f) => some (GeneralExceptionProcessing modelCtx.impl modelCtx.oracle e f.arch) := by
   have hb : (abs s).BranchDelay.isSome = false := by simp [abs, hpb]
   simp only [Execute, Execute.runOperation, hb, Bool.and_false, Bool.false_eq_true, ite_false, h1, h0, hop,
     Bool.false_and]

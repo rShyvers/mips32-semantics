@@ -21,7 +21,9 @@ import Semantics.Manual.Reset
    neither fetched nor executed and raises no exception; no statement assigns `PC`, so it advances by
    4 (§1.3, Table 1.1, p.6).
 4. **Fetch** (`InstructionFetch`, §2.2.2.4.2, Figure 2.29, p.25), **decode** by the format diagrams
-   (`dec`, `DecoderSound`), and **execute**: a CTI in a delay slot is UNPREDICTABLE (BEQ p.72;
+   (`dec`, `DecoderSound`), and **execute**: a word that matches a diagram but has an UNPREDICTABLE
+   field value is resolved by the oracle (`UnpredictableEncoding`, `Unpredictable`; §2.1.1, p.12);
+   a CTI in a delay slot is UNPREDICTABLE (BEQ p.72;
    `Oracle.ctiInSlot`); an instruction of an unusable coprocessor's encoding space raises Coprocessor
    Unusable (Vol III §6.2.22, p.100), which "takes priority over the Reserved Instruction exception"
    (MD00086 Vol II-A Rev 6.06 Table A.1, p.449); a word that matches no format diagram raises Reserved
@@ -49,14 +51,16 @@ WAIT, and PAUSE"; `NAL` is the encoding of `BLTZAL r0`, `ERETNC`/`DERET` do not 
 profile). -/
 def IsCTI : Instruction → Bool
   | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .bltzal .. | .bgezal ..
-  | .j .. | .jal .. | .jr .. | .jalr ..
+  | .j .. | .jal .. | .jr .. | .jalr .. | .jrHb .. | .jalrHb ..
   | .beql .. | .bnel .. | .blezl .. | .bgtzl .. | .bltzl .. | .bgezl .. | .bltzall .. | .bgezall ..
   | .bc1f .. | .bc1t .. | .bc1fl .. | .bc1tl .. | .eret | .wait .. => true
   | i => IsPAUSE i
 
-/-- `dec` decodes by the transcribed format diagrams: an instruction it returns for `w` has the
-diagram `w` whenever that diagram is transcribed (`enc`). Completeness (every word matching a
-diagram is decoded to that instruction, and only such words) is stated with the full `enc` in 7D. -/
+/-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
+(`enc`; every constructor has a diagram since 7B). Completeness (every word matching a diagram is
+decoded to that instruction) is stated in 7D. The model's `decode` satisfies it since 7R (the
+`JR`/`JALR` hint field is no longer ignored); it is checked by `#guard`s
+(`Semantics/Tests/ManualTests.lean`), not yet proved. -/
 def DecoderSound (dec : W32 → Option Instruction) : Prop :=
   ∀ w i v, dec w = some i → enc i = some v → v = w
 
@@ -77,7 +81,7 @@ def Complete (a : Arch) (f : Frame) : Arch :=
 /-- **Execute instruction `i`, fetched as `w`** (points 4-5). `none`: `i`'s page is not transcribed
 yet. -/
 def Execute (c : Ctx) (w : W32) (i : Instruction) (a : Arch) : Option Arch :=
-  let gep := fun e (x : Arch) => GeneralExceptionProcessing c.oracle e x
+  let gep := fun e (x : Arch) => GeneralExceptionProcessing c.impl c.oracle e x
   if IsCTI i && a.BranchDelay.isSome then
     match c.oracle.ctiInSlot a i with
     | .signal e => some (gep e a)
@@ -88,16 +92,16 @@ where
   /-- The coprocessor-usability checks, then the Operation (points 4-5). -/
   runOperation : Option Arch :=
     if InCop1Space w && !StatusCU1 a then
-      some (GeneralExceptionProcessing c.oracle (.CoprocessorUnusable 1) a)
+      some (GeneralExceptionProcessing c.impl c.oracle (.CoprocessorUnusable 1) a)
     else if InCop0Space w && !CP0Usable a then
-      some (GeneralExceptionProcessing c.oracle (.CoprocessorUnusable 0) a)
+      some (GeneralExceptionProcessing c.impl c.oracle (.CoprocessorUnusable 0) a)
     else
       match Operation i with
       | none => none
       | some op =>
         match op.run c { arch := a } with
         | (.ok (), f) => some (Complete a f)
-        | (.signal e, f) => some (GeneralExceptionProcessing c.oracle e f.arch)
+        | (.signal e, f) => some (GeneralExceptionProcessing c.impl c.oracle e f.arch)
 
 /-- **A word that matches no format diagram** (point 4): Coprocessor Unusable for the encoding space
 of an unusable coprocessor (COP2 is never usable: `Status.CU2` reads 0, there is no coprocessor 2),
@@ -108,13 +112,31 @@ def Undecodable (w : W32) (a : Arch) : Exception :=
   else if InCop2Space w then .CoprocessorUnusable 2
   else .ReservedInstruction
 
+/-- **A word with an UNPREDICTABLE field value** (`UnpredictableEncoding`, point 4): the word is in
+the encoding space of the diagram it matches, so the coprocessor-usability check of that space comes
+first, as for every instruction of the space ("the Coprocessor Unavailable exception takes priority
+over the Reserved Instruction exception", MD00086 Vol II-A Rev 6.06 Table A.1, p.449); then the
+oracle's outcome (`Oracle.unpredictableEncoding`; `.proceed` treats the word as matching no
+diagram). -/
+def Unpredictable (c : Ctx) (w : W32) (a : Arch) : Arch :=
+  let gep := fun e (x : Arch) => GeneralExceptionProcessing c.impl c.oracle e x
+  if InCop1Space w && !StatusCU1 a then gep (.CoprocessorUnusable 1) a
+  else if InCop0Space w && !CP0Usable a then gep (.CoprocessorUnusable 0) a
+  else
+    match c.oracle.unpredictableEncoding a w with
+    | .signal e => gep e a
+    | .arbitrary a' => a'
+    | .proceed => gep (Undecodable w a) a
+
 /-- **Fetch, decode, execute** (point 4). -/
 def FetchExecute (c : Ctx) (dec : W32 → Option Instruction) (a : Arch) : Option Arch :=
   match InstructionFetch.run c { arch := a } with
-  | (.signal e, f) => some (GeneralExceptionProcessing c.oracle e f.arch)
+  | (.signal e, f) => some (GeneralExceptionProcessing c.impl c.oracle e f.arch)
   | (.ok w, _) =>
     match dec w with
-    | none => some (GeneralExceptionProcessing c.oracle (Undecodable w a) a)
+    | none =>
+      if UnpredictableEncoding w then some (Unpredictable c w a)
+      else some (GeneralExceptionProcessing c.impl c.oracle (Undecodable w a) a)
     | some i => Execute c w i a
 
 /-- **One instruction time** (points 1-6). `none` only when the instruction fetched is one whose
@@ -125,7 +147,7 @@ def InstructionTime (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) (
   let r :=
     if InterruptTaken i a then
       -- an interrupt also restarts a pipeline stopped by `WAIT` (WAIT, p.442)
-      some { GeneralExceptionProcessing o .Interrupt a with LowPower := false }
+      some { GeneralExceptionProcessing i o .Interrupt a with LowPower := false }
     else if a.LowPower then some (LowPowerTime i a)
     else if a.Nullify then some { a with PC := a.PC + 4#32, BranchDelay := none, Nullify := false }
     else FetchExecute c dec a

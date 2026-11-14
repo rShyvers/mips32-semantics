@@ -59,7 +59,7 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
     Bool.true_and, cp0usable_abs]
   cases hu : cp0Usable s
   · simp only [Bool.not_false, ↓reduceIte]
-    rw [show modelCtx.oracle = modelOracle from rfl,
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
       gep_eq s (.CoprocessorUnusable 0) (by intro h; cases h) (by intro u h; cases h; omega)]
     rfl
   · simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
@@ -93,7 +93,9 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
     generalize rd.toNat = r
     generalize sel.toNat = q
     by_cases hI : IsCoprocessorRegisterImplemented r q = true
-    · simp only [hI, ↓reduceIte, Pseudo.modify, complete_plain]
+    · have hEB : ∀ a d, modelCtx.oracle.ebaseWriteBEV0 a d = .proceed := fun _ _ => rfl
+      simp only [hI, ↓reduceIte, Pseudo.get, Pseudo.oracle, hEB, unpredictableOr, ite_self,
+        Pseudo.modify, complete_plain]
       split <;> simp only [IsCoprocessorRegisterImplemented] at hI <;>
         first
           | (simp only [CPRWrite, mkNext, statusWritable_eq, causeWritable_eq, hwrenaWritable_eq,
@@ -107,7 +109,7 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
       split
       all_goals first
         | (exfalso; apply hI; rfl)
-        | (show some (GeneralExceptionProcessing modelOracle .ReservedInstruction (abs s)) = _
+        | (show some (GeneralExceptionProcessing modelImpl modelOracle .ReservedInstruction (abs s)) = _
            rw [gep_take s .ReservedInstruction rfl excCodeRI (by decide)])
 
 end Refine

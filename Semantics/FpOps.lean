@@ -564,30 +564,36 @@ def canonNaN64 (x : BitVec 64) : BitVec 64 := if isNaN64 x then defaultQNaN64 el
 
 /-- `ABS.S`. With `FIR.Has2008 = 0` "this operation is arithmetic. For this
 case, any NaN operand signals invalid operation" (MD00086 Vol II-A Rev 6.06,
-ABS.fmt, p.32). The untrapped default result of Invalid Operation is a quiet
-NaN (MD00082 Vol I-A Rev 6.01 Table 6.14, p.100), and "when possible, this
-QNaN result is one of the operand QNaN values" (§6.3.1.5, p.82): a quiet NaN
-operand is returned unchanged, a signaling one gives the default QNaN.
-Otherwise the sign bit is cleared. -/
+ABS.fmt, p.32). A signaling NaN gives the default QNaN ("An SNaN is never
+produced as a result value", MD00082 Vol I-A Rev 6.01 §6.3.1.4, p.81; Table
+6.3, p.82). A quiet NaN operand: Invalid, and the untrapped result is the
+operand with the sign bit cleared, as for any other operand (reading A′ of
+SPEC-NOTES §9 item 21; `Manual.Oracle.absNegNaN`). Otherwise the sign bit is
+cleared. -/
 def f32Abs (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly)
+  if isNaN32 x then
+    (if isQNaN32 x then x &&& 0x7FFFFFFF#32 else defaultQNaN32, Flags.invalidOnly)
   else (x &&& 0x7FFFFFFF#32, Flags.none)
 
 /-- `NEG.S` (arithmetic, as `f32Abs`; MD00086 Vol II-A Rev 6.06, NEG.fmt,
-p.307): any NaN signals Invalid (quiet NaN operand returned unchanged,
-signaling ↦ default QNaN); otherwise flip the sign bit. -/
+p.307: "The value is negated by changing the sign bit value"): any NaN signals
+Invalid (a quiet NaN operand gives the operand with the sign bit flipped,
+reading A′; signaling ↦ default QNaN); otherwise flip the sign bit. -/
 def f32Neg (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly)
+  if isNaN32 x then
+    (if isQNaN32 x then x ^^^ 0x80000000#32 else defaultQNaN32, Flags.invalidOnly)
   else (x ^^^ 0x80000000#32, Flags.none)
 
 /-- `ABS.D`: as `f32Abs`, for doubles. -/
 def f64Abs (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly)
+  if isNaN64 x then
+    (if isQNaN64 x then x &&& 0x7FFFFFFFFFFFFFFF#64 else defaultQNaN64, Flags.invalidOnly)
   else (x &&& 0x7FFFFFFFFFFFFFFF#64, Flags.none)
 
 /-- `NEG.D`: as `f32Neg`, for doubles. -/
 def f64Neg (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly)
+  if isNaN64 x then
+    (if isQNaN64 x then x ^^^ 0x8000000000000000#64 else defaultQNaN64, Flags.invalidOnly)
   else (x ^^^ 0x8000000000000000#64, Flags.none)
 
 /-! ## §8  Comparison (MD00086 `C.cond.fmt`) -/
@@ -1100,10 +1106,14 @@ rounded according to the current rounding mode in FCSR. The value in FPR fr is
 added to the product. The result sum is calculated to infinite precision,
 rounded according to the current rounding mode in FCSR … The results and
 flags are as if separate floating-point multiply and add instructions were
-executed." — i.e. **unfused**, two roundings; the flags of both steps are
-ORed. NMADD.fmt (p.308) / NMSUB.fmt: "… as if separate floating-point multiply
-and add and negate instructions were executed", so the final negation is the
-(legacy, arithmetic) `NEG.fmt`, which signals Invalid for a NaN.
+executed." — i.e. **unfused**, two roundings. NMADD.fmt (p.308) / NMSUB.fmt
+(p.310): "… as if separate floating-point multiply and add and negate
+instructions were executed", so the final negation is the (legacy, arithmetic)
+`NEG.fmt`, which signals Invalid for a NaN. The functions below give the
+result value and the union of the IEEE exceptions of the steps. `step` does
+not use their flags: it executes the steps one after the other with their own
+FCSR Cause / trap check / Flags (`Step.lean`, `fpThen`), so a trapping
+multiply stops the instruction with the multiply's Cause only.
 
 RECIP.fmt (p.336) and RSQRT.fmt (p.343) leave the accuracy
 implementation-dependent (within 1 resp. 2 ulp) and "it is implementation
@@ -1122,11 +1132,14 @@ def f32Msub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
   let m := f32Mul e fs ft
   let r := f32Sub e m.1 fr
   (r.1, m.2.or r.2)
-/-- `NMADD.S`: `−((fs × ft) + fr)`. -/
+/-- `NMADD.S`: `−(fr + (fs × ft))`, the printed operand order of NMADD.fmt
+(p.308; it decides which QNaN is returned when `fr` and the product are both
+QNaNs). -/
 def f32Nmadd (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
-  let r := f32Madd e fr fs ft
+  let m := f32Mul e fs ft
+  let r := f32Add e fr m.1
   let n := f32Neg r.1
-  (n.1, r.2.or n.2)
+  (n.1, (m.2.or r.2).or n.2)
 /-- `NMSUB.S`: `−((fs × ft) − fr)`. -/
 def f32Nmsub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
   let r := f32Msub e fr fs ft
@@ -1150,11 +1163,12 @@ def f64Msub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
   let m := f64Mul e fs ft
   let r := f64Sub e m.1 fr
   (r.1, m.2.or r.2)
-/-- `NMADD.D`. -/
+/-- `NMADD.D`: `−(fr + (fs × ft))` (printed operand order, p.308). -/
 def f64Nmadd (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
-  let r := f64Madd e fr fs ft
+  let m := f64Mul e fs ft
+  let r := f64Add e fr m.1
   let n := f64Neg r.1
-  (n.1, r.2.or n.2)
+  (n.1, (m.2.or r.2).or n.2)
 /-- `NMSUB.D`. -/
 def f64Nmsub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
   let r := f64Msub e fr fs ft

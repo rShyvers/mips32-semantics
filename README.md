@@ -20,7 +20,7 @@ dependency on anything else in that project.
   State` (writes the assembled image into physical memory, each word at the physical address of its virtual
   address), the MARS-style `syscall` services (1, 4, 10, 11) and the
   conventions for stopping a run (`runHosted`). `MipsRun` and the harnesses use the hosted run.
-- `Semantics/Instruction.lean`: the `Instruction` type (181 constructors), `decode` (strict) and `encode`.
+- `Semantics/Instruction.lean`: the `Instruction` type (183 constructors), `decode` (strict) and `encode`.
 - `Semantics/Asm.lean`: an assembler from source text to a `Program` (labels, directives, idioms, range checks).
 - `Semantics/FpOps.lean`: the floating-point unit, defined on bit patterns without host floats.
 - `Semantics/Specs/`, `Semantics/Statements.lean`: the specification and its proofs (see below for exactly what
@@ -63,10 +63,11 @@ read `Statements.lean`, plus the definitions that it mentions: the model files (
 `Semantics/Specs/Defs.lean` and `WellFormed.lean`. The 143 statements are a selection: every global theorem below and at least one per-instruction
 statement per family. The arrangement and its limits are in `docs/PROOF-NOTES.md`.
 
-**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 181
-constructors (`python3 scripts/trace.py`). 179 of the 181 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
+**(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 183
+constructors (`python3 scripts/trace.py`). 179 of the 183 `_spec_raw` theorems are proved by unfolding `step` and closing with `rfl`
 (`step_spec`/`fp_step_spec` in `Semantics/Specs/Tactics.lean`; `break_spec_raw` and `syscall_spec_raw` have explicit
-proofs), and each states what `step` computes for that
+proofs; `ext_spec_raw` and `ins_spec_raw` are derived from `ext_spec_fields`/`ins_spec_fields`, which are, with the
+`decode` field ranges of `decode_wellFormed`; `sll`/`srl`/`sra`/`rotr` rewrite `shamt` to `shamt % 32` first), and each states what `step` computes for that
 instruction in terms of the model's own helper functions (`readReg`, `writeReg`, `signExt16`, ...; the `...Spec`
 names in `Defs.lean` are abbreviations for the real definitions, not independent copies). Each has the form
 `step s = timerTick (…)`: `step` is the instruction (`execute`) followed by the timer (`timerTick`, which only
@@ -160,7 +161,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | R-type mult/div | 4 | 4 | 4 | 4 | mult, multu, div, divu |
 | R-type move | 2 | 2 | 2 | 2 | mflo, mfhi |
 | R-type move, write direction | 2 | 2 | 2 | 2 | mthi, mtlo |
-| R-type jump register | 2 | 2 | 2 | 2 | jr, jalr |
+| R-type jump register | 4 | 4 | 2 | 4 | jr, jalr, jr.hb, jalr.hb |
 | R-type SPECIAL2 bit-count | 2 | 2 | 2 | 2 | clo, clz |
 | R-type GPR multiply, SPECIAL2 | 1 | 1 | 1 | 1 | mul |
 | R-type multiply-accumulate, SPECIAL2 | 4 | 4 | 4 | 4 | madd, maddu, msub, msubu |
@@ -188,7 +189,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
 | Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
 | FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **181** | **181** | **119** | **180** | |
+| **Total** | **183** | **183** | **119** | **182** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->

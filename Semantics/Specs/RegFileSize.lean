@@ -181,6 +181,18 @@ elab "sk_fwd" : tactic => Lean.Elab.Tactic.withMainContext do
           return [g]
       catch _ => pure ()
 
+/-- A multi-operation FP instruction (`fpThen`, the multiply-add family) keeps the sizes when every
+continuation does, from the state with the FCSR updated. -/
+theorem sizesKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
+    (h : ∀ p, SizesKept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
+      (k { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 } p)) :
+    SizesKept s (fpThen s r k) := by
+  unfold fpThen
+  dsimp only
+  split
+  · exact ⟨rfl, rfl⟩
+  · exact h _
+
 /-- Simp set for the tactic loop below: reduce a `SizesKept` goal about one of `execInstr`'s
 result shapes to statements about `regs.size` / `fpRegs.size`, and push those through every
 state-update primitive (plus the equations `sk_fwd` put in the context). -/
@@ -214,7 +226,8 @@ theorem execInstr_sizesKept (s : State) (instr : Instruction) :
       · exact (sizesKept_exceptionEntry _ _ _).mpr trivial
       · unfold execBody
         cases instr <;> dsimp only <;>
-          repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split)
+          repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split |
+            (apply sizesKept_fpThen; intro _))
 
 /-! ## Statements -/
 

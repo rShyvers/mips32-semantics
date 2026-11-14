@@ -71,7 +71,7 @@ theorem addS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     Bool.true_and, cu1_abs]
   cases hu : cu1Enabled s
   · simp only [Bool.not_false, ↓reduceIte]
-    rw [show modelCtx.oracle = modelOracle from rfl,
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
       gep_eq s (.CoprocessorUnusable 1) (by intro h; cases h) (by intro u h; cases h; omega)]
     rfl
   · simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
@@ -88,7 +88,7 @@ theorem addS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
       rw [complete_plain, mkNext, abs_advance _ _ (by rfl), abs_writeFpReg _ _ _ (by exact hfsz)]
       rfl
     · simp only [↓reduceIte]
-      rw [show modelCtx.oracle = modelOracle from rfl]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl]
       rw [← gep_take _ .FloatingPoint rfl excCodeFPE (by decide)]
       rfl
 end Refine

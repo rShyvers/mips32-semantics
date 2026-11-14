@@ -88,11 +88,15 @@ def MemElemAt (m : PAddr → UInt8) (pAddr : PAddr) : W32 :=
 /-- **`MemElem ← LoadMemory(CCA, AccessLength, pAddr, vAddr, IorD)`** (§2.2.2.2.3, Figure 2.18,
 p.19): "The data is returned in a fixed-width naturally aligned memory element (MemElem) ... The
 low-order 2 (or 3) bits of the address and the AccessLength indicate which of the bytes within
-MemElem need to be passed to the processor." Reading has no side effect here (no cache), so the
-whole aligned word is returned and the caller selects the bytes, as each Operation does. -/
+MemElem need to be passed to the processor." The whole aligned word is returned and the caller
+selects the bytes, as each Operation does. A data load may make a following `SC` fail
+(`Oracle.loadClearsLL`; MD00086 Vol II-A Rev 6.06, SC, p.347-348); an instruction fetch is not a
+load of the sequence. -/
 def LoadMemory (_cca : BitVec 3) (_accessLength : Nat) (pAddr : PAddr) (_vAddr : W32)
-    (_iord : IorD) : Pseudo W32 := do
+    (iord : IorD) : Pseudo W32 := do
   let a ← Pseudo.get
+  let o ← Pseudo.oracle
+  if iord == .DATA && o.loadClearsLL a then Pseudo.modify fun x => { x with LLbit := false }
   pure (MemElemAt a.Mem pAddr)
 
 /-- The byte of the memory element `w` in byte lane `k` (0 = lowest address) for big-endian memory:

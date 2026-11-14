@@ -6,7 +6,7 @@ import Semantics.Manual.Pseudocode
 One line per instruction page: the 32-bit word its format diagram describes, built from the fields
 of the `Instruction` constructor (MD00086 Vol II-A Rev 6.06, the diagram at the top of each page).
 The spec decodes a fetched word as the instruction whose diagram it matches
-(`Manual.DecoderCorrect`, `Manual/Cycle.lean`); the model's `decode`/`encode` are not used here.
+(`Manual.DecoderSound`, `Manual/Cycle.lean`); the model's `decode`/`encode` are not used here.
 
 Since 7B every `Instruction` constructor has a diagram line (`docs/MANUAL-SPEC.md`). The encoding spaces of the coprocessors, which decide the exception for a
 word that matches no diagram, are at the end.
@@ -104,6 +104,8 @@ def enc : Instruction → Option W32
   | .jal target => some (fld 6 26 0x03#32 ||| fld 26 0 target)
   | .jr rs => some (rFormat 0#32 rs 0#32 0#32 0#32 0x08#32)
   | .jalr rs rd => some (rFormat 0#32 rs 0#32 rd 0#32 0x09#32)
+  | .jrHb rs => some (rFormat 0#32 rs 0#32 0#32 0x10#32 0x08#32)
+  | .jalrHb rs rd => some (rFormat 0#32 rs 0#32 rd 0x10#32 0x09#32)
   | .mfc0 rt rd sel => some (fld 6 26 0x10#32 ||| fld 5 21 0x00#32 ||| fld 5 16 rt ||| fld 5 11 rd |||
       fld 3 0 sel)
   | .di rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 5 11 12#32 |||
@@ -290,5 +292,101 @@ opcodes COP2 `010010`, LWC2 `110010`, SWC2 `111010`, LDC2 `110110`, SDC2 `111110
 def InCop2Space (w : W32) : Bool :=
   opcode w == 0x12#32 || opcode w == 0x32#32 || opcode w == 0x3A#32 || opcode w == 0x36#32 ||
     opcode w == 0x3E#32
+
+/-! ## Words with an UNPREDICTABLE field value (7R) -/
+
+/-- Bits `hi..lo` of an instruction word, as a number. -/
+def fldOf (w : W32) (hi lo : Nat) : Nat := (w.extractLsb' lo (hi + 1 - lo)).toNat
+
+/-- **A word that matches a format diagram in its opcode and function fields but has an
+UNPREDICTABLE value in another field.** Such a word matches no `enc` image (every `enc` line puts
+the defined values there), so the decoder of `Manual.DecoderSound` may return `none` for it; it is
+not "a word that matches no format diagram" either. Its outcome is `Oracle.unpredictableEncoding`
+(`Manual.FetchExecute`). The cases (MD00086 Vol II-A Rev 6.06, printed page of each diagram):
+
+* **A nonzero unnamed field** ("Fields that contain zeros but are not named are unused fields that
+  are required to be zero ... If such fields are set to non-zero values, the operation of the
+  processor is UNPREDICTABLE", §2.1.1, p.12): bits 10..6 of the SPECIAL three-register ALU
+  functions ADD p.33, ADDU p.38, SUB p.388, SUBU p.390, AND p.44, OR p.314, XOR p.446, NOR p.313,
+  SLT p.378, SLTU p.381, MOVN p.279, MOVZ p.284, SLLV p.377, SRAV p.384; bits 10..7 of SRLV/ROTRV
+  (p.386, p.340); bits 25..21 of SLL p.376 and SRA p.383; bits 25..22 of SRL/ROTR (p.385, p.339);
+  bits 15..6 of MULT p.303, MULTU p.304, DIV p.165, DIVU p.171; bits 25..16 and 10..6 of MFHI
+  p.273, MFLO p.274; bits 20..6 of MTHI p.297, MTLO p.298; bits 20..11 of JR p.206; bits 20..16 of
+  JALR p.196; bits 25..11 of SYNC p.407; bit 17 and bits 10..6 of MOVF/MOVT p.276, p.281; bits
+  10..6 of MUL p.299; bits 15..6 of MADD p.255, MADDU p.261, MSUB p.286, MSUBU p.289; bits 10..6
+  of CLZ p.135, CLO p.134; bits 25..21 of SEB p.365, SEH p.366, WSBH p.445; bits 25..21 and 10..6
+  of RDHWR p.332; bits 25..21 of LUI p.233; bits 20..16 of BLEZ p.94, BGTZ p.88, BLEZL p.95,
+  BGTZL p.89; bits 24..6 of ERET p.177; bits 10..3 of MFC0 p.266, MTC0 p.290; bits 10..6 and 4..0
+  of DI p.164, EI p.176; bits 10..0 of RDPGPR p.335, WRPGPR p.444; bits 10..0 of MFC1 p.267, MTC1
+  p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16 of the one-operand COP1
+  functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W p.441, CEIL.W
+  p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160); bit 17
+  of MOVF.fmt p.277, MOVT.fmt p.282; bit 7 of C.cond.fmt p.110; bits 15..11 of LWXC1 p.254, LDXC1
+  p.218; bits 10..6 of SWXC1 p.406, SDXC1 p.364, PREFX p.329.
+* **`CLO`/`CLZ` with `rt ≠ rd`**: "The operation of the instruction is UNPREDICTABLE if the rt and rd
+  fields of the instruction contain different values" (p.134, p.135).
+* **`EXT` with `lsb + msbd > 31`** (p.183) and **`INS` with `lsb > msb`** (p.193).
+* **A `JR`/`JALR` hint other than `00000` and `10000`**: "In release 1 of the architecture, the only
+  defined hint field value is 0 ... In Release 2 of the architecture, bit 10 of the hint field is
+  used to encode an instruction hazard barrier" (JR p.207; JALR p.196); the JR.HB/JALR.HB diagrams
+  (p.208, p.198) put "Any other legal hint value" in bits 9..6, and no other value is defined. -/
+def UnpredictableEncoding (w : W32) : Bool :=
+  let op := fldOf w 31 26
+  let rs := fldOf w 25 21
+  let rt := fldOf w 20 16
+  let rd := fldOf w 15 11
+  let sa := fldOf w 10 6
+  let fn := fldOf w 5 0
+  let nz (hi lo : Nat) : Bool := fldOf w hi lo != 0
+  match op with
+  | 0x00 =>  -- SPECIAL
+    if [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2A, 0x2B, 0x0B, 0x0A, 0x04, 0x07].contains fn
+    then nz 10 6
+    else if fn == 0x06 then nz 10 7
+    else if fn == 0x00 || fn == 0x03 then nz 25 21
+    else if fn == 0x02 then nz 25 22
+    else if [0x18, 0x19, 0x1A, 0x1B].contains fn then nz 15 6
+    else if fn == 0x10 || fn == 0x12 then nz 25 16 || nz 10 6
+    else if fn == 0x11 || fn == 0x13 then nz 20 6
+    else if fn == 0x08 then nz 20 11 || (sa != 0 && sa != 16)
+    else if fn == 0x09 then nz 20 16 || (sa != 0 && sa != 16)
+    else if fn == 0x0F then nz 25 11
+    else if fn == 0x01 then nz 17 17 || nz 10 6
+    else false
+  | 0x1C =>  -- SPECIAL2
+    if fn == 0x02 then nz 10 6
+    else if [0x00, 0x01, 0x04, 0x05].contains fn then nz 15 6
+    else if fn == 0x20 || fn == 0x21 then nz 10 6 || rt != rd
+    else false
+  | 0x1F =>  -- SPECIAL3
+    if fn == 0x20 && [0x10, 0x18, 0x02].contains sa then nz 25 21
+    else if fn == 0x00 then sa + rd > 31          -- EXT: lsb + msbd > 31
+    else if fn == 0x04 then sa > rd               -- INS: lsb > msb
+    else if fn == 0x3B then nz 25 21 || nz 10 6
+    else false
+  | 0x0F => nz 25 21                               -- LUI
+  | 0x06 | 0x07 | 0x16 | 0x17 => nz 20 16          -- BLEZ, BGTZ, BLEZL, BGTZL
+  | 0x10 =>  -- COP0
+    if fldOf w 25 25 == 1 then fn == 0x18 && nz 24 6   -- ERET
+    else if rs == 0x00 || rs == 0x04 then nz 10 3      -- MFC0, MTC0
+    else if rs == 0x0B && rd == 12 then nz 10 6 || nz 4 0   -- DI, EI
+    else if rs == 0x0A || rs == 0x0E then nz 10 0      -- RDPGPR, WRPGPR
+    else false
+  | 0x11 =>  -- COP1
+    if [0x00, 0x04, 0x03, 0x07, 0x02, 0x06].contains rs then nz 10 0
+    else if rs == 0x10 || rs == 0x11 then
+      if fldOf w 5 4 == 3 then nz 7 7 && fldOf w 6 6 == 0   -- C.cond.fmt (A = 0)
+      else if fn == 0x11 then nz 17 17                       -- MOVF.fmt, MOVT.fmt
+      else if [0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x15, 0x16, 0x24].contains fn then
+        nz 20 16
+      else if (rs == 0x10 && fn == 0x21) || (rs == 0x11 && fn == 0x20) then nz 20 16  -- CVT.D.S, CVT.S.D
+      else false
+    else if rs == 0x14 then (fn == 0x20 || fn == 0x21) && nz 20 16                 -- CVT.S.W, CVT.D.W
+    else false
+  | 0x13 =>  -- COP1X
+    if fn == 0x00 || fn == 0x01 then nz 15 11
+    else if [0x08, 0x09, 0x0F].contains fn then nz 10 6
+    else false
+  | _ => false
 
 end Manual

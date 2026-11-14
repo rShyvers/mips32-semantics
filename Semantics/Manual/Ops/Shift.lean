@@ -109,13 +109,13 @@ s ← sa
 temp ← GPR[rt]s-1..0 || GPR[rt]31..s
 GPR[rd] ← temp
 ```
-The printed 6.06 text lost the relational operator of the first line (`ArchitectureRevision()  2`);
-Rev 2.50 prints it as `<` (MD00086 Vol II Rev 2.50, ROTR, Operation). With `ArchitectureRevision() = 2`
-(the target is Release 2) the test is false, so the UNPREDICTABLE branch is unreachable and `Config3.SM`
-(SmartMIPS) is not needed; the branch is written as `resolve .proceed`. -/
+The printed page has `<` in the first line (read from the PDF page; only the text extraction of
+6.06 loses the glyph). With `ArchitectureRevision() = 2` (the target is Release 2) the test is
+false, so the UNPREDICTABLE branch is never taken and `Config3.SM` (SmartMIPS) is not needed: the
+first line is kept as a comment and has no Lean statement. -/
 def ROTR (rd rt sa : W32) : Pseudo Unit := do
   -- if ((ArchitectureRevision() < 2) and (Config3SM = 0)) then UNPREDICTABLE endif
-  if ArchitectureRevision < 2 then resolve .proceed
+  --   (ArchitectureRevision() = 2: never taken)
   let x ← GPR (reg rt)
   -- s ← sa
   let s := (low sa 5).toNat
@@ -136,7 +136,7 @@ GPR[rd] ← temp
 The condition is as for `ROTR`. -/
 def ROTRV (rd rt rs : W32) : Pseudo Unit := do
   -- if ((ArchitectureRevision() < 2) and (Config3SM = 0)) then UNPREDICTABLE endif
-  if ArchitectureRevision < 2 then resolve .proceed
+  --   (ArchitectureRevision() = 2: never taken)
   let x ← GPR (reg rt)
   -- s ← GPR[rs]4..0
   let s := (low (← GPR (reg rs)) 5).toNat

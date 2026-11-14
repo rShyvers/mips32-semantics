@@ -231,6 +231,7 @@ theorem execInstr_timerKept (s : State) (instr : Instruction) (hw : writesTimer 
       · unfold execBody
         cases instr <;> simp only [writesTimer] at hw <;> dsimp only <;>
           repeat' (first | (tk_fwd; tk_simp; done) | split | (unfold fpFinishS; dsimp only) |
+            (unfold fpThen; dsimp only) |
             (unfold fpFinishD; dsimp only) | (unfold fpFinishCmp; dsimp only) |
             (simp [*] at hw; done))
 

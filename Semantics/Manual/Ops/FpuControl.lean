@@ -82,7 +82,7 @@ def CTC1 (rt fs : W32) : Pseudo Unit := do
   if fs == 25#32 then
     if bits temp 31 8 != 0#24 then
       -- UNPREDICTABLE
-      Pseudo.modify fun a => { a with FCSR := o.ctc1Unpredictable a fs temp }
+      resolve (o.ctc1Unpredictable (← Pseudo.get) fs temp)
     else
       -- FCSR <- temp7..1 || FCSR24 || temp0 || FCSR22..0
       Pseudo.modify fun a => { a with FCSR :=
@@ -92,7 +92,7 @@ def CTC1 (rt fs : W32) : Pseudo Unit := do
   else if fs == 26#32 then
     if bits temp 31 18 != 0#14 || bits temp 11 7 != 0#5 || bits temp 2 0 != 0#3 then
       -- UNPREDICTABLE
-      Pseudo.modify fun a => { a with FCSR := o.ctc1Unpredictable a fs temp }
+      resolve (o.ctc1Unpredictable (← Pseudo.get) fs temp)
     else
       -- FCSR <- FCSR31..18 || temp17..12 || FCSR11..7 || temp6..2 || FCSR1..0
       Pseudo.modify fun a => { a with FCSR :=
@@ -102,7 +102,7 @@ def CTC1 (rt fs : W32) : Pseudo Unit := do
   else if fs == 28#32 then
     if bits temp 31 12 != 0#20 || bits temp 6 3 != 0#4 then
       -- UNPREDICTABLE
-      Pseudo.modify fun a => { a with FCSR := o.ctc1Unpredictable a fs temp }
+      resolve (o.ctc1Unpredictable (← Pseudo.get) fs temp)
     else
       -- FCSR <- FCSR31..25 || temp2 || FCSR23..12 || temp11..7 || FCSR6..2 || temp1..0
       Pseudo.modify fun a => { a with FCSR :=
@@ -112,12 +112,12 @@ def CTC1 (rt fs : W32) : Pseudo Unit := do
   else if fs == 31#32 then
     if bits temp 22 18 != 0#5 then
       -- UNPREDICTABLE
-      Pseudo.modify fun a => { a with FCSR := o.ctc1Unpredictable a fs temp }
+      resolve (o.ctc1Unpredictable (← Pseudo.get) fs temp)
     else
       -- FCSR <- temp
       Pseudo.modify fun a => { a with FCSR := temp }
   -- else UNPREDICTABLE
-  else Pseudo.modify fun a => { a with FCSR := o.ctc1Unpredictable a fs temp }
+  else resolve (o.ctc1Unpredictable (← Pseudo.get) fs temp)
   -- CheckFPException()
   CheckFPException
 

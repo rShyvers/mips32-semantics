@@ -1924,10 +1924,10 @@ private def encodeInstruction (labels : Std.HashMap String W32) (item : RawItem)
         pure [rtWord rs 0 0 0 0x13]
     | _ => throw (.badOperand s!"mtlo expects 'rs'" item.lineNo)
   -- `jr.hb $rs` / `jalr.hb [$rd,] $rs` (MIPS32r2 hazard-barrier jumps):
-  -- `jr`/`jalr` with the hint bit (bit 10, i.e. `shamt` = 0x10) set.
-  -- `Instruction.decode` ignores `shamt` for funct 0x08/0x09, so these
-  -- words decode to (and execute as) plain `.jr`/`.jalr` -- exact in a
-  -- model with no pipeline hazards (see the `#guard`s in the test section).
+  -- `jr`/`jalr` with the hint bit (bit 10, i.e. `shamt` = 0x10) set; they
+  -- decode to `.jrHb`/`.jalrHb` (MD00086 Vol II-A Rev 6.06, JR.HB p.208,
+  -- JALR.HB p.198), which execute as `jr`/`jalr` in a model with no pipeline
+  -- hazards (see the `#guard`s in `Tests/AsmTests.lean`).
   | "jr.hb" =>
     match item.operands with
     | [rsT] => do

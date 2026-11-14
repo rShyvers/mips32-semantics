@@ -212,10 +212,10 @@ theorem lwl_refines (s : State) (hg : Good s) (base rt off w : W32)
   unfold translate at hbyte ⊢
   cases ha : accessAllowed s va
   · simp only [Bool.false_eq_true, ↓reduceIte, Option.map_none]
-    rw [show modelCtx.oracle = modelOracle from rfl]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl]
     rw [gep_eq s _ (by intro h; cases h) (by intro u h; cases h)]; rfl
   · simp only [↓reduceIte, Option.map_some, Option.getD_some, ha] at hbyte ⊢
-    simp only [Pseudo.get, LoadMemory, bind, pure, ReverseEndian, StatusRE, BigEndianMem,
+    simp only [Pseudo.get, loadMemory_model, ReverseEndian, StatusRE, BigEndianMem,
       Bool.false_and, Bool.false_eq_true, ↓reduceIte, Bool.not_true, abs_Mem, setGPR, readGPR_abs s h0,
       addr_recombine]
     have hBE : BigEndianCPU (abs s) = true := rfl

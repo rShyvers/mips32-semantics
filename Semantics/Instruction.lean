@@ -267,6 +267,17 @@ inductive Instruction where
   and function pointers (e.g. `jalr $t9`); `rt`/`shamt` are 0 in the real
   encoding and carry no information. -/
   | jalr (rs rd : W32)
+  /-- `JR.HB rs`: `JR` with hazard barrier (MIPS32 Release 2; MD00086 Vol II-A Rev 6.06, JR.HB,
+  p.208-209): SPECIAL, `rs`, `0` (bits 20..11), hint bit 10 = 1 and bits 9..6 = 0, funct `001000`.
+  "JR.HB uses bit 10 of the instruction (the upper bit of the hint field) to denote the hazard
+  barrier operation" (p.208). It jumps as `jr` and clears execution and instruction hazards
+  (`ClearHazards()`, p.209), which have no architectural state in this model (hazards are cleared
+  immediately; SPEC-NOTES, `EHB`). -/
+  | jrHb (rs : W32)
+  /-- `JALR.HB rd, rs`: `JALR` with hazard barrier (MIPS32 Release 2; MD00086 Vol II-A Rev 6.06,
+  JALR.HB, p.198-199): SPECIAL, `rs`, `0` (bits 20..16), `rd`, hint bit 10 = 1 and bits 9..6 = 0,
+  funct `001001`. Links and jumps as `jalr`; `ClearHazards()` as for `jrHb`. -/
+  | jalrHb (rs rd : W32)
   -- R-type SPECIAL2 bit-count (MIPS32). The real 32-bit encoding's `rt` field
   -- (bits 20..16) duplicates `rd` (bits 15..11) "because both fields hold the
   -- same register number" per the ISA; hardware does not read `rt` for these
@@ -901,13 +912,14 @@ summarised in `docs/spec/INSTRUCTION-REF.md`.
 
 **Strict decoding.** Every field an encoding fixes to zero (or to another
 constant) is checked; a word with a nonzero must-be-zero field does not
-decode. Consequently `encode i = w` whenever `decode w = some i`, apart from
-this one deliberately tolerated don't-care field, which `decode` ignores and
-`encode` emits as zero:
+decode. Consequently `encode i = w` whenever `decode w = some i`.
 
-* `jr`, `jalr` — the 5-bit `hint` field (bits 10..6). Bit 10 set is the
-  Release 2 `jr.hb`/`jalr.hb` form; it executes as plain `jr`/`jalr` (this
-  model has no instruction-hazard state to clear).
+* `jr`, `jalr` — the 5-bit `hint` field (bits 10..6): hint 0 is `jr`/`jalr`
+  ("In release 1 of the architecture, the only defined hint field value is
+  0", MD00086 Vol II-A Rev 6.06, JR p.207, JALR p.196); hint `10000` (bit 10)
+  is `jr.hb`/`jalr.hb` (JR.HB p.208, JALR.HB p.198); any other hint value is
+  no defined encoding and does not decode (Reserved Instruction; the spec's
+  `Oracle.unpredictableEncoding`, SPEC-NOTES §11).
 
 The software `code` fields of `syscall`/`break` (bits 25..6), the register
 traps (bits 15..6) and `wait` (bits 24..6), and `sync`'s `stype`, are carried
@@ -967,9 +979,14 @@ def decode (w : W32) : Option Instruction :=
     | 0x10 => decodeIf (z rs && z rt && z shamt) (.mfhi rd)
     | 0x11 => decodeIf (z rt && z rd && z shamt) (.mthi rs)
     | 0x13 => decodeIf (z rt && z rd && z shamt) (.mtlo rs)
-    -- `jr`/`jalr`: the `hint` field (bits 10..6) is tolerated (see docstring).
-    | 0x08 => decodeIf (z rt && z rd) (.jr rs)
-    | 0x09 => decodeIf (z rt) (.jalr rs rd)
+    -- `jr`/`jalr`: the `hint` field (bits 10..6) is 0, or `10000` for the
+    -- Release 2 hazard-barrier forms (see docstring).
+    | 0x08 =>
+      if shamt == 0#32 then decodeIf (z rt && z rd) (.jr rs)
+      else decodeIf (shamt == 16#32 && z rt && z rd) (.jrHb rs)
+    | 0x09 =>
+      if shamt == 0#32 then decodeIf (z rt) (.jalr rs rd)
+      else decodeIf (shamt == 16#32 && z rt) (.jalrHb rs rd)
     -- `syscall`/`break`: bits 25..6 are the `code` field.
     | 0x0c => some (.syscall (code20Of w))
     | 0x0d => some (.break (code20Of w))
@@ -1238,6 +1255,8 @@ def encode (i : Instruction) : W32 :=
   | .mtlo rs => mkRT rs 0#32 0#32 0#32 0x13#32
   | .jr   rs => mkRT rs 0#32 0#32 0#32 0x08#32
   | .jalr rs rd => mkRT rs 0#32 rd 0#32 0x09#32
+  | .jrHb rs => mkRT rs 0#32 0#32 16#32 0x08#32
+  | .jalrHb rs rd => mkRT rs 0#32 rd 16#32 0x09#32
   -- SPECIAL2: duplicate rd into the rt-position field per the real encoding.
   | .clo rs rd => (0x1c#32 <<< 26) ||| mkRT rs rd rd 0#32 0x21#32
   | .clz rs rd => (0x1c#32 <<< 26) ||| mkRT rs rd rd 0#32 0x20#32

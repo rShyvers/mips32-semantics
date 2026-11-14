@@ -39,16 +39,27 @@ def AdditionalState (e : Exception) (a : Arch) : Arch :=
   | .AddressErrorLoad v | .AddressErrorStore v => { a with BadVAddr := v }
   | _ => a
 
+/-- `IntCtlVS` (bits 9..5 of IntCtl; Vol III Table 9.48, p.201), "Vector Spacing", as `IntCtl` reads
+under `i` (0 under `Impl.WF`). -/
+def IntCtlVS (i : Impl) : BitVec 5 := i.IntCtl.extractLsb' 5 5
+
 /-- **`vectorOffset`** (§6.2.3 Operation, p.87-88; Table 6.9, p.85-86): `0x180` when
 `StatusEXL = 1`; for an Interrupt, `0x180` when `CauseIV = 0`, else `0x200` "if (StatusBEV = 1) or
-(IntCtlVS = 0)" (`IntCtl.VS` = bits 9..5 is 0 on this profile: no vectored interrupts, so the
-`VecNum` branch is not transcribed); `0x180` for every other exception (no TLB Refill: no TLB). -/
-def vectorOffset (a : Arch) (e : Exception) : W32 :=
+(IntCtlVS = 0)"; `0x180` for every other exception (no TLB Refill: no TLB). The vectored arm
+(`IntCtlVS ≠ 0`: `VecNum ← VIntPriorityEncoder()`, `vectorOffset ← 0x200 + (VecNum × (IntCtlVS ||
+0b00000))`) needs VI or EIC interrupt mode, which this profile does not have (no `Config3`);
+`Impl.WF` requires `IntCtlVS = 0` ("If neither EIC interrupt mode nor VI mode are implemented ...,
+this field is ignored on write and reads as zero", Table 9.48, p.201). That arm is not transcribed:
+outside `Impl.WF` the spec gives `0x200` there. -/
+def vectorOffset (i : Impl) (a : Arch) (e : Exception) : W32 :=
   if StatusEXL a then 0x180#32
   else match e with
     | .Interrupt =>
       if !CauseIV a then 0x180#32
-      else 0x200#32   -- "(StatusBEV = 1) or (IntCtlVS = 0)": `IntCtl.VS` reads 0 (`Impl.IntCtl`)
+      -- if (StatusBEV = 1) or (IntCtlVS = 0) then vectorOffset ← 0x200
+      else if StatusBEV a || IntCtlVS i == 0#5 then 0x200#32
+      -- else (vectored interrupts; not on this profile, see above)
+      else 0x200#32
     | _ => 0x180#32
 
 /-- **`vectorBase`** (§6.2.3 Operation, p.88): "if StatusBEV = 1 then vectorBase ← 0xBFC0.0200 else
@@ -63,7 +74,7 @@ if StatusEXL = 1 then vectorOffset ← 0x180
 else
    if InstructionInBranchDelaySlot then EPC ← restartPC /* PC of branch/jump */; CauseBD ← 1
    else EPC ← restartPC /* PC of instruction */; CauseBD ← 0
-   (vector offsets, shadow sets: SRSCtlHSS = 0, so nothing)
+   (vector offsets; shadow sets: SRSCtlHSS = 0 under Impl.WF, so nothing)
 CauseCE ← FaultingCoprocessorNumber
 CauseExcCode ← ExceptionType
 StatusEXL ← 1
@@ -73,7 +84,7 @@ PC ← vectorBase31..30 || (vectorBase29..0 + vectorOffset29..0)
 (Table 6.11, p.87). "The processor is started at the exception vector" (p.87): the pending `I+1:`
 effect of the branch, if any, does not happen. `LLbit ← 0`: "Exceptions between the LL and SC cause
 SC to fail" (MD00086 Vol II-A Rev 6.06, SC, p.350). -/
-def GeneralExceptionProcessing (o : Oracle) (e : Exception) (a0 : Arch) : Arch :=
+def GeneralExceptionProcessing (i : Impl) (o : Oracle) (e : Exception) (a0 : Arch) : Arch :=
   let a := AdditionalState e a0
   let inSlot := a.BranchDelay.isSome
   let restartPC := if inSlot then a.PC - 4#32 else a.PC
@@ -87,7 +98,7 @@ def GeneralExceptionProcessing (o : Oracle) (e : Exception) (a0 : Arch) : Arch :
     ((FaultingCoprocessorNumber o a0 e).setWidth 32 <<< 28) ||| ((ExcCode e).setWidth 32 <<< 2)
   -- PC ← vectorBase31..30 || (vectorBase29..0 + vectorOffset29..0)
   let base := vectorBase a0
-  let off := vectorOffset a0 e
+  let off := vectorOffset i a0 e
   { a with
       EPC := epc
       Cause := cause

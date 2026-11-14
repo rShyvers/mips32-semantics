@@ -92,7 +92,9 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xc0200000#32)]) 2 0x40200000#32 0#32
 #guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0x40200000#32)]) 2 0xc0200000#32 0#32
 #guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0x7fc00000#32)]) 2 0x7fbfffff#32 0x00010040#32   -- SNaN
-#guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0xff800123#32)]) 2 0xff800123#32 0x00010040#32   -- QNaN
+-- QNaN (reading A′, SPEC-NOTES §9 item 21): Invalid, and the sign bit flipped / cleared
+#guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0xff800123#32)]) 2 0x7f800123#32 0x00010040#32
+#guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xff800001#32)]) 2 0x7f800001#32 0x00010040#32
 -- mov.s is non-arithmetic: an SNaN is copied, FCSR untouched
 #guard fpIs (fp1 (.movS 2#32 4#32) [(4, 0x7fc00000#32)] 0x0000f07c#32) 2 0x7fc00000#32 0x0000f07c#32
 -- recip / rsqrt / madd family
@@ -108,9 +110,10 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0xc0e00000#32 0#32
 #guard fpIs (fp1 (.nmsubS 2#32 8#32 4#32 6#32)
   [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0xc0a00000#32 0#32
--- unfused: (1+2^−23)² rounds to 1+2^−22 before −(1+2^−22) is added → +0, Inexact
+-- unfused: (1+2^−23)² rounds to 1+2^−22 before −(1+2^−22) is added → +0. The multiply is
+-- Inexact (Flag I); the add, a separate operation, is exact, so Cause ends 0 (MADD.fmt p.256)
 #guard fpIs (fp1 (.maddS 2#32 8#32 4#32 6#32)
-  [(4, 0x3f800001#32), (6, 0x3f800001#32), (8, 0xbf800002#32)]) 2 0#32 0x00001004#32
+  [(4, 0x3f800001#32), (6, 0x3f800001#32), (8, 0xbf800002#32)]) 2 0#32 0x00000004#32
 
 -- #### Conversions
 -- cvt.w.s follows FCSR.RM: 3.5 → 4 (RN, even), 2.5 → 2 (RN), 3 (RP); −2.5 → −3 (RM), −2 (RZ)

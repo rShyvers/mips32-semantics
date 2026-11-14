@@ -56,7 +56,8 @@ I+1: if (Config3ISA = 0) and (Config1CA = 0) then
 The `else` arm is for processors that implement MIPS16e or microMIPS (see the module doc); it is
 not reachable here and `ISAMode` is not modelled. "If the target address is not 4-byte aligned, an
 Address Error exception will occur when the target address is fetched" (p.206: `InstructionFetch`).
-The `hint` field (bits 10..6) is zero in the diagram transcribed by `enc`. -/
+The `hint` field (bits 10..6) is zero in the diagram transcribed by `enc` ("In release 1 of the
+architecture, the only defined hint field value is 0", p.207); hint `10000` is `JR.HB`. -/
 def JR (rs : W32) : Pseudo Unit := do
   let impl ← Pseudo.impl
   -- I: temp ← GPR[rs]
@@ -95,5 +96,61 @@ def JALR (rs rd : W32) : Pseudo Unit := do
     else I1 (.jump (bits temp 31 1 ++ 0#1 : BitVec 32))
   -- Restrictions: rs = rd is UNPREDICTABLE
   if reg rs == reg rd then unpredictableOr (o.jalrRsIsRd a (.jalr rs rd)) body else body
+
+/-- **JR.HB rs** — MD00086 Vol II-A Rev 6.06, JR.HB, p.208-209 (pre-Release 6 diagram: hint bit 10 = 1).
+```
+I: temp ← GPR[rs]
+I+1:if (Config3ISA = 0) and (Config1CA = 0) then
+       PC ← temp
+    else
+       PC ← temp_{GPRLEN-1..1} || 0
+       ISAMode ← temp_0
+    endif
+    ClearHazards()
+```
+`ClearHazards()` "resolves all execution and instruction hazards created by Coprocessor 0 state
+changes" (p.208); the spec has no hazard state (a CP0 write is seen by the next instruction), so it
+changes nothing. -/
+def JR_HB (rs : W32) : Pseudo Unit := do
+  let impl ← Pseudo.impl
+  -- I: temp ← GPR[rs]
+  let temp ← GPR (reg rs)
+  -- I+1: if (Config3ISA = 0) and (Config1CA = 0) then PC ← temp
+  --      else PC ← temp_{GPRLEN-1..1} || 0 (ISAMode ← temp_0: not modelled)
+  --      ClearHazards(): no state
+  if !bit impl.Config1 2 then I1 (.jump temp)
+  else I1 (.jump (bits temp 31 1 ++ 0#1 : BitVec 32))
+
+/-- **JALR.HB rd, rs** — MD00086 Vol II-A Rev 6.06, JALR.HB, p.198-199 (pre-Release 6 diagram).
+```
+I: temp ← GPR[rs]
+   GPR[rd] ← PC + 8
+I+1:if (Config3ISA = 0) and (Config1CA = 0) then
+       PC ← temp
+    else
+       PC ← temp_{GPRLEN-1..1} || 0
+       ISAMode ← temp_0
+    endif
+    ClearHazards()
+```
+Restrictions (p.199): "Register specifiers rs and rd must not be equal ... The result of executing
+such an instruction is UNPREDICTABLE" (`Oracle.jalrRsIsRd`). `ClearHazards()` as for `JR_HB`. -/
+def JALR_HB (rs rd : W32) : Pseudo Unit := do
+  let impl ← Pseudo.impl
+  let o ← Pseudo.oracle
+  let a ← Pseudo.get
+  let body : Pseudo Unit := do
+    -- I: temp ← GPR[rs]
+    let temp ← GPR (reg rs)
+    -- GPR[rd] ← PC + 8
+    let pc ← PC
+    setGPR (reg rd) (pc + 8#32)
+    -- I+1: if (Config3ISA = 0) and (Config1CA = 0) then PC ← temp
+    --      else PC ← temp_{GPRLEN-1..1} || 0 (ISAMode ← temp_0: not modelled)
+    --      ClearHazards(): no state
+    if !bit impl.Config1 2 then I1 (.jump temp)
+    else I1 (.jump (bits temp 31 1 ++ 0#1 : BitVec 32))
+  -- Restrictions: rs = rd is UNPREDICTABLE
+  if reg rs == reg rd then unpredictableOr (o.jalrRsIsRd a (.jalrHb rs rd)) body else body
 
 end Manual.Ops

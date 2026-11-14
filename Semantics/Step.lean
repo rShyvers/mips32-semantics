@@ -149,10 +149,10 @@ def mkNext (orig result : State) : State :=
   advance orig result
 
 /-- Whether `instr` is a control-transfer instruction that may not appear in
-a branch delay slot: the 12 ordinary branches/jumps (`beq`,`bne`,`blez`,
-`bgtz`,`bltz`,`bgez`,`bltzal`,`bgezal`,`j`,`jal`,`jr`,`jalr`), the 8
-branch-likely instructions, the FP branches `bc1f`/`bc1t`/`bc1fl`/`bc1tl`,
-`eret` and `wait` (26 in all): the control transfer instructions (CTIs) that
+a branch delay slot: the 14 ordinary branches/jumps (`beq`,`bne`,`blez`,
+`bgtz`,`bltz`,`bgez`,`bltzal`,`bgezal`,`j`,`jal`,`jr`,`jalr`,`jr.hb`,
+`jalr.hb`), the 8 branch-likely instructions, the FP branches
+`bc1f`/`bc1t`/`bc1fl`/`bc1tl`, `eret` and `wait` (28 in all): the control transfer instructions (CTIs) that
 MD00082 Vol I-A Rev 6.01 §5.3.2.1 (p.62) forbids in a branch delay slot ("any
 CTI, including branches and jumps, ERET, ERETNC, DERET, WAIT, and PAUSE";
 `ERETNC` and `DERET` are not modeled; `NAL` is the encoding of `bltzal $0` and is covered by it;
@@ -163,7 +163,7 @@ def isBranchLike (instr : Instruction) : Bool :=
   match instr with
   | .beq _ _ _ | .bne _ _ _ | .blez _ _ | .bgtz _ _
   | .bltz _ _ | .bgez _ _ | .bltzal _ _ | .bgezal _ _
-  | .j _ | .jal _ | .jr _ | .jalr _ _
+  | .j _ | .jal _ | .jr _ | .jalr _ _ | .jrHb _ | .jalrHb _ _
   | .beql _ _ _ | .bnel _ _ _ | .blezl _ _ | .bgtzl _ _
   | .bltzl _ _ | .bgezl _ _ | .bltzall _ _ | .bgezall _ _
   | .bc1f _ _ | .bc1t _ _ | .bc1fl _ _ | .bc1tl _ _ | .eret | .wait _ => true
@@ -442,6 +442,20 @@ def fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s (writeFpD { s with fcsr := u.1 } fd r.1)
 
+/-- One step of an FP instruction made of several FP operations (`MADD.fmt`
+… `NMSUB.fmt`: "The results and flags are as if separate floating-point
+multiply and add [and negate] instructions were executed", MD00086 Vol II-A
+Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310).
+The operation produced `r.1` with the IEEE exceptions `r.2`: FCSR.Cause is
+set to exactly `r.2`; if one of them is enabled the Floating Point exception
+is taken (ExcCode 15) with no FPR written and FCSR.Flags unchanged by this
+step; otherwise `r.2` is ORed into FCSR.Flags and the next step `k` runs on
+the updated state and the value `r.1`. -/
+def fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State) : State :=
+  let u := Mips.Fp.fpUpdate s.fcsr r.2
+  if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
+  else k { s with fcsr := u.1 } r.1
+
 /-- Complete a `C.cond.fmt`: as `fpFinishS`, the "result" being the Boolean
 written to condition code `cc` ("If the Invalid Operation Enable bit is set
 in the FCSR, no result is written and an Invalid Operation exception is taken
@@ -705,12 +719,15 @@ def execBody (s : State) (instr : Instruction) : State :=
     else
       mkNext s s
   -- R-type shifts
+  -- The shift amount is the 5-bit `sa` field (`s ← sa`, MD00086 Vol II-A Rev
+  -- 6.06, SLL p.376, SRL p.385, SRA p.383): `% 32` of the constructor value
+  -- (which `decode` always produces below 32).
   | .sll rd rt shamt =>
-    mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt) <<< shamt.toNat))
+    mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt) <<< (shamt.toNat % 32)))
   | .srl rd rt shamt =>
-    mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt) >>> shamt.toNat))
+    mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt) >>> (shamt.toNat % 32)))
   | .sra rd rt shamt =>
-    mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).sshiftRight shamt.toNat))
+    mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).sshiftRight (shamt.toNat % 32)))
   -- R-type variable shifts (MIPS32): the shift amount comes from `$rs`'s
   -- low 5 bits (`extractLsb 4 0`), not a fixed `shamt` field \u2014 so e.g. a
   -- shift-amount register holding 33 (0b100001) behaves identically to one
@@ -730,7 +747,7 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- reduces its shift amount mod the bitvector width, matching the real
   -- MIPS32 `sa`/`$rs & 0x1f` range (0-31) exactly.
   | .rotr rd rt sa =>
-    mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).rotateRight sa.toNat))
+    mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).rotateRight (sa.toNat % 32)))
   | .rotrv rd rt rs =>
     let amt := ((readReg s (regIdx rs)).extractLsb 4 0).toNat
     mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).rotateRight amt))
@@ -834,20 +851,29 @@ def execBody (s : State) (instr : Instruction) : State :=
     let b3 := (v >>> 24) &&& 0xff#32
     let result := (b2 <<< 24) ||| (b3 <<< 16) ||| (b0 <<< 8) ||| b1
     mkNext s (writeReg s (regIdx rd) result)
-  -- SPECIAL3 bitfield extract/insert (MIPS32r2;
-  -- docs/spec/MIPS-COVERAGE-GAPS.md section 3.4). `pos`/`size` are already the
-  -- semantic values (`Instruction.decode` did the raw-field +-1 arithmetic),
-  -- so this is pure bit masking -- no special-casing for the real
-  -- `pos + size <= 32` hardware constraint, per this track's brief.
+  -- SPECIAL3 bitfield extract/insert (MIPS32r2; MD00086 Vol II-A Rev 6.06,
+  -- EXT p.183, INS p.192-193). The constructor's `pos`/`size` are mapped to
+  -- the diagram's 5-bit fields as `encode` writes them: EXT `lsb = pos`,
+  -- `msbd = size - 1`; INS `lsb = pos`, `msb = pos + size - 1` (each mod 32).
+  -- The UNPREDICTABLE ranges (EXT `lsb + msbd > 31`, INS `lsb > msb`) raise
+  -- Reserved Instruction, as `decode` does for such words (SPEC-NOTES §11).
   | .ext rt rs pos size =>
-    let field := (readReg s (regIdx rs) >>> pos.toNat) &&& lowBitsMask size.toNat
-    mkNext s (writeReg s (regIdx rt) field)
+    let lsb := (pos &&& 31#32).toNat
+    let msbd := ((size - 1#32) &&& 31#32).toNat
+    if lsb + msbd > 31 then takeException s excCodeRI
+    else
+      let field := (readReg s (regIdx rs) >>> lsb) &&& lowBitsMask (msbd + 1)
+      mkNext s (writeReg s (regIdx rt) field)
   | .ins rt rs pos size =>
-    let mask := lowBitsMask size.toNat
-    let srcField := (readReg s (regIdx rs) &&& mask) <<< pos.toNat
-    let clearMask := ~~~(mask <<< pos.toNat)
-    let newVal := (readReg s (regIdx rt) &&& clearMask) ||| srcField
-    mkNext s (writeReg s (regIdx rt) newVal)
+    let lsb := (pos &&& 31#32).toNat
+    let msb := ((pos + size - 1#32) &&& 31#32).toNat
+    if lsb > msb then takeException s excCodeRI
+    else
+      let mask := lowBitsMask (msb + 1 - lsb)
+      let srcField := (readReg s (regIdx rs) &&& mask) <<< lsb
+      let clearMask := ~~~(mask <<< lsb)
+      let newVal := (readReg s (regIdx rt) &&& clearMask) ||| srcField
+      mkNext s (writeReg s (regIdx rt) newVal)
   -- `rdhwr` (MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334): `GPR[rt] ← HWR[rd]` when the register is
   -- implemented (`hwrValue`) and access is allowed (`rdhwrAllowed`); "If access is not allowed or the
   -- register is not implemented, a Reserved Instruction Exception is signaled" (p.333). It is not a
@@ -1229,6 +1255,19 @@ def execBody (s : State) (instr : Instruction) : State :=
     let target := readReg s (regIdx rs)
     let s' := writeReg s (regIdx rd) linkVal
     { s' with pc := pcNext, pendingBranch := some target }
+  -- `jr.hb`/`jalr.hb` (MD00086 Vol II-A Rev 6.06, JR.HB p.208-209, JALR.HB
+  -- p.198-199): as `jr`/`jalr`, plus `ClearHazards()`. Hazards have no state in
+  -- this model (CP0 writes take effect immediately; SPEC-NOTES, `EHB`), so the
+  -- barrier changes nothing.
+  | .jrHb rs =>
+    let pcNext := s.pc + 4#32
+    { s with pc := pcNext, pendingBranch := some (readReg s (regIdx rs)) }
+  | .jalrHb rs rd =>
+    let pcNext := s.pc + 4#32
+    let linkVal := pcNext + 4#32
+    let target := readReg s (regIdx rs)
+    let s' := writeReg s (regIdx rd) linkVal
+    { s' with pc := pcNext, pendingBranch := some target }
   -- Coprocessor 1 (FPU). Every arm below is reached only with
   -- `Status.CU1 = 1` (the `usesCop1` check above).
   -- Raw moves between GPRs and FPRs: no conversion, FCSR untouched.
@@ -1418,27 +1457,38 @@ def execBody (s : State) (instr : Instruction) : State :=
   | .movt rs cc rd =>
     if readFcc s cc then mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rs)))
     else mkNext s s
-  -- Multiply-add family: unfused (`Mips.Fp.f32Madd` …).
+  -- Multiply-add family: the separate multiply, add (subtract) and negate
+  -- operations, each with its own FCSR Cause / trap check / Flags (`fpThen`).
+  -- Operand order as printed: MADD `(fs × ft) + fr`, MSUB `(fs × ft) − fr`,
+  -- NMADD `−(fr + (fs × ft))`, NMSUB `−((fs × ft) − fr)`.
   | .maddS fd fr fs ft =>
-    fpFinishS s fd (Mips.Fp.f32Madd (fpEnv s) (readFpReg s (regIdx fr))
-      (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+      fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Add (fpEnv s) p (readFpReg s (regIdx fr)))
   | .msubS fd fr fs ft =>
-    fpFinishS s fd (Mips.Fp.f32Msub (fpEnv s) (readFpReg s (regIdx fr))
-      (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+      fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
   | .nmaddS fd fr fs ft =>
-    fpFinishS s fd (Mips.Fp.f32Nmadd (fpEnv s) (readFpReg s (regIdx fr))
-      (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+      fun s1 p => fpThen s1 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p)
+        fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)
   | .nmsubS fd fr fs ft =>
-    fpFinishS s fd (Mips.Fp.f32Nmsub (fpEnv s) (readFpReg s (regIdx fr))
-      (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+      fun s1 p => fpThen s1 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
+        fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)
   | .maddD fd fr fs ft =>
-    fpFinishD s fd (Mips.Fp.f64Madd (fpEnv s) (readFpD s fr) (readFpD s fs) (readFpD s ft))
+    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+      fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Add (fpEnv s) p (readFpD s fr))
   | .msubD fd fr fs ft =>
-    fpFinishD s fd (Mips.Fp.f64Msub (fpEnv s) (readFpD s fr) (readFpD s fs) (readFpD s ft))
+    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+      fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
   | .nmaddD fd fr fs ft =>
-    fpFinishD s fd (Mips.Fp.f64Nmadd (fpEnv s) (readFpD s fr) (readFpD s fs) (readFpD s ft))
+    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+      fun s1 p => fpThen s1 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p)
+        fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)
   | .nmsubD fd fr fs ft =>
-    fpFinishD s fd (Mips.Fp.f64Nmsub (fpEnv s) (readFpD s fr) (readFpD s fs) (readFpD s ft))
+    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+      fun s1 p => fpThen s1 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
+        fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)
   -- FP branches: same delay-slot scheduling as `beq`/`bne`; the likely
   -- forms nullify the delay slot when not taken (MD00086 Vol II-A Rev 6.06,
   -- BC1F p.56, BC1FL p.58, BC1T p.60, BC1TL p.62).

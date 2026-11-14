@@ -103,6 +103,28 @@ theorem jalr_spec_raw (s : State) (w rs rd : W32)
           pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
 
+/-- **`jr.hb`** (MD00086 Vol II-A Rev 6.06, JR.HB, p.208-209): as `jr_spec_raw` —
+the hazard barrier (`ClearHazards()`) has no state in this model (SPEC-NOTES,
+`EHB`). This is `step`'s own code restated. -/
+theorem jrHb_spec_raw (s : State) (w rs : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jrHb rs))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
+  step_spec
+
+/-- **`jalr.hb`** (MD00086 Vol II-A Rev 6.06, JALR.HB, p.198-199): as
+`jalr_spec_raw` (the link is read before `$rd` is written); the hazard barrier
+has no state in this model. This is `step`'s own code restated. -/
+theorem jalrHb_spec_raw (s : State) (w rs rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalrHb rs rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let pcNext := s.pc + 4#32
+      { (writeReg s (regIdxSpec rd) (pcNext + 4#32)) with
+          pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
+  step_spec
+
 /-- Corollary of `jalr_spec_raw`: `$rd` reads back exactly `pc + 8` — past
 the delay slot, the same link-value convention as `jal`'s `$ra`. Requires
 `$rd` to not itself be `$zero` (a write to `$zero` is always a no-op, see

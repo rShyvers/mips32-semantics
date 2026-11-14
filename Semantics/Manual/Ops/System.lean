@@ -35,14 +35,12 @@ LLbit ← 0
 ClearHazards()
 ```
 "ERET does not execute the next instruction (that is, it has no delay slot)" (Description, p.177),
-so `PC ← temp` is at time `I` (`setPC`). `SRSCtl.HSS = 0` (`Impl.SRSCtl`): the `SRSCtlCSS ← SRSCtlPSS`
-arm is not reachable (`SRSCtl.CSS` is not a stored state here; `Oracle.shadowSetUndefined`).
+so `PC ← temp` is at time `I` (`setPC`). `SRSCtl.HSS = 0` (`Impl.WF`): the `SRSCtlCSS ← SRSCtlPSS`
+arm is never taken (`SRSCtl.CSS` is not a stored state here).
 `IsMIPS16Implemented()` is false and `Config3ISA = 0` (see `Manual.Ops.Jump`). `ClearHazards()`
 has no architectural state. "The operation of the processor is UNDEFINED if an ERET is executed in
 the delay slot of a branch or jump instruction" (Restrictions, p.177: `Oracle.ctiInSlot`). -/
 def ERET : Pseudo Unit := do
-  let impl ← Pseudo.impl
-  let o ← Pseudo.oracle
   let a ← Pseudo.get
   let temp : W32 ←
     -- if StatusERL = 1 then
@@ -54,8 +52,7 @@ def ERET : Pseudo Unit := do
       -- temp ← EPC; StatusEXL ← 0
       Pseudo.modify fun x => { x with Status := x.Status &&& ~~~(1#32 <<< 1) }
       -- if (ArchitectureRevision() ≥ 2) and (SRSCtlHSS ≠ 0) and (StatusBEV = 0) then SRSCtlCSS ← SRSCtlPSS
-      if bits impl.SRSCtl 29 26 != 0#4 && !StatusBEV a then
-        resolve (o.shadowSetUndefined a .eret)
+      --   `SRSCtlHSS = 0` (`Impl.WF`): never taken; `SRSCtl.CSS` is not state of the spec
       pure a.EPC
   -- PC ← temp
   setPC temp

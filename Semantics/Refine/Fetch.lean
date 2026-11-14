@@ -117,6 +117,14 @@ theorem fixedMappingPA_aligned (erl : Bool) (va : W32) (h : va.toNat % 4 = 0) :
       simp
     · exact h
 
+/-- `LoadMemory` under the model's oracle (no load clears `LLbit`, `Oracle.loadClearsLL`): the
+aligned memory element, state unchanged. -/
+theorem loadMemory_model (cca : BitVec 3) (n : Nat) (pa : PAddr) (va : W32) (iord : IorD)
+    (f : Frame) :
+    LoadMemory cca n pa va iord modelCtx f = (.ok (MemElemAt f.arch.Mem pa), f) := by
+  simp only [LoadMemory, bind, Pseudo.get, Pseudo.oracle, pure]
+  cases iord <;> rfl
+
 /-- **`LoadMemory` of a word against `readMemWord`**: the aligned memory element at the
 translated address is the model's big-endian word. -/
 theorem memElem_eq (s : State) (pa : PAddr) (h : pa.toNat % 4 = 0) :

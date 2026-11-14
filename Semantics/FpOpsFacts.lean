@@ -92,11 +92,12 @@ theorem f32ToW32_flags (rm : RoundingMode) (x : BitVec 32) :
     · simp
     · split <;> simp
 
-/-- `abs`/`neg` of a NaN signal Invalid; a quiet NaN is returned unchanged, a
+/-- `abs`/`neg` of a NaN signal Invalid; a quiet NaN comes back with its sign
+bit cleared (`abs`) or flipped (`neg`) (reading A′, SPEC-NOTES §9 item 21), a
 signaling NaN gives the default QNaN. -/
 theorem f32Abs_of_nan (x : BitVec 32) (h : isNaN32 x = true) :
-    f32Abs x = (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly) ∧
-      f32Neg x = (if isQNaN32 x then x else defaultQNaN32, Flags.invalidOnly) := by
+    f32Abs x = (if isQNaN32 x then x &&& 0x7FFFFFFF#32 else defaultQNaN32, Flags.invalidOnly) ∧
+      f32Neg x = (if isQNaN32 x then x ^^^ 0x80000000#32 else defaultQNaN32, Flags.invalidOnly) := by
   simp [f32Abs, f32Neg, h]
 
 /-- `abs`/`neg` of a non-NaN only touch the sign bit and raise nothing. -/
@@ -105,11 +106,14 @@ theorem f32Abs_of_not_nan (x : BitVec 32) (h : isNaN32 x = false) :
       f32Neg x = (x ^^^ 0x80000000#32, Flags.none) := by
   simp [f32Abs, f32Neg, h]
 
-/-- `abs`/`neg` of a double NaN signal Invalid; a quiet NaN is returned
-unchanged, a signaling NaN gives the default QNaN. -/
+/-- `abs`/`neg` of a double NaN signal Invalid; a quiet NaN comes back with its
+sign bit cleared or flipped (reading A′), a signaling NaN gives the default
+QNaN. -/
 theorem f64Abs_of_nan (x : BitVec 64) (h : isNaN64 x = true) :
-    f64Abs x = (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly) ∧
-      f64Neg x = (if isQNaN64 x then x else defaultQNaN64, Flags.invalidOnly) := by
+    f64Abs x = (if isQNaN64 x then x &&& 0x7FFFFFFFFFFFFFFF#64 else defaultQNaN64,
+        Flags.invalidOnly) ∧
+      f64Neg x = (if isQNaN64 x then x ^^^ 0x8000000000000000#64 else defaultQNaN64,
+        Flags.invalidOnly) := by
   simp [f64Abs, f64Neg, h]
 
 /-- Any NaN operand makes the relation "unordered". -/
@@ -317,12 +321,12 @@ theorem absNeg_cases :
     f32Neg 0x3F800000#32 = (0xBF800000#32, Flags.none) ∧
     f32Neg 0x00000000#32 = (0x80000000#32, Flags.none) ∧
     f32Abs 0xFF800000#32 = (0x7F800000#32, Flags.none) ∧
-    f32Abs 0xFFBFFFFF#32 = (0xFFBFFFFF#32, Flags.invalidOnly) ∧          -- QNaN: unchanged
+    f32Abs 0xFFBFFFFF#32 = (0x7FBFFFFF#32, Flags.invalidOnly) ∧          -- QNaN: sign cleared
     f32Neg 0x7FC00000#32 = (defaultQNaN32, Flags.invalidOnly) ∧          -- SNaN
 
     f64Abs 0xBFF0000000000000#64 = (0x3FF0000000000000#64, Flags.none) ∧
     f64Neg 0x3FF0000000000000#64 = (0xBFF0000000000000#64, Flags.none) ∧
-    f64Neg 0x7FF0000000000001#64 = (0x7FF0000000000001#64, Flags.invalidOnly) ∧  -- QNaN
+    f64Neg 0x7FF0000000000001#64 = (0xFFF0000000000001#64, Flags.invalidOnly) ∧  -- QNaN
     f64Abs 0xFFF8000000000000#64 = (defaultQNaN64, Flags.invalidOnly) := by decide
 
 /-! ### Comparison -/
@@ -757,14 +761,15 @@ theorem f32Sqrt_cases :
 is first rounded to 1 + 2^−22 (`0x3F800002`, Inexact), so adding
 −(1 + 2^−22) gives +0, where a fused operation would give 2^−46.
 `nmadd`/`nmsub` negate with the arithmetic `NEG`: 2 × 3 + 1 ↦ −7,
-2 × 3 − 1 ↦ −5, and a quiet NaN addend comes back unchanged with Invalid. -/
+2 × 3 − 1 ↦ −5, and a quiet NaN addend comes back with its sign flipped and
+Invalid (the arithmetic negate, reading A′). -/
 theorem f32_madd_cases :
     f32Mul .RN 0x3F800001#32 0x3F800001#32 = (0x3F800002#32, Flags.inexactOnly) ∧
     f32Madd .RN 0xBF800002#32 0x3F800001#32 0x3F800001#32 = (0x00000000#32, Flags.inexactOnly) ∧
     f32Msub .RN 0x3F800002#32 0x3F800001#32 0x3F800001#32 = (0x00000000#32, Flags.inexactOnly) ∧
     f32Nmadd .RN 0x3F800000#32 0x40000000#32 0x40400000#32 = (0xC0E00000#32, Flags.none) ∧
     f32Nmsub .RN 0x3F800000#32 0x40000000#32 0x40400000#32 = (0xC0A00000#32, Flags.none) ∧
-    f32Nmadd .RN 0x7F800001#32 0x40000000#32 0x40400000#32 = (0x7F800001#32, Flags.invalidOnly) := by
+    f32Nmadd .RN 0x7F800001#32 0x40000000#32 0x40400000#32 = (0xFF800001#32, Flags.invalidOnly) := by
   decide +kernel
 
 /-- `recip` and `rsqrt` (model pin: `1.0 / x`, `1.0 / sqrt x`). -/

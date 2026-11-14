@@ -44,6 +44,8 @@ def Instruction.WellFormed : Instruction → Prop
   | .mtlo rs => rs.toNat < 32
   | .jr rs => rs.toNat < 32
   | .jalr rs rd => rs.toNat < 32 ∧ rd.toNat < 32
+  | .jrHb rs => rs.toNat < 32
+  | .jalrHb rs rd => rs.toNat < 32 ∧ rd.toNat < 32
   | .clo rs rd => rs.toNat < 32 ∧ rd.toNat < 32
   | .clz rs rd => rs.toNat < 32 ∧ rd.toNat < 32
   | .mul rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32

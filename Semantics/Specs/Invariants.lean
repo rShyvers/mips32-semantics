@@ -153,6 +153,18 @@ theorem zeroKept_fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) 
     · show (advance _ _).regs.getD 0 0#32 = _
       rw [advance_regs]; rfl)
 
+/-- A multi-operation FP instruction (`fpThen`, the multiply-add family) keeps `$zero` when every
+continuation does, from the state with the FCSR updated. -/
+theorem zeroKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
+    (h : ∀ p, ZeroKept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
+      (k { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 } p)) :
+    ZeroKept s (fpThen s r k) := by
+  unfold fpThen
+  dsimp only
+  split
+  · rfl
+  · exact h _
+
 /-- Forward step for the tactic loop below: for every hypothesis of the
 form `writeMem{Byte,Half,Word} s a v = some s'` in the context (these
 appear when `split` case-splits a store instruction's `match` on the write
@@ -204,7 +216,8 @@ theorem execInstr_zeroKept (s : State) (instr : Instruction) :
       · exact (zeroKept_exceptionEntry _ _ _).mpr trivial
       · unfold execBody
         cases instr <;> dsimp only <;>
-          repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split)
+          repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split |
+            (apply zeroKept_fpThen; intro _))
 
 /-- **Global invariant: `$zero` is never changed by a step.** Register `0` reads the same thing
 after a step as before — for **every** state and instruction, with no side conditions

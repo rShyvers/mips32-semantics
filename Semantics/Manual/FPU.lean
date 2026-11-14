@@ -10,9 +10,27 @@ MD00086 Vol II-A Rev 6.06 §2.2.2.3 (p.21-24): `ValueFPR`, `StoreFPR`, `CheckFPE
 
 **Trusted dependency.** The IEEE 754 arithmetic itself (the exact result, the one correctly rounded
 pack under the rounding mode, the five IEEE flags) is the rounding core of `Semantics/FpOps.lean`
-(`Mips.Fp.f32Add` …), wrapped below as `Manual.IEEE.*`. The FCSR bookkeeping around it (Cause,
-Enables, Flags, the trap) is transcribed here again from the manual; `Mips.Fp.fpUpdate`,
-`Mips.Fp.envOf` and the FCSR masks of `FpOps.lean` are not used.
+(`Mips.Fp.f32Add`, `f32Sub`, `f32Mul`, `f32Div`, `f32Sqrt`, the conversions, and their 64-bit
+forms), wrapped below as `Manual.IEEE.*`. The FCSR bookkeeping around it (Cause, Enables, Flags,
+the trap) is transcribed here again from the manual; `Mips.Fp.fpUpdate`, `Mips.Fp.envOf` and the
+FCSR masks of `FpOps.lean` are not used.
+
+**What the core fixes that the manual leaves to the implementation** (7R). The model's choices are
+kept out of the core where they are cheap to lift:
+
+* `ABS.fmt`/`NEG.fmt` with a NaN operand: transcribed here (`signOpS`/`signOpD`) with the reading
+  `Oracle.absNegNaN`; the core's `f32Abs`/`f32Neg` are not used.
+* `RECIP.fmt`/`RSQRT.fmt`: `Impl.recipS/D`, `Impl.rsqrtS/D` (accuracy and rounding-mode dependence
+  implementation dependent, p.336, p.343).
+* `MADD/MSUB/NMADD/NMSUB.fmt`: written in `Manual.Ops.FpuArith` as the separate multiply, add
+  (subtract) and negate operations the pages describe; the core's `f32Madd` … are not used.
+* The QNaN of a format conversion (`CVT.D.S`, `CVT.S.D`): `Oracle.cvtQNaNToD/ToS`.
+* **Remaining core choice — which QNaN an operation with several QNaN operands returns.** "When
+  possible, this QNaN result is one of the operand QNaN values" (MD00082 Vol I-A Rev 6.01 §6.3.1.5,
+  p.82) does not say which one. The core (`Mips.Fp.Format.nanResult`) returns the first QNaN in
+  operand order (SPEC-NOTES §9 item 13). This is an implementation choice inside the trusted core
+  (not lifted to `Impl`: it is a parameter of every binary operation of the core); the operand
+  order the spec passes is the printed order of each Operation.
 -/
 
 namespace Manual
@@ -102,22 +120,25 @@ def mulS (a : Arch) (x y : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Mul (env a)
 def divS (a : Arch) (x y : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Div (env a) x y
 /-- `SquareRoot(fs)`, single. -/
 def sqrtS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Sqrt (env a) x
-/-- `AbsoluteValue(fs)`, single (arithmetic with `FIR.Has2008 = 0`, ABS.fmt p.32). -/
-def absS (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Abs x
-/-- `Negate(fs)`, single (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307). -/
-def negS (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Neg x
-/-- `1.0 / fs`, single (RECIP.fmt p.336: accuracy implementation dependent; `DIV` pin). -/
-def recipS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Recip (env a) x
-/-- `1.0 / SquareRoot(fs)`, single (RSQRT.fmt p.343; `SQRT` then `DIV` pin). -/
-def rsqrtS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Rsqrt (env a) x
-/-- `(vfs x vft) + vfr`, single, as separate multiply and add (MADD.fmt p.256). -/
-def maddS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Madd (env a) fr fs ft
-/-- `(vfs x vft) - vfr`, single (MSUB.fmt p.287). -/
-def msubS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Msub (env a) fr fs ft
-/-- `-((vfs x vft) + vfr)`, single (NMADD.fmt p.308). -/
-def nmaddS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Nmadd (env a) fr fs ft
-/-- `-((vfs x vft) - vfr)`, single (NMSUB.fmt p.310). -/
-def nmsubS (a : Arch) (fr fs ft : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Nmsub (env a) fr fs ft
+/-- `AbsoluteValue(fs)` / `Negate(fs)` on a 32-bit pattern, arithmetic (`FIR.Has2008 = 0`; ABS.fmt
+p.32, NEG.fmt p.307: "If FIRHas2008=0 or FCSRABS2008=0 then this operation is arithmetic. For
+this case, any NaN operand signals invalid operation"; NEG: "The value is negated by changing the
+sign bit value"). `sgn` computes the sign-changed pattern. A signaling NaN: Invalid Operation and,
+untrapped, the default QNaN (Vol I-A §6.3.1.4 p.81, Table 6.3 p.82). A quiet NaN: the reading
+`r` (`Oracle.absNegNaN`). Anything else: `sgn x`, no exception. -/
+def signOpS (r : AbsNegNaN) (sgn : W32 → W32) (x : W32) : W32 × Mips.Fp.Flags :=
+  if Mips.Fp.isSNaN32 x then (Mips.Fp.defaultQNaN32, Mips.Fp.Flags.invalidOnly)
+  else if Mips.Fp.isQNaN32 x then
+    match r with
+    | .A => (x, Mips.Fp.Flags.invalidOnly)
+    | .A' => (sgn x, Mips.Fp.Flags.invalidOnly)
+    | .B => (sgn x, Mips.Fp.Flags.none)
+  else (sgn x, Mips.Fp.Flags.none)
+
+/-- `AbsoluteValue(fs)`, single: the sign bit (31) cleared. -/
+def absS (r : AbsNegNaN) (x : W32) : W32 × Mips.Fp.Flags := signOpS r (fun v => v &&& ~~~(1#32 <<< 31)) x
+/-- `Negate(fs)`, single: the sign bit (31) flipped. -/
+def negS (r : AbsNegNaN) (x : W32) : W32 × Mips.Fp.Flags := signOpS r (fun v => v ^^^ (1#32 <<< 31)) x
 
 /-- `fs +D ft`. -/
 def addD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Add (env a) x y
@@ -129,26 +150,23 @@ def mulD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f6
 def divD (a : Arch) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Div (env a) x y
 /-- `SquareRoot(fs)`, double. -/
 def sqrtD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Sqrt (env a) x
-/-- `AbsoluteValue(fs)`, double. -/
-def absD (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Abs x
-/-- `Negate(fs)`, double. -/
-def negD (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Neg x
-/-- `1.0 / fs`, double. -/
-def recipD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Recip (env a) x
-/-- `1.0 / SquareRoot(fs)`, double. -/
-def rsqrtD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Rsqrt (env a) x
-/-- Multiply-add family, double. -/
-def maddD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
-  Mips.Fp.f64Madd (env a) fr fs ft
-/-- `(vfs x vft) - vfr`, double. -/
-def msubD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
-  Mips.Fp.f64Msub (env a) fr fs ft
-/-- `-((vfs x vft) + vfr)`, double. -/
-def nmaddD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
-  Mips.Fp.f64Nmadd (env a) fr fs ft
-/-- `-((vfs x vft) - vfr)`, double. -/
-def nmsubD (a : Arch) (fr fs ft : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
-  Mips.Fp.f64Nmsub (env a) fr fs ft
+/-- As `signOpS`, on a 64-bit pattern. -/
+def signOpD (r : AbsNegNaN) (sgn : BitVec 64 → BitVec 64) (x : BitVec 64) :
+    BitVec 64 × Mips.Fp.Flags :=
+  if Mips.Fp.isSNaN64 x then (Mips.Fp.defaultQNaN64, Mips.Fp.Flags.invalidOnly)
+  else if Mips.Fp.isQNaN64 x then
+    match r with
+    | .A => (x, Mips.Fp.Flags.invalidOnly)
+    | .A' => (sgn x, Mips.Fp.Flags.invalidOnly)
+    | .B => (sgn x, Mips.Fp.Flags.none)
+  else (sgn x, Mips.Fp.Flags.none)
+
+/-- `AbsoluteValue(fs)`, double: the sign bit (63) cleared. -/
+def absD (r : AbsNegNaN) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  signOpD r (fun v => v &&& ~~~(1#64 <<< 63)) x
+/-- `Negate(fs)`, double: the sign bit (63) flipped. -/
+def negD (r : AbsNegNaN) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  signOpD r (fun v => v ^^^ (1#64 <<< 63)) x
 
 /-- The rounding modes by their number (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95: `RM` 0 RN,
 1 RZ, 2 RP, 3 RM), as the `convert_and_round` of `ROUND/TRUNC/CEIL/FLOOR.W.fmt` fixes them (pages
@@ -162,12 +180,16 @@ def toWordS (rm : Mips.Fp.RoundingMode) (x : W32) : W32 × Mips.Fp.Flags := Mips
 def toWordD (rm : Mips.Fp.RoundingMode) (x : BitVec 64) : W32 × Mips.Fp.Flags :=
   Mips.Fp.f64ToW32 rm x
 /-- `ConvertFmt(fs, S, D)`, exact (CVT.D.fmt p.153: "If fmt is S or W, then the operation is always
-exact"). -/
-def cvtDS (x : W32) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f32ToF64 x
+exact"). A QNaN operand gives the oracle's double QNaN `q` (`Oracle.cvtQNaNToD`) without an
+exception (Vol I-A §6.3.1.5, p.82); a signaling NaN signals Invalid Operation (§6.3.1.4, p.81). -/
+def cvtDS (q : W32 → BitVec 64) (x : W32) : BitVec 64 × Mips.Fp.Flags :=
+  if Mips.Fp.isQNaN32 x then (q x, Mips.Fp.Flags.none) else Mips.Fp.f32ToF64 x
 /-- `ConvertFmt(fs, W, D)`, exact. -/
 def cvtDW (x : W32) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.w32ToF64F x
-/-- `ConvertFmt(fs, D, S)`, rounded per `FCSR.RM`. -/
-def cvtSD (a : Arch) (x : BitVec 64) : W32 × Mips.Fp.Flags := Mips.Fp.f64ToF32 (env a) x
+/-- `ConvertFmt(fs, D, S)`, rounded per `FCSR.RM`; a QNaN operand gives the oracle's single QNaN
+(`Oracle.cvtQNaNToS`), as `cvtDS`. -/
+def cvtSD (q : BitVec 64 → W32) (a : Arch) (x : BitVec 64) : W32 × Mips.Fp.Flags :=
+  if Mips.Fp.isQNaN64 x then (q x, Mips.Fp.Flags.none) else Mips.Fp.f64ToF32 (env a) x
 /-- `ConvertFmt(fs, W, S)`, rounded per `FCSR.RM`. -/
 def cvtSW (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.w32ToF32 (env a) x
 
@@ -221,10 +243,10 @@ model:
 if (fpr_0 != 0) then UNPREDICTABLE
 else FPR[fpr] <- UNPREDICTABLE32 || value31..0 ; FPR[fpr+1] <- UNPREDICTABLE32 || value63..32
 ```
-`UNPREDICTABLE32` is the upper half of a 64-bit register, which a 32-bit FPR does not have. -/
+`UNPREDICTABLE32` is the upper half of a 64-bit register, which a 32-bit FPR does not have. The odd
+`fpr` case is `Oracle.fprOddWrite` (an exception, a state, or no write). -/
 def StoreFPR64 (fpr : Fin 32) (value : BitVec 64) : Pseudo Unit := fun c f =>
-  if bit (BitVec.ofNat 5 fpr.val) 0 then
-    (.ok (), { f with arch := c.oracle.fprOddWrite f.arch fpr value })
+  if bit (BitVec.ofNat 5 fpr.val) 0 then resolve (c.oracle.fprOddWrite f.arch fpr value) c f
   else
     (.ok (), { f with arch := { f.arch with
       FPR := update (update f.arch.FPR fpr (value.extractLsb' 0 32)) (fpr + 1)

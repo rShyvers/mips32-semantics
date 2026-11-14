@@ -1,4 +1,5 @@
 import Semantics.Specs.Tactics
+import Semantics.Specs.DecodeSpec
 import Semantics.Specs.Fixtures
 
 /-!
@@ -34,6 +35,10 @@ theorem sll_spec_raw (s : State) (w rd rt shamt : W32)
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)).pc + 4#32 }) := by
+  -- `step` shifts by the 5-bit field (`shamt.toNat % 32`); `decode` produces `shamt < 32`
+  have h : shamt.toNat < 32 := by
+    have := decode_wellFormed w _ hdecode; simp only [Instruction.WellFormed] at this; omega
+  rw [← Nat.mod_eq_of_lt h]
   step_spec
 
 /-- **`srl` shifts `$rt` right by the fixed `shamt` field, zero-filling the
@@ -45,6 +50,10 @@ theorem srl_spec_raw (s : State) (w rd rt shamt : W32)
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) >>> shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) >>> shamt.toNat)).pc + 4#32 }) := by
+  -- `step` shifts by the 5-bit field (`shamt.toNat % 32`); `decode` produces `shamt < 32`
+  have h : shamt.toNat < 32 := by
+    have := decode_wellFormed w _ hdecode; simp only [Instruction.WellFormed] at this; omega
+  rw [← Nat.mod_eq_of_lt h]
   step_spec
 
 /-- **`sra` shifts `$rt` right by the fixed `shamt` field, sign-filling the
@@ -57,6 +66,10 @@ theorem sra_spec_raw (s : State) (w rd rt shamt : W32)
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).sshiftRight shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).sshiftRight shamt.toNat)).pc + 4#32 }) := by
+  -- `step` shifts by the 5-bit field (`shamt.toNat % 32`); `decode` produces `shamt < 32`
+  have h : shamt.toNat < 32 := by
+    have := decode_wellFormed w _ hdecode; simp only [Instruction.WellFormed] at this; omega
+  rw [← Nat.mod_eq_of_lt h]
   step_spec
 
 /-- **`sllv` shifts `$rt` left by `$rs`'s low 5 bits**, not a fixed `shamt`
@@ -106,6 +119,10 @@ theorem rotr_spec_raw (s : State) (w rd rt sa : W32)
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).rotateRight sa.toNat)) with
           pc := (writeReg s (regIdxSpec rd) ((readReg s (regIdxSpec rt)).rotateRight sa.toNat)).pc + 4#32 }) := by
+  -- `step` shifts by the 5-bit field (`sa.toNat % 32`); `decode` produces `sa < 32`
+  have h : sa.toNat < 32 := by
+    have := decode_wellFormed w _ hdecode; simp only [Instruction.WellFormed] at this; omega
+  rw [← Nat.mod_eq_of_lt h]
   step_spec
 
 /-- **`rotrv` rotates `$rt` right by `$rs`'s low 5 bits, wrapping around**

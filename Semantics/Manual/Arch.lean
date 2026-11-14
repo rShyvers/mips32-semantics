@@ -55,8 +55,8 @@ structure Arch where
   HI : W32
   /-- `LO` (Table 1.1, p.5). -/
   LO : W32
-  /-- `FPR[x]`, the 32 32-bit floating-point registers of a 32-bit FPU (`FP32RegistersMode = 1`;
-  MD00082 Vol I-A Rev 6.01 §6.4.1). -/
+  /-- `FPR[x]`, the 32 32-bit floating-point registers of a 32-bit FPU (`Status.FR = 0`, so
+  `FP32RegistersMode = 0`: `Manual.FP32RegistersMode`; MD00082 Vol I-A Rev 6.01 §6.4.1). -/
   FPR : Fin 32 → W32
   /-- `FCSR` (MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8, p.92-95), as a word; bits 22..18 read 0
   (`FIR.Has2008 = 0`). -/

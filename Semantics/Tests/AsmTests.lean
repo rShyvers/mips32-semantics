@@ -1093,11 +1093,16 @@ def ktextSrc : String := srcLines
 #guard decode 0x00000140#32 = some (.sll 0#32 0#32 5#32)
 #guard decode 0x04100000#32 = some (.bltzal 0#32 0#32)
 #guard decode 0x00000040#32 = some (.sll 0#32 0#32 1#32) ∧ decode 0x000000c0#32 = some (.sll 0#32 0#32 3#32)
--- jr.hb / jalr.hb: hint bit 10 set; `decode` accepts these words as plain jr/jalr
+-- jr.hb / jalr.hb: hint bit 10 set; they decode to `.jrHb`/`.jalrHb` (JR.HB p.208, JALR.HB p.198)
 #guard asmText "jr.hb $ra\njalr.hb $t9\njalr.hb $t0, $t9\n" = some [0x03e00408#32, 0x0320fc09#32, 0x03204409#32]
-#guard decode 0x03e00408#32 = some (.jr 31#32)
-#guard decode 0x0320fc09#32 = some (.jalr 25#32 31#32)
-#guard decode 0x03204409#32 = some (.jalr 25#32 8#32)
+#guard decode 0x03e00408#32 = some (.jrHb 31#32)
+#guard decode 0x0320fc09#32 = some (.jalrHb 25#32 31#32)
+#guard decode 0x03204409#32 = some (.jalrHb 25#32 8#32)
+#guard encode (.jrHb 31#32) = 0x03e00408#32 ∧ encode (.jalrHb 25#32 8#32) = 0x03204409#32
+-- any other hint value is no defined encoding (Reserved Instruction; the review reproducer r4)
+#guard decode 0x01000048#32 = none   -- jr $t0, hint 1
+#guard decode 0x010007c8#32 = none   -- jr $t0, hint 31
+#guard decode 0x0100f849#32 = none   -- jalr $ra, $t0, hint 1
 -- abs: bgez rs, +2 ; move rd, rs (delay slot; nop if rd = rs) ; sub rd, $0, rs
 #guard asmText "abs $t0, $t1\n"
   = some [encode (.bgez 9#32 2#32), encode (.addu 0#32 9#32 8#32), encode (.sub 0#32 9#32 8#32)]

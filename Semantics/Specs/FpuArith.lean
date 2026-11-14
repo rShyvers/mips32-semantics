@@ -122,48 +122,58 @@ theorem negS_spec_raw (s : State) (w fd fs : W32)
       fpCompletesS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
-/-- **`madd.s`** (unfused: multiply, round, add/subtract, round):
-`Mips.Fp.f32Madd` of `fr`, `fs`, `ft`, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`madd.s`** `(fs × ft) + fr` (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the add of the rounded product, the last completing per
+`fpFinishS`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem maddS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd
-        (Mips.Fp.f32Madd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
+      fpThen s (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr)))) := by
   fp_step_spec
 
-/-- **`msub.s`** (unfused: multiply, round, add/subtract, round):
-`Mips.Fp.f32Msub` of `fr`, `fs`, `ft`, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`msub.s`** `(fs × ft) − fr` (MD00086 Vol II-A Rev 6.06, MSUB.fmt p.287): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the subtract of the rounded product, the last completing per
+`fpFinishS`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem msubS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd
-        (Mips.Fp.f32Msub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
+      fpThen s (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr)))) := by
   fp_step_spec
 
-/-- **`nmadd.s`** (unfused: multiply, round, add/subtract, round, negate):
-`Mips.Fp.f32Nmadd` of `fr`, `fs`, `ft`, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`nmadd.s`** `−(fr + (fs × ft))` (MD00086 Vol II-A Rev 6.06, NMADD.fmt p.308): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the add of the rounded product then negate (`NEG.fmt`), the last completing per
+`fpFinishS`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem nmaddS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd
-        (Mips.Fp.f32Nmadd (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
+      fpThen s (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        fun s1 p => fpThen s1 (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) p)
+          fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)) := by
   fp_step_spec
 
-/-- **`nmsub.s`** (unfused: multiply, round, add/subtract, round, negate):
-`Mips.Fp.f32Nmsub` of `fr`, `fs`, `ft`, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`nmsub.s`** `−((fs × ft) − fr)` (MD00086 Vol II-A Rev 6.06, NMSUB.fmt p.310): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the subtract of the rounded product then negate (`NEG.fmt`), the last completing per
+`fpFinishS`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem nmsubS_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubS fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd
-        (Mips.Fp.f32Nmsub (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) := by
+      fpThen s (Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        fun s1 p => fpThen s1 (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr)))
+          fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)) := by
   fp_step_spec
 
 /-- **`add.d`: `fd ← fs + ft`**, double precision: the result bits and exceptions are
@@ -259,46 +269,56 @@ theorem negD_spec_raw (s : State) (w fd fs : W32)
       fpCompletesD s fd (Mips.Fp.f64Neg (readFpD s fs))) := by
   fp_step_spec
 
-/-- **`madd.d`** (unfused: multiply, round, add/subtract, round):
-`Mips.Fp.f64Madd` of `fr`, `fs`, `ft`, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`madd.d`** `(fs × ft) + fr` (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the add of the rounded product, the last completing per
+`fpFinishD`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem maddD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd
-        (Mips.Fp.f64Madd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
+      fpThen s (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))
+        fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) p (readFpD s fr))) := by
   fp_step_spec
 
-/-- **`msub.d`** (unfused: multiply, round, add/subtract, round):
-`Mips.Fp.f64Msub` of `fr`, `fs`, `ft`, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`msub.d`** `(fs × ft) − fr` (MD00086 Vol II-A Rev 6.06, MSUB.fmt p.287): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the subtract of the rounded product, the last completing per
+`fpFinishD`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem msubD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd
-        (Mips.Fp.f64Msub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
+      fpThen s (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))
+        fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) p (readFpD s fr))) := by
   fp_step_spec
 
-/-- **`nmadd.d`** (unfused: multiply, round, add/subtract, round, negate):
-`Mips.Fp.f64Nmadd` of `fr`, `fs`, `ft`, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`nmadd.d`** `−(fr + (fs × ft))` (MD00086 Vol II-A Rev 6.06, NMADD.fmt p.308): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the add of the rounded product then negate (`NEG.fmt`), the last completing per
+`fpFinishD`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem nmaddD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd
-        (Mips.Fp.f64Nmadd (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
+      fpThen s (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))
+        fun s1 p => fpThen s1 (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fr) p)
+          fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)) := by
   fp_step_spec
 
-/-- **`nmsub.d`** (unfused: multiply, round, add/subtract, round, negate):
-`Mips.Fp.f64Nmsub` of `fr`, `fs`, `ft`, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310) -/
+/-- **`nmsub.d`** `−((fs × ft) − fr)` (MD00086 Vol II-A Rev 6.06, NMSUB.fmt p.310): "as if
+separate floating-point" operations "were executed" — the multiply, rounded, with its own FCSR Cause /
+trap check / Flags (`fpThen`), then the subtract of the rounded product then negate (`NEG.fmt`), the last completing per
+`fpFinishD`. A trapping step stops the instruction with that step's Cause. This is `step`'s own
+code restated. -/
 theorem nmsubD_spec_raw (s : State) (w fd fr fs ft : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubD fd fr fs ft))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd
-        (Mips.Fp.f64Nmsub (Mips.Fp.envOf s.fcsr) (readFpD s fr) (readFpD s fs) (readFpD s ft))) := by
+      fpThen s (Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft))
+        fun s1 p => fpThen s1 (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) p (readFpD s fr))
+          fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)) := by
   fp_step_spec

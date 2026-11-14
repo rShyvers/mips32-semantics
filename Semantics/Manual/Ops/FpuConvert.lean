@@ -161,7 +161,8 @@ def CVT_D_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
   -- ConvertFmt(x, S, D), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.cvtDS x)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.cvtDS o.cvtQNaNToD x)
   -- StoreFPR (fd, D, ...)
   StoreFPR64 (reg fd) r
 
@@ -187,7 +188,8 @@ def CVT_S_D (fd fs : W32) : Pseudo Unit := do
   let x ← ValueFPR64 (reg fs)
   -- ConvertFmt(x, D, S) under FCSR.RM, with FCSR Cause/Flags and CheckFPException
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.cvtSD a x)
+  let o ← Pseudo.oracle
+  let r ← FPResult (IEEE.cvtSD o.cvtQNaNToS a x)
   -- StoreFPR(fd, S, ...)
   StoreFPR32 (reg fd) r
 

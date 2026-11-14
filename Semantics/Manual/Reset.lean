@@ -26,7 +26,10 @@ PC ← 0xBFC0 0000
 by `WAIT` ("The assertion of any reset or NMI must restart the pipeline", MD00086 Vol II-A Rev 6.06,
 WAIT, p.442). `RP`, `TS`, `SR`, `NMI` are not implemented (they read 0 already). -/
 def ResetException (o : Oracle) (a0 : Arch) : Arch :=
-  let a := o.resetUndefined a0
+  let a1 := o.resetUndefined a0
+  -- the oracle's Status is limited to the bits Status has on this profile (`StatusWritable`): the
+  -- others are not implemented and read 0 (Vol III Table 9.47, p.189-196)
+  let a := { a1 with Status := a1.Status &&& StatusWritable }
   let restartPC := if a0.BranchDelay.isSome then a0.PC - 4#32 else a0.PC
   { a with
       HWREna := 0#32
