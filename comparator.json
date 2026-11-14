@@ -144,7 +144,20 @@
     "Trusted.srsCtlValue_fields",
     "Trusted.mfc0_srsctl_spec",
     "Trusted.rdpgpr_spec_raw",
-    "Trusted.wrpgpr_spec_raw"
+    "Trusted.wrpgpr_spec_raw",
+    "Trusted.step_eq_manual",
+    "Trusted.step_refines_manual",
+    "Trusted.run_refines_manual",
+    "Trusted.step_unique_of_choiceFree",
+    "Trusted.modelOracle_valid",
+    "Trusted.manual_step_deterministic",
+    "Trusted.decoderSound_decode",
+    "Trusted.resetException_refines_manual",
+    "Trusted.resetState_refines_manual",
+    "Trusted.step_preserves_inv",
+    "Trusted.inv_resetState",
+    "Trusted.inv_hostedStart",
+    "Trusted.inv_load"
   ],
   "definition_names": [],
   "permitted_axioms": [

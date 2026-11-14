@@ -9,6 +9,10 @@ bit is set, and the exception is taken only "If the Invalid Operation Enable bit
 no result is written and an Invalid Operation exception is taken immediately. Otherwise, the Boolean
 result is written into condition code CC" (C.cond.fmt, p.110), the `Flags.V` bit being set: that is
 `FPResult`. The `PS` format is not in the profile (SPEC-NOTES §9 item 13).
+
+`cc` is the 3-bit field (bits 10..8) of the format diagram (C.cond.fmt, p.110), so the condition code
+written is `(low cc 3)` (7C S4a: the transcription used the whole `W32` operand of `Instruction.cCondS`,
+which for a value ≥ 8 named no condition code; the diagram has only three bits).
 -/
 
 namespace Manual.Ops
@@ -52,8 +56,8 @@ def C_cond_S (cond cc fs ft : W32) : Pseudo Unit := do
   let condition := (bit cond 2 && less) || (bit cond 1 && equal) || (bit cond 0 && unordered)
   -- the Invalid Operation exception (FCSR Cause, CheckFPException, Flags)
   let r ← FPResult (condition, if invalid then Mips.Fp.Flags.invalidOnly else Mips.Fp.Flags.none)
-  -- SetFPConditionCode(cc, condition)
-  SetFPConditionCode cc.toNat r
+  -- SetFPConditionCode(cc, condition); `cc` is the 3-bit field 10..8 of the format diagram (p.110)
+  SetFPConditionCode (low cc 3).toNat r
 
 /-- **C.cond.D cc, fs, ft** — MD00086 Vol II-A Rev 6.06, C.cond.fmt, p.110-113 (fmt = D; the
 format diagram is on p.110, the Operation on p.112-113).
@@ -92,7 +96,7 @@ def C_cond_D (cond cc fs ft : W32) : Pseudo Unit := do
   let condition := (bit cond 2 && less) || (bit cond 1 && equal) || (bit cond 0 && unordered)
   -- the Invalid Operation exception (FCSR Cause, CheckFPException, Flags)
   let r ← FPResult (condition, if invalid then Mips.Fp.Flags.invalidOnly else Mips.Fp.Flags.none)
-  -- SetFPConditionCode(cc, condition)
-  SetFPConditionCode cc.toNat r
+  -- SetFPConditionCode(cc, condition); `cc` is the 3-bit field 10..8 of the format diagram (p.110)
+  SetFPConditionCode (low cc 3).toNat r
 
 end Manual.Ops

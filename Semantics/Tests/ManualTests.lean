@@ -114,3 +114,42 @@ def soundAt (w : W32) : Bool :=
             a.BranchDelay == some (((regs0.pc + 4#32) &&& 0xF0000000#32) ||| 0x4#32)
         | none => false)
 -- end 7C S3
+-- 7C S4a: `C.cond.fmt` writes the condition code named by the 3-bit `cc` field (bits 10..8, MD00086
+-- Vol II-A Rev 6.06, C.cond.fmt, p.110). A constructor operand `cc = 9` is the field value 1, as in
+-- `execInstr` (`ccIdx`); the transcription used the whole operand (bit 24 + 9 of FCSR: no write).
+#guard (let i := Instruction.cCondS 2#32 9#32 2#32 4#32
+        let s := fpState i [(2, 0x3f800000#32), (4, 0x3f800000#32)]
+        match enc i with
+        | some w => (Execute { impl := modelImpl, oracle := modelOracle } w i (abs s)).map (·.FCSR) ==
+            some (execInstr s i).fcsr && (execInstr s i).fcsr.getLsbD 25
+        | none => false)
+-- 7C S4b: begin
+/-- The spec's `Execute` of the instruction `i` (fetched as its own diagram) against the model's
+`execInstr`, on the compared fields. -/
+def execAgree (i : Instruction) (s : State) : Bool :=
+  match enc i with
+  | some w =>
+    match Execute { impl := modelImpl, oracle := modelOracle } w i (abs s) with
+    | some a => archKey a == archKey (abs (execInstr s i))
+    | none => false
+  | none => false
+
+-- `cc` is the 3-bit field (bits 20..18; "cc: The Condition code number in the range 0..7",
+-- MD00086 Vol II-A Rev 6.06 Figure 2.25 p.23): an operand `cc = 9` reads FCC1 (FCSR bit 25), as the
+-- model's `ccIdx` does. Before 7C S4b the spec read FCSR bit 33 (false) and disagreed.
+#guard execAgree (.movt 9#32 9#32 8#32)
+  { setRegs regs0 [(9, 42#32)] with fcsr := 0x02000000#32 }
+#guard (match Execute { impl := modelImpl, oracle := modelOracle } 0#32 (.movt 9#32 9#32 8#32)
+          (abs { setRegs regs0 [(9, 42#32)] with fcsr := 0x02000000#32 }) with
+        | some a => a.GPR 8 == 42#32
+        | none => false)
+#guard execAgree (.bc1t 9#32 3#32) { regs0 with fcsr := 0x02000000#32 }
+-- CTC1 to a control register that does not exist (`fs = 1`): no write, but the `CheckFPException()`
+-- after the UNPREDICTABLE arm still runs (CTC1 p.150): an FCSR holding Cause.V with Enables.V traps
+-- (ExcCode 15). Before 7C S4b the model did nothing.
+#guard agree (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)
+#guard (match specTime (fpState (.ctc1 8#32 1#32) [] 0x00010800#32) with
+        | some a => (a.Cause >>> 2) &&& 0x1F#32 == 15#32 && a.EPC == textBase && a.FCSR == 0x00010800#32
+        | none => false)
+#guard ((step (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)).cp0Cause >>> 2) &&& 0x1F#32 == 15#32
+-- 7C S4b: end

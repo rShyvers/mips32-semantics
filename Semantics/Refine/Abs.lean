@@ -1,10 +1,9 @@
-import Semantics.Manual.Cycle
-import Semantics.Step
+import Semantics.Refine.Defs
 
 /-!
 # Refine.Abs — the model's state seen as the manual's state
 
-`abs : State → Manual.Arch` is a field-by-field projection: nothing is computed but the reading of
+`abs : State → Manual.Arch` (defined in `Refine/Defs.lean`) is a field-by-field projection: nothing is computed but the reading of
 the register arrays (`readReg`, `readFpReg`) and of the physical-memory map (`HashMap.get?`, unwritten
 bytes are 0). It is the bridge of the refinement theorems (`docs/MANUAL-SPEC.md`); it is not part of
 the independent spec.
@@ -18,38 +17,6 @@ namespace Refine
 
 open Manual
 
-/-- The physical memory of the model as a total function (unwritten bytes read 0). -/
-def memOf (m : Std.HashMap PAddr UInt8) : PAddr → UInt8 := fun pa => (m.get? pa).getD 0
-
-/-- **The model's state as the manual's state.** -/
-def abs (s : State) : Arch where
-  PC := s.pc
-  GPR := fun i => readReg s i
-  HI := s.hi
-  LO := s.lo
-  FPR := fun i => readFpReg s i
-  FCSR := s.fcsr
-  Mem := memOf s.physMem
-  LLbit := s.llBit
-  LLAddr := s.llAddr
-  Status := s.cp0Status
-  Cause := s.cp0Cause
-  EPC := s.cp0Epc
-  BadVAddr := s.cp0BadVAddr
-  ErrorEPC := s.cp0ErrorEpc
-  EBase := s.cp0EBase
-  ConfigK0 := s.cp0ConfigK0
-  ConfigK23 := s.cp0ConfigK23
-  ConfigKU := s.cp0ConfigKU
-  Count := s.cp0Count
-  Compare := s.cp0Compare
-  CauseTI := s.cp0TimerInt
-  HWREna := s.cp0HWREna
-  HW := s.hwInt
-  LowPower := s.standby
-  BranchDelay := s.pendingBranch
-  Nullify := s.nullified
-
 /-! Projections of `abs` (by definition). -/
 
 @[simp] theorem abs_PC (s : State) : (abs s).PC = s.pc := rfl
@@ -59,11 +26,6 @@ def abs (s : State) : Arch where
 @[simp] theorem abs_Mem (s : State) : (abs s).Mem = memOf s.physMem := rfl
 @[simp] theorem abs_Status (s : State) : (abs s).Status = s.cp0Status := rfl
 @[simp] theorem abs_BranchDelay (s : State) : (abs s).BranchDelay = s.pendingBranch := rfl
-
-/-- **The states the refinement is stated for**: both register files have 32 entries
-(`State.RegFilesWF`, preserved by `step`, `step_preserves_wellFormed`) and `$zero` reads 0 (preserved
-by `step`, `step_preserves_zero_register`). -/
-def Good (s : State) : Prop := s.regs.size = 32 ∧ s.fpRegs.size = 32 ∧ readReg s 0 = 0#32
 
 /-! ## Register files -/
 

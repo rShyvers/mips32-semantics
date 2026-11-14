@@ -1,43 +1,47 @@
 import Semantics.Refine.Cycle
 import Semantics.Refine.Invariant
 import Semantics.Refine.IntArith
-import Semantics.Refine.Memory
-import Semantics.Refine.Branch
-import Semantics.Refine.BranchLikely
-import Semantics.Refine.FpuArith
-import Semantics.Refine.Cp0
-import Semantics.Refine.Unaligned
-import Semantics.Refine.Jump
-import Semantics.Refine.System
 import Semantics.Refine.Shift
 import Semantics.Refine.MulDiv
 import Semantics.Refine.BitOps
 import Semantics.Refine.Immediate
+import Semantics.Refine.Memory
+import Semantics.Refine.Atomic
+import Semantics.Refine.Unaligned
+import Semantics.Refine.Trap
+import Semantics.Refine.Syscall
+import Semantics.Refine.Branch
+import Semantics.Refine.BranchLikely
+import Semantics.Refine.Jump
+import Semantics.Refine.Cp0
+import Semantics.Refine.System
+import Semantics.Refine.FpuArith
+import Semantics.Refine.FpuConvert
+import Semantics.Refine.FpuCompare
+import Semantics.Refine.FpuMemory
+import Semantics.Refine.FpuMove
+import Semantics.Refine.FpuControl
+import Semantics.Refine.FpuBranch
 
 /-!
-# Refine.Instr — the per-instruction refinement, as one hypothesis (7D)
+# Refine.Instr — the per-instruction refinement of every constructor (7D)
 
 `InstrRefines i` is the shape of the per-instruction theorems `Refine.<ctor>_refines`
 (`docs/MANUAL-SPEC.md` I.2 item 9), quantified over the states the cycle executes an instruction
-in: the invariant `Inv s`, the instruction is not nullified (`s.nullified = false`, which
-`stepCore` guarantees on the execute path), and `w` is a fetched word that `decode`s to `i` (so
-`enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
+in: the invariant `Inv s` (`Refine/Defs.lean`), the instruction is not nullified
+(`s.nullified = false`, which `stepCore` guarantees on the execute path), and `w` is a fetched word
+that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
-`instrRefines_<ctor>` restates each available `<ctor>_refines` in that shape; `Covered` lists
-those constructors and `instrRefines_covered` collects them. The top theorems (`Refine/Step.lean`)
-are proved from `PendingRefines`, the same statement for the constructors not yet `Covered`.
+`instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
+`Instruction` (183, generated in constructor order), and `allInstrRefines` collects them by
+`cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
+constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
+and the build fails.
 -/
 
 namespace Refine
 
 open Manual
-
-/-- **The invariant of the reachable states** (each conjunct is needed by some refinement):
-* `Good s`: both register files have 32 entries and `$zero` reads 0 (every per-instruction theorem);
-* `FcsrReservedZero s`: FCSR bits 22..18 are 0 (`cfc1_refines`: they "read as zero");
-* `StatusImplemented s`: `Status` holds only implemented bits (`resetException_refines_manual`).
-`step` preserves it, `resetState`, `hostedStart` and `load p` establish it (`Refine/Step.lean`). -/
-def Inv (s : State) : Prop := Good s ∧ FcsrReservedZero s ∧ StatusImplemented s
 
 /-- **The per-instruction refinement of `i`**: from every state the cycle executes `i` in, the
 spec's `Execute` of `i` (fetched as `w`) is the model's `execInstr`. -/
@@ -45,12 +49,86 @@ def InstrRefines (i : Instruction) : Prop :=
   ∀ (s : State) (w : W32), Inv s → s.nullified = false → decode w = some i → enc i = some w →
     Execute modelCtx w i (abs s) = some (abs (execInstr s i))
 
-/-! ## The available per-instruction theorems in the cycle's shape (generated) -/
+/-! ## The per-instruction theorems in the cycle's shape (generated, constructor order) -/
 
+theorem instrRefines_add (rs rt rd : W32) : InstrRefines (.add rs rt rd) :=
+  fun s w hg _ _ hw => add_refines s hg.1 rs rt rd w hw
+theorem instrRefines_addu (rs rt rd : W32) : InstrRefines (.addu rs rt rd) :=
+  fun s w hg _ _ hw => addu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_sub (rs rt rd : W32) : InstrRefines (.sub rs rt rd) :=
+  fun s w hg _ _ hw => sub_refines s hg.1 rs rt rd w hw
+theorem instrRefines_subu (rs rt rd : W32) : InstrRefines (.subu rs rt rd) :=
+  fun s w hg _ _ hw => subu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_and (rs rt rd : W32) : InstrRefines (.and rs rt rd) :=
+  fun s w hg _ _ hw => and_refines s hg.1 rs rt rd w hw
+theorem instrRefines_or (rs rt rd : W32) : InstrRefines (.or rs rt rd) :=
+  fun s w hg _ _ hw => or_refines s hg.1 rs rt rd w hw
+theorem instrRefines_xor (rs rt rd : W32) : InstrRefines (.xor rs rt rd) :=
+  fun s w hg _ _ hw => xor_refines s hg.1 rs rt rd w hw
+theorem instrRefines_nor (rs rt rd : W32) : InstrRefines (.nor rs rt rd) :=
+  fun s w hg _ _ hw => nor_refines s hg.1 rs rt rd w hw
+theorem instrRefines_slt (rs rt rd : W32) : InstrRefines (.slt rs rt rd) :=
+  fun s w hg _ _ hw => slt_refines s hg.1 rs rt rd w hw
+theorem instrRefines_sltu (rs rt rd : W32) : InstrRefines (.sltu rs rt rd) :=
+  fun s w hg _ _ hw => sltu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_movn (rs rt rd : W32) : InstrRefines (.movn rs rt rd) :=
+  fun s w hg _ _ hw => movn_refines s hg.1 rs rt rd w hw
+theorem instrRefines_movz (rs rt rd : W32) : InstrRefines (.movz rs rt rd) :=
+  fun s w hg _ _ hw => movz_refines s hg.1 rs rt rd w hw
+theorem instrRefines_sll (rd rt shamt : W32) : InstrRefines (.sll rd rt shamt) :=
+  fun s w hg _ _ hw => sll_refines s hg.1 rd rt shamt w hw
+theorem instrRefines_srl (rd rt shamt : W32) : InstrRefines (.srl rd rt shamt) :=
+  fun s w hg _ _ hw => srl_refines s hg.1 rd rt shamt w hw
+theorem instrRefines_sra (rd rt shamt : W32) : InstrRefines (.sra rd rt shamt) :=
+  fun s w hg _ _ hw => sra_refines s hg.1 rd rt shamt w hw
+theorem instrRefines_sllv (rd rt rs : W32) : InstrRefines (.sllv rd rt rs) :=
+  fun s w hg _ _ hw => sllv_refines s hg.1 rd rt rs w hw
+theorem instrRefines_srlv (rd rt rs : W32) : InstrRefines (.srlv rd rt rs) :=
+  fun s w hg _ _ hw => srlv_refines s hg.1 rd rt rs w hw
+theorem instrRefines_srav (rd rt rs : W32) : InstrRefines (.srav rd rt rs) :=
+  fun s w hg _ _ hw => srav_refines s hg.1 rd rt rs w hw
+theorem instrRefines_rotr (rd rt sa : W32) : InstrRefines (.rotr rd rt sa) :=
+  fun s w hg _ _ hw => rotr_refines s hg.1 rd rt sa w hw
+theorem instrRefines_rotrv (rd rt rs : W32) : InstrRefines (.rotrv rd rt rs) :=
+  fun s w hg _ _ hw => rotrv_refines s hg.1 rd rt rs w hw
+theorem instrRefines_mult (rs rt : W32) : InstrRefines (.mult rs rt) :=
+  fun s w hg _ _ hw => mult_refines s hg.1 rs rt w hw
+theorem instrRefines_multu (rs rt : W32) : InstrRefines (.multu rs rt) :=
+  fun s w hg _ _ hw => multu_refines s hg.1 rs rt w hw
+theorem instrRefines_div (rs rt : W32) : InstrRefines (.div rs rt) :=
+  fun s w hg _ _ hw => div_refines s hg.1 rs rt w hw
+theorem instrRefines_divu (rs rt : W32) : InstrRefines (.divu rs rt) :=
+  fun s w hg _ _ hw => divu_refines s hg.1 rs rt w hw
+theorem instrRefines_mflo (rd : W32) : InstrRefines (.mflo rd) :=
+  fun s w hg _ _ hw => mflo_refines s hg.1 rd w hw
+theorem instrRefines_mfhi (rd : W32) : InstrRefines (.mfhi rd) :=
+  fun s w hg _ _ hw => mfhi_refines s hg.1 rd w hw
+theorem instrRefines_mthi (rs : W32) : InstrRefines (.mthi rs) :=
+  fun s w hg _ _ hw => mthi_refines s hg.1 rs w hw
+theorem instrRefines_mtlo (rs : W32) : InstrRefines (.mtlo rs) :=
+  fun s w hg _ _ hw => mtlo_refines s hg.1 rs w hw
+theorem instrRefines_jr (rs : W32) : InstrRefines (.jr rs) :=
+  fun s w hg hn _ hw => jr_refines s hg.1 hn rs w hw
+theorem instrRefines_jalr (rs rd : W32) : InstrRefines (.jalr rs rd) :=
+  fun s w hg hn _ hw => jalr_refines s hg.1 hn rs rd w hw
+theorem instrRefines_jrHb (rs : W32) : InstrRefines (.jrHb rs) :=
+  fun s w hg hn _ hw => jrHb_refines s hg.1 hn rs w hw
+theorem instrRefines_jalrHb (rs rd : W32) : InstrRefines (.jalrHb rs rd) :=
+  fun s w hg hn _ hw => jalrHb_refines s hg.1 hn rs rd w hw
 theorem instrRefines_clo (rs rd : W32) : InstrRefines (.clo rs rd) :=
   fun s w hg _ _ hw => clo_refines s hg.1 rs rd w hw
 theorem instrRefines_clz (rs rd : W32) : InstrRefines (.clz rs rd) :=
   fun s w hg _ _ hw => clz_refines s hg.1 rs rd w hw
+theorem instrRefines_mul (rs rt rd : W32) : InstrRefines (.mul rs rt rd) :=
+  fun s w hg _ _ hw => mul_refines s hg.1 rs rt rd w hw
+theorem instrRefines_madd (rs rt : W32) : InstrRefines (.madd rs rt) :=
+  fun s w hg _ _ hw => madd_refines s hg.1 rs rt w hw
+theorem instrRefines_maddu (rs rt : W32) : InstrRefines (.maddu rs rt) :=
+  fun s w hg _ _ hw => maddu_refines s hg.1 rs rt w hw
+theorem instrRefines_msub (rs rt : W32) : InstrRefines (.msub rs rt) :=
+  fun s w hg _ _ hw => msub_refines s hg.1 rs rt w hw
+theorem instrRefines_msubu (rs rt : W32) : InstrRefines (.msubu rs rt) :=
+  fun s w hg _ _ hw => msubu_refines s hg.1 rs rt w hw
 theorem instrRefines_seb (rd rt : W32) : InstrRefines (.seb rd rt) :=
   fun s w hg _ _ hw => seb_refines s hg.1 rd rt w hw
 theorem instrRefines_seh (rd rt : W32) : InstrRefines (.seh rd rt) :=
@@ -61,6 +139,52 @@ theorem instrRefines_ext (rt rs pos size : W32) : InstrRefines (.ext rt rs pos s
   fun s w hg _ _ hw => ext_refines s hg.1 rt rs pos size w hw
 theorem instrRefines_ins (rt rs pos size : W32) : InstrRefines (.ins rt rs pos size) :=
   fun s w hg _ _ hw => ins_refines s hg.1 rt rs pos size w hw
+theorem instrRefines_rdhwr (rt rd : W32) : InstrRefines (.rdhwr rt rd) :=
+  fun s w hg _ _ hw => rdhwr_refines s hg.1 rt rd w hw
+theorem instrRefines_addi (rs rt imm : W32) : InstrRefines (.addi rs rt imm) :=
+  fun s w hg _ _ hw => addi_refines s hg.1 rs rt imm w hw
+theorem instrRefines_addiu (rs rt imm : W32) : InstrRefines (.addiu rs rt imm) :=
+  fun s w hg _ _ hw => addiu_refines s hg.1 rs rt imm w hw
+theorem instrRefines_slti (rs rt imm : W32) : InstrRefines (.slti rs rt imm) :=
+  fun s w hg _ _ hw => slti_refines s hg.1 rs rt imm w hw
+theorem instrRefines_sltiu (rs rt imm : W32) : InstrRefines (.sltiu rs rt imm) :=
+  fun s w hg _ _ hw => sltiu_refines s hg.1 rs rt imm w hw
+theorem instrRefines_andi (rs rt imm : W32) : InstrRefines (.andi rs rt imm) :=
+  fun s w hg _ _ hw => andi_refines s hg.1 rs rt imm w hw
+theorem instrRefines_ori (rs rt imm : W32) : InstrRefines (.ori rs rt imm) :=
+  fun s w hg _ _ hw => ori_refines s hg.1 rs rt imm w hw
+theorem instrRefines_xori (rs rt imm : W32) : InstrRefines (.xori rs rt imm) :=
+  fun s w hg _ _ hw => xori_refines s hg.1 rs rt imm w hw
+theorem instrRefines_lui (rt imm : W32) : InstrRefines (.lui rt imm) :=
+  fun s w hg _ _ hw => lui_refines s hg.1 rt imm w hw
+theorem instrRefines_lw (base rt off : W32) : InstrRefines (.lw base rt off) :=
+  fun s w hg _ _ hw => lw_refines s hg.1 base rt off w hw
+theorem instrRefines_sw (base rt off : W32) : InstrRefines (.sw base rt off) :=
+  fun s w hg _ _ hw => sw_refines s hg.1 base rt off w hw
+theorem instrRefines_lb (base rt off : W32) : InstrRefines (.lb base rt off) :=
+  fun s w hg _ _ hw => lb_refines s hg.1 base rt off w hw
+theorem instrRefines_lbu (base rt off : W32) : InstrRefines (.lbu base rt off) :=
+  fun s w hg _ _ hw => lbu_refines s hg.1 base rt off w hw
+theorem instrRefines_lh (base rt off : W32) : InstrRefines (.lh base rt off) :=
+  fun s w hg _ _ hw => lh_refines s hg.1 base rt off w hw
+theorem instrRefines_lhu (base rt off : W32) : InstrRefines (.lhu base rt off) :=
+  fun s w hg _ _ hw => lhu_refines s hg.1 base rt off w hw
+theorem instrRefines_sh (base rt off : W32) : InstrRefines (.sh base rt off) :=
+  fun s w hg _ _ hw => sh_refines s hg.1 base rt off w hw
+theorem instrRefines_sb (base rt off : W32) : InstrRefines (.sb base rt off) :=
+  fun s w hg _ _ hw => sb_refines s hg.1 base rt off w hw
+theorem instrRefines_ll (base rt off : W32) : InstrRefines (.ll base rt off) :=
+  fun s w hg _ _ hw => ll_refines s hg.1 base rt off w hw
+theorem instrRefines_sc (base rt off : W32) : InstrRefines (.sc base rt off) :=
+  fun s w hg _ _ hw => sc_refines s hg.1 base rt off w hw
+theorem instrRefines_lwl (base rt off : W32) : InstrRefines (.lwl base rt off) :=
+  fun s w hg _ _ hw => lwl_refines s hg.1 base rt off w hw
+theorem instrRefines_lwr (base rt off : W32) : InstrRefines (.lwr base rt off) :=
+  fun s w hg _ _ hw => lwr_refines s hg.1 base rt off w hw
+theorem instrRefines_swl (base rt off : W32) : InstrRefines (.swl base rt off) :=
+  fun s w hg _ _ hw => swl_refines s hg.1 base rt off w hw
+theorem instrRefines_swr (base rt off : W32) : InstrRefines (.swr base rt off) :=
+  fun s w hg _ _ hw => swr_refines s hg.1 base rt off w hw
 theorem instrRefines_beq (rs rt off : W32) : InstrRefines (.beq rs rt off) :=
   fun s w hg hn _ hw => beq_refines s hg.1 hn rs rt off w hw
 theorem instrRefines_bne (rs rt off : W32) : InstrRefines (.bne rs rt off) :=
@@ -93,225 +217,277 @@ theorem instrRefines_bltzall (rs off : W32) : InstrRefines (.bltzall rs off) :=
   fun s w hg hn _ hw => bltzall_refines s hg.1 hn rs off w hw
 theorem instrRefines_bgezall (rs off : W32) : InstrRefines (.bgezall rs off) :=
   fun s w hg hn _ hw => bgezall_refines s hg.1 hn rs off w hw
-theorem instrRefines_mtc0 (rt rd sel : W32) : InstrRefines (.mtc0 rt rd sel) :=
-  fun s w hg _ _ hw => mtc0_refines s hg.1 rt rd sel w hw
-theorem instrRefines_mfc0 (rt rd sel : W32) : InstrRefines (.mfc0 rt rd sel) :=
-  fun s w hg _ _ hw => mfc0_refines s hg.1 rt rd sel w hw
-theorem instrRefines_di (rt : W32) : InstrRefines (.di rt) :=
-  fun s w hg _ _ hw => di_refines s hg.1 rt w hw
-theorem instrRefines_ei (rt : W32) : InstrRefines (.ei rt) :=
-  fun s w hg _ _ hw => ei_refines s hg.1 rt w hw
-theorem instrRefines_rdpgpr (rd rt : W32) : InstrRefines (.rdpgpr rd rt) :=
-  fun s w hg _ _ hw => rdpgpr_refines s hg.1 rd rt w hw
-theorem instrRefines_wrpgpr (rd rt : W32) : InstrRefines (.wrpgpr rd rt) :=
-  fun s w hg _ _ hw => wrpgpr_refines s hg.1 rd rt w hw
-theorem instrRefines_addS (fd fs ft : W32) : InstrRefines (.addS fd fs ft) :=
-  fun s w hg _ _ hw => addS_refines s hg.1 fd fs ft w hw
-theorem instrRefines_addi (rs rt imm : W32) : InstrRefines (.addi rs rt imm) :=
-  fun s w hg _ _ hw => addi_refines s hg.1 rs rt imm w hw
-theorem instrRefines_addiu (rs rt imm : W32) : InstrRefines (.addiu rs rt imm) :=
-  fun s w hg _ _ hw => addiu_refines s hg.1 rs rt imm w hw
-theorem instrRefines_slti (rs rt imm : W32) : InstrRefines (.slti rs rt imm) :=
-  fun s w hg _ _ hw => slti_refines s hg.1 rs rt imm w hw
-theorem instrRefines_sltiu (rs rt imm : W32) : InstrRefines (.sltiu rs rt imm) :=
-  fun s w hg _ _ hw => sltiu_refines s hg.1 rs rt imm w hw
-theorem instrRefines_andi (rs rt imm : W32) : InstrRefines (.andi rs rt imm) :=
-  fun s w hg _ _ hw => andi_refines s hg.1 rs rt imm w hw
-theorem instrRefines_ori (rs rt imm : W32) : InstrRefines (.ori rs rt imm) :=
-  fun s w hg _ _ hw => ori_refines s hg.1 rs rt imm w hw
-theorem instrRefines_xori (rs rt imm : W32) : InstrRefines (.xori rs rt imm) :=
-  fun s w hg _ _ hw => xori_refines s hg.1 rs rt imm w hw
-theorem instrRefines_lui (rt imm : W32) : InstrRefines (.lui rt imm) :=
-  fun s w hg _ _ hw => lui_refines s hg.1 rt imm w hw
-theorem instrRefines_add (rs rt rd : W32) : InstrRefines (.add rs rt rd) :=
-  fun s w hg _ _ hw => add_refines s hg.1 rs rt rd w hw
-theorem instrRefines_addu (rs rt rd : W32) : InstrRefines (.addu rs rt rd) :=
-  fun s w hg _ _ hw => addu_refines s hg.1 rs rt rd w hw
-theorem instrRefines_sub (rs rt rd : W32) : InstrRefines (.sub rs rt rd) :=
-  fun s w hg _ _ hw => sub_refines s hg.1 rs rt rd w hw
-theorem instrRefines_subu (rs rt rd : W32) : InstrRefines (.subu rs rt rd) :=
-  fun s w hg _ _ hw => subu_refines s hg.1 rs rt rd w hw
-theorem instrRefines_and (rs rt rd : W32) : InstrRefines (.and rs rt rd) :=
-  fun s w hg _ _ hw => and_refines s hg.1 rs rt rd w hw
-theorem instrRefines_or (rs rt rd : W32) : InstrRefines (.or rs rt rd) :=
-  fun s w hg _ _ hw => or_refines s hg.1 rs rt rd w hw
-theorem instrRefines_xor (rs rt rd : W32) : InstrRefines (.xor rs rt rd) :=
-  fun s w hg _ _ hw => xor_refines s hg.1 rs rt rd w hw
-theorem instrRefines_nor (rs rt rd : W32) : InstrRefines (.nor rs rt rd) :=
-  fun s w hg _ _ hw => nor_refines s hg.1 rs rt rd w hw
-theorem instrRefines_slt (rs rt rd : W32) : InstrRefines (.slt rs rt rd) :=
-  fun s w hg _ _ hw => slt_refines s hg.1 rs rt rd w hw
-theorem instrRefines_sltu (rs rt rd : W32) : InstrRefines (.sltu rs rt rd) :=
-  fun s w hg _ _ hw => sltu_refines s hg.1 rs rt rd w hw
-theorem instrRefines_movn (rs rt rd : W32) : InstrRefines (.movn rs rt rd) :=
-  fun s w hg _ _ hw => movn_refines s hg.1 rs rt rd w hw
-theorem instrRefines_movz (rs rt rd : W32) : InstrRefines (.movz rs rt rd) :=
-  fun s w hg _ _ hw => movz_refines s hg.1 rs rt rd w hw
+theorem instrRefines_teqi (rs imm : W32) : InstrRefines (.teqi rs imm) :=
+  fun s w hg _ _ hw => teqi_refines s hg.1 rs imm w hw
+theorem instrRefines_tnei (rs imm : W32) : InstrRefines (.tnei rs imm) :=
+  fun s w hg _ _ hw => tnei_refines s hg.1 rs imm w hw
+theorem instrRefines_tgei (rs imm : W32) : InstrRefines (.tgei rs imm) :=
+  fun s w hg _ _ hw => tgei_refines s hg.1 rs imm w hw
+theorem instrRefines_tgeiu (rs imm : W32) : InstrRefines (.tgeiu rs imm) :=
+  fun s w hg _ _ hw => tgeiu_refines s hg.1 rs imm w hw
+theorem instrRefines_tlti (rs imm : W32) : InstrRefines (.tlti rs imm) :=
+  fun s w hg _ _ hw => tlti_refines s hg.1 rs imm w hw
+theorem instrRefines_tltiu (rs imm : W32) : InstrRefines (.tltiu rs imm) :=
+  fun s w hg _ _ hw => tltiu_refines s hg.1 rs imm w hw
+theorem instrRefines_synci (base off : W32) : InstrRefines (.synci base off) :=
+  fun s w hg _ _ hw => synci_refines s hg.1 base off w hw
 theorem instrRefines_j (target : W32) : InstrRefines (.j target) :=
   fun s w hg hn _ hw => j_refines s hg.1 hn target w hw
 theorem instrRefines_jal (target : W32) : InstrRefines (.jal target) :=
   fun s w hg hn _ hw => jal_refines s hg.1 hn target w hw
-theorem instrRefines_jr (rs : W32) : InstrRefines (.jr rs) :=
-  fun s w hg hn _ hw => jr_refines s hg.1 hn rs w hw
-theorem instrRefines_jrHb (rs : W32) : InstrRefines (.jrHb rs) :=
-  fun s w hg hn _ hw => jrHb_refines s hg.1 hn rs w hw
-theorem instrRefines_jalr (rs rd : W32) : InstrRefines (.jalr rs rd) :=
-  fun s w hg hn _ hw => jalr_refines s hg.1 hn rs rd w hw
-theorem instrRefines_jalrHb (rs rd : W32) : InstrRefines (.jalrHb rs rd) :=
-  fun s w hg hn _ hw => jalrHb_refines s hg.1 hn rs rd w hw
-theorem instrRefines_lw (base rt off : W32) : InstrRefines (.lw base rt off) :=
-  fun s w hg _ _ hw => lw_refines s hg.1 base rt off w hw
-theorem instrRefines_sw (base rt off : W32) : InstrRefines (.sw base rt off) :=
-  fun s w hg _ _ hw => sw_refines s hg.1 base rt off w hw
-theorem instrRefines_mult (rs rt : W32) : InstrRefines (.mult rs rt) :=
-  fun s w hg _ _ hw => mult_refines s hg.1 rs rt w hw
-theorem instrRefines_multu (rs rt : W32) : InstrRefines (.multu rs rt) :=
-  fun s w hg _ _ hw => multu_refines s hg.1 rs rt w hw
-theorem instrRefines_div (rs rt : W32) : InstrRefines (.div rs rt) :=
-  fun s w hg _ _ hw => div_refines s hg.1 rs rt w hw
-theorem instrRefines_divu (rs rt : W32) : InstrRefines (.divu rs rt) :=
-  fun s w hg _ _ hw => divu_refines s hg.1 rs rt w hw
-theorem instrRefines_mfhi (rd : W32) : InstrRefines (.mfhi rd) :=
-  fun s w hg _ _ hw => mfhi_refines s hg.1 rd w hw
-theorem instrRefines_mflo (rd : W32) : InstrRefines (.mflo rd) :=
-  fun s w hg _ _ hw => mflo_refines s hg.1 rd w hw
-theorem instrRefines_mthi (rs : W32) : InstrRefines (.mthi rs) :=
-  fun s w hg _ _ hw => mthi_refines s hg.1 rs w hw
-theorem instrRefines_mtlo (rs : W32) : InstrRefines (.mtlo rs) :=
-  fun s w hg _ _ hw => mtlo_refines s hg.1 rs w hw
-theorem instrRefines_mul (rs rt rd : W32) : InstrRefines (.mul rs rt rd) :=
-  fun s w hg _ _ hw => mul_refines s hg.1 rs rt rd w hw
-theorem instrRefines_madd (rs rt : W32) : InstrRefines (.madd rs rt) :=
-  fun s w hg _ _ hw => madd_refines s hg.1 rs rt w hw
-theorem instrRefines_maddu (rs rt : W32) : InstrRefines (.maddu rs rt) :=
-  fun s w hg _ _ hw => maddu_refines s hg.1 rs rt w hw
-theorem instrRefines_msub (rs rt : W32) : InstrRefines (.msub rs rt) :=
-  fun s w hg _ _ hw => msub_refines s hg.1 rs rt w hw
-theorem instrRefines_msubu (rs rt : W32) : InstrRefines (.msubu rs rt) :=
-  fun s w hg _ _ hw => msubu_refines s hg.1 rs rt w hw
-theorem instrRefines_sll (rd rt shamt : W32) : InstrRefines (.sll rd rt shamt) :=
-  fun s w hg _ _ hw => sll_refines s hg.1 rd rt shamt w hw
-theorem instrRefines_srl (rd rt shamt : W32) : InstrRefines (.srl rd rt shamt) :=
-  fun s w hg _ _ hw => srl_refines s hg.1 rd rt shamt w hw
-theorem instrRefines_sra (rd rt shamt : W32) : InstrRefines (.sra rd rt shamt) :=
-  fun s w hg _ _ hw => sra_refines s hg.1 rd rt shamt w hw
-theorem instrRefines_sllv (rd rt rs : W32) : InstrRefines (.sllv rd rt rs) :=
-  fun s w hg _ _ hw => sllv_refines s hg.1 rd rt rs w hw
-theorem instrRefines_srlv (rd rt rs : W32) : InstrRefines (.srlv rd rt rs) :=
-  fun s w hg _ _ hw => srlv_refines s hg.1 rd rt rs w hw
-theorem instrRefines_srav (rd rt rs : W32) : InstrRefines (.srav rd rt rs) :=
-  fun s w hg _ _ hw => srav_refines s hg.1 rd rt rs w hw
-theorem instrRefines_rotr (rd rt sa : W32) : InstrRefines (.rotr rd rt sa) :=
-  fun s w hg _ _ hw => rotr_refines s hg.1 rd rt sa w hw
-theorem instrRefines_rotrv (rd rt rs : W32) : InstrRefines (.rotrv rd rt rs) :=
-  fun s w hg _ _ hw => rotrv_refines s hg.1 rd rt rs w hw
-theorem instrRefines_wait (code : W32) : InstrRefines (.wait code) :=
-  fun s w _ _ _ hw => wait_refines s code w hw
-theorem instrRefines_rdhwr (rt rd : W32) : InstrRefines (.rdhwr rt rd) :=
-  fun s w hg _ _ hw => rdhwr_refines s hg.1 rt rd w hw
+theorem instrRefines_syscall (code : W32) : InstrRefines (.syscall code) :=
+  fun s w hg _ _ hw => syscall_refines s hg.1 code w hw
+theorem instrRefines_teq (rs rt code : W32) : InstrRefines (.teq rs rt code) :=
+  fun s w hg _ _ hw => teq_refines s hg.1 rs rt code w hw
+theorem instrRefines_tne (rs rt code : W32) : InstrRefines (.tne rs rt code) :=
+  fun s w hg _ _ hw => tne_refines s hg.1 rs rt code w hw
+theorem instrRefines_tlt (rs rt code : W32) : InstrRefines (.tlt rs rt code) :=
+  fun s w hg _ _ hw => tlt_refines s hg.1 rs rt code w hw
+theorem instrRefines_tge (rs rt code : W32) : InstrRefines (.tge rs rt code) :=
+  fun s w hg _ _ hw => tge_refines s hg.1 rs rt code w hw
+theorem instrRefines_tltu (rs rt code : W32) : InstrRefines (.tltu rs rt code) :=
+  fun s w hg _ _ hw => tltu_refines s hg.1 rs rt code w hw
+theorem instrRefines_tgeu (rs rt code : W32) : InstrRefines (.tgeu rs rt code) :=
+  fun s w hg _ _ hw => tgeu_refines s hg.1 rs rt code w hw
+theorem instrRefines_break (code : W32) : InstrRefines (.break code) :=
+  fun s w hg _ _ hw => break_refines s hg.1 code w hw
+theorem instrRefines_sync (stype : W32) : InstrRefines (.sync stype) :=
+  fun s w hg _ _ hw => sync_refines s hg.1 stype w hw
+theorem instrRefines_pref (base hint off : W32) : InstrRefines (.pref base hint off) :=
+  fun s w hg _ _ hw => pref_refines s hg.1 base hint off w hw
+theorem instrRefines_mfc0 (rt rd sel : W32) : InstrRefines (.mfc0 rt rd sel) :=
+  fun s w hg _ _ hw => mfc0_refines s hg.1 rt rd sel w hw
+theorem instrRefines_mtc0 (rt rd sel : W32) : InstrRefines (.mtc0 rt rd sel) :=
+  fun s w hg _ _ hw => mtc0_refines s hg.1 rt rd sel w hw
+theorem instrRefines_di (rt : W32) : InstrRefines (.di rt) :=
+  fun s w hg _ _ hw => di_refines s hg.1 rt w hw
+theorem instrRefines_ei (rt : W32) : InstrRefines (.ei rt) :=
+  fun s w hg _ _ hw => ei_refines s hg.1 rt w hw
 theorem instrRefines_eret : InstrRefines .eret :=
   fun s w _ _ _ hw => eret_refines s w hw
-theorem instrRefines_lwl (base rt off : W32) : InstrRefines (.lwl base rt off) :=
-  fun s w hg _ _ hw => lwl_refines s hg.1 base rt off w hw
+theorem instrRefines_wait (code : W32) : InstrRefines (.wait code) :=
+  fun s w _ _ _ hw => wait_refines s code w hw
+theorem instrRefines_rdpgpr (rd rt : W32) : InstrRefines (.rdpgpr rd rt) :=
+  fun s w hg _ _ hw => rdpgpr_refines s hg.1 rd rt w hw
+theorem instrRefines_wrpgpr (rd rt : W32) : InstrRefines (.wrpgpr rd rt) :=
+  fun s w hg _ _ hw => wrpgpr_refines s hg.1 rd rt w hw
+theorem instrRefines_mfc1 (rt fs : W32) : InstrRefines (.mfc1 rt fs) :=
+  fun s w hg _ _ hw => mfc1_refines s hg.1 rt fs w hw
+theorem instrRefines_mtc1 (rt fs : W32) : InstrRefines (.mtc1 rt fs) :=
+  fun s w hg _ _ hw => mtc1_refines s hg.1 rt fs w hw
+theorem instrRefines_mfhc1 (rt fs : W32) : InstrRefines (.mfhc1 rt fs) :=
+  fun s w hg _ _ hw => mfhc1_refines s hg.1 rt fs w hw
+theorem instrRefines_mthc1 (rt fs : W32) : InstrRefines (.mthc1 rt fs) :=
+  fun s w hg _ _ hw => mthc1_refines s hg.1 rt fs w hw
+theorem instrRefines_cfc1 (rt fs : W32) : InstrRefines (.cfc1 rt fs) :=
+  fun s w hg _ _ hw => cfc1_refines s hg.1 hg.2.1 rt fs w hw
+theorem instrRefines_ctc1 (rt fs : W32) : InstrRefines (.ctc1 rt fs) :=
+  fun s w hg _ _ hw => ctc1_refines s hg.1 rt fs w hw
+theorem instrRefines_lwc1 (base ft off : W32) : InstrRefines (.lwc1 base ft off) :=
+  fun s w hg _ _ hw => lwc1_refines s hg.1 base ft off w hw
+theorem instrRefines_swc1 (base ft off : W32) : InstrRefines (.swc1 base ft off) :=
+  fun s w hg _ _ hw => swc1_refines s hg.1 base ft off w hw
+theorem instrRefines_ldc1 (base ft off : W32) : InstrRefines (.ldc1 base ft off) :=
+  fun s w hg _ _ hw => ldc1_refines s hg.1 base ft off w hw
+theorem instrRefines_sdc1 (base ft off : W32) : InstrRefines (.sdc1 base ft off) :=
+  fun s w hg _ _ hw => sdc1_refines s hg.1 base ft off w hw
+theorem instrRefines_lwxc1 (fd index base : W32) : InstrRefines (.lwxc1 fd index base) :=
+  fun s w hg _ _ hw => lwxc1_refines s hg.1 fd index base w hw
+theorem instrRefines_ldxc1 (fd index base : W32) : InstrRefines (.ldxc1 fd index base) :=
+  fun s w hg _ _ hw => ldxc1_refines s hg.1 fd index base w hw
+theorem instrRefines_swxc1 (fs index base : W32) : InstrRefines (.swxc1 fs index base) :=
+  fun s w hg _ _ hw => swxc1_refines s hg.1 fs index base w hw
+theorem instrRefines_sdxc1 (fs index base : W32) : InstrRefines (.sdxc1 fs index base) :=
+  fun s w hg _ _ hw => sdxc1_refines s hg.1 fs index base w hw
+theorem instrRefines_prefx (hint index base : W32) : InstrRefines (.prefx hint index base) :=
+  fun s w hg _ _ hw => prefx_refines s hg.1 hint index base w hw
+theorem instrRefines_addS (fd fs ft : W32) : InstrRefines (.addS fd fs ft) :=
+  fun s w hg _ _ hw => addS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_subS (fd fs ft : W32) : InstrRefines (.subS fd fs ft) :=
+  fun s w hg _ _ hw => subS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_mulS (fd fs ft : W32) : InstrRefines (.mulS fd fs ft) :=
+  fun s w hg _ _ hw => mulS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_divS (fd fs ft : W32) : InstrRefines (.divS fd fs ft) :=
+  fun s w hg _ _ hw => divS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_sqrtS (fd fs : W32) : InstrRefines (.sqrtS fd fs) :=
+  fun s w hg _ _ hw => sqrtS_refines s hg.1 fd fs w hw
+theorem instrRefines_absS (fd fs : W32) : InstrRefines (.absS fd fs) :=
+  fun s w hg _ _ hw => absS_refines s hg.1 fd fs w hw
+theorem instrRefines_movS (fd fs : W32) : InstrRefines (.movS fd fs) :=
+  fun s w hg _ _ hw => movS_refines s hg.1 fd fs w hw
+theorem instrRefines_negS (fd fs : W32) : InstrRefines (.negS fd fs) :=
+  fun s w hg _ _ hw => negS_refines s hg.1 fd fs w hw
+theorem instrRefines_recipS (fd fs : W32) : InstrRefines (.recipS fd fs) :=
+  fun s w hg _ _ hw => recipS_refines s hg.1 fd fs w hw
+theorem instrRefines_rsqrtS (fd fs : W32) : InstrRefines (.rsqrtS fd fs) :=
+  fun s w hg _ _ hw => rsqrtS_refines s hg.1 fd fs w hw
+theorem instrRefines_roundWS (fd fs : W32) : InstrRefines (.roundWS fd fs) :=
+  fun s w hg _ _ hw => roundWS_refines s hg.1 fd fs w hw
+theorem instrRefines_truncWS (fd fs : W32) : InstrRefines (.truncWS fd fs) :=
+  fun s w hg _ _ hw => truncWS_refines s hg.1 fd fs w hw
+theorem instrRefines_ceilWS (fd fs : W32) : InstrRefines (.ceilWS fd fs) :=
+  fun s w hg _ _ hw => ceilWS_refines s hg.1 fd fs w hw
+theorem instrRefines_floorWS (fd fs : W32) : InstrRefines (.floorWS fd fs) :=
+  fun s w hg _ _ hw => floorWS_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtWS (fd fs : W32) : InstrRefines (.cvtWS fd fs) :=
+  fun s w hg _ _ hw => cvtWS_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtDS (fd fs : W32) : InstrRefines (.cvtDS fd fs) :=
+  fun s w hg _ _ hw => cvtDS_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtSW (fd fs : W32) : InstrRefines (.cvtSW fd fs) :=
+  fun s w hg _ _ hw => cvtSW_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtDW (fd fs : W32) : InstrRefines (.cvtDW fd fs) :=
+  fun s w hg _ _ hw => cvtDW_refines s hg.1 fd fs w hw
+theorem instrRefines_addD (fd fs ft : W32) : InstrRefines (.addD fd fs ft) :=
+  fun s w hg _ _ hw => addD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_subD (fd fs ft : W32) : InstrRefines (.subD fd fs ft) :=
+  fun s w hg _ _ hw => subD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_mulD (fd fs ft : W32) : InstrRefines (.mulD fd fs ft) :=
+  fun s w hg _ _ hw => mulD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_divD (fd fs ft : W32) : InstrRefines (.divD fd fs ft) :=
+  fun s w hg _ _ hw => divD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_sqrtD (fd fs : W32) : InstrRefines (.sqrtD fd fs) :=
+  fun s w hg _ _ hw => sqrtD_refines s hg.1 fd fs w hw
+theorem instrRefines_absD (fd fs : W32) : InstrRefines (.absD fd fs) :=
+  fun s w hg _ _ hw => absD_refines s hg.1 fd fs w hw
+theorem instrRefines_movD (fd fs : W32) : InstrRefines (.movD fd fs) :=
+  fun s w hg _ _ hw => movD_refines s hg.1 fd fs w hw
+theorem instrRefines_negD (fd fs : W32) : InstrRefines (.negD fd fs) :=
+  fun s w hg _ _ hw => negD_refines s hg.1 fd fs w hw
+theorem instrRefines_recipD (fd fs : W32) : InstrRefines (.recipD fd fs) :=
+  fun s w hg _ _ hw => recipD_refines s hg.1 fd fs w hw
+theorem instrRefines_rsqrtD (fd fs : W32) : InstrRefines (.rsqrtD fd fs) :=
+  fun s w hg _ _ hw => rsqrtD_refines s hg.1 fd fs w hw
+theorem instrRefines_roundWD (fd fs : W32) : InstrRefines (.roundWD fd fs) :=
+  fun s w hg _ _ hw => roundWD_refines s hg.1 fd fs w hw
+theorem instrRefines_truncWD (fd fs : W32) : InstrRefines (.truncWD fd fs) :=
+  fun s w hg _ _ hw => truncWD_refines s hg.1 fd fs w hw
+theorem instrRefines_ceilWD (fd fs : W32) : InstrRefines (.ceilWD fd fs) :=
+  fun s w hg _ _ hw => ceilWD_refines s hg.1 fd fs w hw
+theorem instrRefines_floorWD (fd fs : W32) : InstrRefines (.floorWD fd fs) :=
+  fun s w hg _ _ hw => floorWD_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtWD (fd fs : W32) : InstrRefines (.cvtWD fd fs) :=
+  fun s w hg _ _ hw => cvtWD_refines s hg.1 fd fs w hw
+theorem instrRefines_cvtSD (fd fs : W32) : InstrRefines (.cvtSD fd fs) :=
+  fun s w hg _ _ hw => cvtSD_refines s hg.1 fd fs w hw
+theorem instrRefines_cCondS (cond cc fs ft : W32) : InstrRefines (.cCondS cond cc fs ft) :=
+  fun s w hg _ _ hw => cCondS_refines s hg.1 cond cc fs ft w hw
+theorem instrRefines_cCondD (cond cc fs ft : W32) : InstrRefines (.cCondD cond cc fs ft) :=
+  fun s w hg _ _ hw => cCondD_refines s hg.1 cond cc fs ft w hw
+theorem instrRefines_movfS (fd fs cc : W32) : InstrRefines (.movfS fd fs cc) :=
+  fun s w hg _ _ hw => movfS_refines s hg.1 fd fs cc w hw
+theorem instrRefines_movtS (fd fs cc : W32) : InstrRefines (.movtS fd fs cc) :=
+  fun s w hg _ _ hw => movtS_refines s hg.1 fd fs cc w hw
+theorem instrRefines_movfD (fd fs cc : W32) : InstrRefines (.movfD fd fs cc) :=
+  fun s w hg _ _ hw => movfD_refines s hg.1 fd fs cc w hw
+theorem instrRefines_movtD (fd fs cc : W32) : InstrRefines (.movtD fd fs cc) :=
+  fun s w hg _ _ hw => movtD_refines s hg.1 fd fs cc w hw
+theorem instrRefines_movnS (fd fs rt : W32) : InstrRefines (.movnS fd fs rt) :=
+  fun s w hg _ _ hw => movnS_refines s hg.1 fd fs rt w hw
+theorem instrRefines_movzS (fd fs rt : W32) : InstrRefines (.movzS fd fs rt) :=
+  fun s w hg _ _ hw => movzS_refines s hg.1 fd fs rt w hw
+theorem instrRefines_movnD (fd fs rt : W32) : InstrRefines (.movnD fd fs rt) :=
+  fun s w hg _ _ hw => movnD_refines s hg.1 fd fs rt w hw
+theorem instrRefines_movzD (fd fs rt : W32) : InstrRefines (.movzD fd fs rt) :=
+  fun s w hg _ _ hw => movzD_refines s hg.1 fd fs rt w hw
+theorem instrRefines_movf (rs cc rd : W32) : InstrRefines (.movf rs cc rd) :=
+  fun s w hg _ _ hw => movf_refines s hg.1 rs cc rd w hw
+theorem instrRefines_movt (rs cc rd : W32) : InstrRefines (.movt rs cc rd) :=
+  fun s w hg _ _ hw => movt_refines s hg.1 rs cc rd w hw
+theorem instrRefines_maddS (fd fr fs ft : W32) : InstrRefines (.maddS fd fr fs ft) :=
+  fun s w hg _ _ hw => maddS_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_msubS (fd fr fs ft : W32) : InstrRefines (.msubS fd fr fs ft) :=
+  fun s w hg _ _ hw => msubS_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_nmaddS (fd fr fs ft : W32) : InstrRefines (.nmaddS fd fr fs ft) :=
+  fun s w hg _ _ hw => nmaddS_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_nmsubS (fd fr fs ft : W32) : InstrRefines (.nmsubS fd fr fs ft) :=
+  fun s w hg _ _ hw => nmsubS_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_maddD (fd fr fs ft : W32) : InstrRefines (.maddD fd fr fs ft) :=
+  fun s w hg _ _ hw => maddD_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_msubD (fd fr fs ft : W32) : InstrRefines (.msubD fd fr fs ft) :=
+  fun s w hg _ _ hw => msubD_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_nmaddD (fd fr fs ft : W32) : InstrRefines (.nmaddD fd fr fs ft) :=
+  fun s w hg _ _ hw => nmaddD_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_nmsubD (fd fr fs ft : W32) : InstrRefines (.nmsubD fd fr fs ft) :=
+  fun s w hg _ _ hw => nmsubD_refines s hg.1 fd fr fs ft w hw
+theorem instrRefines_bc1f (cc off : W32) : InstrRefines (.bc1f cc off) :=
+  fun s w hg hn _ hw => bc1f_refines s hg.1 hn cc off w hw
+theorem instrRefines_bc1t (cc off : W32) : InstrRefines (.bc1t cc off) :=
+  fun s w hg hn _ hw => bc1t_refines s hg.1 hn cc off w hw
+theorem instrRefines_bc1fl (cc off : W32) : InstrRefines (.bc1fl cc off) :=
+  fun s w hg hn _ hw => bc1fl_refines s hg.1 hn cc off w hw
+theorem instrRefines_bc1tl (cc off : W32) : InstrRefines (.bc1tl cc off) :=
+  fun s w hg hn _ hw => bc1tl_refines s hg.1 hn cc off w hw
 
-
-/-- The constructors with an `instrRefines_<ctor>` theorem (83 of 183). -/
-def Covered : Instruction → Bool
-  | .clo ..
-  | .clz ..
-  | .seb ..
-  | .seh ..
-  | .wsbh ..
-  | .ext ..
-  | .ins ..
-  | .beq ..
-  | .bne ..
-  | .blez ..
-  | .bgtz ..
-  | .bltz ..
-  | .bgez ..
-  | .bltzal ..
-  | .bgezal ..
-  | .beql ..
-  | .bnel ..
-  | .blezl ..
-  | .bgtzl ..
-  | .bltzl ..
-  | .bgezl ..
-  | .bltzall ..
-  | .bgezall ..
-  | .mtc0 ..
-  | .mfc0 ..
-  | .di ..
-  | .ei ..
-  | .rdpgpr ..
-  | .wrpgpr ..
-  | .addS ..
-  | .addi ..
-  | .addiu ..
-  | .slti ..
-  | .sltiu ..
-  | .andi ..
-  | .ori ..
-  | .xori ..
-  | .lui ..
-  | .add ..
-  | .addu ..
-  | .sub ..
-  | .subu ..
-  | .and ..
-  | .or ..
-  | .xor ..
-  | .nor ..
-  | .slt ..
-  | .sltu ..
-  | .movn ..
-  | .movz ..
-  | .j ..
-  | .jal ..
-  | .jr ..
-  | .jrHb ..
-  | .jalr ..
-  | .jalrHb ..
-  | .lw ..
-  | .sw ..
-  | .mult ..
-  | .multu ..
-  | .div ..
-  | .divu ..
-  | .mfhi ..
-  | .mflo ..
-  | .mthi ..
-  | .mtlo ..
-  | .mul ..
-  | .madd ..
-  | .maddu ..
-  | .msub ..
-  | .msubu ..
-  | .sll ..
-  | .srl ..
-  | .sra ..
-  | .sllv ..
-  | .srlv ..
-  | .srav ..
-  | .rotr ..
-  | .rotrv ..
-  | .wait ..
-  | .rdhwr ..
-  | .eret
-  | .lwl .. => true
-  | _ => false
-
-/-- **The available per-instruction refinements, collected.** -/
-theorem instrRefines_covered (i : Instruction) (h : Covered i = true) : InstrRefines i := by
+/-- **Every constructor refines** (the 183 theorems above, collected). -/
+theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   cases i
+  case add rs rt rd => exact instrRefines_add rs rt rd
+  case addu rs rt rd => exact instrRefines_addu rs rt rd
+  case sub rs rt rd => exact instrRefines_sub rs rt rd
+  case subu rs rt rd => exact instrRefines_subu rs rt rd
+  case and rs rt rd => exact instrRefines_and rs rt rd
+  case or rs rt rd => exact instrRefines_or rs rt rd
+  case xor rs rt rd => exact instrRefines_xor rs rt rd
+  case nor rs rt rd => exact instrRefines_nor rs rt rd
+  case slt rs rt rd => exact instrRefines_slt rs rt rd
+  case sltu rs rt rd => exact instrRefines_sltu rs rt rd
+  case movn rs rt rd => exact instrRefines_movn rs rt rd
+  case movz rs rt rd => exact instrRefines_movz rs rt rd
+  case sll rd rt shamt => exact instrRefines_sll rd rt shamt
+  case srl rd rt shamt => exact instrRefines_srl rd rt shamt
+  case sra rd rt shamt => exact instrRefines_sra rd rt shamt
+  case sllv rd rt rs => exact instrRefines_sllv rd rt rs
+  case srlv rd rt rs => exact instrRefines_srlv rd rt rs
+  case srav rd rt rs => exact instrRefines_srav rd rt rs
+  case rotr rd rt sa => exact instrRefines_rotr rd rt sa
+  case rotrv rd rt rs => exact instrRefines_rotrv rd rt rs
+  case mult rs rt => exact instrRefines_mult rs rt
+  case multu rs rt => exact instrRefines_multu rs rt
+  case div rs rt => exact instrRefines_div rs rt
+  case divu rs rt => exact instrRefines_divu rs rt
+  case mflo rd => exact instrRefines_mflo rd
+  case mfhi rd => exact instrRefines_mfhi rd
+  case mthi rs => exact instrRefines_mthi rs
+  case mtlo rs => exact instrRefines_mtlo rs
+  case jr rs => exact instrRefines_jr rs
+  case jalr rs rd => exact instrRefines_jalr rs rd
+  case jrHb rs => exact instrRefines_jrHb rs
+  case jalrHb rs rd => exact instrRefines_jalrHb rs rd
   case clo rs rd => exact instrRefines_clo rs rd
   case clz rs rd => exact instrRefines_clz rs rd
+  case mul rs rt rd => exact instrRefines_mul rs rt rd
+  case madd rs rt => exact instrRefines_madd rs rt
+  case maddu rs rt => exact instrRefines_maddu rs rt
+  case msub rs rt => exact instrRefines_msub rs rt
+  case msubu rs rt => exact instrRefines_msubu rs rt
   case seb rd rt => exact instrRefines_seb rd rt
   case seh rd rt => exact instrRefines_seh rd rt
   case wsbh rd rt => exact instrRefines_wsbh rd rt
   case ext rt rs pos size => exact instrRefines_ext rt rs pos size
   case ins rt rs pos size => exact instrRefines_ins rt rs pos size
+  case rdhwr rt rd => exact instrRefines_rdhwr rt rd
+  case addi rs rt imm => exact instrRefines_addi rs rt imm
+  case addiu rs rt imm => exact instrRefines_addiu rs rt imm
+  case slti rs rt imm => exact instrRefines_slti rs rt imm
+  case sltiu rs rt imm => exact instrRefines_sltiu rs rt imm
+  case andi rs rt imm => exact instrRefines_andi rs rt imm
+  case ori rs rt imm => exact instrRefines_ori rs rt imm
+  case xori rs rt imm => exact instrRefines_xori rs rt imm
+  case lui rt imm => exact instrRefines_lui rt imm
+  case lw base rt off => exact instrRefines_lw base rt off
+  case sw base rt off => exact instrRefines_sw base rt off
+  case lb base rt off => exact instrRefines_lb base rt off
+  case lbu base rt off => exact instrRefines_lbu base rt off
+  case lh base rt off => exact instrRefines_lh base rt off
+  case lhu base rt off => exact instrRefines_lhu base rt off
+  case sh base rt off => exact instrRefines_sh base rt off
+  case sb base rt off => exact instrRefines_sb base rt off
+  case ll base rt off => exact instrRefines_ll base rt off
+  case sc base rt off => exact instrRefines_sc base rt off
+  case lwl base rt off => exact instrRefines_lwl base rt off
+  case lwr base rt off => exact instrRefines_lwr base rt off
+  case swl base rt off => exact instrRefines_swl base rt off
+  case swr base rt off => exact instrRefines_swr base rt off
   case beq rs rt off => exact instrRefines_beq rs rt off
   case bne rs rt off => exact instrRefines_bne rs rt off
   case blez rs off => exact instrRefines_blez rs off
@@ -328,75 +504,105 @@ theorem instrRefines_covered (i : Instruction) (h : Covered i = true) : InstrRef
   case bgezl rs off => exact instrRefines_bgezl rs off
   case bltzall rs off => exact instrRefines_bltzall rs off
   case bgezall rs off => exact instrRefines_bgezall rs off
-  case mtc0 rt rd sel => exact instrRefines_mtc0 rt rd sel
-  case mfc0 rt rd sel => exact instrRefines_mfc0 rt rd sel
-  case di rt => exact instrRefines_di rt
-  case ei rt => exact instrRefines_ei rt
-  case rdpgpr rd rt => exact instrRefines_rdpgpr rd rt
-  case wrpgpr rd rt => exact instrRefines_wrpgpr rd rt
-  case addS fd fs ft => exact instrRefines_addS fd fs ft
-  case addi rs rt imm => exact instrRefines_addi rs rt imm
-  case addiu rs rt imm => exact instrRefines_addiu rs rt imm
-  case slti rs rt imm => exact instrRefines_slti rs rt imm
-  case sltiu rs rt imm => exact instrRefines_sltiu rs rt imm
-  case andi rs rt imm => exact instrRefines_andi rs rt imm
-  case ori rs rt imm => exact instrRefines_ori rs rt imm
-  case xori rs rt imm => exact instrRefines_xori rs rt imm
-  case lui rt imm => exact instrRefines_lui rt imm
-  case add rs rt rd => exact instrRefines_add rs rt rd
-  case addu rs rt rd => exact instrRefines_addu rs rt rd
-  case sub rs rt rd => exact instrRefines_sub rs rt rd
-  case subu rs rt rd => exact instrRefines_subu rs rt rd
-  case and rs rt rd => exact instrRefines_and rs rt rd
-  case or rs rt rd => exact instrRefines_or rs rt rd
-  case xor rs rt rd => exact instrRefines_xor rs rt rd
-  case nor rs rt rd => exact instrRefines_nor rs rt rd
-  case slt rs rt rd => exact instrRefines_slt rs rt rd
-  case sltu rs rt rd => exact instrRefines_sltu rs rt rd
-  case movn rs rt rd => exact instrRefines_movn rs rt rd
-  case movz rs rt rd => exact instrRefines_movz rs rt rd
+  case teqi rs imm => exact instrRefines_teqi rs imm
+  case tnei rs imm => exact instrRefines_tnei rs imm
+  case tgei rs imm => exact instrRefines_tgei rs imm
+  case tgeiu rs imm => exact instrRefines_tgeiu rs imm
+  case tlti rs imm => exact instrRefines_tlti rs imm
+  case tltiu rs imm => exact instrRefines_tltiu rs imm
+  case synci base off => exact instrRefines_synci base off
   case j target => exact instrRefines_j target
   case jal target => exact instrRefines_jal target
-  case jr rs => exact instrRefines_jr rs
-  case jrHb rs => exact instrRefines_jrHb rs
-  case jalr rs rd => exact instrRefines_jalr rs rd
-  case jalrHb rs rd => exact instrRefines_jalrHb rs rd
-  case lw base rt off => exact instrRefines_lw base rt off
-  case sw base rt off => exact instrRefines_sw base rt off
-  case mult rs rt => exact instrRefines_mult rs rt
-  case multu rs rt => exact instrRefines_multu rs rt
-  case div rs rt => exact instrRefines_div rs rt
-  case divu rs rt => exact instrRefines_divu rs rt
-  case mfhi rd => exact instrRefines_mfhi rd
-  case mflo rd => exact instrRefines_mflo rd
-  case mthi rs => exact instrRefines_mthi rs
-  case mtlo rs => exact instrRefines_mtlo rs
-  case mul rs rt rd => exact instrRefines_mul rs rt rd
-  case madd rs rt => exact instrRefines_madd rs rt
-  case maddu rs rt => exact instrRefines_maddu rs rt
-  case msub rs rt => exact instrRefines_msub rs rt
-  case msubu rs rt => exact instrRefines_msubu rs rt
-  case sll rd rt shamt => exact instrRefines_sll rd rt shamt
-  case srl rd rt shamt => exact instrRefines_srl rd rt shamt
-  case sra rd rt shamt => exact instrRefines_sra rd rt shamt
-  case sllv rd rt rs => exact instrRefines_sllv rd rt rs
-  case srlv rd rt rs => exact instrRefines_srlv rd rt rs
-  case srav rd rt rs => exact instrRefines_srav rd rt rs
-  case rotr rd rt sa => exact instrRefines_rotr rd rt sa
-  case rotrv rd rt rs => exact instrRefines_rotrv rd rt rs
+  case syscall code => exact instrRefines_syscall code
+  case teq rs rt code => exact instrRefines_teq rs rt code
+  case tne rs rt code => exact instrRefines_tne rs rt code
+  case tlt rs rt code => exact instrRefines_tlt rs rt code
+  case tge rs rt code => exact instrRefines_tge rs rt code
+  case tltu rs rt code => exact instrRefines_tltu rs rt code
+  case tgeu rs rt code => exact instrRefines_tgeu rs rt code
+  case «break» code => exact instrRefines_break code
+  case sync stype => exact instrRefines_sync stype
+  case pref base hint off => exact instrRefines_pref base hint off
+  case mfc0 rt rd sel => exact instrRefines_mfc0 rt rd sel
+  case mtc0 rt rd sel => exact instrRefines_mtc0 rt rd sel
+  case di rt => exact instrRefines_di rt
+  case ei rt => exact instrRefines_ei rt
+  case eret => exact instrRefines_eret
   case wait code => exact instrRefines_wait code
-  case rdhwr rt rd => exact instrRefines_rdhwr rt rd
-  case eret => exact instrRefines_eret 
-  case lwl base rt off => exact instrRefines_lwl base rt off
-  all_goals exact absurd h Bool.false_ne_true
-
-/-- **What remains**: the per-instruction refinement of every constructor not yet `Covered` (the
-memory/atomic/trap/syscall group and the FPU groups of Wave 7D). -/
-def PendingRefines : Prop := ∀ i, Covered i = false → InstrRefines i
-
-theorem allInstrRefines_of (h : PendingRefines) (i : Instruction) : InstrRefines i := by
-  cases hc : Covered i
-  · exact h i hc
-  · exact instrRefines_covered i hc
+  case rdpgpr rd rt => exact instrRefines_rdpgpr rd rt
+  case wrpgpr rd rt => exact instrRefines_wrpgpr rd rt
+  case mfc1 rt fs => exact instrRefines_mfc1 rt fs
+  case mtc1 rt fs => exact instrRefines_mtc1 rt fs
+  case mfhc1 rt fs => exact instrRefines_mfhc1 rt fs
+  case mthc1 rt fs => exact instrRefines_mthc1 rt fs
+  case cfc1 rt fs => exact instrRefines_cfc1 rt fs
+  case ctc1 rt fs => exact instrRefines_ctc1 rt fs
+  case lwc1 base ft off => exact instrRefines_lwc1 base ft off
+  case swc1 base ft off => exact instrRefines_swc1 base ft off
+  case ldc1 base ft off => exact instrRefines_ldc1 base ft off
+  case sdc1 base ft off => exact instrRefines_sdc1 base ft off
+  case lwxc1 fd index base => exact instrRefines_lwxc1 fd index base
+  case ldxc1 fd index base => exact instrRefines_ldxc1 fd index base
+  case swxc1 fs index base => exact instrRefines_swxc1 fs index base
+  case sdxc1 fs index base => exact instrRefines_sdxc1 fs index base
+  case prefx hint index base => exact instrRefines_prefx hint index base
+  case addS fd fs ft => exact instrRefines_addS fd fs ft
+  case subS fd fs ft => exact instrRefines_subS fd fs ft
+  case mulS fd fs ft => exact instrRefines_mulS fd fs ft
+  case divS fd fs ft => exact instrRefines_divS fd fs ft
+  case sqrtS fd fs => exact instrRefines_sqrtS fd fs
+  case absS fd fs => exact instrRefines_absS fd fs
+  case movS fd fs => exact instrRefines_movS fd fs
+  case negS fd fs => exact instrRefines_negS fd fs
+  case recipS fd fs => exact instrRefines_recipS fd fs
+  case rsqrtS fd fs => exact instrRefines_rsqrtS fd fs
+  case roundWS fd fs => exact instrRefines_roundWS fd fs
+  case truncWS fd fs => exact instrRefines_truncWS fd fs
+  case ceilWS fd fs => exact instrRefines_ceilWS fd fs
+  case floorWS fd fs => exact instrRefines_floorWS fd fs
+  case cvtWS fd fs => exact instrRefines_cvtWS fd fs
+  case cvtDS fd fs => exact instrRefines_cvtDS fd fs
+  case cvtSW fd fs => exact instrRefines_cvtSW fd fs
+  case cvtDW fd fs => exact instrRefines_cvtDW fd fs
+  case addD fd fs ft => exact instrRefines_addD fd fs ft
+  case subD fd fs ft => exact instrRefines_subD fd fs ft
+  case mulD fd fs ft => exact instrRefines_mulD fd fs ft
+  case divD fd fs ft => exact instrRefines_divD fd fs ft
+  case sqrtD fd fs => exact instrRefines_sqrtD fd fs
+  case absD fd fs => exact instrRefines_absD fd fs
+  case movD fd fs => exact instrRefines_movD fd fs
+  case negD fd fs => exact instrRefines_negD fd fs
+  case recipD fd fs => exact instrRefines_recipD fd fs
+  case rsqrtD fd fs => exact instrRefines_rsqrtD fd fs
+  case roundWD fd fs => exact instrRefines_roundWD fd fs
+  case truncWD fd fs => exact instrRefines_truncWD fd fs
+  case ceilWD fd fs => exact instrRefines_ceilWD fd fs
+  case floorWD fd fs => exact instrRefines_floorWD fd fs
+  case cvtWD fd fs => exact instrRefines_cvtWD fd fs
+  case cvtSD fd fs => exact instrRefines_cvtSD fd fs
+  case cCondS cond cc fs ft => exact instrRefines_cCondS cond cc fs ft
+  case cCondD cond cc fs ft => exact instrRefines_cCondD cond cc fs ft
+  case movfS fd fs cc => exact instrRefines_movfS fd fs cc
+  case movtS fd fs cc => exact instrRefines_movtS fd fs cc
+  case movfD fd fs cc => exact instrRefines_movfD fd fs cc
+  case movtD fd fs cc => exact instrRefines_movtD fd fs cc
+  case movnS fd fs rt => exact instrRefines_movnS fd fs rt
+  case movzS fd fs rt => exact instrRefines_movzS fd fs rt
+  case movnD fd fs rt => exact instrRefines_movnD fd fs rt
+  case movzD fd fs rt => exact instrRefines_movzD fd fs rt
+  case movf rs cc rd => exact instrRefines_movf rs cc rd
+  case movt rs cc rd => exact instrRefines_movt rs cc rd
+  case maddS fd fr fs ft => exact instrRefines_maddS fd fr fs ft
+  case msubS fd fr fs ft => exact instrRefines_msubS fd fr fs ft
+  case nmaddS fd fr fs ft => exact instrRefines_nmaddS fd fr fs ft
+  case nmsubS fd fr fs ft => exact instrRefines_nmsubS fd fr fs ft
+  case maddD fd fr fs ft => exact instrRefines_maddD fd fr fs ft
+  case msubD fd fr fs ft => exact instrRefines_msubD fd fr fs ft
+  case nmaddD fd fr fs ft => exact instrRefines_nmaddD fd fr fs ft
+  case nmsubD fd fr fs ft => exact instrRefines_nmsubD fd fr fs ft
+  case bc1f cc off => exact instrRefines_bc1f cc off
+  case bc1t cc off => exact instrRefines_bc1t cc off
+  case bc1fl cc off => exact instrRefines_bc1fl cc off
+  case bc1tl cc off => exact instrRefines_bc1tl cc off
 
 end Refine

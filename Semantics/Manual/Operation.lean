@@ -28,13 +28,14 @@ import Semantics.Manual.Ops.FpuMove
 # Manual.Operation — the Operation section of each instruction
 
 One arm per `Instruction` constructor, naming the transcribed Operation of its manual page
-(`Semantics/Manual/Ops/*.lean`). Sub-wave 7A covers the pilot instructions; `none` marks a
-constructor whose page is not transcribed yet (7B makes this total).
+(`Semantics/Manual/Ops/*.lean`). Every constructor has a transcribed page since 7B, so every arm
+is `some`; the `Option` type is kept from 7A, when `none` marked an untranscribed page (making it
+total would restate every refinement theorem; `docs/MANUAL-SPEC.md` I.5, decision 1).
 -/
 
 namespace Manual
 
-/-- **The Operation of instruction `i`** (`none`: not transcribed yet). -/
+/-- **The Operation of instruction `i`** (`some` for every constructor; see the module doc). -/
 def Operation : Instruction → Option (Pseudo Unit)
   | .add rs rt rd => some (Ops.ADD rs rt rd)
   | .lw base rt off => some (Ops.LW base rt off)

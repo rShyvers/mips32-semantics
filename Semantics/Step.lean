@@ -1299,10 +1299,15 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- written (`Mips.Fp.writeControl`: reserved bits of the written value,
   -- UNPREDICTABLE if nonzero, are ignored; FIR is read-only), then
   -- `CheckFPException()`: "The register is written before the exception
-  -- occurs". Any other register number is UNPREDICTABLE; pinned to a no-op.
+  -- occurs". Any other register number is UNPREDICTABLE; pinned to no write,
+  -- but the Operation's `CheckFPException()` still follows the UNPREDICTABLE
+  -- arm (CTC1 p.150: only the `UFR`/`UNFR` arm is marked "end of
+  -- instruction"), so an FCSR already holding an enabled Cause bit (or
+  -- `Cause.E`) traps (7C S4b; SPEC-NOTES §9 item 13, `ctc1` pins).
   | .ctc1 rt fs =>
     match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-    | none => mkNext s s
+    | none =>
+      if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE else mkNext s s
     | some f =>
       if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
       else mkNext s { s with fcsr := f }

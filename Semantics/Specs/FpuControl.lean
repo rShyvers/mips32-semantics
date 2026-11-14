@@ -33,14 +33,17 @@ theorem cfc1_spec_raw (s : State) (w rt fs : W32)
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
 `CheckFPException`: if the new FCSR has a Cause bit whose Enable is set, or Cause.E, the
 Floating Point exception is taken **with the register already written**. A register
-number the manual leaves UNPREDICTABLE is a no-op (pin)
+number the manual leaves UNPREDICTABLE is not written (pin), and the `CheckFPException()` that
+follows the UNPREDICTABLE arm still runs on the unchanged FCSR
 (MD00086 Vol II-A Rev 6.06, CTC1, p.149-151) -/
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none => { s with pc := s.pc + 4#32 }
+      | none =>
+        if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE
+        else { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
         else { s with fcsr := f, pc := s.pc + 4#32 }) := by

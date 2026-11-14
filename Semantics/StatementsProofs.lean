@@ -1,10 +1,12 @@
 import Semantics.Specs.StepSpec
+import Semantics.Refine.Determinism
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
 
 For every theorem of `Semantics/Statements.lean` (the statements-only challenge), in the same
-order: the same statement, proved by the real theorem of the same name from `Semantics/Specs/`.
+order: the same statement, proved by the real theorem of the same name from `Semantics/Specs/`
+(the last section: from `Semantics/Refine/`, namespace `Refine`).
 Nothing is proved here that is not already proved there; this file only makes the two sides
 comparable (see `docs/PROOF-NOTES.md`, "The comparator arrangement"). `Checked.lean` imports it,
 so `lake check` kernel-replays these one-line proofs too.
@@ -826,7 +828,9 @@ theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none => { s with pc := s.pc + 4#32 }
+      | none =>
+        if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE
+        else { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
         else { s with fcsr := f, pc := s.pc + 4#32 }) :=
@@ -1131,5 +1135,57 @@ theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) :=
   _root_.wrpgpr_spec_raw s w rd rt hfetch hdecode hpb hcp0 hexec
+
+/-! ## The refinement of the manual specification (Wave 7D) -/
+
+theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
+    Manual.InstructionTime Manual.modelImpl Manual.modelOracle decode (Refine.abs s) =
+      some (Refine.abs (step s)) :=
+  _root_.Refine.step_eq_manual s hs
+
+theorem step_refines_manual (s : State) (hs : Refine.Inv s) :
+    Manual.Step Manual.modelImpl decode (Refine.abs s) (Refine.abs (step s)) :=
+  _root_.Refine.step_refines_manual s hs
+
+theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
+    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle decode n (Refine.abs s) =
+      some (Refine.abs (run s n)) :=
+  _root_.Refine.run_refines_manual s hs n
+
+theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
+    (h : Manual.ChoiceFree Manual.modelImpl decode (Refine.abs s) = true) (a' : Manual.Arch)
+    (h' : Manual.Step Manual.modelImpl decode (Refine.abs s) a') : a' = Refine.abs (step s) :=
+  _root_.Refine.step_unique_of_choiceFree s hs h a' h'
+
+theorem modelOracle_valid : Manual.modelOracle.Valid :=
+  _root_.Refine.modelOracle_valid
+
+theorem manual_step_deterministic (i : Manual.Impl) (dec : W32 → Option Instruction)
+    (a a₁ a₂ : Manual.Arch) (h : Manual.ChoiceFree i dec a = true) (h₁ : Manual.Step i dec a a₁)
+    (h₂ : Manual.Step i dec a a₂) : a₁ = a₂ :=
+  _root_.Refine.manual_step_deterministic i dec a a₁ a₂ h h₁ h₂
+
+theorem decoderSound_decode : Manual.DecoderSound decode :=
+  _root_.Refine.decoderSound_decode
+
+theorem resetException_refines_manual (s : State) (h : Refine.StatusImplemented s) :
+    Refine.abs (resetException s) = Manual.ResetException Manual.modelOracle (Refine.abs s) :=
+  _root_.Refine.resetException_refines_manual s h
+
+theorem resetState_refines_manual :
+    Refine.abs resetState = Manual.ResetException Manual.modelOracle (Refine.abs powerOnState) :=
+  _root_.Refine.resetState_refines_manual
+
+theorem step_preserves_inv (s : State) (h : Refine.Inv s) : Refine.Inv (step s) :=
+  _root_.Refine.step_preserves_inv s h
+
+theorem inv_resetState : Refine.Inv resetState :=
+  _root_.Refine.inv_resetState
+
+theorem inv_hostedStart : Refine.Inv hostedStart :=
+  _root_.Refine.inv_hostedStart
+
+theorem inv_load (p : Program) : Refine.Inv (load p) :=
+  _root_.Refine.inv_load p
 
 end Trusted

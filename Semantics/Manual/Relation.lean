@@ -76,8 +76,8 @@ takes `a` to `a'`. -/
 def Step (i : Impl) (dec : W32 → Option Instruction) (a a' : Arch) : Prop :=
   ∃ o : Oracle, o.Valid ∧ InstructionTime i o dec a = some a'
 
-/-- **`n` instruction times** under one resolution of the choices (`none` if an untranscribed
-Operation is reached). -/
+/-- **`n` instruction times** under one resolution of the choices (`none` only if an instruction
+time is `none`, which no constructor causes since 7B). -/
 def InstructionTimes (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) : Nat → Arch → Option Arch
   | 0, a => some a
   | n + 1, a => (InstructionTime i o dec a).bind (InstructionTimes i o dec n)

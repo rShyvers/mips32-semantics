@@ -45,6 +45,10 @@ import Semantics.Refine.Memory
 import Semantics.Refine.Branch
 import Semantics.Refine.BranchLikely
 import Semantics.Refine.FpuArith
+-- 7C S4a
+import Semantics.Refine.BridgeFpu
+import Semantics.Refine.FpuConvert
+import Semantics.Refine.FpuCompare
 import Semantics.Refine.Cp0
 import Semantics.Refine.Unaligned
 -- 7C S3 control + system
@@ -59,6 +63,19 @@ import Semantics.Refine.MulDiv
 import Semantics.Refine.BitOps
 import Semantics.Refine.Immediate
 -- end 7C S1
+-- 7C S2 memory/atomic/trap/syscall
+import Semantics.Refine.BridgeMem
+import Semantics.Refine.Atomic
+import Semantics.Refine.Trap
+import Semantics.Refine.Syscall
+-- end 7C S2
+-- 7C S4b FPU memory/move/control/branch
+import Semantics.Refine.BridgeFpuMove
+import Semantics.Refine.FpuMemory
+import Semantics.Refine.FpuMove
+import Semantics.Refine.FpuControl
+import Semantics.Refine.FpuBranch
+-- end 7C S4b
 -- 7D cycle refinement and top theorems
 import Semantics.Manual.Relation
 import Semantics.Refine.Cycle

@@ -2,6 +2,7 @@ import Lean.Elab.Tactic
 import Semantics.Specs.Invariants
 import Semantics.Specs.RegFileSize
 import Semantics.Env
+import Semantics.Refine.Defs
 
 /-!
 # Refine.Invariant — two more invariants of the reachable states (7D)
@@ -25,13 +26,6 @@ namespace Refine
 
 /-- The reserved FCSR bits 22..18. -/
 def fcsrReservedBits : W32 := 0x007C0000#32
-
-/-- FCSR bits 22..18 read as zero (MD00082 Vol I-A Rev 6.01, Table 6.8, p.93-94: `Impl` 22..21,
-bit 20, `ABS2008` 19, `NAN2008` 18; `FIR.Has2008 = 0`). -/
-def FcsrReservedZero (s : State) : Prop := s.fcsr &&& 0x007C0000#32 = 0#32
-
-/-- `Status` holds only implemented (writable) bits. -/
-def StatusImplemented (s : State) : Prop := s.cp0Status &&& statusWriteMask = s.cp0Status
 
 /-- The FCSR property on a word. -/
 def RZ (x : W32) : Prop := x &&& 0x007C0000#32 = 0#32

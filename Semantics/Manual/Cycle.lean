@@ -57,10 +57,12 @@ def IsCTI : Instruction → Bool
   | i => IsPAUSE i
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
-(`enc`; every constructor has a diagram since 7B). Completeness (every word matching a diagram is
-decoded to that instruction) is stated in 7D. The model's `decode` satisfies it since 7R (the
-`JR`/`JALR` hint field is no longer ignored); it is checked by `#guard`s
-(`Semantics/Tests/ManualTests.lean`), not yet proved. -/
+(`enc`; every constructor has a diagram since 7B). The model's `decode` satisfies it since 7R (the
+`JR`/`JALR` hint field is no longer ignored); proved in 7D (`Refine.decoderSound_decode`,
+`Semantics/Refine/Decode.lean`; on the trusted surface), and also checked by `#guard`s
+(`Semantics/Tests/ManualTests.lean`). Completeness on the model's well-formed instructions
+(`decode` returns `i` for the diagram of `i`) is `Refine.decode_of_enc`; it is not part of this
+definition. -/
 def DecoderSound (dec : W32 → Option Instruction) : Prop :=
   ∀ w i v, dec w = some i → enc i = some v → v = w
 
@@ -78,8 +80,8 @@ def Complete (a : Arch) (f : Frame) : Arch :=
     | some p => { f.arch with PC := p, BranchDelay := none }
     | none => { f.arch with PC := a.BranchDelay.getD (a.PC + 4#32), BranchDelay := none }
 
-/-- **Execute instruction `i`, fetched as `w`** (points 4-5). `none`: `i`'s page is not transcribed
-yet. -/
+/-- **Execute instruction `i`, fetched as `w`** (points 4-5). `none` only if `Operation i = none`,
+which no constructor has since 7B. -/
 def Execute (c : Ctx) (w : W32) (i : Instruction) (a : Arch) : Option Arch :=
   let gep := fun e (x : Arch) => GeneralExceptionProcessing c.impl c.oracle e x
   if IsCTI i && a.BranchDelay.isSome then
@@ -139,8 +141,8 @@ def FetchExecute (c : Ctx) (dec : W32 → Option Instruction) (a : Arch) : Optio
       else some (GeneralExceptionProcessing c.impl c.oracle (Undecodable w a) a)
     | some i => Execute c w i a
 
-/-- **One instruction time** (points 1-6). `none` only when the instruction fetched is one whose
-page is not transcribed yet (sub-wave 7A). -/
+/-- **One instruction time** (points 1-6). `none` only if the instruction fetched had no
+transcribed Operation, which no constructor has since 7B (the `Option` is kept from 7A). -/
 def InstructionTime (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) (a : Arch) :
     Option Arch :=
   let c : Ctx := { impl := i, oracle := o }

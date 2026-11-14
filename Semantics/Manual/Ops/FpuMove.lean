@@ -7,6 +7,11 @@ import Semantics.Manual.FPU
 `MOVT`. "The move is non-arithmetic; it causes no IEEE 754 exceptions, and the FCSR Cause and FCSR
 Flags fields are not modified" (MOV.fmt, p.275), so no `FPResult`. The `PS` format is not in the
 profile (SPEC-NOTES §9 item 13).
+
+`cc` is the 3-bit condition-code field of the instruction word (bits 20..18, e.g. BC1F p.56, MOVF.fmt
+p.277), "The Condition code number in the range 0..7" (Figure 2.25, p.23): the raw `cc` operand of
+the `Instruction` constructor is read as `(low cc 3).toNat` (7C S4b; before, `cc.toNat` read bits
+of the FCSR above 31 for an operand >= 8 that no instruction word can carry).
 -/
 
 namespace Manual.Ops
@@ -91,7 +96,7 @@ endif
 stores the value of `fd` read in format `fmt` (for a double and an odd `fd` the oracle). -/
 def MOVF_S (fd fs cc : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 0 then
-  if (← FPConditionCode cc.toNat) == false then
+  if (← FPConditionCode (low cc 3).toNat) == false then
     -- StoreFPR(fd, fmt, ValueFPR(fs, fmt))
     StoreFPR32 (reg fd) (← ValueFPR32 (reg fs))
   else
@@ -110,7 +115,7 @@ endif
 stores the value of `fd` read in format `fmt` (for a double and an odd `fd` the oracle). -/
 def MOVF_D (fd fs cc : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 0 then
-  if (← FPConditionCode cc.toNat) == false then
+  if (← FPConditionCode (low cc 3).toNat) == false then
     -- StoreFPR(fd, fmt, ValueFPR(fs, fmt))
     StoreFPR64 (reg fd) (← ValueFPR64 (reg fs))
   else
@@ -129,7 +134,7 @@ endif
 stores the value of `fd` read in format `fmt` (for a double and an odd `fd` the oracle). -/
 def MOVT_S (fd fs cc : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 1 then
-  if (← FPConditionCode cc.toNat) == true then
+  if (← FPConditionCode (low cc 3).toNat) == true then
     -- StoreFPR(fd, fmt, ValueFPR(fs, fmt))
     StoreFPR32 (reg fd) (← ValueFPR32 (reg fs))
   else
@@ -148,7 +153,7 @@ endif
 stores the value of `fd` read in format `fmt` (for a double and an odd `fd` the oracle). -/
 def MOVT_D (fd fs cc : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 1 then
-  if (← FPConditionCode cc.toNat) == true then
+  if (← FPConditionCode (low cc 3).toNat) == true then
     -- StoreFPR(fd, fmt, ValueFPR(fs, fmt))
     StoreFPR64 (reg fd) (← ValueFPR64 (reg fs))
   else
@@ -239,7 +244,7 @@ endif
 ``` -/
 def MOVF (rs cc rd : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 0 then GPR[rd] <- GPR[rs] endif
-  if (← FPConditionCode cc.toNat) == false then setGPR (reg rd) (← GPR (reg rs))
+  if (← FPConditionCode (low cc 3).toNat) == false then setGPR (reg rd) (← GPR (reg rs))
 
 /-- **MOVT rd, rs, cc** — MD00086 Vol II-A Rev 6.06, MOVT, p.281.
 ```
@@ -249,6 +254,6 @@ endif
 ``` -/
 def MOVT (rs cc rd : W32) : Pseudo Unit := do
   -- if FPConditionCode(cc) = 1 then GPR[rd] <- GPR[rs] endif
-  if (← FPConditionCode cc.toNat) == true then setGPR (reg rd) (← GPR (reg rs))
+  if (← FPConditionCode (low cc 3).toNat) == true then setGPR (reg rd) (← GPR (reg rs))
 
 end Manual.Ops

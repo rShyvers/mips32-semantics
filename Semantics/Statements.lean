@@ -1,4 +1,5 @@
 import Semantics.Specs.Defs
+import Semantics.Refine.Defs
 
 /-!
 # Statements — the trusted surface, statements only
@@ -16,9 +17,11 @@ would be red.
 
 What this file imports — and therefore what its statements are *about* — is the model itself
 (`Word`, `Types`, `State`, `Instruction`, `FpOps`, `Step`), the environment layer `Env` (loader,
-hosted run: not part of the architecture, used only by the last section's statements), plus the
-statement vocabulary of `Semantics/Specs/Defs.lean` and `Semantics/Specs/WellFormed.lean`. It
-imports no proof file.
+hosted run: not part of the architecture), plus the statement vocabulary of
+`Semantics/Specs/Defs.lean` and `Semantics/Specs/WellFormed.lean`, and, for the last section (the
+refinement of the manual specification, Wave 7D), the manual specification `Semantics/Manual/*`
+and the refinement vocabulary `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`; definitions
+only). It imports no proof file.
 
 **This is the only Lean file in the project that contains `sorry`.** It is deliberately *not*
 imported by `Semantics.lean` or `Checked.lean`, so neither `lake build` of the libraries nor
@@ -1256,14 +1259,17 @@ theorem cfc1_spec_raw (s : State) (w rt fs : W32)
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
 `CheckFPException`: if the new FCSR has a Cause bit whose Enable is set, or Cause.E, the
 Floating Point exception is taken **with the register already written**. A register
-number the manual leaves UNPREDICTABLE is a no-op (pin)
+number the manual leaves UNPREDICTABLE is not written (pin), and the `CheckFPException()` that
+follows the UNPREDICTABLE arm still runs on the unchanged FCSR
 (MD00086 Vol II-A Rev 6.06, CTC1, p.149-151) -/
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none => { s with pc := s.pc + 4#32 }
+      | none =>
+        if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE
+        else { s with pc := s.pc + 4#32 }
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
         else { s with fcsr := f, pc := s.pc + 4#32 }) := by
@@ -1708,6 +1714,110 @@ theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
     step s = timerTick (
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) := by
+  sorry
+
+/-! ## The refinement of the manual specification (Wave 7D)
+
+The statements below relate the model to the independent manual specification `Semantics/Manual/*`
+through the projection `Refine.abs` and the invariant `Refine.Inv` (`Semantics/Refine/Defs.lean`).
+Their meaning therefore rests on those definitions too: the `Manual` definitions (the transcribed
+pseudocode, `Manual.InstructionTime`, `Manual.Step`, `Manual.ChoiceFree`, `Manual.Oracle.Valid`, …),
+the model's choices `Manual.modelImpl`/`Manual.modelOracle`, and `Refine.abs`/`Refine.Inv`. Their
+proofs (`Semantics/Refine/*`) are not trusted. See `docs/MANUAL-SPEC.md` I.5 and the README,
+"What is proved, what is tested, what is trusted".
+-/
+
+/-- **`step` refines the manual (the independent correctness theorem).** From every state `s` of the
+invariant `Refine.Inv` (register files of 32 entries, `$zero` reads 0, FCSR bits 22..18 read 0,
+`Status` holds only implemented bits), one `step` of the model is exactly one instruction time of the
+manual specification `Manual.InstructionTime` (`Semantics/Manual/`, transcribed from the manuals'
+pseudocode independently of the model; `docs/MANUAL-SPEC.md`), seen through the projection
+`Refine.abs`. The manual's implementation constants and its UNDEFINED/UNPREDICTABLE choices are
+resolved as the model resolves them (`Manual.modelImpl`, `Manual.modelOracle`, each a pin documented in
+`docs/spec/SPEC-NOTES.md`), and the manual's decoder is the model's `decode` (sound:
+`decoderSound_decode`). It covers every path of the instruction time: interrupt, low-power (WAIT)
+standby, nullified delay slot of a branch-likely, fetch errors, undecodable words (Reserved
+Instruction / Coprocessor Unusable), all 183 instructions, the delay-slot `I+1` effects, and the timer
+tick. `docs/MANUAL-SPEC.md` I.5. -/
+theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
+    Manual.InstructionTime Manual.modelImpl Manual.modelOracle decode (Refine.abs s) =
+      some (Refine.abs (step s)) := by
+  sorry
+
+/-- **`step` is a behaviour the manual allows**: some valid resolution of the manual's choices
+(`Manual.Step`: an oracle within the limits `Manual.Oracle.Valid`) takes `abs s` to `abs (step s)`.
+`step_eq_manual` with `modelOracle_valid`. -/
+theorem step_refines_manual (s : State) (hs : Refine.Inv s) :
+    Manual.Step Manual.modelImpl decode (Refine.abs s) (Refine.abs (step s)) := by
+  sorry
+
+/-- **`run s n` is `n` instruction times of the manual** (from a state of the invariant; the
+invariant is preserved, `step_preserves_inv`). -/
+theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
+    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle decode n (Refine.abs s) =
+      some (Refine.abs (run s n)) := by
+  sorry
+
+/-- **Where the manual makes no choice, `step` is the only behaviour it allows**: from a state of
+the invariant at which `Manual.ChoiceFree` holds (no interrupt, no exception other than Coprocessor
+Unusable, no UNPREDICTABLE encoding, no CTI in a delay slot, and an instruction whose Operation
+consults no oracle field; a conservative test), every next state the manual allows is
+`abs (step s)`. -/
+theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
+    (h : Manual.ChoiceFree Manual.modelImpl decode (Refine.abs s) = true) (a' : Manual.Arch)
+    (h' : Manual.Step Manual.modelImpl decode (Refine.abs s) a') : a' = Refine.abs (step s) := by
+  sorry
+
+/-- **The model's choices are within the manual's limits**: every outcome of `Manual.modelOracle`
+satisfies `Manual.Oracle.Valid` (an UNPREDICTABLE outcome is an exception, `proceed`, or a state
+within `Manual.UnpredictableLimits`, which formalizes two of the three restrictions of MD00086
+Vol II-A Rev 6.06 §1.2.1, p.3-4). This makes `Manual.Step` in `step_refines_manual` meaningful. -/
+theorem modelOracle_valid : Manual.modelOracle.Valid := by
+  sorry
+
+/-- **The manual is deterministic at a choice-free state**: for every implementation and decoder,
+all valid resolutions of the choices give the same next state when `Manual.ChoiceFree` holds. A
+statement about the specification alone. -/
+theorem manual_step_deterministic (i : Manual.Impl) (dec : W32 → Option Instruction)
+    (a a₁ a₂ : Manual.Arch) (h : Manual.ChoiceFree i dec a = true) (h₁ : Manual.Step i dec a a₁)
+    (h₂ : Manual.Step i dec a a₂) : a₁ = a₂ := by
+  sorry
+
+/-- **The model's decoder is sound for the manual's encodings**: whatever `decode` returns for a
+word has that word as its instruction diagram (`Manual.enc`, transcribed from the manual's format
+diagrams). So passing `decode` as the manual's decoder in `step_eq_manual` adds no behaviour the
+manual's diagrams do not have. -/
+theorem decoderSound_decode : Manual.DecoderSound decode := by
+  sorry
+
+/-- **The model's Reset exception is the manual's** (`Manual.ResetException`, MD00090 Vol III
+Rev 6.02 §6.2.5, p.89-90) under the model's choice of the undefined registers, from every state whose
+`Status` holds only implemented bits. -/
+theorem resetException_refines_manual (s : State) (h : Refine.StatusImplemented s) :
+    Refine.abs (resetException s) = Manual.ResetException Manual.modelOracle (Refine.abs s) := by
+  sorry
+
+/-- **The state after a cold reset** is the manual's Reset exception applied to the power-on
+state. -/
+theorem resetState_refines_manual :
+    Refine.abs resetState = Manual.ResetException Manual.modelOracle (Refine.abs powerOnState) := by
+  sorry
+
+/-- **`step` preserves the invariant** under which `step_eq_manual` is stated. -/
+theorem step_preserves_inv (s : State) (h : Refine.Inv s) : Refine.Inv (step s) := by
+  sorry
+
+/-- **The reset state satisfies the invariant.** -/
+theorem inv_resetState : Refine.Inv resetState := by
+  sorry
+
+/-- **The hosted start state satisfies the invariant.** -/
+theorem inv_hostedStart : Refine.Inv hostedStart := by
+  sorry
+
+/-- **Every loaded program starts in a state of the invariant**, so `run_refines_manual` applies to
+`run (load p) n` for every `n`. -/
+theorem inv_load (p : Program) : Refine.Inv (load p) := by
   sorry
 
 end Trusted

@@ -1,4 +1,4 @@
-import Semantics.Refine.Fetch
+import Semantics.Refine.BridgeMem
 
 /-!
 # Refine.Memory — aligned loads and stores against `execInstr`
@@ -10,16 +10,6 @@ Fixed Mapping translation (`Refine/Fetch.lean`), and the memory element read or 
 namespace Refine
 
 open Manual
-
-theorem gep_adel (s : State) (va : W32) :
-    GeneralExceptionProcessing modelImpl modelOracle (.AddressErrorLoad va) (abs s) =
-      abs (takeAddressException s excCodeAdEL va) := by
-  rw [gep_eq s _ (by intro h; cases h) (by intro u h; cases h)]; rfl
-
-theorem gep_ades (s : State) (va : W32) :
-    GeneralExceptionProcessing modelImpl modelOracle (.AddressErrorStore va) (abs s) =
-      abs (takeAddressException s excCodeAdES va) := by
-  rw [gep_eq s _ (by intro h; cases h) (by intro u h; cases h)]; rfl
 
 /-- **LW refines.** -/
 theorem lw_refines (s : State) (hg : Good s) (base rt off w : W32)
@@ -120,6 +110,188 @@ theorem sw_refines (s : State) (hg : Good s) (base rt off w : W32)
       rfl
   · have hm : (bits va 1 0 != 0#2) = true := by rw [misaligned_eq]; simp [hal]
     have hr : ∀ v, writeMemWord s va v = none := by intro v; unfold writeMemWord; simp [hal]
+    simp only [hm, ↓reduceIte, SignalException, hr]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
+
+/-! ## 7C S2: the byte and halfword loads and stores, PREF, SYNC, SYNCI -/
+
+/-- **LB refines.** -/
+theorem lb_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.lb base rt off) = some w) :
+    Execute modelCtx w (.lb base rt off) (abs s) = some (abs (execInstr s (.lb base rt off))) := by
+  s2_open Ops.LB (Ops.LB base rt off)
+  simp only [execBody]
+  rw [BitVec.add_comm (signExt16 off)]
+  generalize hva : readReg s (regIdx base) + signExt16 off = va
+  rw [addrTrans_run s va .DATA .LOAD _ _ rfl, readMemByte_eq]
+  unfold translate
+  cases accessAllowed s va
+  · simp only [Bool.false_eq_true, ↓reduceIte, Option.map_none]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+  · simp only [↓reduceIte, Option.map_some, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
+      Bool.false_and, abs_Mem, setGPR, addr_recombine]
+    rw [show BigEndianCPU (abs s) = true from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
+      memElem_byte, complete_writeReg_eq s hg.1, signExtByte_eq]
+
+/-- **LBU refines.** -/
+theorem lbu_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.lbu base rt off) = some w) :
+    Execute modelCtx w (.lbu base rt off) (abs s) = some (abs (execInstr s (.lbu base rt off))) := by
+  s2_open Ops.LBU (Ops.LBU base rt off)
+  simp only [execBody]
+  rw [BitVec.add_comm (signExt16 off)]
+  generalize readReg s (regIdx base) + signExt16 off = va
+  rw [addrTrans_run s va .DATA .LOAD _ _ rfl, readMemByte_eq]
+  unfold translate
+  cases accessAllowed s va
+  · simp only [Bool.false_eq_true, ↓reduceIte, Option.map_none]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+  · simp only [↓reduceIte, Option.map_some, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
+      Bool.false_and, abs_Mem, setGPR, addr_recombine]
+    rw [show BigEndianCPU (abs s) = true from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
+      memElem_byte, complete_writeReg_eq s hg.1, zeroExtByte_eq]
+
+/-- **LH refines.** -/
+theorem lh_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.lh base rt off) = some w) :
+    Execute modelCtx w (.lh base rt off) (abs s) = some (abs (execInstr s (.lh base rt off))) := by
+  s2_open Ops.LH (Ops.LH base rt off)
+  simp only [execBody]
+  rw [BitVec.add_comm (signExt16 off)]
+  generalize readReg s (regIdx base) + signExt16 off = va
+  by_cases hal : va.toNat % 2 = 0
+  · have hm : bit va 0 = false := by rw [misaligned2_eq]; simp [hal]
+    simp only [hm, Bool.false_eq_true, ↓reduceIte]
+    rw [addrTrans_run s va .DATA .LOAD _ _ rfl]
+    unfold readMemHalf translate
+    simp only [hal, ne_eq, not_true_eq_false, ↓reduceIte]
+    cases accessAllowed s va
+    · simp only [Bool.false_eq_true, ↓reduceIte]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+    · simp only [↓reduceIte, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
+        Bool.false_and, abs_Mem, setGPR, addr_recombine_half]
+      have hP := fixedMappingPA_low (erlSet s) va
+      rw [show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP,
+        memElem_half _ _ (by omega), complete_writeReg_eq s hg.1, signExt16_half]
+      rfl
+  · have hm : bit va 0 = true := by rw [misaligned2_eq]; simp [hal]
+    have hr : readMemHalf s va = none := by unfold readMemHalf; simp [hal]
+    simp only [hm, ↓reduceIte, SignalException, hr]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+
+/-- **LHU refines.** -/
+theorem lhu_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.lhu base rt off) = some w) :
+    Execute modelCtx w (.lhu base rt off) (abs s) = some (abs (execInstr s (.lhu base rt off))) := by
+  s2_open Ops.LHU (Ops.LHU base rt off)
+  simp only [execBody]
+  rw [BitVec.add_comm (signExt16 off)]
+  generalize readReg s (regIdx base) + signExt16 off = va
+  by_cases hal : va.toNat % 2 = 0
+  · have hm : bit va 0 = false := by rw [misaligned2_eq]; simp [hal]
+    simp only [hm, Bool.false_eq_true, ↓reduceIte]
+    rw [addrTrans_run s va .DATA .LOAD _ _ rfl]
+    unfold readMemHalf translate
+    simp only [hal, ne_eq, not_true_eq_false, ↓reduceIte]
+    cases accessAllowed s va
+    · simp only [Bool.false_eq_true, ↓reduceIte]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+    · simp only [↓reduceIte, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
+        Bool.false_and, abs_Mem, setGPR, addr_recombine_half]
+      have hP := fixedMappingPA_low (erlSet s) va
+      rw [show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP,
+        memElem_half _ _ (by omega), complete_writeReg_eq s hg.1, half_bits]
+      rfl
+  · have hm : bit va 0 = true := by rw [misaligned2_eq]; simp [hal]
+    have hr : readMemHalf s va = none := by unfold readMemHalf; simp [hal]
+    simp only [hm, ↓reduceIte, SignalException, hr]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
+
+/-- **PREF refines.** -/
+theorem pref_refines (s : State) (hg : Good s) (base hint off w : W32)
+    (hw : enc (.pref base hint off) = some w) :
+    Execute modelCtx w (.pref base hint off) (abs s) = some (abs (execInstr s (.pref base hint off))) := by
+  s2_open Ops.PREF (Ops.PREF base hint off)
+  exact congrArg some (complete_nop s)
+
+/-- **SYNC refines.** -/
+theorem sync_refines (s : State) (hg : Good s) (stype w : W32)
+    (hw : enc (.sync stype) = some w) :
+    Execute modelCtx w (.sync stype) (abs s) = some (abs (execInstr s (.sync stype))) := by
+  s2_open Ops.SYNC (Ops.SYNC stype)
+  exact congrArg some (complete_nop s)
+
+/-- **SYNCI refines.** -/
+theorem synci_refines (s : State) (hg : Good s) (base off w : W32)
+    (hw : enc (.synci base off) = some w) :
+    Execute modelCtx w (.synci base off) (abs s) = some (abs (execInstr s (.synci base off))) := by
+  s2_open Ops.SYNCI (Ops.SYNCI base off)
+  simp only [Pseudo.impl, Pseudo.get, show modelCtx.impl.SynciAddressError = false from rfl,
+    Bool.false_and, Bool.false_eq_true, ↓reduceIte]
+  exact congrArg some (complete_nop s)
+
+
+/-- **SB refines.** -/
+theorem sb_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.sb base rt off) = some w) :
+    Execute modelCtx w (.sb base rt off) (abs s) = some (abs (execInstr s (.sb base rt off))) := by
+  s2_open Ops.SB (Ops.SB base rt off)
+  simp only [execBody]
+  have hcomm : signExt16 off + readReg s (regIdx base) = readReg s (regIdx base) + signExt16 off :=
+    BitVec.add_comm _ _
+  rw [hcomm]
+  generalize hva : readReg s (regIdx base) + signExt16 off = va
+  rw [addrTrans_run s va .DATA .STORE _ _ rfl]
+  unfold writeMemByte translate
+  cases accessAllowed s va
+  · simp only [Bool.false_eq_true, ↓reduceIte]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
+  · simp only [↓reduceIte, Pseudo.get, ReverseEndian, StatusRE, StoreMemory, bind, Pseudo.oracle,
+      Pseudo.modify, Bool.false_and, abs_Mem, addr_recombine, readGPR_abs s h0,
+      show modelCtx.oracle.storeClearsLL (abs s) = true from rfl, store_byte_fold]
+    generalize hB : (bits (sign_extend (imm16 off) + readReg s (regIdx base)) 1 0 ^^^
+      BitVec.fill 2 (BigEndianCPU (abs s))).toNat = byte
+    rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = true from rfl, byte_idx,
+      ← fixedMappingPA_low (erlSet s) va] at hB
+    subst hB
+    rw [lane_sb _ _ (Nat.mod_lt _ (by omega)), complete_plain, mkNext, abs_advance _ _ (by rfl)]
+    simp only [abs, memOf_insert]
+    rfl
+
+
+/-- **SH refines.** -/
+theorem sh_refines (s : State) (hg : Good s) (base rt off w : W32)
+    (hw : enc (.sh base rt off) = some w) :
+    Execute modelCtx w (.sh base rt off) (abs s) = some (abs (execInstr s (.sh base rt off))) := by
+  s2_open Ops.SH (Ops.SH base rt off)
+  simp only [execBody]
+  have hcomm : signExt16 off + readReg s (regIdx base) = readReg s (regIdx base) + signExt16 off :=
+    BitVec.add_comm _ _
+  rw [hcomm]
+  generalize hva : readReg s (regIdx base) + signExt16 off = va
+  by_cases hal : va.toNat % 2 = 0
+  · have hm : bit va 0 = false := by rw [misaligned2_eq]; simp [hal]
+    simp only [hm, Bool.false_eq_true, ↓reduceIte]
+    rw [addrTrans_run s va .DATA .STORE _ _ rfl]
+    unfold writeMemHalf translate
+    simp only [hal, ne_eq, not_true_eq_false, ↓reduceIte]
+    cases accessAllowed s va
+    · simp only [Bool.false_eq_true, ↓reduceIte]
+      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
+    · have hP := fixedMappingPA_low (erlSet s) va
+      simp only [↓reduceIte, Pseudo.get, ReverseEndian, StatusRE, StoreMemory, bind, Pseudo.oracle,
+        Pseudo.modify, Bool.false_and, abs_Mem, addr_recombine_half, readGPR_abs s h0,
+        show modelCtx.oracle.storeClearsLL (abs s) = true from rfl, store_half_fold _ _ _ (by omega : (fixedMappingPA (erlSet s) va).toNat % 2 = 0)]
+      generalize hB : (bits (sign_extend (imm16 off) + readReg s (regIdx base)) 1 0 ^^^
+        (BitVec.ofBool (BigEndianCPU (abs s)) ++ 0#1)).toNat = byte
+      rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP] at hB
+      subst hB
+      have hl := lane_sh (readReg s (regIdx rt)) _ (by omega : (fixedMappingPA (erlSet s) va).toNat % 4 = 0 ∨ (fixedMappingPA (erlSet s) va).toNat % 4 = 2)
+      rw [hl.1, hl.2, complete_plain, mkNext, abs_advance _ _ (by rfl)]
+      simp only [abs, memOf_insert]
+      rfl
+  · have hm : bit va 0 = true := by rw [misaligned2_eq]; simp [hal]
+    have hr : ∀ v, writeMemHalf s va v = none := by intro v; unfold writeMemHalf; simp [hal]
     simp only [hm, ↓reduceIte, SignalException, hr]
     rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
 

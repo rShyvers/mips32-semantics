@@ -10,15 +10,15 @@ import Semantics.Env
 
 The assembly of the independent correctness theorem:
 
-* **The invariant** `Inv` (`Refine/Instr.lean`: `Good`, `FcsrReservedZero`, `StatusImplemented`).
+* **The invariant** `Inv` (`Refine/Defs.lean`: `Good`, `FcsrReservedZero`, `StatusImplemented`).
   No path of the cycle needs anything else (`s.nullified = false` on the execute path comes from
   `stepCore`'s own case split, `enc i = some w` from `decode_enc`). `step` preserves it
   (`step_preserves_inv`), `resetState`, `hostedStart` and `load p` establish it.
-* **The paths** (`Refine/Cycle.lean`) and the per-instruction hypothesis (`Refine/Instr.lean`),
-  assembled: `stepCore_abs`, `step_eq_manual_of`.
-* **The top theorems**, stated from `PendingRefines` (the per-instruction refinements of the
-  constructors not yet covered): `step_eq_manual`, `step_refines_manual`, `run_refines_manual`,
-  and the reset theorems (unconditional).
+* **The paths** (`Refine/Cycle.lean`) and the per-instruction refinements of all 183 constructors
+  (`allInstrRefines`, `Refine/Instr.lean`), assembled: `execute_abs`, `stepCore_abs`.
+* **The top theorems**, unconditional on every state of the invariant: `step_eq_manual`,
+  `run_refines_manual`, and the reset theorems (`step_refines_manual` and the determinism results
+  are in `Refine/Determinism.lean`).
 -/
 
 namespace Refine
@@ -58,9 +58,8 @@ theorem inv_load (p : Program) : Inv (load p) :=
 /-! ## Assembly -/
 
 /-- **Fetch, decode, execute** (`Manual.FetchExecute` under the model's choices, with the model's
-`decode`) is the model's `execute`, given the per-instruction refinements. -/
-theorem execute_abs (s : State) (hg : Inv s) (hn : s.nullified = false)
-    (hI : ∀ i, InstrRefines i) :
+`decode`) is the model's `execute`. -/
+theorem execute_abs (s : State) (hg : Inv s) (hn : s.nullified = false) :
     FetchExecute modelCtx decode (abs s) = some (abs (execute s)) := by
   unfold FetchExecute
   rw [fetch_run]
@@ -74,11 +73,11 @@ theorem execute_abs (s : State) (hg : Inv s) (hn : s.nullified = false)
       simp only
       rw [← undecodable_abs s w hd]
       cases UnpredictableEncoding w <;> rfl
-    | some i => exact hI i s w hg hn hd (decode_enc w i hd)
+    | some i => exact allInstrRefines i s w hg hn hd (decode_enc w i hd)
 
 /-- **The processor's part of the instruction time** (`Manual.InstructionTime` before the timer)
 is `stepCore`. -/
-theorem stepCore_abs (s : State) (hg : Inv s) (hI : ∀ i, InstrRefines i) :
+theorem stepCore_abs (s : State) (hg : Inv s) :
     (if InterruptTaken modelImpl (abs s) then
         some { GeneralExceptionProcessing modelImpl modelOracle .Interrupt (abs s) with
           LowPower := false }
@@ -96,38 +95,31 @@ theorem stepCore_abs (s : State) (hg : Inv s) (hI : ∀ i, InstrRefines i) :
       show (if s.nullified then _ else _) = _
       cases hn : s.nullified
       · simp only [Bool.false_eq_true, ite_false]
-        exact execute_abs s hg hn hI
+        exact execute_abs s hg hn
       · simp only [ite_true]; rfl
     · simp only [ite_true]; rw [standbyStep_abs]
   · simp only [ite_true]; rw [takeInterrupt_abs s hi]
 
-/-- **`step` refines one instruction time of the manual**, given the per-instruction refinement
-of every instruction. -/
-theorem step_eq_manual_of (s : State) (hg : Inv s) (hI : ∀ i, InstrRefines i) :
+/-! ## The top theorems -/
+
+/-- **`step` is one instruction time of the manual** under the model's implementation constants and
+choices (`modelImpl`, `modelOracle`), with the model's `decode` as the spec's decoder
+(`Manual.DecoderSound decode`, `decoderSound_decode`), from every state of the invariant. -/
+theorem step_eq_manual (s : State) (hg : Inv s) :
     InstructionTime modelImpl modelOracle decode (abs s) = some (abs (step s)) := by
-  have h := stepCore_abs s hg hI
+  have h := stepCore_abs s hg
   unfold InstructionTime
   simp only
   rw [show ({ impl := modelImpl, oracle := modelOracle } : Ctx) = modelCtx from rfl, h]
   simp only [Option.map_some, step, timerTick_abs]
 
-/-! ## The top theorems (conditional on the pending per-instruction refinements) -/
-
-/-- **`step` is one instruction time of the manual** under the model's implementation constants and
-choices (`modelImpl`, `modelOracle`), with the model's `decode` as the spec's decoder
-(`Manual.DecoderSound decode`, `decoderSound_decode`), from every state of the invariant. Stated
-from `PendingRefines` until the per-instruction theorems of every constructor exist. -/
-theorem step_eq_manual (hP : PendingRefines) (s : State) (hg : Inv s) :
-    InstructionTime modelImpl modelOracle decode (abs s) = some (abs (step s)) :=
-  step_eq_manual_of s hg (allInstrRefines_of hP)
-
 /-- **`run` is a sequence of instruction times of the manual** (`Manual.InstructionTimes`). -/
-theorem run_refines_manual (hP : PendingRefines) (s : State) (hg : Inv s) (n : Nat) :
+theorem run_refines_manual (s : State) (hg : Inv s) (n : Nat) :
     InstructionTimes modelImpl modelOracle decode n (abs s) = some (abs (run s n)) := by
   induction n generalizing s with
   | zero => rfl
   | succ n ih =>
-    simp only [InstructionTimes, step_eq_manual hP s hg, Option.bind_some]
+    simp only [InstructionTimes, step_eq_manual s hg, Option.bind_some]
     exact ih (step s) (step_preserves_inv s hg)
 
 /-! ## Reset -/

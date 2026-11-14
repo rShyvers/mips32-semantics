@@ -6,7 +6,7 @@ import Semantics.Refine.Step
 
 * `modelOracle_valid`: every outcome of `modelOracle` is within the manual's limits
   (`Manual.Oracle.Valid`), so `Manual.Step` with the model's oracle is a behaviour the manual allows.
-* `step_refines_manual`: `step` is a `Manual.Step` (conditional on `PendingRefines`).
+* `step_refines_manual`: `step` is a `Manual.Step`.
 * `manual_step_deterministic`: from a `ChoiceFree` state, all valid oracles give the same instruction
   time.
 -/
@@ -32,9 +32,9 @@ theorem modelOracle_valid : modelOracle.Valid := by
 
 /-- **`step` is an instruction time the manual allows** (`Manual.Step`, with the model's
 implementation constants and decoder), from every state of the invariant. -/
-theorem step_refines_manual (hP : PendingRefines) (s : State) (hg : Inv s) :
+theorem step_refines_manual (s : State) (hg : Inv s) :
     Manual.Step modelImpl decode (abs s) (abs (step s)) :=
-  ⟨modelOracle, modelOracle_valid, step_eq_manual hP s hg⟩
+  ⟨modelOracle, modelOracle_valid, step_eq_manual s hg⟩
 
 /-! ## Determinism at choice-free states -/
 
@@ -166,9 +166,9 @@ theorem manual_step_deterministic (i : Impl) (dec : W32 → Option Instruction) 
   exact (Option.some.inj e₁).symm
 
 /-- **At a choice-free state, `step` is the only instruction time the manual allows.** -/
-theorem step_unique_of_choiceFree (hP : PendingRefines) (s : State) (hg : Inv s)
+theorem step_unique_of_choiceFree (s : State) (hg : Inv s)
     (h : ChoiceFree modelImpl decode (abs s) = true) (a' : Arch)
     (h' : Manual.Step modelImpl decode (abs s) a') : a' = abs (step s) :=
-  manual_step_deterministic _ _ _ _ _ h h' (step_refines_manual hP s hg)
+  manual_step_deterministic _ _ _ _ _ h h' (step_refines_manual s hg)
 
 end Refine
