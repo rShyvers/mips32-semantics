@@ -39,6 +39,10 @@ import Semantics.Refine.Memory
 import Semantics.Refine.Branch
 import Semantics.Refine.BranchLikely
 import Semantics.Refine.FpuArith
+-- 7C S4a
+import Semantics.Refine.BridgeFpu
+import Semantics.Refine.FpuConvert
+import Semantics.Refine.FpuCompare
 import Semantics.Refine.Cp0
 import Semantics.Refine.Unaligned
 -- Tests (moved out of the definition files; they run in every build and under `lake check`).

@@ -102,3 +102,13 @@ def soundAt (w : W32) : Bool :=
 #guard (List.range 64).all fun op => (List.range 64).all fun fn =>
   soundAt (BitVec.ofNat 32 (op * 2^26 + fn)) && soundAt (BitVec.ofNat 32 (op * 2^26 + 0x03FFFFC0 + fn)) &&
     soundAt (BitVec.ofNat 32 (op * 2^26 + 0x00000400 + fn))
+
+-- 7C S4a: `C.cond.fmt` writes the condition code named by the 3-bit `cc` field (bits 10..8, MD00086
+-- Vol II-A Rev 6.06, C.cond.fmt, p.110). A constructor operand `cc = 9` is the field value 1, as in
+-- `execInstr` (`ccIdx`); the transcription used the whole operand (bit 24 + 9 of FCSR: no write).
+#guard (let i := Instruction.cCondS 2#32 9#32 2#32 4#32
+        let s := fpState i [(2, 0x3f800000#32), (4, 0x3f800000#32)]
+        match enc i with
+        | some w => (Execute { impl := modelImpl, oracle := modelOracle } w i (abs s)).map (·.FCSR) ==
+            some (execInstr s i).fcsr && (execInstr s i).fcsr.getLsbD 25
+        | none => false)
