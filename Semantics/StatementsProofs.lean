@@ -332,7 +332,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some stored =>
-        if s.llBit && s.llAddr == addr then
+        if s.llBit && s.llAddr >>> 2 == addr >>> 2 then
           { ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }) with
               pc := ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }).pc + 4#32 }
         else

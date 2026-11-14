@@ -53,6 +53,15 @@ import Semantics.Refine.MulDiv
 import Semantics.Refine.BitOps
 import Semantics.Refine.Immediate
 -- end 7C S1
+-- 7D cycle refinement and top theorems
+import Semantics.Manual.Relation
+import Semantics.Refine.Cycle
+import Semantics.Refine.Decode
+import Semantics.Refine.Invariant
+import Semantics.Refine.Instr
+import Semantics.Refine.Step
+import Semantics.Refine.Determinism
+-- end 7D
 -- Tests (moved out of the definition files; they run in every build and under `lake check`).
 import Semantics.Tests.WordTests
 import Semantics.Tests.TypesTests

@@ -978,8 +978,10 @@ def execBody (s : State) (instr : Instruction) : State :=
     | none => takeAddressException s excCodeAdES addr
     | some stored =>
       -- "An SC will fail if the aligned address of the SC does not match
-      -- that of the preceding LL" (MD00086 Vol II-A Rev 6.06, SC, p.347).
-      if s.llBit && s.llAddr == addr then
+      -- that of the preceding LL" (MD00086 Vol II-A Rev 6.06, SC, p.347):
+      -- the addresses are compared in bits 31..2 (the aligned word), bits
+      -- 1..0 are ignored.
+      if s.llBit && s.llAddr >>> 2 == addr >>> 2 then
         mkNext s { (writeReg stored (regIdx rt) 1#32) with llBit := false }
       else
         mkNext s { (writeReg s (regIdx rt) 0#32) with llBit := false }

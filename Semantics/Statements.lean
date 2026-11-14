@@ -510,7 +510,7 @@ preceding `ll`'s, checked before `llBit` is cleared.** The effective address
 is computed and alignment-checked unconditionally, just like `sw` (so a
 misaligned `sc` raises Address Error regardless of `llBit`). Once the
 address is valid: if `s.llBit` was `true` **and** the address equals
-`s.llAddr` ("An SC will fail if the aligned address of the SC does not match
+`s.llAddr` in bits 31..2, the aligned word ("An SC will fail if the aligned address of the SC does not match
 that of the preceding LL" — MD00086 Vol II-A Rev 6.06, SC, p.347), the store
 commits (`$rt`'s old value is written to memory) and `$rt` is overwritten
 with `1` (success); otherwise the store does **not** commit and `$rt` is
@@ -527,7 +527,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some stored =>
-        if s.llBit && s.llAddr == addr then
+        if s.llBit && s.llAddr >>> 2 == addr >>> 2 then
           { ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }) with
               pc := ({ (writeReg stored (regIdxSpec rt) 1#32) with llBit := false }).pc + 4#32 }
         else
