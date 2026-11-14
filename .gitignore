@@ -3,3 +3,4 @@
 /docs/spec/manuals/*.txt
 /.claude/worktrees/
 /.gate/
+__pycache__/

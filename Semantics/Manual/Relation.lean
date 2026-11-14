@@ -1,66 +1,135 @@
 import Semantics.Manual.Cycle
 
 /-!
-# Manual.Relation — the manual's relation, the limits on its choices, and its choice points (7D)
+# Manual.Relation — the manual's relation, the limits on its choices, and its choice points (7D, 8)
 
 `InstructionTime impl oracle dec` is deterministic once an oracle is given. The manual itself allows
-every outcome some *valid* oracle gives:
+every outcome some *valid* oracle gives.
 
-* `UnpredictableLimits a a'`: the restrictions on an UNPREDICTABLE operation (MD00086 Vol II-A Rev
-  6.06 §1.2.1, p.3-4) that can be stated on one instruction time:
-  - "UNPREDICTABLE operations must not read, write, or modify the contents of memory or internal
-    state which is inaccessible in the current processor mode. For example, UNPREDICTABLE
-    operations executed in user mode must not access memory or internal state that is only
-    accessible in Kernel Mode": in User Mode the CP0 state and the physical memory that no User
-    Mode address reaches are unchanged (`KernelState`);
-  - "UNPREDICTABLE operations must not halt or hang the processor": the state does not enter the
-    lower power mode (formalized only as `LowPower` unchanged; a non-terminating sequence of
-    instruction times is not a property of one instruction time).
-  The first restriction, "must not depend on any data source (memory or internal state) which is
-  inaccessible in the current processor mode", is a property of the oracle as a function and is not
-  formalized here.
-* `OutcomeValid`, `Oracle.Valid`: every `Outcome` the oracle gives is a signalled exception (allowed:
-  "UNPREDICTABLE operations may cause arbitrary exceptions", p.3), `proceed`, or an `arbitrary` state
-  within the limits; a Reset leaves memory and the input lines alone (it is "only the following
-  registers have defined state", Vol III §6.2.5, p.89: the others are registers). The value-valued
-  fields (`causeCE`, `storeClearsLL`, `loadClearsLL`, `divByZero`, `divuByZero`, `mulHILO`,
-  `fprOddRead`, `cfc1Unpredictable`, `absNegNaN`) may be any value. The QNaN fields (`cvtQNaNToD`,
-  `cvtQNaNToS`) are constrained by their docstrings ("must be a double QNaN") and that constraint is
-  not formalized.
+**The limits** (MD00086 Vol II-A Rev 6.06 §1.2.1, p.3-4). "UNPREDICTABLE results or operations have
+several implementation restrictions":
+
+1. "Implementations of operations generating UNPREDICTABLE results must not depend on any data source
+   (memory or internal state) which is inaccessible in the current processor mode" (p.3):
+   non-interference, `NIValue`/`NIOutcome` on every UNPREDICTABLE field of the oracle: in User Mode,
+   two states that agree on the state accessible in that mode (`AccessibleSame`) get the same value,
+   or outcomes that agree on that state (`OutcomeAgree`).
+2. "UNPREDICTABLE operations must not read, write, or modify the contents of memory or internal state
+   which is inaccessible in the current processor mode. For example, UNPREDICTABLE operations executed
+   in user mode must not access memory or internal state that is only accessible in Kernel Mode or
+   Debug Mode or in another process" (p.4): the inaccessible state is unchanged (`InaccessibleSame`,
+   in `UnpredictableLimits`). "Must not read" is restriction 1 again.
+3. "UNPREDICTABLE operations must not halt or hang the processor" (p.4): the state does not enter the
+   lower power mode (`LowPower` unchanged, in `UnpredictableLimits`; a non-terminating sequence of
+   instruction times is not a property of one instruction time).
+
+The state inaccessible in User Mode: the physical memory that no User Mode address reaches (with
+`ERL = 0`, kuseg `0x0000_0000`–`0x7FFF_FFFF` maps to physical `0x4000_0000`–`0xBFFF_FFFF`, MD00090
+Vol III Rev 6.02 Table A.1, p.313-314; `FixedMapping`; "an attempt to reference kseg0 from User Mode
+still results in an address error exception", §A.1.1, p.313), and the CP0 registers unless `CU0 = 1`
+("Coprocessor 0 is usable": "The processor is running in Kernel Mode or Debug Mode ... The CU0 bit in
+the Status register is 1", Vol III §3.5.3, p.23; `CP0Usable`).
+
+UNDEFINED operations (`cp0Undefined`: MTC0/MFC0 of a register CP0 does not contain;
+`ebaseWriteBEV0`) have one restriction only: "UNDEFINED operations or behavior must not cause the
+processor to hang" (MD00086 Vol II-A Rev 6.06 §1.2.2, p.4; "UNDEFINED operations or behavior may
+cause data loss"): `UndefinedOutcomeValid`.
+
+The value fields that are not UNPREDICTABLE results are not restricted: `causeCE` ("The CE field is
+loaded, but not defined", Vol III §6.2.3, p.87), `storeClearsLL`/`loadClearsLL` ("success is not
+predictable", SC p.347-348). The QNaN fields must give a QNaN ("a QNaN operand causes an arithmetic
+operation to supply a QNaN result", MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82; `QNaNValid`); "When
+possible, this QNaN result is one of the operand QNaN values" is not formalized (a single QNaN is not a
+double). A Reset leaves memory and the input lines alone ("only the following registers have defined
+state", Vol III §6.2.5, p.89: the others are registers).
+
 * `Step i dec a a'`: some valid oracle takes `a` to `a'` in one instruction time.
-* `ChoiceFree i dec a`: a decidable test that is `false` at every point where the instruction time
-  consults the oracle (`manual_step_deterministic`, `Refine/Determinism.lean`). It is conservative:
-  it is `false` for every instruction outside the list `OracleFreeOp`, even when that
-  instruction's choice is not reached.
+* `ChoiceFree i dec a`: decidable; `false` exactly where the instruction time from `a` reaches a choice
+  of the oracle whose value can change the result (`manual_step_deterministic`,
+  `Refine/Determinism.lean`, is the soundness direction; the module doc there lists what is proved of
+  the other direction). The choices are: `Cause.CE` of every exception other than Coprocessor Unusable
+  (an interrupt included); a CTI in a delay slot; a word with an UNPREDICTABLE field value (unless a
+  coprocessor-unusable check comes first); and in an Operation the points listed by `ConsultsOracle`.
 -/
 
 namespace Manual
 
-/-- **The state only Kernel Mode can access**: the CP0 registers and the physical memory that no
-User Mode address reaches (with `ERL = 0`, kuseg `0x0000_0000`–`0x7FFF_FFFF` maps to physical
-`0x4000_0000`–`0xBFFF_FFFF`, MD00090 Vol III Rev 6.02 Table A.1, p.313-314; `FixedMapping`). -/
-def KernelState (a a' : Arch) : Prop :=
-  a'.Status = a.Status ∧ a'.Cause = a.Cause ∧ a'.EPC = a.EPC ∧ a'.BadVAddr = a.BadVAddr ∧
-  a'.ErrorEPC = a.ErrorEPC ∧ a'.EBase = a.EBase ∧ a'.ConfigK0 = a.ConfigK0 ∧
-  a'.ConfigK23 = a.ConfigK23 ∧ a'.ConfigKU = a.ConfigKU ∧ a'.Count = a.Count ∧
-  a'.Compare = a.Compare ∧ a'.CauseTI = a.CauseTI ∧ a'.HWREna = a.HWREna ∧ a'.HW = a.HW ∧
-  ∀ pa : PAddr, (∀ va : W32, bit va 31 = false → FixedMapping false va ≠ pa) → a'.Mem pa = a.Mem pa
+/-! ## The limits on UNPREDICTABLE and UNDEFINED outcomes -/
 
-/-- **The limits on the state an UNPREDICTABLE operation leaves** (MD00086 Vol II-A Rev 6.06
-§1.2.1, p.3-4; see the module doc for what is formalized). -/
+/-- A physical address that some User Mode address reaches (User Mode: kuseg, `ERL = 0`). -/
+def UserPAddr (pa : PAddr) : Prop := ∃ va : W32, bit va 31 = false ∧ FixedMapping false va = pa
+
+/-- The CP0 state of `x` and `y` is the same (the registers of `Arch` that MD00090 Vol III Rev 6.02
+chapter 9 names, and the interrupt lines `Cause.IP7..IP2` read). -/
+def CP0Same (x y : Arch) : Prop :=
+  x.Status = y.Status ∧ x.Cause = y.Cause ∧ x.EPC = y.EPC ∧ x.BadVAddr = y.BadVAddr ∧
+  x.ErrorEPC = y.ErrorEPC ∧ x.EBase = y.EBase ∧ x.ConfigK0 = y.ConfigK0 ∧
+  x.ConfigK23 = y.ConfigK23 ∧ x.ConfigKU = y.ConfigKU ∧ x.Count = y.Count ∧
+  x.Compare = y.Compare ∧ x.CauseTI = y.CauseTI ∧ x.HWREna = y.HWREna ∧ x.HW = y.HW
+
+/-- **The state inaccessible in the mode of `a` is the same in `x` and `y`**: in User Mode the
+physical memory no User Mode address reaches, and the CP0 registers while CP0 is not usable. -/
+def InaccessibleSame (a x y : Arch) : Prop :=
+  (UserMode a = true → ∀ pa : PAddr, ¬ UserPAddr pa → x.Mem pa = y.Mem pa) ∧
+  (CP0Usable a = false → CP0Same x y)
+
+/-- **The state accessible in the mode of `a` is the same in `x` and `y`**: everything but what
+`InaccessibleSame` names (`GPR` as read: register 0 reads 0). -/
+def AccessibleSame (a x y : Arch) : Prop :=
+  x.PC = y.PC ∧ (∀ r, readGPR x r = readGPR y r) ∧ x.HI = y.HI ∧ x.LO = y.LO ∧ x.FPR = y.FPR ∧
+  x.FCSR = y.FCSR ∧ x.LLbit = y.LLbit ∧ x.LLAddr = y.LLAddr ∧ x.LowPower = y.LowPower ∧
+  x.BranchDelay = y.BranchDelay ∧ x.Nullify = y.Nullify ∧
+  (∀ pa : PAddr, (UserMode a = true → UserPAddr pa) → x.Mem pa = y.Mem pa) ∧
+  (CP0Usable a = true → CP0Same x y)
+
+/-- `b` is in the same processor mode as the User Mode state `a`, with the same access to CP0. -/
+def SameMode (a b : Arch) : Prop := UserMode b = UserMode a ∧ CP0Usable b = CP0Usable a
+
+/-- **The limits on the state an UNPREDICTABLE operation leaves** (restrictions 2 and 3 of the module
+doc). -/
 def UnpredictableLimits (a a' : Arch) : Prop :=
-  a'.LowPower = a.LowPower ∧ (UserMode a = true → KernelState a a')
+  a'.LowPower = a.LowPower ∧ InaccessibleSame a a a'
 
-/-- An oracle's outcome for state `a` is within the manual's limits. -/
+/-- An UNPREDICTABLE outcome for state `a` is within the limits. -/
 def OutcomeValid (a : Arch) : Outcome → Prop
   | .arbitrary a' => UnpredictableLimits a a'
   | _ => True
 
-/-- **A valid oracle**: every outcome it gives is within the limits, and the registers a Reset
-leaves undefined are the only state its `resetUndefined` changes. -/
+/-- An UNDEFINED outcome for state `a` does not hang the processor (MD00086 Vol II-A Rev 6.06 §1.2.2,
+p.4). -/
+def UndefinedOutcomeValid (a : Arch) : Outcome → Prop
+  | .arbitrary a' => a'.LowPower = a.LowPower
+  | _ => True
+
+/-- Two outcomes agree on the state accessible in the mode of `a`: the same exception, both
+`proceed`, or two states equal on that state. -/
+def OutcomeAgree (a : Arch) : Outcome → Outcome → Prop
+  | .signal e, .signal e' => e = e'
+  | .proceed, .proceed => True
+  | .arbitrary x, .arbitrary y => AccessibleSame a x y
+  | _, _ => False
+
+/-- **Restriction 1 for an UNPREDICTABLE value** `F`: in User Mode it does not depend on the state
+inaccessible in that mode. -/
+def NIValue {β : Type} (F : Arch → β) : Prop :=
+  ∀ a b, UserMode a = true → SameMode a b → AccessibleSame a a b → F a = F b
+
+/-- **Restriction 1 for an UNPREDICTABLE operation** `F`: in User Mode its outcome, restricted to the
+accessible state, does not depend on the state inaccessible in that mode. -/
+def NIOutcome (F : Arch → Outcome) : Prop :=
+  ∀ a b, UserMode a = true → SameMode a b → AccessibleSame a a b → OutcomeAgree a (F a) (F b)
+
+/-- **The QNaN fields deliver a QNaN** for a QNaN operand (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82). -/
+def QNaNValid (o : Oracle) : Prop :=
+  (∀ x, Mips.Fp.isQNaN32 x = true → Mips.Fp.isQNaN64 (o.cvtQNaNToD x) = true) ∧
+  (∀ x, Mips.Fp.isQNaN64 x = true → Mips.Fp.isQNaN32 (o.cvtQNaNToS x) = true)
+
+/-- **A valid oracle** (module doc): every UNPREDICTABLE outcome within the limits and
+non-interfering, every UNPREDICTABLE value non-interfering, every UNDEFINED outcome not hanging the
+processor, the QNaN fields giving QNaNs, and a Reset changing registers only. -/
 def Oracle.Valid (o : Oracle) : Prop :=
+  -- restrictions 2 and 3 on every UNPREDICTABLE operation
   (∀ a i, OutcomeValid a (o.ctiInSlot a i)) ∧
-  (∀ a i, OutcomeValid a (o.cp0Undefined a i)) ∧
   (∀ a i, OutcomeValid a (o.linkSourceIs31 a i)) ∧
   (∀ a i, OutcomeValid a (o.jalrRsIsRd a i)) ∧
   (∀ a r v, OutcomeValid a (o.fprOddWrite a r v)) ∧
@@ -68,7 +137,24 @@ def Oracle.Valid (o : Oracle) : Prop :=
   (∀ a, OutcomeValid a (o.extOutOfRange a)) ∧
   (∀ a, OutcomeValid a (o.insLsbAboveMsb a)) ∧
   (∀ a w, OutcomeValid a (o.unpredictableEncoding a w)) ∧
-  (∀ a v, OutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
+  -- restriction 1 on every UNPREDICTABLE operation and value
+  (∀ i, NIOutcome (o.ctiInSlot · i)) ∧
+  (∀ i, NIOutcome (o.linkSourceIs31 · i)) ∧
+  (∀ i, NIOutcome (o.jalrRsIsRd · i)) ∧
+  (∀ r v, NIOutcome (o.fprOddWrite · r v)) ∧
+  (∀ fs t, NIOutcome (o.ctc1Unpredictable · fs t)) ∧
+  NIOutcome o.extOutOfRange ∧
+  NIOutcome o.insLsbAboveMsb ∧
+  (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
+  NIValue o.divByZero ∧ NIValue o.divuByZero ∧ NIValue o.mulHILO ∧
+  (∀ r, NIValue (o.fprOddRead · r)) ∧
+  (∀ fs, NIValue (o.cfc1Unpredictable · fs)) ∧
+  -- the UNDEFINED operations
+  (∀ a i, UndefinedOutcomeValid a (o.cp0Undefined a i)) ∧
+  (∀ a v, UndefinedOutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
+  -- the QNaN fields
+  QNaNValid o ∧
+  -- Reset
   (∀ a, (o.resetUndefined a).Mem = a.Mem ∧ (o.resetUndefined a).HW = a.HW)
 
 /-- **The manual's instruction time as a relation**: some valid resolution of the manual's choices
@@ -84,29 +170,101 @@ def InstructionTimes (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) 
 
 /-! ## Choice points -/
 
-/-- **Instructions whose Operation reads no oracle field on any path** (a sufficient list, proved in
-`Refine/Determinism.lean`, `operation_oracleFree`): the integer ALU operations that cannot signal,
-`J`/`JAL`, `SYNC`, `PREF`, `DI`, `EI`, `WAIT`, `RDPGPR`, `WRPGPR`. Every other instruction counts as
-a possible choice point (conservative; e.g. the loads and stores read `Oracle.loadClearsLL`/
-`storeClearsLL`, `DIV` the zero-divisor result, `MUL` the `HI`/`LO` values, the branch-and-link
-instructions the `rs = 31` outcome). -/
-def OracleFreeOp : Instruction → Bool
-  | .addu .. | .subu .. | .and .. | .or .. | .xor .. | .nor .. | .sll .. | .srl .. | .sra ..
-  | .sllv .. | .srlv .. | .srav .. | .rotr .. | .rotrv .. | .mult .. | .multu .. | .mfhi ..
-  | .mflo .. | .mthi .. | .mtlo .. | .madd .. | .maddu .. | .msub .. | .msubu .. | .clo .. | .clz ..
-  | .seb .. | .seh .. | .wsbh .. | .addiu .. | .andi .. | .ori .. | .xori .. | .lui ..
-  | .j .. | .jal .. | .sync .. | .pref .. | .di .. | .ei .. | .wait .. | .rdpgpr .. | .wrpgpr .. => true
-  | _ => false
+/-- `fpr` names an odd FPR: `ValueFPR(fpr, D)` is `UNPREDICTABLE` and `StoreFPR(fpr, D, value)` is
+UNPREDICTABLE with the 32-bit FPR model (MD00086 Vol II-A Rev 6.06, Figures 2.22, 2.23, p.22-23). -/
+def OddFPR (fpr : W32) : Bool := bit (BitVec.ofNat 5 (reg fpr).val) 0
+
+/-- The doubleword `ValueFPR(fpr, D)` reads for an even `fpr` (Figure 2.22, p.22). -/
+def FPRPair (a : Arch) (fpr : W32) : BitVec 64 := a.FPR (reg fpr + 1) ++ a.FPR (reg fpr)
+
+/-- `FPConditionCode(cc)` of state `a` (Figure 2.25, p.23). -/
+def FPCC (a : Arch) (cc : W32) : Bool :=
+  if (low cc 3).toNat == 0 then bit a.FCSR 23 else bit a.FCSR (24 + (low cc 3).toNat)
+
+/-- `CTC1 rt, fs` with `temp = GPR[rt]` takes one of the `UNPREDICTABLE` arms of its Operation
+(MD00086 Vol II-A Rev 6.06, CTC1, p.150). -/
+def CTC1Unpredictable (fs temp : W32) : Bool :=
+  if fs == 25#32 then bits temp 31 8 != 0#24
+  else if fs == 26#32 then bits temp 31 18 != 0#14 || bits temp 11 7 != 0#5 || bits temp 2 0 != 0#3
+  else if fs == 28#32 then bits temp 31 12 != 0#20 || bits temp 6 3 != 0#4
+  else if fs == 31#32 then bits temp 22 18 != 0#5
+  else true
+
+/-- **The Operation of `ins`, run from `a`, reaches an oracle choice whose value can change the
+result** (exact, provided the Operation does not signal before reaching it; an Operation that signals
+is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the oracle:
+
+* the loads (`Oracle.loadClearsLL`) and stores (`storeClearsLL`), while `LLbit = 1`: the choice is
+  whether `LLbit` becomes 0. Not `LL` and `SC`, which set `LLbit` themselves afterwards;
+* an odd FPR read or written as a double (`fprOddRead`, `fprOddWrite`), on the path the Operation takes
+  (`MOVF.D`/`MOVT.D`/`MOVN.D`/`MOVZ.D` read `fs` only when they move);
+* `DIV`/`DIVU` by zero (`divByZero`, `divuByZero`), `MUL` (`mulHILO`, always);
+* `CFC1` of a register that does not exist (`cfc1Unpredictable`), unless `rt = 0` (the value is
+  written to `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
+* `MFC0`/`MTC0` of a register CP0 does not contain (`cp0Undefined`); `MTC0` of a different Exception
+  Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
+* `EXT`/`INS` with an UNPREDICTABLE field combination; a branch-and-link with `rs = 31`; `JALR`/
+  `JALR.HB` with `rs = rd`;
+* `ABS.fmt`/`NEG.fmt` of a quiet NaN and `NMADD.fmt`/`NMSUB.fmt` whose sum is a quiet NaN
+  (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN (`cvtQNaNToD`, `cvtQNaNToS`). -/
+def ConsultsOracle : Instruction → Arch → Bool
+  | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a | .lwl .., a | .lwr .., a
+  | .lwc1 .., a | .lwxc1 .., a | .sb .., a | .sh .., a | .sw .., a | .swl .., a | .swr .., a
+  | .swc1 .., a | .swxc1 .., a => a.LLbit
+  | .ldc1 _ ft _, a | .sdc1 _ ft _, a | .ldxc1 ft _ _, a | .sdxc1 ft _ _, a => a.LLbit || OddFPR ft
+  | .div _ rt, a | .divu _ rt, a => readGPR a (reg rt) == 0#32
+  | .mul .., _ => true
+  | .cfc1 rt fs, _ =>
+    !(fs == 0#32 || fs == 25#32 || fs == 26#32 || fs == 28#32 || fs == 31#32) && reg rt != 0
+  | .ctc1 rt fs, a => CTC1Unpredictable fs (low (readGPR a (reg rt)) 32)
+  | .mfc0 _ rd sel, _ => !IsCoprocessorRegisterImplemented rd.toNat sel.toNat
+  | .mtc0 rt rd sel, a =>
+    !IsCoprocessorRegisterImplemented rd.toNat sel.toNat ||
+      (rd.toNat == 15 && sel.toNat == 1 && !StatusBEV a &&
+        bits (readGPR a (reg rt)) 29 12 != bits a.EBase 29 12)
+  | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
+  | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
+  | .bltzal rs _, _ | .bgezal rs _, _ | .bltzall rs _, _ | .bgezall rs _, _ => reg rs == 31
+  | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
+  | .absS _ fs, a | .negS _ fs, a => Mips.Fp.isQNaN32 (a.FPR (reg fs))
+  | .absD fd fs, a | .negD fd fs, a =>
+    OddFPR fs || OddFPR fd || Mips.Fp.isQNaN64 (FPRPair a fs)
+  | .nmaddS _ fr fs ft, a =>
+    Mips.Fp.isQNaN32 (IEEE.addS a (a.FPR (reg fr)) (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1).1
+  | .nmsubS _ fr fs ft, a =>
+    Mips.Fp.isQNaN32 (IEEE.subS a (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1 (a.FPR (reg fr))).1
+  | .nmaddD fd fr fs ft, a =>
+    OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd ||
+      Mips.Fp.isQNaN64 (IEEE.addD a (FPRPair a fr) (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).1).1
+  | .nmsubD fd fr fs ft, a =>
+    OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd ||
+      Mips.Fp.isQNaN64 (IEEE.subD a (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).1 (FPRPair a fr)).1
+  | .maddD fd fr fs ft, _ | .msubD fd fr fs ft, _ => OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd
+  | .addD fd fs ft, _ | .subD fd fs ft, _ | .mulD fd fs ft, _ | .divD fd fs ft, _ =>
+    OddFPR fs || OddFPR ft || OddFPR fd
+  | .sqrtD fd fs, _ | .recipD fd fs, _ | .rsqrtD fd fs, _ | .movD fd fs, _ => OddFPR fs || OddFPR fd
+  | .roundWD _ fs, _ | .truncWD _ fs, _ | .ceilWD _ fs, _ | .floorWD _ fs, _ | .cvtWD _ fs, _ =>
+    OddFPR fs
+  | .cvtDS fd fs, a => OddFPR fd || Mips.Fp.isQNaN32 (a.FPR (reg fs))
+  | .cvtDW fd _, _ => OddFPR fd
+  | .cvtSD _ fs, a => OddFPR fs || Mips.Fp.isQNaN64 (FPRPair a fs)
+  | .cCondD _ _ fs ft, _ => OddFPR fs || OddFPR ft
+  | .movfD fd fs cc, a => OddFPR fd || (FPCC a cc == false && OddFPR fs)
+  | .movtD fd fs cc, a => OddFPR fd || (FPCC a cc == true && OddFPR fs)
+  | .movnD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) != 0#32 && OddFPR fs)
+  | .movzD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) == 0#32 && OddFPR fs)
+  | .mfhc1 _ fs, _ | .mthc1 _ fs, _ => OddFPR fs
+  | _, _ => false
 
 /-- A context that differs from another in the oracle only. -/
 def ctxOf (i : Impl) (o : Oracle) : Ctx := { impl := i, oracle := o }
 
-/-- **No oracle choice is made in the instruction time from `a`** (decidable, conservative; see the
-module doc). `false` when an exception other than Coprocessor Unusable is taken (its `Cause.CE`
-"is loaded, but not defined", Vol III §6.2.3, p.87), for an `UnpredictableEncoding` word, for a CTI
-in a delay slot, and for an instruction that is not `OracleFreeOp`. The Operation's outcome is
-computed with the model's oracle `modelOracle`; for an `OracleFreeOp` instruction every oracle gives
-the same one. -/
+/-- **No oracle choice that can change the result is made in the instruction time from `a`**
+(decidable; module doc). `false` when an interrupt or an exception other than Coprocessor Unusable is
+taken (its `Cause.CE` "is loaded, but not defined", Vol III §6.2.3, p.87), for a word with an
+UNPREDICTABLE field value whose coprocessor is usable, for a CTI in a delay slot, and when the
+Operation reaches a choice (`ConsultsOracle`). Whether the Operation signals is computed with the model's
+oracle `modelOracle`; when `ConsultsOracle` is `false` every oracle gives the same run. -/
 def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :=
   if InterruptTaken i a then false
   else if a.LowPower then true
@@ -117,16 +275,18 @@ def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :
     | (.ok w, _) =>
       match dec w with
       | none =>
-        !UnpredictableEncoding w &&
-          (match Undecodable w a with
-           | .CoprocessorUnusable _ => true
-           | _ => false)
+        if UnpredictableEncoding w then
+          (InCop1Space w && !StatusCU1 a) || (InCop0Space w && !CP0Usable a)
+        else
+          match Undecodable w a with
+          | .CoprocessorUnusable _ => true
+          | _ => false
       | some ins =>
         !(IsCTI ins && a.BranchDelay.isSome) &&
           (if InCop1Space w && !StatusCU1 a then true
            else if InCop0Space w && !CP0Usable a then true
            else
-             OracleFreeOp ins &&
+             !ConsultsOracle ins a &&
                match Operation ins with
                | none => true
                | some op =>

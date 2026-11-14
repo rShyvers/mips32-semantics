@@ -6,6 +6,12 @@
 # (IntCtl), sec 9.34 Table 9.49 p.203-204 (SRSCtl), sec 6.2.26 p.102.
 # Count's rate differs (model: one per step; QEMU: virtual time), so the program waits in a bounded loop for the handler's flag and
 # only flags are compared; the interrupted instruction is not. IM2 stays 0 (Malta HW0).
+# Robust to host load: if QEMU is descheduled between reading Count and writing Compare, Count may already be past Compare, and the
+# match ("When the value of the Count register equals the value of the Compare register", sec 9.30 p.187) happens only after Count
+# wraps. The poll loop therefore checks Count - Compare (signed): 2^20 or more past Compare without the interrupt means the match was
+# missed, and Compare is re-armed to Count + 2000 with IE = 0 (so no interrupt can be taken between the check of the flag and the write;
+# the write also clears a TI that was not delivered). In the model Count advances one per instruction and the match is never missed,
+# so the re-arm path is not taken and the run is as before.
 # oracle: bare
 # oracle: expect gpr:s0=0 gpr:s1=1 gpr:s2=1 gpr:s3=1 gpr:s4=1 gpr:s5=0 gpr:s6=0xe0000000 gpr:s7=0
 # oracle: max-steps 200000
@@ -36,12 +42,34 @@ mfc0 $s7, $12, 2
 mfc0 $t1, $9
 addiu $t1, $t1, 2000
 mtc0 $t1, $11
+move $t7, $t1
 li $t1, 0x20008001
 mtc0 $t1, $12
 li $t4, 50000000
 poll:
 bnez $s3, done
 nop
+mfc0 $t2, $9
+subu $t3, $t2, $t7
+bltz $t3, next
+nop
+srl $t5, $t3, 20
+beqz $t5, next
+nop
+# missed match: re-arm with interrupts disabled
+lui $t6, 0x2000
+ori $t6, $t6, 0x8000
+mtc0 $t6, $12
+bnez $s3, rearmed
+nop
+mfc0 $t2, $9
+addiu $t7, $t2, 2000
+mtc0 $t7, $11
+rearmed:
+lui $t6, 0x2000
+ori $t6, $t6, 0x8001
+mtc0 $t6, $12
+next:
 addiu $t4, $t4, -1
 bnez $t4, poll
 nop
@@ -49,4 +77,9 @@ done:
 lui $t1, 0x2000
 mtc0 $t1, $12
 li $t1, 0
+li $t2, 0
+li $t3, 0
 li $t4, 0
+li $t5, 0
+li $t6, 0
+li $t7, 0

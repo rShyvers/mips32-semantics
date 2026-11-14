@@ -221,8 +221,10 @@ def checkAsmProgram (path : String) : IO (Option (Bool × String)) := do
 On every state of the hosted run of every program in `tests/corpus` and `tests/oracle`, the
 independent spec's instruction time `Manual.InstructionTime modelImpl modelOracle decode (abs s)` is
 compared with `abs (step s)`, field by field (memory: the bytes the model wrote in this step and the
-aligned word around the effective address of a load or store). A state whose instruction's page is
-not transcribed yet (`Manual.Operation` is `none`) is skipped and counted. Every mismatch is a FAIL. -/
+aligned word around the effective address of a load or store). Every constructor has a transcribed
+Operation since 7B, so `Manual.InstructionTime` is never `none` (and `Refine.step_eq_manual` proves the
+equality on every state of the invariant); a state where it would be `none` is still counted as
+skipped, and the count is expected to be 0. Every mismatch is a FAIL. -/
 
 open Manual Refine in
 /-- The fields where two architectural states differ, on the given physical addresses. -/
@@ -342,7 +344,7 @@ def manualCheck : IO Bool := do
       allMsgs := allMsgs ++ msgs
   for m in allMsgs do IO.println s!"FAIL  manual: {m}"
   let skips := st.skippedBy.toList.mergeSort (fun a b => a.2 ≥ b.2)
-  IO.println s!"manual spec vs step: {programs} programs, {st.compared} states compared, {st.mismatches} mismatches, {st.skipped} skipped (instruction not transcribed yet)"
+  IO.println s!"manual spec vs step: {programs} programs, {st.compared} states compared, {st.mismatches} mismatches, {st.skipped} skipped (InstructionTime = none; expected 0)"
   IO.println s!"  skipped by instruction: {String.intercalate ", " (skips.map fun (c, n) => s!"{c} {n}")}"
   pure (st.mismatches == 0)
 

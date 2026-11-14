@@ -45,13 +45,18 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (143 statements, proofs `sorry`, imported by nothing) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (158 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs` and `Manual/*` for the top theorems) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
   pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
   `Ops/*` one def per manual page, `Operation`, `Cycle` (`InstructionTime`), `Choices` (`modelImpl`/`modelOracle` pins)). It may import
   only `Word`, `Types` (W32/VAddr/PAddr), `Instruction` (constructor names), `FpOps` rounding core; enforced by gate step 1.
-  `Semantics/Refine/` = proofs that `step` refines it (`Abs.lean` `abs : State → Manual.Arch`, `Bridge`, `Fetch`, `<Family>.lean` `<ctor>_refines`).
+  `Semantics/Refine/` = proofs that `step` refines it: `Defs.lean` (`abs : State → Manual.Arch`, `Good`, `Inv` — trusted definitions),
+  `Abs`/`Bridge*`/`Fetch` plumbing, `<Family>.lean` `<ctor>_refines` (all 183), `Instr.lean` (`allInstrRefines`), `Cycle` (non-instruction
+  paths), `Decode` (`decoderSound_decode`), `Invariant` (`step_preserves_inv`), `Step.lean` (TOP: `step_eq_manual`, `run_refines_manual`),
+  `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`);
+  `Manual/Relation.lean` = `Step`/`Oracle.Valid` (§1.2.1 limits incl. non-interference, §1.2.2 UNDEFINED, QNaN)/`UnpredictableLimits`/
+  `ConsultsOracle`/exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`, `Impl.Valid` (`modelImpl_valid`).
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
   `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).
@@ -59,9 +64,10 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   comparator arrangement), `docs/TRACE.md` (GENERATED), `docs/AUDIT.md`, `docs/spec/{INSTRUCTION-REF,SPEC-NOTES,MIPS-COVERAGE-GAPS}.md`,
   `docs/spec/manuals/` (lookup tool `mipsdoc.py`, see its `AGENTS.md`). `scripts/` gate, oracle, trace (`scripts/README.md`).
 - Trusted surface changes need explicit owner-visible mention: the model files, `comparator.json`, `lakefile.toml`, `Checked.lean`,
-  the statements in `Statements.lean`, everything in `Semantics/Manual/`, and `Refine.abs`.
+  the statements in `Statements.lean`, everything in `Semantics/Manual/` (incl. the `Choices.lean` pins), and `Semantics/Refine/Defs.lean`.
 - Per-instruction `_spec_raw` theorems restate what `step` computes (proved by `rfl`-style scripts); they are NOT independent of
-  `Step.lean`. Do not describe them as a correctness proof (README, "What is proved, what is tested, what is trusted").
+  `Step.lean`. Do not describe them as a correctness proof (README, "What is proved, what is tested, what is trusted"). The independent correctness
+  result is `step_eq_manual` (step refines the manual transcription in `Semantics/Manual/`, for every state satisfying `Refine.Inv`).
 
 ## Oracle directives (`# oracle: ...` comments in `tests/oracle/*.asm`; full table in `scripts/README.md`)
 `expect-deviation <field> <manual citation>` QEMU differs from the manual (manual wins; a stale declaration fails);

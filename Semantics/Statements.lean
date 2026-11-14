@@ -1760,18 +1760,25 @@ theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
 
 /-- **Where the manual makes no choice, `step` is the only behaviour it allows**: from a state of
 the invariant at which `Manual.ChoiceFree` holds (no interrupt, no exception other than Coprocessor
-Unusable, no UNPREDICTABLE encoding, no CTI in a delay slot, and an instruction whose Operation
-consults no oracle field; a conservative test), every next state the manual allows is
+Unusable, no UNPREDICTABLE encoding past the coprocessor-usability check, no CTI in a delay slot, and
+an Operation that reaches no oracle choice whose value can change the result, `Manual.ConsultsOracle`:
+e.g. a load or store while `LLbit = 0`, `DIV` by a nonzero divisor, a double FP operation on even
+registers and no quiet-NaN operand of `ABS`/`NEG`/`CVT`), every next state the manual allows is
 `abs (step s)`. -/
 theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
     (h : Manual.ChoiceFree Manual.modelImpl decode (Refine.abs s) = true) (a' : Manual.Arch)
     (h' : Manual.Step Manual.modelImpl decode (Refine.abs s) a') : a' = Refine.abs (step s) := by
   sorry
 
-/-- **The model's choices are within the manual's limits**: every outcome of `Manual.modelOracle`
-satisfies `Manual.Oracle.Valid` (an UNPREDICTABLE outcome is an exception, `proceed`, or a state
-within `Manual.UnpredictableLimits`, which formalizes two of the three restrictions of MD00086
-Vol II-A Rev 6.06 §1.2.1, p.3-4). This makes `Manual.Step` in `step_refines_manual` meaningful. -/
+/-- **The model's choices are within the manual's limits**: `Manual.modelOracle` satisfies
+`Manual.Oracle.Valid`, which formalizes the three restrictions on UNPREDICTABLE operations of MD00086
+Vol II-A Rev 6.06 §1.2.1 (p.3-4): every UNPREDICTABLE outcome is an exception, `proceed`, or a state
+within `Manual.UnpredictableLimits` (no change to the state inaccessible in the current mode, no entry
+into the lower power mode), and in User Mode every UNPREDICTABLE outcome and value is
+non-interfering (`Manual.NIOutcome`, `Manual.NIValue`: it does not depend on the state inaccessible in
+that mode); the UNDEFINED outcomes do not hang the processor (§1.2.2, p.4); the QNaN choices of
+`CVT.D.S`/`CVT.S.D` are quiet NaNs (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82); a Reset changes
+registers only. This makes `Manual.Step` in `step_refines_manual` meaningful. -/
 theorem modelOracle_valid : Manual.modelOracle.Valid := by
   sorry
 
@@ -1781,6 +1788,22 @@ statement about the specification alone. -/
 theorem manual_step_deterministic (i : Manual.Impl) (dec : W32 → Option Instruction)
     (a a₁ a₂ : Manual.Arch) (h : Manual.ChoiceFree i dec a = true) (h₁ : Manual.Step i dec a a₁)
     (h₂ : Manual.Step i dec a a₂) : a₁ = a₂ := by
+  sorry
+
+/-- **An interrupt is a real choice of the manual** (the other direction of `ChoiceFree`, for the
+interrupt case): when an interrupt is taken, two valid resolutions of the manual's choices give
+different instruction times (`Cause.CE` "is loaded, but not defined", MD00090 Vol III Rev 6.02 §6.2.3,
+p.87). -/
+theorem interrupt_choice_exists (i : Manual.Impl) (dec : W32 → Option Instruction) (a : Manual.Arch)
+    (h : Manual.InterruptTaken i a = true) :
+    ∃ o₁ o₂ : Manual.Oracle, o₁.Valid ∧ o₂.Valid ∧
+      Manual.InstructionTime i o₁ dec a ≠ Manual.InstructionTime i o₂ dec a := by
+  sorry
+
+/-- **The model's implementation constants are valid**: of this profile (`Manual.Impl.WF`) and with
+`RECIP.fmt` within 1 ULP of the IEEE-mandated representation of `1.0 / fs` (MD00086 Vol II-A Rev
+6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`). -/
+theorem modelImpl_valid : Manual.modelImpl.Valid := by
   sorry
 
 /-- **The model's decoder is sound for the manual's encodings**: whatever `decode` returns for a

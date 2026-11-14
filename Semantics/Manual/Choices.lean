@@ -92,7 +92,7 @@ structure Impl where
   the both the exact result and the IEEE-mandated representation of the exact result by no more than
   one unit in the least-significant place (ULP). It is implementation dependent whether the result
   is affected by the current rounding mode in FCSR" (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336).
-  The 1-ULP bound is a constraint on this field that the spec states here but does not formalize. -/
+  The 1-ULP bound against the IEEE-mandated representation is `Impl.RecipAccurate`. -/
   recipS : Mips.Fp.Env → W32 → W32 × Mips.Fp.Flags
   /-- `RECIP.D`, as `recipS` (RECIP.fmt, p.336). -/
   recipD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
@@ -101,7 +101,7 @@ structure Impl where
   IEEE-mandated representation of the exact result by no more than two units in the
   least-significant place (ULP). The effect of the current FCSR rounding mode on the result is
   implementation dependent" (MD00086 Vol II-A Rev 6.06, RSQRT.fmt, p.343). The 2-ULP bound is a
-  constraint the spec states here but does not formalize. -/
+  constraint the spec states here but does not formalize (`Impl.RecipAccurate` says why). -/
   rsqrtS : Mips.Fp.Env → W32 → W32 × Mips.Fp.Flags
   /-- `RSQRT.D`, as `rsqrtS` (RSQRT.fmt, p.343). -/
   rsqrtD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
@@ -231,7 +231,7 @@ structure Oracle where
   delivered, a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible,
   this QNaN result is one of the operand QNaN values" (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82): a
   single QNaN is not a double, so which double QNaN is delivered is not fixed by the manual. The
-  value must be a double QNaN; no exception is signalled ("QNaN operands do not cause arithmetic
+  value must be a double QNaN (`Manual.QNaNValid`, part of `Oracle.Valid`); no exception is signalled ("QNaN operands do not cause arithmetic
   operations to signal an exception", p.82). -/
   cvtQNaNToD : W32 → BitVec 64
   /-- The QNaN that `CVT.S.D` delivers for a QNaN operand (as `cvtQNaNToD`, §6.3.1.5, p.82). -/
@@ -258,6 +258,36 @@ def Impl.WF (i : Impl) : Prop :=
   i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5
 
 instance (i : Impl) : Decidable i.WF := by unfold Impl.WF; infer_instance
+
+/-- **The distance in units in the last place** between two single-precision values: the number of
+steps between them in the order of the representable values (`Mips.Fp.Format.orderKey`: adjacent
+finite values of one sign differ by 1, `+0` and `-0` are both 0). -/
+def ULPDistS (x y : W32) : Nat :=
+  (Mips.Fp.Format.orderKey Mips.Fp.binary32 x.toNat - Mips.Fp.Format.orderKey Mips.Fp.binary32 y.toNat).natAbs
+
+/-- `ULPDistS` for double precision. -/
+def ULPDistD (x y : BitVec 64) : Nat :=
+  (Mips.Fp.Format.orderKey Mips.Fp.binary64 x.toNat - Mips.Fp.Format.orderKey Mips.Fp.binary64 y.toNat).natAbs
+
+/-- **The accuracy of `RECIP.fmt`** (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336): "The computed
+result differs from the both the exact result and the IEEE-mandated representation of the exact result
+by no more than one unit in the least-significant place (ULP)." Formalized against the IEEE-mandated
+representation, which is the IEEE core's correctly rounded `1.0 / fs` under the same environment
+(`Mips.Fp.f32Div`/`f64Div`, shared with the model): wherever that is a finite value, the
+implementation's result is finite and at most 1 ULP from it. The bound against the exact (real) result
+and the 2-ULP bound of `RSQRT.fmt` (p.343) need a real-number view of `1/x` and `1/sqrt(x)` that the IEEE
+core does not have; they are not formalized. -/
+def Impl.RecipAccurate (i : Impl) : Prop :=
+  (∀ e x, Mips.Fp.binary32.isFinite (Mips.Fp.f32Div e 0x3F800000#32 x).1.toNat = true →
+    Mips.Fp.binary32.isFinite (i.recipS e x).1.toNat = true ∧
+      ULPDistS (i.recipS e x).1 (Mips.Fp.f32Div e 0x3F800000#32 x).1 ≤ 1) ∧
+  (∀ e x, Mips.Fp.binary64.isFinite (Mips.Fp.f64Div e 0x3FF0000000000000#64 x).1.toNat = true →
+    Mips.Fp.binary64.isFinite (i.recipD e x).1.toNat = true ∧
+      ULPDistD (i.recipD e x).1 (Mips.Fp.f64Div e 0x3FF0000000000000#64 x).1 ≤ 1)
+
+/-- **A valid implementation**: of this profile (`Impl.WF`) and with the accuracy the pages require
+(`Impl.RecipAccurate`). -/
+def Impl.Valid (i : Impl) : Prop := i.WF ∧ i.RecipAccurate
 
 /-- **The model's implementation constants** (SPEC-NOTES §9, the pins listed there): `Count` + 1 per
 instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_8580`
@@ -342,5 +372,12 @@ def modelOracle : Oracle where
 
 /-- `modelImpl` is an implementation of this profile. -/
 theorem modelImpl_WF : modelImpl.WF := by decide
+
+/-- `modelImpl`'s `RECIP` is the correctly rounded `1.0 / fs`: 0 ULP from the IEEE-mandated result. -/
+theorem modelImpl_recipAccurate : modelImpl.RecipAccurate :=
+  ⟨fun _ _ h => ⟨h, by simp [ULPDistS, modelImpl]⟩, fun _ _ h => ⟨h, by simp [ULPDistD, modelImpl]⟩⟩
+
+/-- `modelImpl` is a valid implementation. -/
+theorem modelImpl_valid : modelImpl.Valid := ⟨modelImpl_WF, modelImpl_recipAccurate⟩
 
 end Manual

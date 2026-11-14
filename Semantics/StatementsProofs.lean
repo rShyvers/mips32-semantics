@@ -1165,6 +1165,15 @@ theorem manual_step_deterministic (i : Manual.Impl) (dec : W32 → Option Instru
     (h₂ : Manual.Step i dec a a₂) : a₁ = a₂ :=
   _root_.Refine.manual_step_deterministic i dec a a₁ a₂ h h₁ h₂
 
+theorem interrupt_choice_exists (i : Manual.Impl) (dec : W32 → Option Instruction) (a : Manual.Arch)
+    (h : Manual.InterruptTaken i a = true) :
+    ∃ o₁ o₂ : Manual.Oracle, o₁.Valid ∧ o₂.Valid ∧
+      Manual.InstructionTime i o₁ dec a ≠ Manual.InstructionTime i o₂ dec a :=
+  _root_.Refine.interrupt_choice_exists i dec a h
+
+theorem modelImpl_valid : Manual.modelImpl.Valid :=
+  _root_.Manual.modelImpl_valid
+
 theorem decoderSound_decode : Manual.DecoderSound decode :=
   _root_.Refine.decoderSound_decode
 

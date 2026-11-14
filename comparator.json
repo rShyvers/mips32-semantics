@@ -151,6 +151,8 @@
     "Trusted.step_unique_of_choiceFree",
     "Trusted.modelOracle_valid",
     "Trusted.manual_step_deterministic",
+    "Trusted.interrupt_choice_exists",
+    "Trusted.modelImpl_valid",
     "Trusted.decoderSound_decode",
     "Trusted.resetException_refines_manual",
     "Trusted.resetState_refines_manual",

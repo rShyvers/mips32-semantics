@@ -57,15 +57,15 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1823 lines) states **156 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (1823 lines) states **158 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
-each by the real theorem of the same name in `Semantics/Specs/` (the last 13: in `Semantics/Refine/`). `lake comparator` (config: `comparator.json`)
+each by the real theorem of the same name in `Semantics/Specs/` (the last 15: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Manual/Choices.lean`). `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements), the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 13 refinement statements, the manual specification
-`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`). The 156 statements are a
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 15 refinement statements, the manual specification
+`Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`). The 158 statements are a
 selection: every global theorem below and at least one per-instruction statement per family. The arrangement and
 its limits are in `docs/PROOF-NOTES.md`.
 
@@ -95,13 +95,30 @@ With it, on the trusted surface: `step_refines_manual` (`step` is a `Manual.Step
 diagrams), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
 `step_preserves_inv`). So a mistake in `Step.lean` survives only if the same mistake is in the independent
 transcription, or in what is trusted below. Limits, stated plainly:
-- `Manual.ChoiceFree` is conservative: it is `false` for every instruction outside a fixed list (`OracleFreeOp`), at
-  every exception other than Coprocessor Unusable and at every interrupt, so `step_unique_of_choiceFree` says
-  nothing at those states; there `step` is only shown to be *one* allowed behaviour.
-- `Manual.UnpredictableLimits` formalizes two of the three restrictions on UNPREDICTABLE operations of MD00086
-  Vol II-A Rev 6.06 §1.2.1 (p.3-4): no access to kernel-only state from User Mode, no entry into the lower power mode;
-  "must not depend on inaccessible data" is a property of the oracle as a function and is not formalized; the
-  "must be a QNaN" constraint of the convert oracle fields is not formalized either.
+- `Manual.ChoiceFree` decides where the manual leaves a choice that can change the result: `false` at an
+  interrupt and at every exception other than Coprocessor Unusable (`Cause.CE` "is loaded, but not
+  defined"), at a CTI in a delay slot, at a word with an UNPREDICTABLE field whose coprocessor is
+  usable, and where the Operation reaches an oracle choice (`Manual.ConsultsOracle`: a load or store
+  while `LLbit = 1`, `DIV`/`DIVU` by zero, `MUL`, an odd FPR used as a double on the path taken, a quiet
+  NaN operand of `ABS`/`NEG`/`CVT.D.S`/`CVT.S.D` and a quiet-NaN sum in `NMADD`/`NMSUB`, `CFC1` of a missing
+  register into `rt ≠ 0`, the UNPREDICTABLE arms of `CTC1`/`EXT`/`INS`, `rs = 31` links, `JALR rs = rd`,
+  an MTC0/MFC0 of a missing register, an `EBase` write with `BEV = 0`). Soundness (`ChoiceFree` ⇒ every
+  valid oracle gives the same instruction time) is proved for all 183 instructions
+  (`Refine/ChoicePoints.lean`, `manual_step_deterministic`). The other direction (`ChoiceFree = false` ⇒
+  two valid oracles differ) is proved for interrupts (`interrupt_choice_exists`) and, at the level of
+  the exception processing, for every exception other than Coprocessor Unusable (`gep_causeCE_choice`);
+  for the `ConsultsOracle` rows it is argued in that definition's docstring, not proved.
+- `Manual.Oracle.Valid` formalizes the three restrictions on UNPREDICTABLE operations of MD00086 Vol II-A
+  Rev 6.06 §1.2.1 (p.3-4): no dependence on the state inaccessible in the current mode (non-interference,
+  `NIValue`/`NIOutcome`), no change to that state (`UnpredictableLimits`), no entry into the lower power
+  mode (a one-step reading of "must not halt or hang"); the one restriction on UNDEFINED operations
+  (§1.2.2, p.4); and quiet-NaN results for the QNaN choices of `CVT` (MD00082 §6.3.1.5, p.82). Not
+  formalized: "when possible, this QNaN result is one of the operand QNaN values" (p.82), and
+  `causeCE`/`storeClearsLL`/`loadClearsLL`, which the manual leaves open without these restrictions.
+- `Manual.Impl.Valid` (`modelImpl_valid`) formalizes `RECIP.fmt`'s bound against the IEEE-mandated
+  representation (1 ULP of the IEEE core's correctly rounded `1.0 / fs`, RECIP.fmt p.336); the bound
+  against the exact real result and `RSQRT.fmt`'s 2-ULP bound (p.343) are not formalized (the IEEE core
+  has no real-number view of `1/sqrt(x)`).
 - The environment layer (`Env.lean`: loader, hosted services, stopping conventions) is outside `step` and outside
   the theorem; `inv_load` only says the loader's start state satisfies the invariant.
 
@@ -126,7 +143,7 @@ The results that are genuinely global, or independent of how an individual instr
 
 | Result | Where | In the trusted surface |
 |---|---|---|
-| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/Decode.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
+| `step` refines the independent manual transcription (every path, all 183 instructions); `run` likewise; the model's choices are valid; uniqueness at choice-free states; an interrupt is a real choice; Reset; the invariant | `Refine/Step.lean`, `Refine/Determinism.lean`, `Refine/ChoicePoints.lean`, `Refine/Decode.lean`, `Manual/Choices.lean` | `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree`, `modelOracle_valid`, `manual_step_deterministic`, `interrupt_choice_exists`, `modelImpl_valid`, `decoderSound_decode`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load` |
 | `decode (encode i) = some i` for every constructor, under `WellFormed` | `Specs/DecodeSpec.lean` | `decode_encode` |
 | `$zero` is unchanged by every `step`, every `run` and every hosted run; a write to `$zero` is never observable | `Specs/Invariants.lean`, `Specs/Hosted.lean` | `step_preserves_zero_register`, `run_preserves_zero_register`, `run_initialState_zero_register`, `zero_write_not_observable`, `runHosted_preserves_zero_register` |
 | register files keep size 32 under `step`; `run` from `initialState` is well-formed | `Specs/RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed` |
@@ -164,19 +181,23 @@ order equals the order of the rational values is tested, not proved (`FpCompareF
   uses endian-invariant patterns and covers the original instruction subset best (SPEC-NOTES §9).
 - *QEMU* (`qemu-system-mips -M malta -cpu 24Kf`, `tests/oracle`, `scripts/oracle.py`): the same machine code at the
   same addresses runs on QEMU and on the model, and registers, `HI`/`LO`, FPRs, FCSR, CP0 state, memory, output and
-  termination are compared. The last gate run (`.gate/last-run.json`) reports 150 tests (141 programs in
-  `tests/oracle`, 9 programs of `tests/asm`): 140 pass, 10 are **declared deviations where QEMU departs
-  from the manual** (the manual wins), 0 known model bugs, 5 skipped (unsupported by the harness). The deviations, with the citations from the tests'
-  own `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the table):
-  misaligned `sc` (MD00086 Vol II-A Rev 6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`, QEMU performs
-  the access (LWXC1 p.254, LDXC1 p.218, SWXC1 p.406, SDXC1 p.364); `FCSR.FS` flush leaves Underflow/Inexact clear
-  (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102); `abs`/`neg` of a signaling NaN does not signal Invalid (MD00086
-  ABS.fmt p.32, NEG.fmt p.307; two tests); Inexact set with an enabled Overflow trap (MD00082 §6.7.2.6, p.102); `rdhwr 29` in Kernel Mode returns a
-  value although QEMU's Config3 reads 0, so UserLocal is not implemented (MD00086 RDHWR p.333; MD00090 Vol III
-  Rev 6.02 §9.11, p.143).
-  Not covered: EBase relocation, `Status.ERL` writes, interrupts, `wait`.
+  termination are compared. The last full gate run (`.gate/last-run.json`, step 7) reports 159 tests (`tests/oracle`
+  plus the `tests/asm` programs the harness can run): 142 pass, 17 are **declared deviations where QEMU departs
+  from the manual** (the manual wins), 0 known model bugs, 5 skipped (unsupported by the harness). The deviations
+  carry their citations in the tests' own `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the
+  table): misaligned `sc` (MD00086 Vol II-A Rev 6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`,
+  QEMU performs the access (LWXC1 p.254, LDXC1 p.218, SWXC1 p.406, SDXC1 p.364); `FCSR.FS` flush leaves
+  Underflow/Inexact clear (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102); `abs`/`neg` of a NaN does not signal
+  Invalid (MD00086 ABS.fmt p.32, NEG.fmt p.307); Inexact set with an enabled Overflow trap (MD00082 §6.7.2.6,
+  p.102); `madd`/`msub`/`nmadd`/`nmsub` fused by QEMU where the manual says "as if separate floating-point"
+  operations "were executed" (MADD.fmt p.256, MSUB p.287, NMADD p.308, NMSUB p.310; seven tests); `rdhwr 29` in
+  Kernel Mode returns a value although QEMU's Config3 reads 0, so UserLocal is not implemented (MD00086 RDHWR
+  p.333; MD00090 Vol III Rev 6.02 §9.11, p.143); and the legacy NaN of `tests/asm/fp_legacy_nan` (declared in
+  `scripts/oracle.py`).
+  Not covered: EBase relocation, `Status.ERL` writes. Interrupts and `wait` are covered by the `irq_*` programs
+  (bare, with their own `.ktext` handlers).
 - *LLVM encoding oracle* (`llvm-mc -triple=mips-unknown-elf -mcpu=mips32r2`): the assembler's output is compared
-  word for word on 602 forms (`tests/oracle/encodings.list`): 589 identical, 13 declared differences (our
+  word for word on 609 forms (`tests/oracle/encodings.list`): 592 identical, 17 declared differences (our
   `li`/`la`/`move`/`abs` expansions follow MARS/SPIM).
 
 **(f) What is trusted.** Lean and its kernel; the three standard axioms; the manuals *as read by the authors*
@@ -294,7 +315,7 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 156 trusted theorem names, challenge and solution modules
+comparator.json                the 158 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
 Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
@@ -306,7 +327,7 @@ Semantics/Manual/              the independent transcription of the manuals (Arc
                                Exceptions, Interrupts, Timer, Reset, Encoding, Ops/<Family>, Operation, Cycle, Relation)
 Semantics/Refine/              the refinement of Manual by step: Defs (abs, Inv), bridges, one file per family
                                (<ctor>_refines), Cycle, Decode, Invariant, Instr (allInstrRefines), Step, Determinism
-Semantics/Statements.lean      the trusted surface (156 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (158 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs and Refine
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables
