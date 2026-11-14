@@ -38,7 +38,8 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
 - Model (definitions only, tests are elsewhere): `Semantics/Word.lean`, `Types.lean` (`State` incl. `hwInt` = environment-driven HW5..HW0 lines, never written by `step`, `standby` after WAIT, and `nullified` = the next instruction time is a nullified branch-likely delay slot; `Program`, `VAddr`/`PAddr`), `State.lean`
   (accessors, Kernel/User Mode, the Fixed Mapping MMU `translate`, the six memory-access functions on physical `physMem`), `Instruction.lean` (`Instruction`, strict `decode`, `encode`), `FpOps.lean` (FPU on
   bit patterns, no host floats; `FpOpsSpec.lean` = IEEE 754 reference definition written from MD00082 ch.6 (trusted), `FpOpsCorrect*.lean` =
-  proofs that `roundCore` and add/sub/mul/div/sqrt meet it, plus RECIP/RSQRT error bounds), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `nullifiedStep` for a nullified delay slot, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
+  proofs that `roundCore`, add/sub/mul/div/sqrt (all operands), conversions, compares, ABS/NEG, the FCSR update and
+  the MADD family meet it, plus RECIP/RSQRT error bounds), `Step.lean` (`step : State → State` = `timerTick ∘ stepCore`: interrupt if `interruptTaken`, else standby step after WAIT, else `nullifiedStep` for a nullified delay slot, else `execute`; `executesInstr` names the third case; `run`, exception model, CP0 access, `resetException`/`resetState`). `Env.lean`: the environment, NOT the
   architecture (`load` by physical address `loadAddr`, `bootConvention`, `hostedStart`, `HaltReason`, hosted services, `runHosted`). `Asm.lean` assembler (tested, not proved).
   `Semantics.lean`/`Checked.lean` roots
 
@@ -46,7 +47,7 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (175 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (211 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
   pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
@@ -67,7 +68,8 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   comparator arrangement), `docs/TRACE.md` (GENERATED), `docs/AUDIT.md`, `docs/spec/{INSTRUCTION-REF,SPEC-NOTES,MIPS-COVERAGE-GAPS}.md`,
   `docs/spec/manuals/` (lookup tool `mipsdoc.py`, see its `AGENTS.md`). `scripts/` gate, oracle, trace (`scripts/README.md`).
 - Trusted surface changes need explicit owner-visible mention: the model files, `comparator.json`, `lakefile.toml`, `Checked.lean`,
-  the statements in `Statements.lean`, everything in `Semantics/Manual/` (incl. the `Choices.lean` pins), and `Semantics/Refine/Defs.lean`.
+  the statements in `Statements.lean`, everything in `Semantics/Manual/` (incl. the `Choices.lean` pins), `Semantics/Refine/Defs.lean`,
+  and `Semantics/FpOpsSpec.lean` (the IEEE/FP reference definitions the FP theorems are stated against).
 - Per-instruction `_spec_raw` theorems restate what `step` computes (proved by `rfl`-style scripts); they are NOT independent of
   `Step.lean`. Do not describe them as a correctness proof (README, "What is proved, what is tested, what is trusted"). The independent correctness
   result is `step_eq_manual` (step refines the manual transcription in `Semantics/Manual/`, for every state satisfying `Refine.Inv`).
