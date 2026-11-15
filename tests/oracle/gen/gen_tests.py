@@ -37,8 +37,12 @@ class T:
         if exit: o += ["li $v0, 10", "syscall"]
         open(os.path.join(OUT, s.name + ".asm"), "w").write("\n".join(o) + "\n")
 
-S_NAN_Q, S_NAN_S = 0x7fc00000, 0x7fa00000
-D_NAN_Q, D_NAN_S = (0x7ff80000, 0), (0x7ff40000, 0)
+# Legacy NaN encoding (FIR.Has2008 = 0): the fraction MSB (b1) = 1 is a SIGNALING NaN, 0 is a QUIET NaN
+# (MD00082 Vol I-A Rev 6.01 Table 6.2, p.80). So 0x7fc00000 / 0x7ff80000_00000000 are SNaNs and
+# 0x7fa00000 / 0x7ff40000_00000000 are QNaNs. (These were named *_NAN_Q / *_NAN_S before, reversed; the generated
+# .asm text, including its titles, is unchanged.)
+S_SNAN, S_QNAN = 0x7fc00000, 0x7fa00000
+D_SNAN, D_QNAN = (0x7ff80000, 0), (0x7ff40000, 0)
 CONDS = ["f","un","eq","ueq","olt","ult","ole","ule","sf","ngle","seq","ngl","lt","nge","le","ngt"]
 
 # ---------------------------------------------------------------- compare predicates
@@ -48,13 +52,13 @@ def gen_cond(fmt):
     t = T("fp_cond_all_" + fmt, "All 16 compare predicates x {1<2, 1=1, 2>1, (1,QNaN), (1,SNaN)} on .%s with a different cc per predicate; the whole FCSR\n"
           "(condition codes + Invalid flag/cause) after each compare is stored to memory." % fmt, cites)
     if fmt == "s":
-        cases = [(f32(1.0), f32(2.0)), (f32(1.0), f32(1.0)), (f32(2.0), f32(1.0)), (f32(1.0), S_NAN_Q), (f32(1.0), S_NAN_S)]
+        cases = [(f32(1.0), f32(2.0)), (f32(1.0), f32(1.0)), (f32(2.0), f32(1.0)), (f32(1.0), S_SNAN), (f32(1.0), S_QNAN)]
         for a, b in cases:
             t.single(0, a); t.single(2, b)
             for i, c in enumerate(CONDS):
                 t.e("ctc1 $zero, $31", "c.%s.s $fcc%d, $f0, $f2" % (c, i % 8), "cfc1 $t0, $31"); t.store("$t0")
     else:
-        cases = [(f64(1.0), f64(2.0)), (f64(1.0), f64(1.0)), (f64(2.0), f64(1.0)), (f64(1.0), D_NAN_Q), (f64(1.0), D_NAN_S)]
+        cases = [(f64(1.0), f64(2.0)), (f64(1.0), f64(1.0)), (f64(2.0), f64(1.0)), (f64(1.0), D_SNAN), (f64(1.0), D_QNAN)]
         for a, b in cases:
             t.double(0, a); t.double(2, b)
             for i, c in enumerate(CONDS):
@@ -106,7 +110,7 @@ def gen_round_d():
           "MD00086 Vol II-A Rev 6.06: ROUND.W.fmt p.342, TRUNC.W.fmt p.441, CEIL.W.fmt p.128, FLOOR.W.fmt p.186; MD00082 Vol I-A Rev 6.01 Table 6.3 p.82 (word fixed point: 0x7fffffff for a NaN / too-big operand).")
     vals = [2.5, -2.5, 1.5, -1.5, 0.5, -0.5, 3.7, -3.7, 1e10, -1e10, float("inf"), None, 2147483648.0, -2147483648.0]
     for v in vals:
-        t.double(0, D_NAN_Q if v is None else f64(v))
+        t.double(0, D_SNAN if v is None else f64(v))
         for op in ("round", "trunc", "ceil", "floor"):
             t.e("ctc1 $zero, $31", "%s.w.d $f4, $f0" % op, "mfc1 $t0, $f4", "cfc1 $t1, $31"); t.store("$t0"); t.store("$t1")
     t.write()
@@ -196,7 +200,7 @@ def gen_traps():
     case(0x200, [(2, mx), (4, mx)], "add.s $f6, $f2, $f4")                        # O
     case(0x100, [(2, f32(1e-30)), (4, f32(1e-30))], "mul.s $f6, $f2, $f4")        # U (tiny*tiny)
     case(0x200, [(2, f32(1.0)), (4, f32(2.0))], "add.s $f6, $f2, $f4")            # no trap
-    case(0xf80, [(2, S_NAN_Q)], "cvt.w.s $f6, $f2")                               # V on NaN conversion
+    case(0xf80, [(2, S_SNAN)], "cvt.w.s $f6, $f2")                               # V on NaN conversion
     t.write(exit=False)
 
 # ---------------------------------------------------------------- Coprocessor Unusable

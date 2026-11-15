@@ -57,16 +57,16 @@ every file under `Semantics/` (comments and strings stripped); the one allow-lis
 `Semantics/Statements.lean` (below), which nothing in `Checked` imports. So there is no `sorry` in anything
 `Checked` imports.
 
-**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (2330 lines) states **211 theorems**
+**(b) The trusted surface for `lake comparator`.** `Semantics/Statements.lean` (2404 lines) states **216 theorems**
 with their proofs elided. `Semantics/StatementsProofs.lean` states the same theorems in the same order and proves
-each by the real theorem of the same name in `Semantics/Specs/` (the 16 refinement statements: in `Semantics/Refine/`, `modelImpl_valid` in `Semantics/Refine/ImplValid.lean`; the 16 wave-10 and 36 wave-11 floating-point statements: in `Semantics/FpOpsCorrect*.lean`). `lake comparator` (config: `comparator.json`)
+each by the real theorem of the same name in `Semantics/Specs/` (the 21 refinement statements: in `Semantics/Refine/`, the five decoder statements of wave 12b through `Refine.decode_*` and `Refine.rejected_consults`, `modelImpl_valid` in `Semantics/Refine/ImplValid.lean`; the 16 wave-10 and 36 wave-11 floating-point statements: in `Semantics/FpOpsCorrect*.lean`). `lake comparator` (config: `comparator.json`)
 checks, for each name, that the solution proves the *same statement* as the challenge, uses no axiom outside the
 three above, and passes the kernel. It does not check that a statement is the right one. To review the project you
 read `Statements.lean`, plus the definitions that it mentions: the model files (`Word`, `Types`, `State`,
 `Instruction`, `FpOps`, `Step`, and `Env` for the hosted-run statements), the statement vocabulary
-`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 16 refinement statements, the manual specification
+`Semantics/Specs/Defs.lean` and `WellFormed.lean`, and, for the 21 refinement statements, the manual specification
 `Semantics/Manual/*` and `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`), and, for the 52 floating-point
-statements, the IEEE 754 and FPU reference `Semantics/FpOpsSpec.lean` (see (d)). The 211 statements are a
+statements, the IEEE 754 and FPU reference `Semantics/FpOpsSpec.lean` (see (d)). The 216 statements are a
 selection: every global theorem below and at least one per-instruction statement per family. The arrangement and
 its limits are in `docs/PROOF-NOTES.md`.
 
@@ -74,9 +74,23 @@ its limits are in `docs/PROOF-NOTES.md`.
 transcribes the manuals' pseudocode (each Operation copied from its instruction page and cited, the exception,
 interrupt, timer and reset processing of Vol III, the instruction diagrams as `Manual.enc`) into an executable
 specification `Manual.InstructionTime`, written independently of the model: it names no definition of
-`Step.lean`/`State.lean` and shares with the model only the words, the `Instruction` names and the IEEE rounding core
-of `FpOps.lean` with its `Flags` type and fields (gate step 1 checks the imports and names, `scripts/manual_independence.py`). Since wave 10 that shared
-core is itself proved correct against the IEEE 754 definition the manual references (see (d)). The theorem
+`Step.lean`/`State.lean`. It shares with the model exactly the items the environment-level allow-list of
+`scripts/ManualIndependence.lean` declares (gate step 1: the import/name scan `scripts/manual_independence.py` and
+the walk over the elaborated environment `scripts/manual_deps.py`): the words (`W32`, `VAddr`, `PAddr`); the
+`Instruction` type, as names and fields only (not `decode`, `encode` or the CP0 register table); and from `FpOps.lean`
+(the `Mips.Fp.*` names) the IEEE core: the correctly rounded `f32`/`f64` `Add`, `Sub`, `Mul`, `Div`, `Sqrt`,
+`f32Relation`/`f64Relation` and the conversions `f32ToF64`, `f64ToF32`, `f32ToW32`, `f64ToW32`, `w32ToF32`, `w32ToF64F`;
+the formats (`Format`, `binary32`, `binary64`, `isFinite`, `orderKey`) and `FpRel`; the NaN classifiers `isQNaN32/64`,
+`isSNaN32/64` and the default NaNs `defaultQNaN32/64`; and the FCSR helpers `Env` (`RN`, `flush`, `rm`), `Flags`
+(`none`, `invalidOnly`, `or`, `toBits`, the five field projections) and the two FCSR-to-environment decoders
+`RoundingMode.ofBits` and `Flags.ofBits`. Not shared: `fpUpdate`, `envOf`, the model's sign operations, the
+`Format.is*` classifiers (the spec classifies encodings by its own Table 6.2 transcription). The two decoders are
+shared, not independently transcribed: they are correct by MD00082 Vol I-A Rev 6.01 Table 6.8 (FCSR fields, p.94-95), Table 6.9
+(Cause/Enables/Flags bit order I, U, O, Z, V, p.95) and Table 6.10 (RM encodings, p.95), as read by the authors, and
+nothing machine-checks that reading. Since wave 10 the rounding core is itself proved correct against the IEEE 754
+definition the manual references (see (d)). Since wave 12b the specification decodes instruction words with its own
+decoder `Manual.Decode`/`Manual.decodeDiagram`, built from the diagrams `Manual.enc`, not with the model's `decode`.
+The theorem
 
 ```lean
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
@@ -93,10 +107,12 @@ delay slot's `I+1` effects and the timer; `resetState_refines_manual` and `reset
 With it, on the trusted surface: `step_refines_manual` (`step` is a `Manual.Step`, a behaviour the manual allows for
 *some* valid resolution of its choices), `modelOracle_valid` (the model's choices are valid), `run_refines_manual`
 (`n` steps), `step_unique_of_choiceFree` and `manual_step_deterministic` (where the manual makes no choice,
-`step` is the only behaviour it allows), `decoderSound_decode` (the model's `decode` is sound for the manual's
-diagrams), and since wave 12b the spec's own decoder `Manual.Decode` (from the diagrams; the top theorems use it)
-with `decode_diagram_sound`/`decode_diagram_complete` and the agreement of `decode` with it
-(`decode_agrees_manual`, `decode_none_manual`), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
+`step` is the only behaviour it allows), all four stated with the spec's own decoder `Manual.decodeDiagram` (no hypothesis
+about the model's `decode`), `decoderSound_decode` (the model's `decode` is sound for the manual's diagrams),
+`decoderSound_decodeDiagram` and `decode_diagram_sound`/`decode_diagram_complete` (the spec's decoder accepts exactly the
+diagram words), the agreement of the model's `decode` with it (`decode_agrees_manual`: where `decode` accepts, the spec's
+decoder gives the same instruction; `decode_none_manual`: where `decode` rejects a diagram word, the Operation reaches
+an oracle choice, i.e. MFC0/MTC0 of an absent CP0 register or EXT/INS out of range), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
 `step_preserves_inv`). So a mistake in `Step.lean` survives only if the same mistake is in the independent
 transcription, or in what is trusted below. Limits, stated plainly:
 - `Manual.ChoiceFree` decides exactly where the manual leaves a choice that can change the result: `false` at an
@@ -131,7 +147,12 @@ transcription, or in what is trusted below. Limits, stated plainly:
   one of the exact result's binade (`Manual.ULP`, the denormalized unit below `2^E_min`). Restrictions, stated
   plainly: the exact-result bounds assume no flushing (FCSR.FS = 0; with FS = 1 a tiny result may become zero, which
   no ULP bound survives) and, for `RECIP`, an exact `1/fs` at most the largest finite number (beyond it the
-  IEEE-mandated representation itself overflows); they constrain finite results only. For the model (`RECIP` =
+  IEEE-mandated representation itself overflows); they constrain finite results only. Since wave 12a `Impl.Valid` also
+  contains `Impl.RecipFlags` (`RecipFlagsOK`): for every environment and operand, a quiet NaN signals nothing, a
+  signaling NaN signals Invalid Operation and not Division by Zero, a zero signals Division by Zero and not Invalid,
+  and any other (non-NaN, nonzero) operand does not signal Division by Zero and signals Invalid exactly for `RSQRT` of a
+  negative operand (that last clause is not required of a subnormal operand when FS = 1, which may be flushed). Left free: Overflow, Underflow, Inexact (they belong
+  to the approximate result) and the QNaN returned for a NaN operand. For the model (`RECIP` =
   `DIV.fmt` of 1.0, `RSQRT` = `SQRT.fmt` then `DIV.fmt`) they are proved from the correctness of the core
   (`Semantics/FpOpsCorrectRecip.lean`, `FpOpsCorrectRsqrt.lean`, in every rounding mode).
 - The environment layer (`Env.lean`: loader, hosted services, stopping conventions) is outside `step` and outside
@@ -231,23 +252,32 @@ found a model bug: `FpOps.lean` is unchanged. Differential `#guard` tests agains
   uses endian-invariant patterns and covers the original instruction subset best (SPEC-NOTES §9).
 - *QEMU* (`qemu-system-mips -M malta -cpu 24Kf`, `tests/oracle`, `scripts/oracle.py`): the same machine code at the
   same addresses runs on QEMU and on the model, and registers, `HI`/`LO`, FPRs, FCSR, CP0 state, memory, output and
-  termination are compared. The last full gate run (`.gate/last-run.json`, step 7) reports 159 tests (`tests/oracle`
-  plus the `tests/asm` programs the harness can run): 142 pass, 17 are **declared deviations where QEMU departs
-  from the manual** (the manual wins), 0 known model bugs, 5 skipped (unsupported by the harness). The deviations
-  carry their citations in the tests' own `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the
-  table): misaligned `sc` (MD00086 Vol II-A Rev 6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`,
-  QEMU performs the access (LWXC1 p.254, LDXC1 p.218, SWXC1 p.406, SDXC1 p.364); `FCSR.FS` flush leaves
-  Underflow/Inexact clear (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102); `abs`/`neg` of a NaN does not signal
-  Invalid (MD00086 ABS.fmt p.32, NEG.fmt p.307); Inexact set with an enabled Overflow trap (MD00082 §6.7.2.6,
-  p.102); `madd`/`msub`/`nmadd`/`nmsub` fused by QEMU where the manual says "as if separate floating-point"
-  operations "were executed" (MADD.fmt p.256, MSUB p.287, NMADD p.308, NMSUB p.310; seven tests); `rdhwr 29` in
-  Kernel Mode returns a value although QEMU's Config3 reads 0, so UserLocal is not implemented (MD00086 RDHWR
-  p.333; MD00090 Vol III Rev 6.02 §9.11, p.143); and the legacy NaN of `tests/asm/fp_legacy_nan` (declared in
-  `scripts/oracle.py`).
-  Not covered: EBase relocation, `Status.ERL` writes. Interrupts and `wait` are covered by the `irq_*` programs
+  termination are compared. The last full gate run (`.gate/last-run.json`, step 7) reports 164 tests (`tests/oracle`
+  plus the `tests/asm` programs the harness can run): 148 pass, 16 are **declared deviations where QEMU departs
+  from the manual** (the manual wins), 0 known model bugs, 5 skipped (unsupported by the harness); every one of the
+  183 constructors has a QEMU-oracle test (the table below). The deviations carry their citations in the tests' own
+  `# oracle: expect-deviation` directives (`SPEC-NOTES.md` §10 has the table): misaligned `sc` (MD00086 Vol II-A Rev
+  6.06, SC, p.349); misaligned `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`, QEMU performs the access (LWXC1 p.254, LDXC1 p.218,
+  SWXC1 p.406, SDXC1 p.364); `FCSR.FS` flush leaves Underflow/Inexact clear (MD00082 Vol I-A Rev 6.01 §6.7.2.4,
+  p.102); `abs`/`neg` of a NaN does not signal Invalid (MD00086 ABS.fmt p.32, NEG.fmt p.307); `abs`/`neg` of a
+  non-NaN operand keeps `Cause.I` of an earlier operation, while the model clears Cause as for every arithmetic
+  operation (`fp_abs_neg_clear_cause`; ABS.fmt p.32, NEG.fmt p.307, MD00082 §6.7.1 p.99); Inexact set with an enabled
+  Overflow trap (MD00082 §6.7.2.6, p.102); no Underflow trap for an exact tiny result when Underflow is enabled
+  (`fp_underflow_enabled_exact`; MD00082 §6.7.2.3, p.101); a NaN operand of `madd`/`msub`/`nmadd`/`nmsub` gives the
+  default QNaN and the negate step signals nothing (`fp_madd_separate_ops`; MD00086 NMADD.fmt p.308, NEG.fmt p.307;
+  MD00082 §6.3.1.5, p.82), and with an enabled Overflow the multiply-add traps with the add's Cause too
+  (`fp_madd_mul_trap`; MADD.fmt p.256, MD00082 Table 6.8 p.94, §6.7.1 p.99); `add`/`sub`/`mul`/`div` with exactly
+  one QNaN operand return the default QNaN instead of the operand QNaN (single-QNaN slots of
+  `fp_nan_propagation_quiet`; MD00082 §6.3.1.5, p.82); an exception in the delay slot of a statically never-taken
+  branch reports `BD = 0` and EPC = the slot (`exc_delay_slot_never_taken_branch`; MD00090 Vol III Rev 6.02 §9.36
+  p.209, §9.38 p.217); `rdhwr 29` in Kernel Mode returns a value although QEMU's Config3 reads 0, so UserLocal is not
+  implemented (MD00086 RDHWR p.333; MD00090 §9.11, p.143); and the legacy NaN of `tests/asm/fp_legacy_nan` (declared in
+  `scripts/oracle.py`). Wave 12a withdrew the earlier multiply-add Cause deviations: QEMU's Cause for an untrapped
+  multiply-add (the union of the steps' conditions) agrees with Table 6.8 and the model.
+  Not covered: EBase relocation (`Status.ERL` writes are covered by `mmu_erl1_kuseg_identity`). Interrupts and `wait` are covered by the `irq_*` programs
   (bare, with their own `.ktext` handlers).
 - *LLVM encoding oracle* (`llvm-mc -triple=mips-unknown-elf -mcpu=mips32r2`): the assembler's output is compared
-  word for word on 609 forms (`tests/oracle/encodings.list`): 592 identical, 17 declared differences (our
+  word for word on 613 forms (`tests/oracle/encodings.list`): 596 identical, 17 declared differences (our
   `li`/`la`/`move`/`abs` expansions follow MARS/SPIM).
 
 **(f) What is trusted.** Lean and its kernel; the three standard axioms; the manuals *as read by the authors*
@@ -256,7 +286,7 @@ model itself). For the refinement result (b′) that is precisely: the `Semantic
 transcription; each Operation cites its page), the choices `Manual.modelImpl`/`Manual.modelOracle` (each a
 documented pin in `SPEC-NOTES.md`, and `modelOracle_valid` checks them against the manual's limits), `Refine.abs` (a
 field-by-field projection) and `Refine.Inv` (established at reset and load and preserved by `step`, so not vacuous),
-and the IEEE rounding core of `FpOps.lean` (`Mips.Fp.f32Add` …, wrapped as `Manual.IEEE.*`), which both sides share;
+and the items of `FpOps.lean` both sides share (the allow-list in (b′): the IEEE rounding core `Mips.Fp.f32Add` …, wrapped as `Manual.IEEE.*`, the formats, NaN classifiers and default NaNs, and the FCSR helpers `Env`, `Flags`, `RoundingMode.ofBits`, `Flags.ofBits`; the two decoders are correct by Tables 6.8-6.10 but shared, so a misreading of those tables would be on both sides). The model's `decode` is no longer trusted for the refinement: the spec decodes with `Manual.decodeDiagram`, and `decode_agrees_manual`/`decode_none_manual` relate the two;
 since waves 10 and 11 the core is **proved** against reference definitions (see (d)) for every operation `step` uses
 and every operand, so what remains trusted of floating point is **the definitions in `Semantics/FpOpsSpec.lean`**
 (read them in full: they are the reading of the manual) **and the listed pins** (SPEC-NOTES §9 items 13, 21, 22, 30:
@@ -370,7 +400,7 @@ cannot be regenerated with its manual column.
 ```
 lakefile.toml, lean-toolchain, lake-manifest.json   Lean project files (targets: Semantics, Checked, DiffHarness, EquivHarness, MipsRun)
 Checked.lean, Semantics.lean   library roots; Checked is what `lake check` replays
-comparator.json                the 211 trusted theorem names, challenge and solution modules
+comparator.json                the 216 trusted theorem names, challenge and solution modules
 Semantics/Word, Types, State, Instruction, Asm, FpOps, Step .lean   the model (definitions only)
 Semantics/Env.lean             the environment (loader, hosted services, stopping conventions): not the architecture
 Semantics/FpOpsFacts.lean, FpCompareFacts.lean   kernel-checked facts about FpOps
@@ -384,7 +414,7 @@ Semantics/Manual/              the independent transcription of the manuals (Arc
                                Exceptions, Interrupts, Timer, Reset, Encoding, Ops/<Family>, Operation, Cycle, Relation, Accuracy)
 Semantics/Refine/              the refinement of Manual by step: Defs (abs, Inv), bridges, one file per family
                                (<ctor>_refines), Cycle, Decode, Invariant, Instr (allInstrRefines), Step, Determinism, ImplValid
-Semantics/Statements.lean      the trusted surface (211 statements, proofs elided)
+Semantics/Statements.lean      the trusted surface (216 statements, proofs elided)
 Semantics/StatementsProofs.lean  the same statements, proved from Specs and Refine
 Semantics/Tests/               #guard / example tests for each definition file
 DiffHarness.lean, EquivHarness.lean, MipsRun.lean   executables

@@ -765,9 +765,9 @@ def cop1Mnemonics : List String := cop1Table.map (·.1)
 -- register operands, so they are special-cased alongside `syscall` the
 -- same way throughout this file (`isKnownMnemonic`, `wordsForMnemonic`,
 -- `encodeInstruction`). `sync` (opcode 0, funct 0x0f; real MIPS32 memory-
--- ordering barrier, `docs/spec/MIPS-COVERAGE-GAPS.md` section 3.7) does not
--- carry the `stype` hint field this model omits -- see `Instruction.lean`'s
--- `.sync` docstring.
+-- ordering barrier, `docs/spec/MIPS-COVERAGE-GAPS.md` section 3.7) takes an
+-- optional `stype` operand (bits 10..6, 0..31; `sync` alone is `stype = 0`),
+-- carried by `Instruction.sync` -- see `Instruction.lean`'s `.sync` docstring.
 private def pseudoSet : List String :=
   ["li", "la", "move", "nop", "syscall", "break", "sync", "pref", "di", "ei",
    -- assembler idioms (see `expandIdiom` / `encodeInstruction`)

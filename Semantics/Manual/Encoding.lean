@@ -299,9 +299,13 @@ def InCop2Space (w : W32) : Bool :=
 def fldOf (w : W32) (hi lo : Nat) : Nat := (w.extractLsb' lo (hi + 1 - lo)).toNat
 
 /-- **A word that matches a format diagram in its opcode and function fields but has an
-UNPREDICTABLE value in another field.** Such a word matches no `enc` image (every `enc` line puts
-the defined values there), so the decoder of `Manual.DecoderSound` may return `none` for it; it is
-not "a word that matches no format diagram" either. Its outcome is `Oracle.unpredictableEncoding`
+UNPREDICTABLE value in another field.** With two exceptions such a word matches no `enc` image (the
+`enc` lines put the defined values there), so the decoder of `Manual.DecoderSound` may return `none`
+for it; it is not "a word that matches no format diagram" either. The exceptions are `EXT` with
+`lsb + msbd > 31` and `INS` with `lsb > msb`: their fields `lsb`, `msbd`/`msb` are the instruction's
+own operands, so such a word is an `enc` image of an `ext`/`ins` with out-of-range operands, and the
+spec's decoder `Manual.Decode` returns that instruction (the Operation then reaches
+`Oracle.extOutOfRange`/`insLsbAboveMsb`, wave 12b). Its outcome is `Oracle.unpredictableEncoding`
 (`Manual.FetchExecute`). The cases (MD00086 Vol II-A Rev 6.06, printed page of each diagram):
 
 * **A nonzero unnamed field** ("Fields that contain zeros but are not named are unused fields that

@@ -77,6 +77,12 @@ and say it is a draft when citing. Headings look like `8.3 The sign bit`; printe
 ```
 Cite as `IEEE P754 Draft 1.2.5 (2006-10-04) §8.3 p.44`.
 
+## Text-extraction glyph loss
+`pdftotext` can lose math glyphs such as "≠" and "<" in tables (for example Vol III Table 6.1 p.73 prints
+`IntCtlVS ≠ 0` in its "Not Allowed" row, which the text extraction shows as `0`; that produced a false "the manual
+contradicts itself" claim). Before declaring a manual contradiction, render the page and look at it:
+`pdftoppm -r 90 -f PDFPAGE -l PDFPAGE -png FILE.pdf OUTPREFIX`.
+
 ## Known limits
 - Some instruction pages have no extracted text (image-only in the PDF);
   `insn` says so and gives the page to read in the PDF.
