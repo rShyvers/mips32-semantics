@@ -66,6 +66,12 @@ import Semantics.Manual.Reset
 import Semantics.Manual.Encoding
 import Semantics.Manual.Operation
 import Semantics.Manual.Cycle
+-- 12b: the specification's own decoder and its bridge to `decode`
+import Semantics.Manual.Decode
+import Semantics.Refine.DecodeDiagram
+import Semantics.Refine.DecodeBridge
+import Semantics.Tests.DecodeDiagramTests
+-- end 12b
 import Semantics.Refine.Abs
 import Semantics.Refine.Bridge
 import Semantics.Refine.Fetch

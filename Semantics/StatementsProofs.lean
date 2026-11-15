@@ -1143,22 +1143,22 @@ theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
 /-! ## The refinement of the manual specification (Wave 7D) -/
 
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
-    Manual.InstructionTime Manual.modelImpl Manual.modelOracle decode (Refine.abs s) =
+    Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
       some (Refine.abs (step s)) :=
   _root_.Refine.step_eq_manual s hs
 
 theorem step_refines_manual (s : State) (hs : Refine.Inv s) :
-    Manual.Step Manual.modelImpl decode (Refine.abs s) (Refine.abs (step s)) :=
+    Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) (Refine.abs (step s)) :=
   _root_.Refine.step_refines_manual s hs
 
 theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
-    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle decode n (Refine.abs s) =
+    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle Manual.decodeDiagram n (Refine.abs s) =
       some (Refine.abs (run s n)) :=
   _root_.Refine.run_refines_manual s hs n
 
 theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
-    (h : Manual.ChoiceFree Manual.modelImpl decode (Refine.abs s) = true) (a' : Manual.Arch)
-    (h' : Manual.Step Manual.modelImpl decode (Refine.abs s) a') : a' = Refine.abs (step s) :=
+    (h : Manual.ChoiceFree Manual.modelImpl Manual.decodeDiagram (Refine.abs s) = true) (a' : Manual.Arch)
+    (h' : Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) a') : a' = Refine.abs (step s) :=
   _root_.Refine.step_unique_of_choiceFree s hs h a' h'
 
 theorem modelOracle_valid : Manual.modelOracle.Valid :=
@@ -1186,6 +1186,27 @@ theorem modelImpl_valid : Manual.modelImpl.Valid :=
 
 theorem decoderSound_decode : Manual.DecoderSound decode :=
   _root_.Refine.decoderSound_decode
+
+-- 12b
+theorem decode_diagram_sound (w : W32) (i : Instruction) (h : Manual.Decode w = .instr i) :
+    Manual.enc i = some w :=
+  _root_.Refine.decode_diagram_sound w i h
+
+theorem decode_diagram_complete (i : Instruction) (w : W32) (h : Manual.enc i = some w) :
+    ∃ j, Manual.Decode w = .instr j ∧ Manual.enc j = some w :=
+  _root_.Refine.decode_diagram_complete i w h
+
+theorem decode_agrees_manual (w : W32) (i : Instruction) (h : decode w = some i) :
+    Manual.Decode w = .instr i :=
+  _root_.Refine.decode_agrees w i h
+
+theorem decode_none_manual (w : W32) (h : decode w = none) (i : Instruction)
+    (hi : Manual.Decode w = .instr i) (a : Manual.Arch) : Manual.ConsultsOracle i a = true :=
+  _root_.Refine.rejected_consults i (_root_.Refine.decode_none_rejected w h i hi) a
+
+theorem decoderSound_decodeDiagram : Manual.DecoderSound Manual.decodeDiagram :=
+  _root_.Refine.decoderSound_decodeDiagram
+-- end 12b
 
 theorem resetException_refines_manual (s : State) (h : Refine.StatusImplemented s) :
     Refine.abs (resetException s) = Manual.ResetException Manual.modelOracle (Refine.abs s) :=

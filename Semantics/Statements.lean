@@ -2,6 +2,7 @@ import Semantics.Specs.Defs
 import Semantics.Refine.Defs
 import Semantics.FpOpsSpec
 import Semantics.Manual.Accuracy
+import Semantics.Manual.Decode  -- 12b
 
 /-!
 # Statements — the trusted surface, statements only
@@ -1736,13 +1737,15 @@ manual specification `Manual.InstructionTime` (`Semantics/Manual/`, transcribed 
 pseudocode independently of the model; `docs/MANUAL-SPEC.md`), seen through the projection
 `Refine.abs`. The manual's implementation constants and its UNDEFINED/UNPREDICTABLE choices are
 resolved as the model resolves them (`Manual.modelImpl`, `Manual.modelOracle`, each a pin documented in
-`docs/spec/SPEC-NOTES.md`), and the manual's decoder is the model's `decode` (sound:
-`decoderSound_decode`). It covers every path of the instruction time: interrupt, low-power (WAIT)
+`docs/spec/SPEC-NOTES.md`), and the manual's decoder is the specification's own,
+`Manual.decodeDiagram` (wave 12b: the format diagrams `Manual.enc`, `Manual.Decode`; it is exactly
+the diagrams, `decode_diagram_sound`/`decode_diagram_complete`, and the model's `decode` agrees with
+it, `decode_agrees_manual`/`decode_none_manual`). It covers every path of the instruction time: interrupt, low-power (WAIT)
 standby, nullified delay slot of a branch-likely, fetch errors, undecodable words (Reserved
 Instruction / Coprocessor Unusable), all 183 instructions, the delay-slot `I+1` effects, and the timer
 tick. `docs/MANUAL-SPEC.md` I.5. -/
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
-    Manual.InstructionTime Manual.modelImpl Manual.modelOracle decode (Refine.abs s) =
+    Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
       some (Refine.abs (step s)) := by
   sorry
 
@@ -1750,13 +1753,13 @@ theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
 (`Manual.Step`: an oracle within the limits `Manual.Oracle.Valid`) takes `abs s` to `abs (step s)`.
 `step_eq_manual` with `modelOracle_valid`. -/
 theorem step_refines_manual (s : State) (hs : Refine.Inv s) :
-    Manual.Step Manual.modelImpl decode (Refine.abs s) (Refine.abs (step s)) := by
+    Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) (Refine.abs (step s)) := by
   sorry
 
 /-- **`run s n` is `n` instruction times of the manual** (from a state of the invariant; the
 invariant is preserved, `step_preserves_inv`). -/
 theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
-    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle decode n (Refine.abs s) =
+    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle Manual.decodeDiagram n (Refine.abs s) =
       some (Refine.abs (run s n)) := by
   sorry
 
@@ -1768,8 +1771,8 @@ e.g. a load or store while `LLbit = 0`, `DIV` by a nonzero divisor, a double FP 
 registers and no quiet-NaN operand of `ABS`/`NEG`/`CVT`), every next state the manual allows is
 `abs (step s)`. -/
 theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
-    (h : Manual.ChoiceFree Manual.modelImpl decode (Refine.abs s) = true) (a' : Manual.Arch)
-    (h' : Manual.Step Manual.modelImpl decode (Refine.abs s) a') : a' = Refine.abs (step s) := by
+    (h : Manual.ChoiceFree Manual.modelImpl Manual.decodeDiagram (Refine.abs s) = true) (a' : Manual.Arch)
+    (h' : Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) a') : a' = Refine.abs (step s) := by
   sorry
 
 /-- **The model's choices are within the manual's limits**: `Manual.modelOracle` satisfies
@@ -1827,6 +1830,40 @@ diagrams). So passing `decode` as the manual's decoder in `step_eq_manual` adds 
 manual's diagrams do not have. -/
 theorem decoderSound_decode : Manual.DecoderSound decode := by
   sorry
+
+-- 12b: the specification's own decoder (`Semantics/Manual/Decode.lean`) and the model's against it
+/-- **The specification's decoder is sound for the diagrams**: an instruction `Manual.Decode`
+returns for `w` has the format diagram `w` (`Manual.enc`). -/
+theorem decode_diagram_sound (w : W32) (i : Instruction) (h : Manual.Decode w = .instr i) :
+    Manual.enc i = some w := by
+  sorry
+
+/-- **The specification's decoder is complete for the diagrams**: a word that is the format diagram
+of some instruction (any field values) is decoded to an instruction with that diagram. With
+`decode_diagram_sound`: `Manual.Decode w` is an instruction exactly when `w` matches a diagram. -/
+theorem decode_diagram_complete (i : Instruction) (w : W32) (h : Manual.enc i = some w) :
+    ∃ j, Manual.Decode w = .instr j ∧ Manual.enc j = some w := by
+  sorry
+
+/-- **The model's decoder agrees with the specification's** on every word it accepts. -/
+theorem decode_agrees_manual (w : W32) (i : Instruction) (h : decode w = some i) :
+    Manual.Decode w = .instr i := by
+  sorry
+
+/-- **The model's decoder rejects a diagram word only where the manual leaves the choice open**:
+when `decode` rejects `w` but `Manual.Decode` decodes it to `i`, the Operation of `i` reaches an
+oracle choice from every state (`Manual.ConsultsOracle`: MFC0/MTC0 of a register coprocessor 0 does
+not contain, UNDEFINED, MFC0 p.266, MTC0 p.290; EXT with `lsb + msbd > 31`, INS with `lsb > msb`,
+UNPREDICTABLE, EXT p.183, INS p.193). The model's Reserved Instruction there is `Manual.modelOracle`'s
+resolution of that choice (`step_eq_manual`, `modelOracle_valid`). -/
+theorem decode_none_manual (w : W32) (h : decode w = none) (i : Instruction)
+    (hi : Manual.Decode w = .instr i) (a : Manual.Arch) : Manual.ConsultsOracle i a = true := by
+  sorry
+
+/-- **`Manual.decodeDiagram` is sound** in the sense of `Manual.DecoderSound`. -/
+theorem decoderSound_decodeDiagram : Manual.DecoderSound Manual.decodeDiagram := by
+  sorry
+-- end 12b
 
 /-- **The model's Reset exception is the manual's** (`Manual.ResetException`, MD00090 Vol III
 Rev 6.02 §6.2.5, p.89-90) under the model's choice of the undefined registers, from every state whose
