@@ -13,6 +13,9 @@ run `docs/spec/manuals/fetch.sh` (needs `pdftotext`). Details: `docs/spec/manual
 - Section/register known: `section DOC "Cause Register"` or `section v3 9.36`; browse with `toc DOC REGEX`; `list REGEX`.
 - Concept only: `search "words" [-d v3] [-k 5] [--full]`, then `section`/`page` on the hit.
 - Every mention of a token: `grep REGEX -d v1`. A page by printed number: `page v2 177 -n 2`. Citation line: `cite v3 87`.
+- IEEE 754: `ieee` = IEEE Std 754-2019 (licensed, LOCAL-ONLY, see `docs/spec/manuals/LOCAL-SOURCES.md`; works if
+  `IEEE-754-2019.txt` is installed): `section ieee 6.3`, `search -d ieee "..."`, `page ieee 50`, `cite ieee 50`. `p754` = the
+  public 2006 draft. Never quote more than a sentence or two of 754; never commit or upload the PDF/text.
 - Documents: `v1` Vol I-A 6.01, `v2` Vol II-A 6.06, `v3` Vol III 6.02 (latest, normative); `v2old`/`v3old` Rev 2.50; `v1r3`, `v1r0`.
 
 ## Reading rule (this project's target)
@@ -24,6 +27,7 @@ unless the claim is explicitly about Release 2 numbering.
 ## Citation format
 Document number + revision + instruction or section + PRINTED page, e.g.
 `MD00086 Vol II-A Rev 6.06, ERET, p.177` or `MD00090 Vol III Rev 6.02, 6.2.3 General Exception Processing, p.86`.
+IEEE: `IEEE Std 754-2019 §6.3, p.50` (clause + printed page; say "verified against 754-2019", the MIPS manual names 754-1985).
 The heading `== <doc> p.<printed> (pdf page N) ==` printed by the tool gives the parts; `cite DOC PAGE` prints it for you.
 Never cite the pdf page, never cite from memory, never cite a page you did not open this session.
 

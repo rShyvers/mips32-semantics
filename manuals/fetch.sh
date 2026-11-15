@@ -16,4 +16,12 @@ get MD00082-2B-MIPS32INT-AFP-00.95.pdf "https://www.ece.lsu.edu/ee4720/mips32v1.
 # Not the published standard (that is sold by IEEE and is not vendored); see README.md here.
 get IEEE-P754-D1.2.5-2006-10-04.pdf "https://web.archive.org/web/20181101032150id_/http://754r.ucbtest.org/web-2008/drafts/archive/2006-10-04.pdf"
 sha256sum -c SHA256SUMS
+# IEEE Std 754-2019 is a licensed, LOCAL-ONLY document (not fetchable, never committed; see LOCAL-SOURCES.md).
+if [ -f IEEE-754-2019.pdf ]; then
+  echo "note: IEEE-754-2019.pdf present (local-only); SHA-256: $(sha256sum IEEE-754-2019.pdf | cut -d' ' -f1) (expected: see LOCAL-SOURCES.md)"
+else
+  echo "note: IEEE-754-2019.pdf is absent. It is a licensed, LOCAL-ONLY document the owner supplies (not fetchable); see LOCAL-SOURCES.md. Continuing without it."
+fi
 command -v pdftotext >/dev/null && for f in *.pdf; do pdftotext -layout "$f" "${f%.pdf}.txt"; done
+# The licensed copy carries a per-page license-stamp footer; it is irrelevant to the content, so drop it from the text.
+[ -f IEEE-754-2019.txt ] && sed -i '/Authorized licensed use limited to/d' IEEE-754-2019.txt

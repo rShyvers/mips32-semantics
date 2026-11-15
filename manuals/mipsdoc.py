@@ -17,6 +17,9 @@ The manuals are reference documents, so lookups are structural first:
   mipsdoc.py cite v3 87          one-line citation for a printed page
   mipsdoc.py selftest            check the tool against both revisions
 
+Document ieee is IEEE Std 754-2019, the published standard. It is copyrighted and LOCAL-ONLY (supplied by
+the repo owner, never fetched or committed; see LOCAL-SOURCES.md). section/toc/search/grep/page/cite work on it
+(clause numbers such as 6.3, printed page numbers); insn does not.
 Document p754 is the IEEE P754 working-group public DRAFT 1.2.5 (2006-10-04), not the
 published IEEE 754 (section/search/grep/page/cite work on it; insn does not).
 Documents: v1 / v2 / v3 are the latest revisions (normative). Add --rev 2.50
@@ -42,6 +45,8 @@ DOCS = {
     "v1r3": ("MD00082-2B-MIPS32INT-AFP-03.02", "MD00082 Vol I-A Rev 3.02"),
     "v1r0": ("MD00082-2B-MIPS32INT-AFP-00.95", "MD00082 Vol I Rev 0.95"),
     # public working-group DRAFT of what became IEEE 754-2008 (not the published standard)
+    # the published standard, licensed copy supplied by the owner; LOCAL-ONLY (see LOCAL-SOURCES.md)
+    "ieee": ("IEEE-754-2019", "IEEE Std 754-2019"),
     "p754": ("IEEE-P754-D1.2.5-2006-10-04", "IEEE P754 Draft 1.2.5 (2006-10-04)"),
 }
 LATEST = ["v2", "v3", "v1"]
@@ -64,6 +69,9 @@ class Doc:
         self.key = key
         path = os.path.join(HERE, stem + ".txt")
         if not os.path.exists(path):
+            if key == "ieee":
+                sys.exit(f"missing {path}: IEEE Std 754-2019 is LOCAL-ONLY (copyrighted, not fetchable); "
+                         "see LOCAL-SOURCES.md for how the owner installs it")
             sys.exit(f"missing {path}: run ./fetch.sh (needs pdftotext)")
         with open(path, encoding="utf-8", errors="replace") as f:
             self.pages = f.read().split("\f")
@@ -75,6 +83,12 @@ class Doc:
         revision; the number is at the left or right end, depending on the
         manual and on odd/even pages). Copyright lines after it are skipped."""
         lines = [l for l in page.split("\n") if l.strip()]
+        if any("Copyright \u00a9 2019 IEEE" in l for l in lines[-4:]):
+            # IEEE Std 754-2019 footer: a line holding only the page number, then the copyright line
+            for l in reversed(lines[-4:]):
+                if re.fullmatch(r"\s*\d+\s*", l):
+                    return int(l)
+            return None
         for line in reversed(lines[-4:]):
             # IEEE P754 draft footer: "Page N   Copyright (c) 2006 IEEE ..." (even) or "... Page N" (odd)
             if "IEEE" in line and "Copyright" in line:
@@ -226,9 +240,12 @@ class Doc:
         Falls back to a pure body scan if the TOC cannot be parsed."""
         if hasattr(self, "_secs"):
             return self._secs
+        self._approx = set()
+        if self.key == "ieee":
+            self._secs = self._scan_ieee()
+            return self._secs
         toc = self.toc_entries()
         out = []
-        self._approx = set()
         if len(toc) >= 20:
             body0 = 1 + max((i for i, p in enumerate(self.pages[:40])
                              if sum(1 for l in p.split("\n") if self._TOC_LINE.match(l)) >= 3), default=10)
@@ -251,6 +268,31 @@ class Doc:
         else:
             out = self._scan_sections()
         self._secs = out
+        return out
+
+    _IEEE_HEAD = re.compile(r"^\s{0,10}(\d+(?:\.\d+)*)\.?\s+(\S.*?)\s+\1(?:\.0)?\s*$")
+    _IEEE_ANNEX = re.compile(r"^\s{0,10}(Annex [A-C])\s+\((?:informative|normative)\)\s*(\S.*)$")
+
+    def _scan_ieee(self):
+        """Clauses of IEEE Std 754-2019. The text has no usable TOC page numbers, but every heading line
+        ends with its own number plus a '.0' suffix ('6.3 The sign bit 6.3.0', '7. Exceptions ... 7.0')."""
+        out, seen = [], set()
+        first = next((i for i, p in enumerate(self.pages) if re.search(r"^\s*1\. Overview 1\.0\s*$", p, re.M)), 0)
+        for i in range(first, len(self.pages)):
+            for j, line in enumerate(self.pages[i].split("\n")):
+                m = self._IEEE_HEAD.match(line)
+                if m:
+                    num, title = m.group(1), m.group(2)
+                    if num not in seen:
+                        seen.add(num)
+                        out.append((num, title, i, j))
+                    continue
+                m = self._IEEE_ANNEX.match(line)
+                if m and i > first + 30:
+                    num = m.group(1).replace("Annex ", "")
+                    if num not in seen:
+                        seen.add(num)
+                        out.append((num, m.group(2).strip(), i, j))
         return out
 
     def _merge_scanned(self, out):
@@ -600,8 +642,36 @@ def _run(fn, *args):
     return buf.getvalue(), err
 
 
+def _selftest_ieee(check):
+    """Checks on IEEE Std 754-2019 (run only when the local text is installed)."""
+    text, err = _run(cmd_section, dict(doc="ieee", query="6.3", all=False))
+    must = ["6.3 The sign bit", "sign of an exact zero sum", "squareRoot(\u22120) shall be \u22120"]
+    check("section ieee '6.3'", err is None and all(p in text for p in must) and "p.50" in text and "7.1 Overview" not in text,
+          err or "missing " + str([p for p in must if p not in text]))
+    text, err = _run(cmd_section, dict(doc="ieee", query="NaN propagation", all=False))
+    check("section ieee 'NaN propagation' (title match, 6.2.3)", err is None and "6.2.3 NaN propagation" in text, err or "")
+    text, err = _run(cmd_section, dict(doc="ieee", query="4.3.3", all=False))
+    check("section ieee '4.3.3'", err is None and "4.3.3 Rounding attribute requirements" in text, err or "")
+    text, err = _run(cmd_section, dict(doc="ieee", query="7.5", all=False))
+    check("section ieee '7.5' (Underflow)", err is None and "7.5 Underflow" in text and "7.6 Inexact" not in text, err or "")
+    text, err = _run(cmd_cite, dict(doc="ieee", number=50))
+    check("cite ieee 50", err is None and "IEEE Std 754-2019, printed p.50" in text, err or text)
+    text, err = _run(cmd_page, dict(doc="ieee", number=50, count=1))
+    check("page ieee 50", err is None and "The sign bit" in text, err or "")
+    text, err = _run(cmd_grep, dict(regex="roundTowardNegative", doc="ieee", max=500, case=True))
+    check("grep ieee roundTowardNegative hits p.50", err is None and "ieee p.50:" in text, err or "")
+    d = Doc("ieee")
+    secs = d.sections()
+    nums = {s[0] for s in secs}
+    check("ieee section index has the main clauses", {"4.3", "6.2.3", "6.3", "7.2", "7.5", "C"} <= nums, f"{len(secs)} sections")
+    scored, _ = rank_pages("sign of exact zero sum roundTowardNegative", ["ieee"])
+    top = [(x.key, x.printed[i]) for _, x, i in scored[:3]]
+    check("search 'sign of exact zero sum roundTowardNegative' -d ieee -> p.50 in top 3", ("ieee", 50) in top, f"top3={top}")
+
+
 def cmd_selftest(a):
-    need = {k: os.path.join(HERE, DOCS[k][0] + ".txt") for k in DOCS}
+    # ieee (IEEE Std 754-2019) is LOCAL-ONLY: its absence only skips its own checks, never the whole selftest
+    need = {k: os.path.join(HERE, DOCS[k][0] + ".txt") for k in DOCS if k != "ieee"}
     missing = [os.path.basename(p) for p in need.values() if not os.path.exists(p)]
     if missing:
         print("SKIP: extracted text files not present (run ./fetch.sh, needs pdftotext): " + ", ".join(missing))
@@ -704,6 +774,10 @@ def cmd_selftest(a):
         top = [(d.key, d.printed[i]) for _, d, i in scored[:3]]
         check(f"search {query!r}" + (f" -d {doc}" if doc else "") + f" -> {ekey} p.{epage} in top 3",
               (ekey, epage) in top, f"top3={top}")
+    if os.path.exists(os.path.join(HERE, DOCS["ieee"][0] + ".txt")):
+        _selftest_ieee(check)
+    else:
+        print("note: IEEE Std 754-2019 text not installed (local-only, optional): its checks were not run")
     failed = results.count(False)
     print(f"\n{len(results) - failed}/{len(results)} checks passed")
     if failed:

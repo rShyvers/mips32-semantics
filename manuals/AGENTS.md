@@ -31,6 +31,11 @@ historical `v2old`/`v3old` (Rev 2.50), `v1r3` (3.02), `v1r0` (0.95).
 IEEE 754-2008 (see "IEEE P754 draft" below); `section`/`toc`/`search -d p754`/`grep -d p754`/`page`/`cite`
 work on it, `insn` does not.
 
+`ieee` is IEEE Std 754-2019, the published standard (licensed, LOCAL-ONLY: copyrighted, supplied by the owner, not
+fetchable; see `LOCAL-SOURCES.md`). `section ieee 6.3`, `toc ieee`, `search -d ieee`, `grep -d ieee`, `page ieee N`,
+`cite ieee N` work on it (clause numbers as in the standard; `insn` does not). If `IEEE-754-2019.txt` is absent the
+tool says so and the selftest still passes; then a claim about 754-2019 is unverified here, say so.
+
 ## Which revision to trust
 The latest revisions (v1/v2/v3) are normative. The model targets a pre-Release-6
 MIPS32 processor with the Release 2 feature set and legacy FP (`FIR.Has2008=0`).
@@ -47,6 +52,18 @@ Give document number, revision, instruction or section name, and printed page
 (not the PDF page), e.g. `MD00090 Vol III Rev 6.02, 6.2.3 General Exception
 Processing, p.86` or `MD00086 Vol II-A Rev 6.06, ERET, p.177`. `cite DOC PAGE`
 prints the document/revision/page part.
+
+## IEEE Std 754-2019 (`ieee`)
+Headings look like `6.3 The sign bit`; printed page = the bare number above "Copyright (c) 2019 IEEE".
+```
+./mipsdoc.py section ieee 6.3              # p.50: signs of NaN, products, exact-zero sums, squareRoot(-0)
+./mipsdoc.py section ieee "NaN propagation"  # 6.2.3, p.49
+./mipsdoc.py search "tininess after rounding" -d ieee    # 7.5, p.53
+./mipsdoc.py cite ieee 50
+```
+Cite as `IEEE Std 754-2019 §6.3, p.50`. Quote at most a sentence or two (the standard is copyrighted). Never copy the
+PDF or text anywhere that is committed or uploaded. The MIPS manual names 754-1985; only claim "verified against
+754-2019", not that the rule is unchanged since 1985.
 
 ## IEEE P754 draft (`p754`)
 A public working-group DRAFT (Draft 1.2.5, October 4 2006, 59 pages), not the published IEEE 754. The MIPS

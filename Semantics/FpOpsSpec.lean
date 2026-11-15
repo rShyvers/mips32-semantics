@@ -6,7 +6,11 @@ import Semantics.FpOps
 Specification vocabulary only (definitions, no theorem): nothing in `Step.lean` or `FpOps.lean` uses
 it. `Semantics/FpOpsCorrect*.lean` proves that the rounding core of `FpOps.lean`
 (`Mips.Fp.Format.roundCore`) and the arithmetic built on it meet these definitions. The definitions
-are written from the manual and the IEEE standard it references, **not** from `roundCore`:
+are written from the manual and the IEEE standard it references, **not** from `roundCore`. Where the text
+below cites "IEEE Std 754-2019", the clause was looked up in the owner's licensed copy (local-only, see
+`docs/spec/manuals/LOCAL-SOURCES.md`; `mipsdoc.py section ieee X`) and the behaviour checked against it
+(table in SPEC-NOTES §9 item 30). The MIPS manual names IEEE 754-1985, whose text is not available here, so
+the citations say "verified against 2019" and nothing about 1985:
 
 * `Format.value` — the value of an encoding: MD00082 Vol I-A Rev 6.01 §6.3, Table 6.1 (p.78-79:
   `p`, `E_max`, `E_min`, the bias, the field widths), Table 6.2 (p.80-81: "Value V" of a normalized
@@ -25,7 +29,10 @@ are written from the manual and the IEEE standard it references, **not** from `r
   largest finite number"; the delivered value: Table 6.14 (p.100).
 * Underflow: §6.7.2.3 (p.101): tininess "After rounding, when a nonzero result computed as though the
   exponent range were unbounded would lie strictly between ±2^E_min"; "The MIPS architecture specifies
-  that tininess be detected after rounding"; "loss of accuracy is detected as inexact result".
+  that tininess be detected after rounding"; "loss of accuracy is detected as inexact result". IEEE Std
+  754-2019 §7.5 (p.53) permits either "after rounding" or "before rounding" ("The implementer shall choose
+  how tininess is detected, but shall detect tininess in the same way for all operations in radix two"),
+  so the MIPS pin is one of the allowed choices (verified against 2019).
 * Inexact: §6.7.2.6 (p.102): "The rounded result of an operation is not exact".
 
 **The exact result as a cut.** An exact result need not be rational (a square root), so it is given by
@@ -90,9 +97,10 @@ namespace Format
 /-- The exponent of the unit in the last place of the denormalized numbers: `E_min - (p - 1)`. -/
 def ulpMin (f : Format) : Int := f.emin - f.fracBits
 
-/-- **The values of the format with the exponent range unbounded above** (IEEE 754-2008 §7.4: "the
-magnitude of a rounded floating point result, were the exponent range unbounded"): precision `p`,
-the denormalized range kept. -/
+/-- **The values of the format with the exponent range unbounded above** (IEEE Std 754-2019 §7.4, p.53:
+overflow is signaled when the largest finite number "is exceeded in magnitude by what would have been the
+rounded floating-point result ... were the exponent range unbounded"; the rounding itself: §4.3, p.27):
+precision `p`, the denormalized range kept. -/
 def Unbounded (f : Format) : Rat → Prop := Grid f.prec (fun e => f.ulpMin ≤ e)
 
 /-- The "even" values among `Unbounded` (least significant significand bit zero). -/
@@ -334,8 +342,10 @@ def invalidResult (f : Format) : Nat × Flags := (f.newQNaN, { invalid := true }
 Other infinite cases: the infinity, exactly, no exception (§6.3.1.3, p.81: "Arithmetic with ∞ is the
 limiting case of real arithmetic ... regarded as exact and exception conditions do not arise").
 Finite: an exactly zero result is `+0`, or `−0` in RM, when the operands' (effective) signs differ,
-and the common sign when they agree — the manual is silent; this is IEEE Standard 754-1985 §6.3,
-which MD00082 p.77 names as its reference (pin, SPEC-NOTES §9 item 30) — no exception; a nonzero one
+and the common sign when they agree — the manual is silent; this is IEEE Std 754-2019 §6.3, p.50 ("the sign
+of that sum (or difference) shall be +0 under all rounding-direction attributes except
+roundTowardNegative"; "when x is zero, x + x and x − (−x) have the sign of x"; verified against 2019;
+MD00082 p.77 names the 1985 standard) (pin, SPEC-NOTES §9 item 30) — no exception; a nonzero one
 is `RoundEnvSpec` of the exact sum. -/
 def AddSpec (f : Format) (e : Env) (isSub : Bool) (a b : Nat) (res : Nat × Flags) : Prop :=
   match f.datum a, f.datum b with
@@ -352,8 +362,9 @@ def AddSpec (f : Format) (e : Env) (isSub : Bool) (a b : Nat) (res : Nat × Flag
 
 /-- **`MUL.fmt`** (MD00086 p.302), `a × b`. NaN: `NaNResult`. `0 × ∞` (§6.7.2.1, p.100): Invalid.
 `∞ × ∞`, `∞ × y` (`y ≠ 0`): the infinity of sign `s xor t`, exactly (§6.3.1.3, p.81). Finite: a zero
-product is the zero of sign `s xor t` (IEEE 754-1985 §6.3: the sign of a product is the exclusive or
-of the operands' signs; pin, SPEC-NOTES §9 item 30), else `RoundEnvSpec` of the exact product. -/
+product is the zero of sign `s xor t` (IEEE Std 754-2019 §6.3, p.50: the sign of a product "is the
+exclusive OR of the operands' signs", also for zero operands or results; verified against 2019; pin,
+SPEC-NOTES §9 item 30), else `RoundEnvSpec` of the exact product. -/
 def MulSpec (f : Format) (e : Env) (a b : Nat) (res : Nat × Flags) : Prop :=
   match f.datum a, f.datum b with
   | .nan, _ => f.NaNResult [a, b] res
@@ -368,7 +379,8 @@ def MulSpec (f : Format) (e : Env) (a b : Nat) (res : Nat × Flags) : Prop :=
 Invalid. "if the divisor is zero and the dividend is a finite nonzero number": Division by Zero, "a
 correctly signed infinity" (§6.7.2.2, p.100); "The result of (∞/0) is a correctly signed infinity"
 (no exception); `∞ / y`: the infinity, `x / ∞`: the zero, of sign `s xor t`, exactly (§6.3.1.3, p.81);
-`0 / y` (`y ≠ 0`): the zero of sign `s xor t` (IEEE 754-1985 §6.3, pin SPEC-NOTES §9 item 30); else `RoundEnvSpec`
+`0 / y` (`y ≠ 0`): the zero of sign `s xor t` (IEEE Std 754-2019 §6.3, p.50, verified against 2019; pin
+SPEC-NOTES §9 item 30); else `RoundEnvSpec`
 of the exact quotient. -/
 def DivSpec (f : Format) (e : Env) (a b : Nat) (res : Nat × Flags) : Prop :=
   match f.datum a, f.datum b with
@@ -387,7 +399,9 @@ def DivSpec (f : Format) (e : Env) (a b : Nat) (res : Nat × Flags) : Prop :=
 – 0, the result is – 0" (and `+0` gives `+0`); "An operand of less than 0 (-0 is a valid operand
 value)" is invalid (§6.7.2.1, p.100), `−∞` included; `√+∞ = +∞` exactly (§6.3.1.3); a positive
 finite operand: `RoundEnvSpec` of `√x` ("calculated to infinite precision, rounded according to the
-current rounding mode in FCSR"). -/
+current rounding mode in FCSR"). IEEE Std 754-2019 §6.3, p.50: "Except that squareRoot(−0) shall be −0,
+every numeric squareRoot result shall have a positive sign"; §7.2 g), p.52: Invalid "if the operand is less
+than zero" (verified against 2019). -/
 def SqrtSpec (f : Format) (e : Env) (a : Nat) (res : Nat × Flags) : Prop :=
   match f.datum a with
   | .nan => f.NaNResult [a] res
@@ -411,7 +425,9 @@ obtained by "changing the sign bit". A signaling NaN gives the new QNaN (§6.3.1
 never produced as a result value"; Table 6.3). A quiet NaN: Invalid, and the delivered value is the
 operand with its sign bit changed — reading A′ (SPEC-NOTES §9 item 21; the manual does not say which
 QNaN an untrapped `ABS`/`NEG` of a QNaN delivers, §6.3.1.5 only that "When possible, this QNaN result
-is one of the operand QNaN values"). Otherwise: the sign bit changed, no exception. -/
+is one of the operand QNaN values"). Otherwise: the sign bit changed, no exception. Note IEEE Std 754-2019
+§5.5.1, p.35, makes negate/abs quiet ("signal no exception", NaNs treated "alike"); with `FIR.Has2008 = 0` the
+MIPS pages say the operation "is arithmetic", and the model follows MIPS (SPEC-NOTES §9 item 21). -/
 def SignOpSpec (f : Format) (clear : Bool) (a : Nat) (res : Nat × Flags) : Prop :=
   if f.IsSNaN a then res = f.invalidResult
   else if f.IsQNaN a then res = (f.signChanged clear a, { invalid := true })
@@ -425,7 +441,9 @@ the new QNaN (§6.3.1.4, §6.7.2.1). A quiet NaN: a quiet NaN of the destination
 (§6.3.1.5, p.82: "information contained in a QNaN to be preserved through ... floating-point format
 conversions"; which QNaN is not fixed — the model keeps the sign and the leading fraction bits, pin
 SPEC-NOTES §9 item 22, `Oracle.cvtQNaNToD/ToS`). `±∞`: `±∞`. `±0`: `±0`. Otherwise `RoundEnvSpec` of the
-value. -/
+value. (IEEE Std 754-2019 §5.4.2, p.34: a conversion to a narrower precision "shall be rounded as specified
+in Clause 4", to a wider one "is always exact"; §6.2.3, p.49: a quiet NaN converted wider and back "should
+not change the quiet NaN payload in any way except to make it canonical".) -/
 def ConvertSpec (src dst : Format) (e : Env) (a : Nat) (res : Nat × Flags) : Prop :=
   match src.datum a with
   | .nan => (src.IsSNaN a → res = dst.invalidResult) ∧ (src.IsQNaN a → dst.IsQNaN res.1 ∧ res.2 = {})
@@ -445,7 +463,8 @@ def WidenSpec (src dst : Format) (a : Nat) (res : Nat × Flags) : Prop :=
   | .num s x => dst.ExactSpec s x res
 
 /-- **`CVT.S.W` / `CVT.D.W` of the word integer `i`** (MD00086 p.159, p.153): `0` gives `+0` (the
-manual does not give the sign; IEEE 754-1985 §6.3, pin SPEC-NOTES §9 item 30), otherwise `RoundEnvSpec` of `i`. -/
+manual does not give the sign; IEEE Std 754-2019 §5.4.1, p.33: "Integer zeros without signs are converted to
++0", verified against 2019; pin SPEC-NOTES §9 item 30), otherwise `RoundEnvSpec` of `i`. -/
 def FromIntSpec (f : Format) (e : Env) (i : Int) (res : Nat × Flags) : Prop :=
   if i = 0 then res = (f.zeroBits false, {}) else f.RoundEnvSpec e (Cut.ofRat i) res
 
