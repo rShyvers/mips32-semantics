@@ -9,8 +9,9 @@ MD00090 Vol III Rev 6.02 §6.2.5 "Reset Exception" (p.89-90).
 namespace Manual
 
 /-- **The Reset exception** (§6.2.5, Operation, p.89-90), restricted to the registers of this
-profile (Random, PageMask, PageGrain, Wired, EntryHi, SRSMap, Config2, Config3, WatchLo, PerfCnt do
-not exist; `IntCtlVS`, `SRSCtl` are constant 0):
+profile (Random, PageMask, PageGrain, Wired, EntryHi, SRSMap, WatchLo, PerfCnt do not exist;
+`IntCtlVS`, `SRSCtl` are constant 0; `Config1`, `Config2`, `Config3 ← ConfigurationState` (p.90) hold
+already: they are the implementation constants `Impl.Config1`/`Config2`/`Config3`):
 ```
 HWREna ← 0
 StatusRP ← 0; StatusBEV ← 1; StatusTS ← 0; StatusSR ← 0; StatusNMI ← 0; StatusERL ← 1

@@ -58,6 +58,70 @@ theorem fpUpdate_bit (fcsr : BitVec 32) (fl : Flags) (i : Nat) (hi : i < 32) :
 theorem fpUpdate_trap (fcsr : BitVec 32) (fl : Flags) : (fpUpdate fcsr fl).2 = fpeEnabled fcsr fl := by
   unfold fpUpdate; split <;> simp_all
 
+/-- Every bit of `setCause` (the Cause write of one operation of a multi-operation instruction). -/
+theorem setCause_bit (fcsr : BitVec 32) (fl : Flags) (i : Nat) (hi : i < 32) :
+    (setCause fcsr fl).getLsbD i =
+      if 12 ≤ i ∧ i ≤ 16 then flagBit fl (i - 12)
+      else if i = 17 then false
+      else fcsr.getLsbD i := by
+  have h0 := toBits_getLsbD fl 0 (by omega)
+  have h1 := toBits_getLsbD fl 1 (by omega)
+  have h2 := toBits_getLsbD fl 2 (by omega)
+  have h3 := toBits_getLsbD fl 3 (by omega)
+  have h4 := toBits_getLsbD fl 4 (by omega)
+  simp only [BitVec.getLsbD_eq_getElem (by decide : 0 < 5), BitVec.getLsbD_eq_getElem (by decide : 1 < 5),
+    BitVec.getLsbD_eq_getElem (by decide : 2 < 5), BitVec.getLsbD_eq_getElem (by decide : 3 < 5),
+    BitVec.getLsbD_eq_getElem (by decide : 4 < 5)] at h0 h1 h2 h3 h4
+  unfold setCause
+  rcases lt32_cases i hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl <;>
+    simp [fcsrCauseMask, h0, h1, h2, h3, h4]
+
+/-- The Enables bits, and so the trap decision, do not depend on the Cause bits. -/
+theorem fpeEnabled_setCause (fcsr : BitVec 32) (c fl : Flags) :
+    fpeEnabled (setCause fcsr c) fl = fpeEnabled fcsr fl := by
+  unfold fpeEnabled
+  have : (setCause fcsr c).extractLsb' 7 5 = fcsr.extractLsb' 7 5 := by
+    apply BitVec.eq_of_getLsbD_eq; intro k hk
+    simp only [BitVec.getLsbD_extractLsb', hk, decide_true, Bool.true_and]
+    rw [setCause_bit _ _ _ (by omega)]
+    simp only [show ¬ (12 ≤ 7 + k ∧ 7 + k ≤ 16) by omega, show ¬ (7 + k = 17) by omega, ite_false]
+  rw [this]
+
+/-- **The FCSR side of an operation does not depend on the Cause an earlier operation wrote**:
+`fpUpdate` rewrites the whole Cause field and reads only Enables and Flags. -/
+theorem fpUpdate_setCause (fcsr : BitVec 32) (c fl : Flags) :
+    fpUpdate (setCause fcsr c) fl = fpUpdate fcsr fl := by
+  refine Prod.ext (BitVec.eq_of_getLsbD_eq fun i hi => ?_) ?_
+  · rw [fpUpdate_bit _ _ i hi, fpUpdate_bit _ _ i hi, fpeEnabled_setCause, setCause_bit _ _ i hi]
+    by_cases r1 : 12 ≤ i ∧ i ≤ 16
+    · simp only [r1, and_self, ite_true]
+    · by_cases r2 : i = 17
+      · simp only [r2, ite_true]
+      · simp only [r1, r2, ite_false]
+  · rw [fpUpdate_trap, fpUpdate_trap, fpeEnabled_setCause]
+
+/-- A second Cause write replaces the first. -/
+theorem setCause_setCause (fcsr : BitVec 32) (c d : Flags) :
+    setCause (setCause fcsr c) d = setCause fcsr d := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  rw [setCause_bit _ _ i hi, setCause_bit _ _ i hi, setCause_bit _ _ i hi]
+  by_cases r1 : 12 ≤ i ∧ i ≤ 16
+  · simp only [r1, and_self, ite_true]
+  · by_cases r2 : i = 17
+    · simp only [r2, ite_true]
+    · simp only [r1, r2, ite_false]
+
+/-- A trapping `fpUpdate` writes exactly the Cause. -/
+theorem fpUpdate_of_enabled (fcsr : BitVec 32) (fl : Flags) (h : fpeEnabled fcsr fl = true) :
+    fpUpdate fcsr fl = (setCause fcsr fl, true) := by
+  unfold fpUpdate setCause; simp [h]
+
+/-- No exception before the first operation. -/
+theorem Flags.none_or (f : Flags) : Flags.none.or f = f := by
+  cases f; rfl
+
 /-- **`fpUpdate` meets `FcsrSpec`.** -/
 theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Flags) :
     FcsrSpec fcsr fl (fpUpdate fcsr fl).1 (fpUpdate fcsr fl).2 := by

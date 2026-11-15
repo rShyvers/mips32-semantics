@@ -113,12 +113,15 @@ def HWREnaWritable : W32 := fieldOnes 3 0
 /-- **`IsCoprocessorRegisterImplemented(0, reg, sel)`** (MD00086 Vol II-A Rev 6.06, MTC0, p.290) on
 this profile: `HWREna` (7,0), `BadVAddr` (8,0), `Count` (9,0), `Compare` (11,0), `Status` (12,0),
 `IntCtl` (12,1), `SRSCtl` (12,2), `Cause` (13,0), `EPC` (14,0), `PRId` (15,0), `EBase` (15,1),
-`Config` (16,0), `Config1` (16,1), `ErrorEPC` (30,0). Every other register is optional and absent
+`Config` (16,0), `Config1` (16,1), `Config2` (16,2), `Config3` (16,3), `ErrorEPC` (30,0). Config3
+is "Required if any optional feature described by this register is implemented: Release 2 of the
+Architecture, ..." (MD00090 Vol III Rev 6.02 §9.48, p.245) and Config2 is "Required if ... the
+Config3 register is required" (§9.47, p.241). Every other register is optional and absent
 (docs/spec/COMPLIANCE.md §A). -/
 def IsCoprocessorRegisterImplemented (reg sel : Nat) : Bool :=
   match reg, sel with
   | 7, 0 | 8, 0 | 9, 0 | 11, 0 | 12, 0 | 12, 1 | 12, 2 | 13, 0 | 14, 0 | 15, 0 | 15, 1 | 16, 0
-  | 16, 1 | 30, 0 => true
+  | 16, 1 | 16, 2 | 16, 3 | 30, 0 => true
   | _, _ => false
 
 /-- **`CPR[0, reg, sel] ← data`** for an implemented register, field by field: R/W fields take the
@@ -136,7 +139,7 @@ def CPRWrite (reg sel : Nat) (data : W32) (a : Arch) : Arch :=
   | 16, 0 => { a with ConfigK0 := data.extractLsb' 0 3, ConfigK23 := data.extractLsb' 28 3,
                       ConfigKU := data.extractLsb' 25 3 }
   | 30, 0 => { a with ErrorEPC := data }
-  | _, _ => a   -- BadVAddr, IntCtl, SRSCtl, PRId, Config1: read-only on this profile
+  | _, _ => a   -- BadVAddr, IntCtl, SRSCtl, PRId, Config1, Config2, Config3: read-only on this profile
 
 /-- **The value of `CPR[0, reg, sel]`** for an implemented register. -/
 def CPRRead (i : Impl) (reg sel : Nat) (a : Arch) : W32 :=
@@ -154,6 +157,8 @@ def CPRRead (i : Impl) (reg sel : Nat) (a : Arch) : W32 :=
   | 15, 1 => EBaseRead a
   | 16, 0 => ConfigRead i a
   | 16, 1 => i.Config1
+  | 16, 2 => i.Config2
+  | 16, 3 => i.Config3
   | 30, 0 => a.ErrorEPC
   | _, _ => 0#32
 

@@ -57,7 +57,9 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
   all_goals (first | omega | decide)
 
 /-- The model's `ctiInSlot`, `cp0Undefined`, `extOutOfRange`, `insLsbAboveMsb`,
-`unpredictableEncoding` outcomes do not name the state. -/
+`unpredictableEncoding` outcomes do not name the state; its two `.arbitrary` outcomes (`fprOddWrite`,
+`ctc1Unpredictable`) change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the
+interrupt inputs `HW` are unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
     ⟨?_, ?_⟩, ?_⟩
@@ -66,11 +68,11 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intros; trivial
   · intros; trivial
   · intro a r v
-    exact ⟨rfl, fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl⟩⟩
+    exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+      rfl, rfl⟩⟩, rfl⟩
   · intro a fs t
-    exact ⟨rfl, fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl⟩⟩
+    exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+      rfl, rfl⟩⟩, rfl⟩
   · intros; trivial
   · intros; trivial
   · intros; trivial

@@ -2,7 +2,7 @@
 # DI/EI instructions, the writable Cause bits, and PREF as a no-op.
 # MD00090 Vol III Rev 6.02 9.40 (p.221), 9.45 (p.233), 9.46, 9.36 (p.209);
 # MD00086 Vol II-A Rev 6.06 DI (p.164), EI (p.176), PREF (p.321).
-# Expected output: "65536 10748037 1 2 1 0 142607104 255 "
+# Expected output: "65536 10748037 -2147483647 2 1 0 142607104 255 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .text
@@ -14,7 +14,7 @@ main:
         srl   $a0, $a0, 8
         jal   pint
         nop
-        mfc0  $a0, $16, 1         # Config1: FP
+        mfc0  $a0, $16, 1         # Config1: M | FP = 0x80000001 (M = 1: Config2 present, 9.46 p.237)
         jal   pint
         nop
         ei    $t0                 # $t0 = old Status, IE := 1

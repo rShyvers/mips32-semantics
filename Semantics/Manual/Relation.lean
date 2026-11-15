@@ -23,6 +23,10 @@ several implementation restrictions":
    lower power mode (`LowPower` unchanged, in `UnpredictableLimits`; a non-terminating sequence of
    instruction times is not a property of one instruction time).
 
+A model-side strengthening (no sentence of §1.2 states it): an UNPREDICTABLE or UNDEFINED outcome
+leaves the hardware interrupt inputs `HW` unchanged (they are inputs, MD00090 Vol III Rev 6.02
+Table 6.2, p.73, read through the read-only `Cause.IP7..IP2`, Table 9.52, p.211), as a Reset does.
+
 The state inaccessible in User Mode: the physical memory that no User Mode address reaches (with
 `ERL = 0`, kuseg `0x0000_0000`–`0x7FFF_FFFF` maps to physical `0x4000_0000`–`0xBFFF_FFFF`, MD00090
 Vol III Rev 6.02 Table A.1, p.313-314; `FixedMapping`; "an attempt to reference kseg0 from User Mode
@@ -33,7 +37,7 @@ the Status register is 1", Vol III §3.5.3, p.23; `CP0Usable`).
 UNDEFINED operations (`cp0Undefined`: MTC0/MFC0 of a register CP0 does not contain;
 `ebaseWriteBEV0`) have one restriction only: "UNDEFINED operations or behavior must not cause the
 processor to hang" (MD00086 Vol II-A Rev 6.06 §1.2.2, p.4; "UNDEFINED operations or behavior may
-cause data loss"): `UndefinedOutcomeValid`.
+cause data loss"): `UndefinedOutcomeValid` (with the `HW` clause above).
 
 The value fields that are not UNPREDICTABLE results are not restricted: `causeCE` ("The CE field is
 loaded, but not defined", Vol III §6.2.3, p.87), `storeClearsLL`/`loadClearsLL` ("success is not
@@ -86,9 +90,18 @@ def AccessibleSame (a x y : Arch) : Prop :=
 def SameMode (a b : Arch) : Prop := UserMode b = UserMode a ∧ CP0Usable b = CP0Usable a
 
 /-- **The limits on the state an UNPREDICTABLE operation leaves** (restrictions 2 and 3 of the module
-doc). -/
+doc), and the hardware interrupt inputs `HW` unchanged.
+
+The `HW` clause is a **model-side strengthening** of the manual's limits: MD00086 Vol II-A Rev 6.06
+§1.2.1 (p.3-4) has no sentence about the interrupt inputs. `HW5..HW0` are inputs to the processor, the
+"Interrupt Source" of `IP7..IP2` (MD00090 Vol III Rev 6.02 §6.1.1.1, Table 6.2, p.73), and the
+`IP7..IP2` field that reads them is read-only (Vol III §9.36, p.209: "all fields in the Cause register
+are read-only" but `IP1..0`, `DC`, `IV`, `WP`; Table 9.52, p.211: `IP7..IP2` "R"): no instruction
+writes them, so no UNPREDICTABLE operation of an instruction may either. Without the clause a valid
+oracle could change `HW` in Kernel Mode (where `InaccessibleSame` does not name the CP0 state, which
+includes `HW` through `CP0Same`). The model's oracle and the witness oracles satisfy it. -/
 def UnpredictableLimits (a a' : Arch) : Prop :=
-  a'.LowPower = a.LowPower ∧ InaccessibleSame a a a'
+  a'.LowPower = a.LowPower ∧ InaccessibleSame a a a' ∧ a'.HW = a.HW
 
 /-- An UNPREDICTABLE outcome for state `a` is within the limits. -/
 def OutcomeValid (a : Arch) : Outcome → Prop
@@ -96,9 +109,13 @@ def OutcomeValid (a : Arch) : Outcome → Prop
   | _ => True
 
 /-- An UNDEFINED outcome for state `a` does not hang the processor (MD00086 Vol II-A Rev 6.06 §1.2.2,
-p.4). -/
+p.4), and leaves the hardware interrupt inputs `HW` unchanged. The `HW` clause is a **model-side
+strengthening**, as in `UnpredictableLimits`: §1.2.2 says only that UNDEFINED behaviour "may cause data
+loss" and "must not cause the processor to hang"; the inputs `HW5..HW0` (MD00090 Vol III Rev 6.02
+Table 6.2, p.73) are not state an instruction writes (`IP7..IP2` read-only, Vol III §9.36, Table 9.52,
+p.211). The model's oracle and the witness oracles satisfy it. -/
 def UndefinedOutcomeValid (a : Arch) : Outcome → Prop
-  | .arbitrary a' => a'.LowPower = a.LowPower
+  | .arbitrary a' => a'.LowPower = a.LowPower ∧ a'.HW = a.HW
   | _ => True
 
 /-- Two outcomes agree on the state accessible in the mode of `a`: the same exception, both
@@ -126,7 +143,9 @@ def QNaNValid (o : Oracle) : Prop :=
 
 /-- **A valid oracle** (module doc): every UNPREDICTABLE outcome within the limits and
 non-interfering, every UNPREDICTABLE value non-interfering, every UNDEFINED outcome not hanging the
-processor, the QNaN fields giving QNaNs, and a Reset changing registers only. -/
+processor, the QNaN fields giving QNaNs, and a Reset changing registers only. No UNPREDICTABLE or
+UNDEFINED outcome and no Reset changes the interrupt inputs `HW` (the `HW` clauses of
+`UnpredictableLimits` and `UndefinedOutcomeValid`, a model-side strengthening). -/
 def Oracle.Valid (o : Oracle) : Prop :=
   -- restrictions 2 and 3 on every UNPREDICTABLE operation
   (∀ a i, OutcomeValid a (o.ctiInSlot a i)) ∧
@@ -199,18 +218,28 @@ C.cond.fmt, Description, p.110; Operation, p.112-113). The other operand, read f
 def CmpAbsorbs (cond : W32) (y : BitVec 64) : Bool :=
   Mips.Fp.isSNaN64 y || (bit cond 3 && Mips.Fp.isQNaN64 y)
 
-/-- **The corner of `MADD.D`/`MSUB.D` where the odd `ft` cannot change the result** (wave 9): `fs` even
-holding a quiet NaN `x`, `ft` odd, `fr` even. The multiply delivers `x` whatever `ft` reads (the first
-quiet NaN operand, `Mips.Fp.Format.nanResult`); the read shows only as Invalid Operation of the
-multiply when it is a signaling NaN. That condition does not trap when the Invalid enable (`FCSR` bit
-11) is 0; its `Cause` bit is overwritten by the add ("The Cause bits are written during each floating
-point arithmetic operation", MD00082 Vol I-A Rev 6.01 §6.7.1, p.99); and its `Flag` bit (`FCSR` bit 6)
-is set anyway when it is already 1 or when the add signals Invalid (`fr` a signaling NaN). "The
-results and flags are as if separate floating-point multiply and add instructions were executed"
-(MD00086 Vol II-A Rev 6.06, MADD.fmt, p.256; MSUB.fmt, p.287). -/
+/-- **The corner of `MADD.D`/`MSUB.D` where the odd `ft` cannot change the result** (wave 9; Wave
+12a): `fs` even holding a quiet NaN `x`, `ft` odd, `fr` even holding a signaling NaN. The multiply
+delivers `x` whatever `ft` reads (the first quiet NaN operand, `Mips.Fp.Format.nanResult`); the read
+shows only as Invalid Operation of the multiply when it is a signaling NaN. That condition does not
+trap when the Invalid enable (`FCSR` bit 11) is 0; the add of `x` and the signaling NaN `fr` signals
+Invalid Operation anyway, and the instruction's `Cause` is the union of the operations' conditions
+("A bit is set to 1 if the corresponding exception condition arises during the execution of an
+instruction", MD00082 Vol I-A Rev 6.01, Table 6.8, p.94), which are then ORed into the Flags ("The
+Cause bits are ORed into the Flag bits if no exception is taken", MD00086 Vol II-A Rev 6.06, MADD.fmt,
+p.256; MSUB.fmt, p.287). Before Wave 12a the corner also held with the Invalid Flag already set,
+when only the last operation's Cause was kept.
+
+The second corner (Wave 12a): `fs`, `ft` even, `fr` odd, and the multiply signals Invalid Operation.
+Its result is then a quiet NaN (`Mips.Fp.Format.nanResult`, or the default QNaN of an invalid
+product), which the add delivers whatever `fr` reads (the first quiet NaN operand); the read shows only
+as Invalid Operation of the add when it is a signaling NaN, which the union with the multiply's
+Invalid absorbs. (When the Invalid enable is set the multiply traps before `fr` is read.) -/
 def MaddAbsorbs (a : Arch) (fr fs ft : W32) : Bool :=
-  !OddFPR fs && OddFPR ft && !OddFPR fr && Mips.Fp.isQNaN64 (FPRPair a fs) && !bit a.FCSR 11 &&
-    (bit a.FCSR 6 || Mips.Fp.isSNaN64 (FPRPair a fr))
+  (!OddFPR fs && OddFPR ft && !OddFPR fr && Mips.Fp.isQNaN64 (FPRPair a fs) && !bit a.FCSR 11 &&
+    Mips.Fp.isSNaN64 (FPRPair a fr)) ||
+  (!OddFPR fs && !OddFPR ft && OddFPR fr &&
+    (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).2.invalid)
 
 /-- **The Operation of `ins`, run from `a`, reaches an oracle choice whose value can change the
 result** (exact, provided the Operation does not signal before reaching it; an Operation that signals

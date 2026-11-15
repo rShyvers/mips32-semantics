@@ -111,9 +111,10 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpIs (fp1 (.nmsubS 2#32 8#32 4#32 6#32)
   [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0xc0a00000#32 0#32
 -- unfused: (1+2^−23)² rounds to 1+2^−22 before −(1+2^−22) is added → +0. The multiply is
--- Inexact (Flag I); the add, a separate operation, is exact, so Cause ends 0 (MADD.fmt p.256)
+-- Inexact, the add exact: Cause is per instruction, the union of the operations' conditions
+-- (MD00082 Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94), so Cause.I and Flag I (Wave 12a)
 #guard fpIs (fp1 (.maddS 2#32 8#32 4#32 6#32)
-  [(4, 0x3f800001#32), (6, 0x3f800001#32), (8, 0xbf800002#32)]) 2 0#32 0x00000004#32
+  [(4, 0x3f800001#32), (6, 0x3f800001#32), (8, 0xbf800002#32)]) 2 0#32 0x00001004#32
 
 -- #### Conversions
 -- cvt.w.s follows FCSR.RM: 3.5 → 4 (RN, even), 2.5 → 2 (RN), 3 (RP); −2.5 → −3 (RM), −2 (RZ)

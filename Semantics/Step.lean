@@ -442,19 +442,35 @@ def fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s (writeFpD { s with fcsr := u.1 } fd r.1)
 
-/-- One step of an FP instruction made of several FP operations (`MADD.fmt`
-… `NMSUB.fmt`: "The results and flags are as if separate floating-point
-multiply and add [and negate] instructions were executed", MD00086 Vol II-A
-Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310).
-The operation produced `r.1` with the IEEE exceptions `r.2`: FCSR.Cause is
-set to exactly `r.2`; if one of them is enabled the Floating Point exception
-is taken (ExcCode 15) with no FPR written and FCSR.Flags unchanged by this
-step; otherwise `r.2` is ORed into FCSR.Flags and the next step `k` runs on
-the updated state and the value `r.1`. -/
+/-- Complete one FP operation as a separate instruction that produced `r.1`
+with the IEEE exceptions `r.2`: `Mips.Fp.fpUpdate` (Cause ← `r.2`; trap check;
+Flags |= `r.2` unless trapping), then the rest `k` on the updated state. The
+FP arithmetic completions `fpFinishS`/`fpFinishD` are `fpThen` with the store
+as the rest (`Refine.fpFinishS_eq`). -/
 def fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State) : State :=
   let u := Mips.Fp.fpUpdate s.fcsr r.2
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else k { s with fcsr := u.1 } r.1
+
+/-- **One operation of an FP instruction made of several FP operations**
+(`MADD.fmt` … `NMSUB.fmt`: "The results and flags are as if separate
+floating-point multiply and add [and negate] instructions were executed ...
+The Cause bits are ORed into the Flag bits if no exception is taken", MD00086
+Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt
+p.310). The operation produced `r.1`; `r.2` is the union of its IEEE
+exceptions and those of the instruction's earlier operations
+(`Mips.Fp.accFlags`): FCSR.Cause is set to exactly `r.2` (Cause bits report
+the conditions that arose "during the execution of an instruction", MD00082
+Vol I-A Rev 6.01, Table 6.8, p.94); if one of them is enabled the Floating
+Point exception is taken (ExcCode 15) with no FPR written and FCSR.Flags
+unchanged ("instructions that trap do not update the Flag bits", §6.7.1,
+p.99); otherwise the next operation `k` runs on the state with the new Cause
+and the value `r.1`. Flags are written only by the instruction's last
+operation (`fpFinishS`/`fpFinishD` with the union of all the exceptions). -/
+def fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State) : State :=
+  if Mips.Fp.fpeEnabled s.fcsr r.2 then
+    takeException { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } excCodeFPE
+  else k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } r.1
 
 /-- Complete a `C.cond.fmt`: as `fpFinishS`, the "result" being the Boolean
 written to condition code `cc` ("If the Invalid Operation Enable bit is set
@@ -489,13 +505,43 @@ def configValue (s : State) : W32 :=
     s.cp0ConfigK0.setWidth 32
 
 /-- `Config1` (CP0 register 16, select 1; MD00090 Vol III Rev 6.02 §9.46,
-Table 9.65, p.237-240): `FP` = 1 (FPU implemented) and nothing else — `M` = 0 (no
-Config2), `MMU Size - 1` = 0, no caches (`IL` = `DL` = 0), no coprocessor 2, MDMX,
-performance counters, watch registers, MIPS16e or EJTAG. `MMU Size - 1` is "Number of entries
+Table 9.65, p.237-240): `M` = 1 and `FP` = 1 (FPU implemented), nothing else — `MMU Size - 1` = 0,
+no caches (`IL` = `DL` = 0), no coprocessor 2, MDMX, performance counters, watch registers,
+MIPS16e or EJTAG. `M` (bit 31): "This bit is reserved to indicate that a Config2 register is
+present. ... If the Config2 register is implemented, this bit should read as a 1" (p.237); Config2
+is implemented (`config2Value`). `MMU Size - 1` is "Number of entries
 in the TLB minus one ... The value zero is implied by ConfigMT having a value of ‘none’" (p.237);
 the manual says nothing for a Fixed Mapping MMU (`MT = 3`), which has no TLB: 0 is the only value
 the field can take that claims no more than one entry (pin). -/
-def config1Value : W32 := 0x00000001
+def config1Value : W32 := 0x80000001
+
+/-- `Config2` (CP0 register 16, select 2; MD00090 Vol III Rev 6.02 §9.47, Table 9.66, p.241-243).
+Present: "Compliance Level: Required if a level 2 or level 3 cache is implemented, or if the Config3
+register is required" (p.241), and Config3 is required (`config3Value`). `M` = 1: "This bit is
+reserved to indicate that a Config3 register is present. ... If the Config3 register is implemented,
+this bit should read as a 1" (p.241). Every other field is 0: no secondary or tertiary cache
+(`SL` = `TL` = 0, "No cache present", p.242-243); the sets-per-way and associativity fields `SS`,
+`SA`, `TS`, `TA` ("Preset by hardware") describe no cache and read 0; the implementation-specific
+`TU` (30..28) and `SU` (15..12), the only R/W fields, are not implemented: "If this field is not
+implemented it should read as zero and be ignored on write" (p.241, p.242). So the register is
+`0x8000_0000` and `mtc0` to it is ignored. -/
+def config2Value : W32 := 0x80000000
+
+/-- `Config3` (CP0 register 16, select 3; MD00090 Vol III Rev 6.02 §9.48, Table 9.67, p.245-251).
+Present: "Compliance Level: Required if any optional feature described by this register is
+implemented: Release 2 of the Architecture, the SmartMIPS™ ASE, or trace logic; Optional otherwise"
+(p.245), and the model is Release 2 (`Config.AR = 1`). "All fields in the Config3 register are
+read-only" (p.245): `mtc0` to it is ignored. Every field is 0 — no feature it describes is
+implemented: `M` = 0, no Config4 ("If the Config4 register is not implemented, this bit should read
+as a 0", p.245; Rev 2.50 §8.29, p.110: "With the current architectural definition, this bit should
+always read as a 0"); `CMGCR`, `MSAP`, `BP`, `BI` (no BadInstr/BadInstrP registers), `SC`, `PW`,
+`VZ` (p.245-246); `IPLW`, `MMAR`, `MCU` (no MCU ASE, no microMIPS), `ISAOnExc` = 0 and `ISA` = 0
+("Only MIPS32 Instruction Set is implemented", p.247-248); `ULRI` = 0 (no UserLocal: `rdhwr` 29
+raises Reserved Instruction, `hwrValue`), `RXI` (p.248); `DSP2P`, `DSPP`, `CTXTC`, `ITL` (p.249);
+`LPA` ("For implementations prior to Release 5 of the Architecture, this bit returns zero on read"),
+`VEIC`, `VInt` (no EIC or vectored interrupts: interrupt compatibility mode only, §6.1.1, p.72),
+p.250; `SP` (no small pages), `CDMM`, `MT`, `SM` (no SmartMIPS), `TL` (no trace logic), p.251. -/
+def config3Value : W32 := 0x00000000
 
 /-! ## Timer (Count / Compare) -/
 
@@ -551,7 +597,7 @@ StatusIMi", for `i` = 7 (HW5, merged with the timer) down to 0 (SW0). As a word:
 (`causeValue`: the software requests `IP1..IP0`, the hardware lines and the timer in `IP7..IP2`)
 masked by `Status.IM7..IM0`, bits 15..8. Interrupt compatibility mode is the only mode: Vectored
 Interrupt and EIC modes are optional and absent ("This mode is optional and its presence is denoted
-by the VInt bit in the Config3 register", §6.1.1, p.72; `Config1.M = 0`, no `Config3`), and the mode
+by the VInt bit in the Config3 register", §6.1.1, p.72; `Config3.VInt = Config3.VEIC = 0`, `config3Value`), and the mode
 is compatibility whenever `IntCtl.VS = 0` (Table 6.1, p.72; `intCtlValue`). -/
 def interruptRequests (s : State) : W32 := causeValue s &&& s.cp0Status &&& statusImMask
 
@@ -1470,37 +1516,47 @@ def execBody (s : State) (instr : Instruction) : State :=
     if readFcc s cc then mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rs)))
     else mkNext s s
   -- Multiply-add family: the separate multiply, add (subtract) and negate
-  -- operations, each with its own FCSR Cause / trap check / Flags (`fpThen`).
+  -- operations, each rounded and trap-checked with FCSR Cause = the union of
+  -- the exceptions so far (`fpStep`, `Mips.Fp.accFlags`); Flags |= that union
+  -- only when the whole instruction completes (`fpFinishS`/`fpFinishD`).
   -- Operand order as printed: MADD `(fs × ft) + fr`, MSUB `(fs × ft) − fr`,
   -- NMADD `−(fr + (fs × ft))`, NMSUB `−((fs × ft) − fr)`.
   | .maddS fd fr fs ft =>
-    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-      fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Add (fpEnv s) p (readFpReg s (regIdx fr)))
+    let m := Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
+    fpStep s m fun s1 p =>
+      fpFinishS s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f32Add (fpEnv s) p (readFpReg s (regIdx fr))))
   | .msubS fd fr fs ft =>
-    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-      fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
+    let m := Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
+    fpStep s m fun s1 p =>
+      fpFinishS s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr))))
   | .nmaddS fd fr fs ft =>
-    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-      fun s1 p => fpThen s1 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p)
-        fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)
+    let m := Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
+    fpStep s m fun s1 p =>
+      let a := Mips.Fp.accFlags m.2 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p)
+      fpStep s1 a fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f32Neg q))
   | .nmsubS fd fr fs ft =>
-    fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-      fun s1 p => fpThen s1 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
-        fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q)
+    let m := Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
+    fpStep s m fun s1 p =>
+      let a := Mips.Fp.accFlags m.2 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
+      fpStep s1 a fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f32Neg q))
   | .maddD fd fr fs ft =>
-    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-      fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Add (fpEnv s) p (readFpD s fr))
+    let m := Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)
+    fpStep s m fun s1 p =>
+      fpFinishD s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f64Add (fpEnv s) p (readFpD s fr)))
   | .msubD fd fr fs ft =>
-    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-      fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
+    let m := Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)
+    fpStep s m fun s1 p =>
+      fpFinishD s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr)))
   | .nmaddD fd fr fs ft =>
-    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-      fun s1 p => fpThen s1 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p)
-        fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)
+    let m := Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)
+    fpStep s m fun s1 p =>
+      let a := Mips.Fp.accFlags m.2 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p)
+      fpStep s1 a fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f64Neg q))
   | .nmsubD fd fr fs ft =>
-    fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-      fun s1 p => fpThen s1 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
-        fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q)
+    let m := Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)
+    fpStep s m fun s1 p =>
+      let a := Mips.Fp.accFlags m.2 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
+      fpStep s1 a fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f64Neg q))
   -- FP branches: same delay-slot scheduling as `beq`/`bne`; the likely
   -- forms nullify the delay slot when not taken (MD00086 Vol II-A Rev 6.06,
   -- BC1F p.56, BC1FL p.58, BC1T p.60, BC1TL p.62).
@@ -1582,8 +1638,8 @@ def execBody (s : State) (instr : Instruction) : State :=
   -- Coprocessor 0 register moves, for the `(rd, sel)` pairs of
   -- `isModeledCp0Reg`: (7,0) HWREna, (8,0) BadVAddr, (9,0) Count, (11,0) Compare,
   -- (12,0) Status, (12,1) IntCtl (`intCtlValue`), (12,2) SRSCtl (`srsCtlValue`), (13,0) Cause (read with the timer bits, `causeValue`), (14,0)
-  -- EPC, (15,0) PRId, (15,1) EBase, (16,0) Config, (16,1) Config1, (30,0)
-  -- ErrorEPC. `decode` only produces `mfc0`/`mtc0` for these; an
+  -- EPC, (15,0) PRId, (15,1) EBase, (16,0) Config, (16,1) Config1, (16,2) Config2,
+  -- (16,3) Config3, (30,0) ErrorEPC. `decode` only produces `mfc0`/`mtc0` for these; an
   -- `Instruction` value built by hand with any other pair raises Reserved
   -- Instruction, matching what the undecodable word would do. Outside Kernel
   -- Mode with `Status.CU0 = 0` they raise Coprocessor Unusable before reaching
@@ -1603,9 +1659,13 @@ def execBody (s : State) (instr : Instruction) : State :=
     | 15, 1 => mkNext s (writeReg s (regIdx rt) (ebaseValue s))
     | 16, 0 => mkNext s (writeReg s (regIdx rt) (configValue s))
     | 16, 1 => mkNext s (writeReg s (regIdx rt) config1Value)
+    | 16, 2 => mkNext s (writeReg s (regIdx rt) config2Value)
+    | 16, 3 => mkNext s (writeReg s (regIdx rt) config3Value)
     | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
     | _, _ => takeException s excCodeRI
-  -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1` are
+  -- `mtc0` write masks: `BadVAddr`, `PRId`, `Config1`, `Config2` (its only R/W fields `TU`/`SU`
+  -- are not implemented: "read as zero and be ignored on write", Table 9.66, p.241-242) and
+  -- `Config3` ("All fields in the Config3 register are read-only", §9.48, p.245) are
   -- read-only (the write is ignored); `IntCtl` has no writable field (`VS` "is ignored on write
   -- and reads as zero" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201); `SRSCtl`'s
   -- writable fields `ESS`/`PSS` can only hold 0 with `HSS = 0` (a larger value is UNDEFINED,
@@ -1637,6 +1697,8 @@ def execBody (s : State) (instr : Instruction) : State :=
                                  cp0ConfigK23 := (readReg s (regIdx rt) >>> 28).setWidth 3,
                                  cp0ConfigKU := (readReg s (regIdx rt) >>> 25).setWidth 3 }
     | 16, 1 => mkNext s s
+    | 16, 2 => mkNext s s
+    | 16, 3 => mkNext s s
     | 30, 0 => mkNext s { s with cp0ErrorEpc := readReg s (regIdx rt) }
     | _, _ => takeException s excCodeRI
   -- `di`/`ei` (MD00086 Vol II-A Rev 6.06, DI p.164, EI p.176):
@@ -1800,7 +1862,7 @@ StatusRP ← 0;  StatusTS ← 0;  StatusSR ← 0;  StatusNMI ← 0   -- not impl
 CauseDC ← 0
 HWREna ← 0
 EBaseExceptionBase ← 0                                     -- EBase reads 0x8000_0000
-Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1 fixed
+Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1..3 fixed
                                      -- K23, KU: reset "Undefined" (p.233), pinned to 2 like K0
 if InstructionInBranchDelaySlot then ErrorEPC ← restartPC  # PC of branch/jump
 else ErrorEPC ← restartPC                                  # PC of instruction
@@ -1810,8 +1872,9 @@ PC ← 0xBFC0 0000
 `IntCtlVS ← 0`, `SRSCtlHSS ← HighestImplementedShadowSet` and `SRSCtlESS/PSS/CSS ← 0` (p.90) hold
 already: `IntCtl` and `SRSCtl` are constants with `VS = 0`, `HSS = ESS = PSS = CSS = 0`
 (`intCtlValue`, `srsCtlValue`). The rest of the Operation names
-registers the model does not implement (Random, PageMask, PageGrain, Wired, EntryHi, SRSMap, Config2,
-Config3, WatchLo, PerfCnt): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
+registers the model does not implement (Random, PageMask, PageGrain, Wired, EntryHi, SRSMap, WatchLo,
+PerfCnt) or constants (`Config1`/`Config2`/`Config3 ← ConfigurationState`: `config1Value`,
+`config2Value`, `config3Value`): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
 "Undefined", Tables 9.44, 9.46, 9.52, p.183, 187, 209): they keep their values. Every register the section does not list keeps whatever it held: its
 reset state is undefined, and keeping it is one legal value (pin). In particular the other
 `Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor

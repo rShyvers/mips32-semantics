@@ -890,7 +890,7 @@ def mkWait (opcode co code funct : W32) : W32 :=
 /-- The coprocessor-0 registers this model implements, by `(rd, sel)`:
 select 0 — `7` HWREna, `8` BadVAddr, `9` Count, `11` Compare, `12` Status, `13` Cause, `14` EPC,
 `15` PRId, `16` Config, `30` ErrorEPC; select 1 — `12` IntCtl, `15` EBase, `16` Config1; select 2 —
-`12` SRSCtl. `decode`
+`12` SRSCtl, `16` Config2; select 3 — `16` Config3. `decode`
 accepts `mfc0`/`mtc0` only for these; every other pair does not decode and so
 raises Reserved Instruction — a documented pin (the architecture leaves
 access to an unimplemented CP0 register UNDEFINED/implementation-dependent). -/
@@ -898,7 +898,8 @@ def isModeledCp0Reg (rd sel : W32) : Bool :=
   (sel == 0#32 && (rd == 7#32 || rd == 8#32 || rd == 9#32 || rd == 11#32 || rd == 12#32 ||
       rd == 13#32 || rd == 14#32 || rd == 15#32 || rd == 16#32 || rd == 30#32)) ||
   (sel == 1#32 && (rd == 12#32 || rd == 15#32 || rd == 16#32)) ||
-  (sel == 2#32 && rd == 12#32)
+  (sel == 2#32 && (rd == 12#32 || rd == 16#32)) ||
+  (sel == 3#32 && rd == 16#32)
 
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
 otherwise. Used by `decode` to reject non-canonical encodings. -/

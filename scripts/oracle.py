@@ -541,7 +541,8 @@ ASM_SKIP = {
 }
 
 # Sidecar `# oracle:` directives for tests/asm programs (the programs themselves stay untouched: EquivHarness reads them).
-_NAN_CITE = ("MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' -- which NaN is returned is not specified; "
+_NAN_CITE = ("MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' -- with one QNaN operand "
+             "(QNaN + 1.0) the operand QNaN is mandatory, with two NaN operands which one is returned is not specified; "
              "model returns the first quiet-NaN operand, QEMU the default QNaN 0x7fbfffff")
 ASM_DIRECTIVES = {
     "fp_legacy_nan": [

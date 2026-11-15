@@ -64,6 +64,49 @@ theorem FPResult_eq {α} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
   · simp only [hc, ↓reduceIte]
   · simp only [hc, ↓reduceIte, Bool.false_eq_true]; rfl
 
+/-- `FPCheck` (one operation of a multiply-add: Cause and the trap check, no Flags) as an `if` on
+`trapC`. -/
+theorem FPCheck_eq {α} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
+    FPCheck r c f = if trapC f.arch.FCSR r.2 then
+      (.signal .FloatingPoint, { f with arch := { f.arch with FCSR := fpc f.arch.FCSR r.2 } })
+    else (.ok r.1, { f with arch := { f.arch with FCSR := fpc f.arch.FCSR r.2 } }) := by
+  unfold FPCheck CheckFPException
+  simp only [bind, Pseudo.modify, Pseudo.get, SignalException, pure, ite_app2']
+  unfold trapC fpc
+  by_cases hc : (bit (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12) 17 ||
+      (BitVec.extractLsb' 12 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12) &&&
+        BitVec.extractLsb' 7 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12)) != 0#5) = true
+  · simp only [hc, ↓reduceIte]
+  · simp only [hc, ↓reduceIte, Bool.false_eq_true]
+
+theorem m63_bit (k : Nat) : (63#32).getLsbD k = decide (k < 6) := by
+  by_cases h : k < 6
+  · rcases (by omega : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5) with h|h|h|h|h|h <;> subst h <;> decide
+  · simp only [h, decide_false, BitVec.getLsbD_ofNat]
+    have : 63 < 2 ^ k := Nat.lt_of_lt_of_le (by decide : 63 < 2 ^ 6) (Nat.pow_le_pow_right (by decide) (by omega))
+    simp [Nat.testBit_lt_two_pow this]
+
+/-- A second Cause write replaces the first. -/
+theorem fpc_fpc (F : W32) (m fl : Mips.Fp.Flags) : fpc (fpc F m) fl = fpc F fl := by
+  unfold fpc
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, BitVec.getLsbD_not, BitVec.getLsbD_shiftLeft,
+    BitVec.getLsbD_setWidth, hi, decide_true, Bool.true_and, m63_bit]
+  by_cases h : i < 12
+  · simp [h]
+  · by_cases h2 : i < 18
+    · simp [h, show i - 12 < 6 by omega]
+    · simp [h, show ¬ (i - 12 < 6) by omega, BitVec.getLsbD_of_ge m.toBits (i - 12) (by omega),
+        BitVec.getLsbD_of_ge fl.toBits (i - 12) (by omega)]
+
+theorem fpf_fpc (F : W32) (m fl : Mips.Fp.Flags) : fpf (fpc F m) fl = fpf F fl := by
+  unfold fpf; rw [fpc_fpc]
+
+/-- The exceptions of the multiply joined with an Invalid add. -/
+theorem inv_or_true (s : Bool) :
+    (({ invalid := s } : Mips.Fp.Flags).or { invalid := true }) = { invalid := true } := by
+  cases s <;> rfl
+
 theorem inv_toBits (s : Bool) : (({ invalid := s } : Mips.Fp.Flags).toBits) = if s then 16#5 else 0#5 := by
   cases s <;> rfl
 
@@ -100,6 +143,9 @@ theorem trapC_eq (G : W32) (fl : Mips.Fp.Flags) :
 
 theorem trapC_fpf (F : W32) (m fl : Mips.Fp.Flags) : trapC (fpf F m) fl = trapC F fl := by
   simp only [trapC_eq, fpf_ext7]
+
+theorem trapC_fpc (F : W32) (m fl : Mips.Fp.Flags) : trapC (fpc F m) fl = trapC F fl := by
+  simp only [trapC_eq, fpc_ext7]
 
 theorem fpf_fpf (F : W32) (s : Bool) (fl : Mips.Fp.Flags) (h : (bit F 6 || fl.invalid) = true) :
     fpf (fpf F { invalid := s }) fl = fpf (fpf F { invalid := false }) fl := by
@@ -237,6 +283,27 @@ theorem sub_q (e : Env) (x y : BitVec 64) (h : (isNaN64 x || isNaN64 y) = true) 
   rw [sub_nan e x y h]; exact NR_q x y
 theorem mul_q (e : Env) (x y : BitVec 64) (h : (isNaN64 x || isNaN64 y) = true) : isQNaN64 (f64Mul e x y).1 = true := by
   rw [mul_nan e x y h]; exact NR_q x y
+
+/-- A multiply that signals Invalid Operation delivers a quiet NaN (a NaN operand's `nanResult`, or the
+default QNaN of `∞ × 0`; a rounded product never signals Invalid). -/
+theorem mul_inv_q (e : Env) (x y : BitVec 64) (h : (f64Mul e x y).2.invalid = true) :
+    isQNaN64 (f64Mul e x y).1 = true := by
+  by_cases hn : (isNaN64 x || isNaN64 y) = true
+  · exact mul_q e x y hn
+  · simp only [isNaN64] at hn
+    revert h
+    simp only [f64Mul, Format.mul, hn, Bool.false_eq_true, ↓reduceIte]
+    split
+    · intro _; decide
+    · split
+      · simp [Flags.none]
+      · simp [Format.roundEnv, Format.Rounded.flags]
+
+/-- The union with an Invalid set of conditions absorbs a later Invalid. -/
+theorem or_inv_absorb (m : Flags) (hm : m.invalid = true) (s : Bool) : m.or { invalid := s } = m := by
+  obtain ⟨a, b, c, d, f⟩ := m
+  simp only at hm; subst hm
+  simp [Flags.or]
 
 theorem trapC_en (F : W32) (h : bit F 11 = true) : trapC F { invalid := true } = true := by
   rw [trapC_eq, inv_toBits]

@@ -1,7 +1,7 @@
 import Semantics.Manual.Choices
 
 /-!
-# Manual.Accuracy — the numeric accuracy `RECIP.fmt` and `RSQRT.fmt` require
+# Manual.Accuracy — the numeric accuracy and the exception conditions `RECIP.fmt` and `RSQRT.fmt` require
 
 The pages leave the result of `RECIP.fmt` and `RSQRT.fmt` to the implementation within a bound
 (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336: "The computed result differs from the both the exact
@@ -23,7 +23,10 @@ on the values of the encodings:
   FS = 1 a tiny result may be replaced by zero, MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102, which no
   ULP bound survives). For `RECIP` the exact result `1/x` must be at most the largest finite number:
   beyond it the IEEE-mandated representation itself overflows.
-* `Impl.Valid` — a valid implementation: `Impl.WF` and the three bounds.
+* `RecipFlagsOK`, `Impl.RecipFlags` — the Invalid Operation and Division-by-Zero conditions the
+  manual mandates for `RECIP.fmt`/`RSQRT.fmt` by the class of the operand (Overflow, Underflow,
+  Inexact left free: they belong to the approximate result).
+* `Impl.Valid` — a valid implementation: `Impl.WF`, the three bounds and `Impl.RecipFlags`.
 -/
 
 namespace Manual
@@ -79,9 +82,59 @@ def Impl.RsqrtAccurate (i : Impl) : Prop :=
   (∀ (e : Mips.Fp.Env) (x : BitVec 64) (y : Rat), e.flush = false → FPValue 11 52 x.toNat = some y →
     0 < y → ∀ r, FPValue 11 52 (i.rsqrtD e x).1.toNat = some r → WithinULPsRsqrt 11 52 y r 2)
 
+/-- **The Invalid Operation and Division-by-Zero conditions of `RECIP.fmt` (`sq = false`) and
+`RSQRT.fmt` (`sq = true`)** for the operand pattern `n` of format `f` under the environment `e`, with
+`fl` the conditions the implementation signals. The Operations are `1.0 / valueFPR(fs, fmt)` and
+`1.0 / SquareRoot(valueFPR(fs, fmt))` (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336; RSQRT.fmt, p.343;
+both list "Inexact, Division-by-zero, ... Invalid Op, Overflow, Underflow"); the conditions are those
+of a division and a square root (MD00082 Vol I-A Rev 6.01):
+
+* a quiet NaN operand: no condition at all ("QNaN operands do not cause arithmetic operations to
+  signal an exception", §6.3.1.5, p.82);
+* a signaling NaN operand: Invalid Operation ("SNaN operands cause the Invalid Operation exception
+  for arithmetic operations", §6.3.1.4, p.81; §6.7.2.1, p.100), not Division by Zero;
+* a zero operand (`RSQRT`: `√±0 = ±0`, "-0 is a valid operand value", §6.7.2.1, p.100): Division by
+  Zero ("if the divisor is zero and the dividend is a finite nonzero number", §6.7.2.2, p.100; the
+  dividend is `1.0`), not Invalid Operation;
+* any other operand (finite non-zero or infinite): no Division by Zero (the divisor `fs` or `√fs` is
+  not zero); Invalid Operation exactly for `RSQRT` of a negative operand ("Square root: An operand of
+  less than 0", §6.7.2.1, p.100; `-∞` included). A subnormal operand with `FCSR.FS = 1` is excepted:
+  "Prior to Release 5, it is implementation-dependent whether subnormal operand values are flushed to
+  zero before the operation is carried out" (§6.7.2.4, p.102), and a flushed operand is a zero.
+
+"Normally an IEEE arithmetic operation can cause only one exception condition; the only case in which
+two exceptions can occur at the same time are Inexact With Overflow and Inexact With Underflow"
+(§6.7.2, p.99) gives the "not Division by Zero" / "not Invalid Operation" halves.
+
+**Left free**: Overflow, Underflow and Inexact of a non-NaN operand. The pages make the numeric result
+implementation dependent ("does not meet the accuracy specified by the IEEE 754 Floating Point
+standard"; "It is implementation dependent whether the result is affected by the current rounding
+mode in FCSR", p.336; "The effect of the current FCSR rounding mode on the result is implementation
+dependent", p.343), and those three conditions are properties of the delivered (approximate) result
+(§6.7.2.3, p.101; §6.7.2.5, §6.7.2.6, p.102). The QNaN result of a NaN operand is not constrained
+here either. Unimplemented Operation has no flag (`Mips.Fp.Flags`). -/
+def RecipFlagsOK (f : Mips.Fp.Format) (sq : Bool) (e : Mips.Fp.Env) (n : Nat) (fl : Mips.Fp.Flags) :
+    Prop :=
+  (f.isQNaN n = true → fl = Mips.Fp.Flags.none) ∧
+  (f.isSNaN n = true → fl.invalid = true ∧ fl.divZero = false) ∧
+  (f.isNaN n = false → f.isZero n = true → fl.divZero = true ∧ fl.invalid = false) ∧
+  (f.isNaN n = false → f.isZero n = false → (e.flush = false ∨ f.isSubnormal n = false) →
+    fl.divZero = false ∧ fl.invalid = (sq && f.signBit n))
+
+/-- **The IEEE conditions `RECIP.fmt` and `RSQRT.fmt` signal** are those `RecipFlagsOK` requires, for
+both formats and every environment. -/
+def Impl.RecipFlags (i : Impl) : Prop :=
+  (∀ e (x : W32), RecipFlagsOK Mips.Fp.binary32 false e x.toNat (i.recipS e x).2) ∧
+  (∀ e (x : BitVec 64), RecipFlagsOK Mips.Fp.binary64 false e x.toNat (i.recipD e x).2) ∧
+  (∀ e (x : W32), RecipFlagsOK Mips.Fp.binary32 true e x.toNat (i.rsqrtS e x).2) ∧
+  (∀ e (x : BitVec 64), RecipFlagsOK Mips.Fp.binary64 true e x.toNat (i.rsqrtD e x).2)
+
 /-- **A valid implementation**: of this profile (`Impl.WF`) and with the accuracy the pages require:
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation (`Impl.RecipAccurate`) and of the exact
-result (`Impl.RecipExact`), `RSQRT.fmt` within 2 ULP of the exact result (`Impl.RsqrtAccurate`). -/
-def Impl.Valid (i : Impl) : Prop := i.WF ∧ i.RecipAccurate ∧ i.RecipExact ∧ i.RsqrtAccurate
+result (`Impl.RecipExact`), `RSQRT.fmt` within 2 ULP of the exact result (`Impl.RsqrtAccurate`); and
+the Invalid Operation / Division-by-Zero conditions of both as the manual mandates them
+(`Impl.RecipFlags`; Overflow, Underflow, Inexact left free). -/
+def Impl.Valid (i : Impl) : Prop :=
+  i.WF ∧ i.RecipAccurate ∧ i.RecipExact ∧ i.RsqrtAccurate ∧ i.RecipFlags
 
 end Manual

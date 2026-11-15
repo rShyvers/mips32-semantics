@@ -27,7 +27,8 @@ kept out of the core where they are cheap to lift:
 * `RECIP.fmt`/`RSQRT.fmt`: `Impl.recipS/D`, `Impl.rsqrtS/D` (accuracy and rounding-mode dependence
   implementation dependent, p.336, p.343).
 * `MADD/MSUB/NMADD/NMSUB.fmt`: written in `Manual.Ops.FpuArith` as the separate multiply, add
-  (subtract) and negate operations the pages describe; the core's `f32Madd` … are not used.
+  (subtract) and negate operations the pages describe (`FPCheck`, then `FPResult` with the union of the
+  operations' exceptions); the core's `f32Madd` … are not used.
 * The QNaN of a format conversion (`CVT.D.S`, `CVT.S.D`): `Oracle.cvtQNaNToD/ToS`.
 * **Remaining core choice — which QNaN an operation with several QNaN operands returns.** "When
   possible, this QNaN result is one of the operand QNaN values" (MD00082 Vol I-A Rev 6.01 §6.3.1.5,
@@ -110,6 +111,22 @@ def FPResult {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
   Pseudo.modify fun a => { a with FCSR := (a.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (fl <<< 12) }
   CheckFPException
   Pseudo.modify fun a => { a with FCSR := a.FCSR ||| (fl <<< 2) }
+  pure r.1
+
+/-- **The FCSR side of one operation of an instruction made of several FP operations** (`MADD.fmt`,
+`MSUB.fmt`, `NMADD.fmt`, `NMSUB.fmt`, MD00086 Vol II-A Rev 6.06 p.256, p.287, p.308, p.310: "The results
+and flags are as if separate floating-point multiply and add [and negate] instructions were executed
+... The Cause bits are ORed into the Flag bits if no exception is taken"). `r.2` is the union of the
+exceptions of the instruction's operations so far: Cause is written with it ("A bit is set to 1 if the
+corresponding exception condition arises during the execution of an instruction and is set to 0
+otherwise", MD00082 Vol I-A Rev 6.01, Table 6.8 `Cause`, p.94), then `CheckFPException`; the Flags are
+not written ("instructions that trap do not update the Flag bits", §6.7.1, p.99) — the instruction's
+last operation goes through `FPResult` with the union of all the exceptions, which ORs them into the
+Flags. Returns the value. -/
+def FPCheck {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
+  let fl : W32 := r.2.toBits.setWidth 32
+  Pseudo.modify fun a => { a with FCSR := (a.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (fl <<< 12) }
+  CheckFPException
   pure r.1
 
 /-! ## 7B S4 FPU: the rest of the FP vocabulary -/

@@ -7,13 +7,13 @@ import Semantics.Specs.FpuArith
 MD00086 Vol II-A Rev 6.06, MADD.fmt (p.256): "The results and flags are as if separate floating-point
 multiply and add instructions were executed"; MSUB.fmt p.287, NMADD.fmt p.308 ("... and negate"),
 NMSUB.fmt p.310. `MaddSpec` (`Semantics/FpOpsSpec.lean`) states that reading: each step an operation
-meeting its own reference (`MulSpec`, `AddSpec`, `SignOpSpec`), each its own FCSR update and trap
-check (`FcsrSpec`). The theorems below prove that `step` on each of the eight instructions produces
-the state of an outcome `MaddSpec` allows: the Floating-Point exception with the FCSR of the
-trapping step, or `fd` written with the final value and the FCSR of the last step.
-
-Also: `fpThen_spec`, `fpFinishS_spec` — one step of `step`'s FP completion is the outcome of
-`OpStep` for the FCSR reference `FcsrSpec`.
+meeting its own reference (`MulSpec`, `AddSpec`, `SignOpSpec`), with the FCSR per instruction
+(`OpAcc`): after each step Cause is the union of the exceptions of the steps so far (MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and the trap check is made; Flags |= that union only if no step
+traps ("The Cause bits are ORed into the Flag bits if no exception is taken", MADD.fmt p.256). The
+theorems below prove that `step` on each of the eight instructions produces the state of an outcome
+`MaddSpec` allows: the Floating-Point exception with the FCSR of the trapping step, or `fd` written
+with the final value and the FCSR of the whole instruction (Wave 12a).
 -/
 
 namespace Mips.Fp
@@ -46,38 +46,10 @@ theorem fpFinishD_unfold (s : State) (fd : W32) (r : BitVec 64 × Flags) :
 
 /-! ## Generic compositions -/
 
-section generic
-variable (s : State) (fd : W32)
-
-theorem finishS_outcome (r : BitVec 32 × Flags) :
-    fpFinishS s fd r = (match outcomeOf s.fcsr r with
-      | .trap c => takeException { s with fcsr := c } excCodeFPE
-      | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
-  rw [fpFinishS_unfold]; simp only [outcomeOf]; split <;> simp
-
-theorem finishD_outcome (r : BitVec 64 × Flags) :
-    fpFinishD s fd r = (match outcomeOf s.fcsr r with
-      | .trap c => takeException { s with fcsr := c } excCodeFPE
-      | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
-  rw [fpFinishD_unfold]; simp only [outcomeOf]; split <;> simp
-
-theorem then_outcome {w : Nat} (r : BitVec w × Flags) (k : State → BitVec w → State) {β : Type}
-    (g : State → FpOutcome β → State) (P : BitVec 32 → Nat → FpOutcome β → Prop)
-    (hk : ∀ c (p : BitVec w), ∃ out, P c p.toNat out ∧ k { s with fcsr := c } p = g { s with fcsr := c } out)
-    (hg : ∀ c out, g { s with fcsr := c } out = g s out)
-    (htrap : ∀ c, g s (.trap c) = takeException { s with fcsr := c } excCodeFPE) :
-    ∃ out, OpThen (outcomeOf s.fcsr r) P out ∧ fpThen s r k = g s out := by
-  rw [fpThen_unfold]
-  cases ht : (fpUpdate s.fcsr r.2).2
-  · obtain ⟨out, h1, h2⟩ := hk (fpUpdate s.fcsr r.2).1 r.1
-    refine ⟨out, ?_, ?_⟩
-    · simp only [outcomeOf, ht, Bool.false_eq_true, ite_false, OpThen]; exact h1
-    · simp only [Bool.false_eq_true, ite_false]; rw [h2, hg]
-  · refine ⟨.trap (fpUpdate s.fcsr r.2).1, ?_, ?_⟩
-    · simp [outcomeOf, ht, OpThen]
-    · simp only [ite_true]; rw [htrap]
-
-end generic
+/-- `fpStep` unfolded. -/
+theorem fpStep_unfold {α : Type} (s : State) (r : α × Flags) (k : State → α → State) :
+    fpStep s r k = if fpeEnabled s.fcsr r.2 then takeException { s with fcsr := setCause s.fcsr r.2 } excCodeFPE
+      else k { s with fcsr := setCause s.fcsr r.2 } r.1 := rfl
 
 /-- The state an instruction writing the single `fd` leaves for an outcome. -/
 def outcomeStateS (s : State) (fd : W32) : FpOutcome Nat → State
@@ -97,29 +69,77 @@ theorem outcomeStateD_fcsr (s : State) (fd : W32) (c : BitVec 32) (o : FpOutcome
     outcomeStateD { s with fcsr := c } fd o = outcomeStateD s fd o := by
   cases o <;> rfl
 
+/-- `fpFinishS` from a state whose Cause an earlier operation wrote: the outcome of the union `r.2`
+from the FCSR before the instruction. -/
+theorem finishS_setCause (s : State) (fd : W32) (c : Flags) (r : BitVec 32 × Flags) :
+    fpFinishS { s with fcsr := setCause s.fcsr c } fd r = outcomeStateS s fd (outcomeOf s.fcsr r) := by
+  rw [← outcomeStateS_fcsr s fd (setCause s.fcsr c), fpFinishS_unfold]
+  simp only [fpUpdate_setCause, outcomeOf]
+  split <;> simp [outcomeStateS]
+
+theorem finishD_setCause (s : State) (fd : W32) (c : Flags) (r : BitVec 64 × Flags) :
+    fpFinishD { s with fcsr := setCause s.fcsr c } fd r = outcomeStateD s fd (outcomeOf s.fcsr r) := by
+  rw [← outcomeStateD_fcsr s fd (setCause s.fcsr c), fpFinishD_unfold]
+  simp only [fpUpdate_setCause, outcomeOf]
+  split <;> simp [outcomeStateD]
+
+/-- The last operation of the instruction meets `OpAcc … OpDone` with the outcome `fpUpdate` gives the
+union of the exceptions. -/
+theorem opAcc_last {w : Nat} (Op : Nat × Flags → Prop) (fcsr : BitVec 32) (acc : Flags)
+    (r : BitVec w × Flags) (h : Op (r.1.toNat, r.2)) :
+    OpAcc Op fcsr acc OpDone (outcomeOf fcsr (accFlags acc r)) :=
+  ⟨(r.1.toNat, r.2), h, _, _, fpUpdate_spec fcsr (acc.or r.2),
+    fun ht => by simp [outcomeOf, accFlags, ht],
+    fun ht => by simp [outcomeOf, accFlags, ht, OpDone]⟩
+
+/-- An operation that is not the last: it traps (`fpeEnabled` on the union), or the instruction
+continues. -/
+theorem opAcc_mid {w : Nat} {β : Type} (Op : Nat × Flags → Prop) (fcsr : BitVec 32) (acc : Flags)
+    (r : BitVec w × Flags) (h : Op (r.1.toNat, r.2))
+    (next : Flags → Nat → BitVec 32 → FpOutcome β → Prop) (out : FpOutcome β)
+    (ht : fpeEnabled fcsr (acc.or r.2) = true → out = .trap (setCause fcsr (acc.or r.2)))
+    (hn : fpeEnabled fcsr (acc.or r.2) = false →
+      next (acc.or r.2) r.1.toNat (fpUpdate fcsr (acc.or r.2)).1 out) :
+    OpAcc Op fcsr acc next out := by
+  refine ⟨(r.1.toNat, r.2), h, _, _, fpUpdate_spec fcsr (acc.or r.2), fun h1 => ?_, fun h1 => ?_⟩
+  · rw [fpUpdate_trap] at h1
+    rw [ht h1, fpUpdate_of_enabled _ _ h1]
+  · rw [fpUpdate_trap] at h1
+    exact hn h1
+
 /-- Two operations, the second completing to the single `fd`. -/
 theorem two_stepsS (s : State) (fd : W32) (r1 : BitVec 32 × Flags) (r2 : BitVec 32 → BitVec 32 × Flags)
     (Op1 : Nat × Flags → Prop) (Op2 : Nat → Nat × Flags → Prop) (h1 : Op1 (r1.1.toNat, r1.2))
     (h2 : ∀ p : BitVec 32, Op2 p.toNat ((r2 p).1.toNat, (r2 p).2)) :
-    ∃ out, (∃ o1, OpStep Op1 s.fcsr o1 ∧ OpThen o1 (fun c1 p out1 => OpStep (Op2 p) c1 out1) out) ∧
-      fpThen s r1 (fun s1 p => fpFinishS s1 fd (r2 p)) = outcomeStateS s fd out := by
-  obtain ⟨out, h, e⟩ := then_outcome s r1 (fun s1 p => fpFinishS s1 fd (r2 p)) (fun st o => outcomeStateS st fd o) (fun c1 p out1 => OpStep (Op2 p) c1 out1)
-    (fun c p => ⟨outcomeOf c (r2 p), opStep_of c (r2 p) (h2 p), by
-      rw [finishS_outcome]; cases outcomeOf c (r2 p) <;> rfl⟩)
-    (fun c o => outcomeStateS_fcsr s fd c o) (fun _ => rfl)
-  exact ⟨out, ⟨_, opStep_of s.fcsr r1 h1, h⟩, e⟩
+    ∃ out, OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 => OpAcc (Op2 p) s.fcsr acc OpDone out1) out ∧
+      fpStep s r1 (fun s1 p => fpFinishS s1 fd (accFlags r1.2 (r2 p))) = outcomeStateS s fd out := by
+  rw [fpStep_unfold]
+  cases he : fpeEnabled s.fcsr r1.2
+  · refine ⟨outcomeOf s.fcsr (accFlags r1.2 (r2 r1.1)), ?_, ?_⟩
+    · refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun h => ?_) (fun _ => ?_)
+      · rw [Flags.none_or, he] at h; cases h
+      · rw [Flags.none_or]; exact opAcc_last (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1)
+    · simp only [Bool.false_eq_true, ite_false]; exact finishS_setCause s fd r1.2 _
+  · refine ⟨.trap (setCause s.fcsr r1.2), ?_, rfl⟩
+    refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun _ => by rw [Flags.none_or]) (fun h => ?_)
+    rw [Flags.none_or, he] at h; cases h
 
 /-- Two operations, the second completing to the double `fd`. -/
 theorem two_stepsD (s : State) (fd : W32) (r1 : BitVec 64 × Flags) (r2 : BitVec 64 → BitVec 64 × Flags)
     (Op1 : Nat × Flags → Prop) (Op2 : Nat → Nat × Flags → Prop) (h1 : Op1 (r1.1.toNat, r1.2))
     (h2 : ∀ p : BitVec 64, Op2 p.toNat ((r2 p).1.toNat, (r2 p).2)) :
-    ∃ out, (∃ o1, OpStep Op1 s.fcsr o1 ∧ OpThen o1 (fun c1 p out1 => OpStep (Op2 p) c1 out1) out) ∧
-      fpThen s r1 (fun s1 p => fpFinishD s1 fd (r2 p)) = outcomeStateD s fd out := by
-  obtain ⟨out, h, e⟩ := then_outcome s r1 (fun s1 p => fpFinishD s1 fd (r2 p)) (fun st o => outcomeStateD st fd o) (fun c1 p out1 => OpStep (Op2 p) c1 out1)
-    (fun c p => ⟨outcomeOf c (r2 p), opStep_of c (r2 p) (h2 p), by
-      rw [finishD_outcome]; cases outcomeOf c (r2 p) <;> rfl⟩)
-    (fun c o => outcomeStateD_fcsr s fd c o) (fun _ => rfl)
-  exact ⟨out, ⟨_, opStep_of s.fcsr r1 h1, h⟩, e⟩
+    ∃ out, OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 => OpAcc (Op2 p) s.fcsr acc OpDone out1) out ∧
+      fpStep s r1 (fun s1 p => fpFinishD s1 fd (accFlags r1.2 (r2 p))) = outcomeStateD s fd out := by
+  rw [fpStep_unfold]
+  cases he : fpeEnabled s.fcsr r1.2
+  · refine ⟨outcomeOf s.fcsr (accFlags r1.2 (r2 r1.1)), ?_, ?_⟩
+    · refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun h => ?_) (fun _ => ?_)
+      · rw [Flags.none_or, he] at h; cases h
+      · rw [Flags.none_or]; exact opAcc_last (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1)
+    · simp only [Bool.false_eq_true, ite_false]; exact finishD_setCause s fd r1.2 _
+  · refine ⟨.trap (setCause s.fcsr r1.2), ?_, rfl⟩
+    refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun _ => by rw [Flags.none_or]) (fun h => ?_)
+    rw [Flags.none_or, he] at h; cases h
 
 /-- Three operations, the third completing to the single `fd`. -/
 theorem three_stepsS (s : State) (fd : W32) (r1 : BitVec 32 × Flags) (r2 : BitVec 32 → BitVec 32 × Flags)
@@ -127,17 +147,43 @@ theorem three_stepsS (s : State) (fd : W32) (r1 : BitVec 32 × Flags) (r2 : BitV
     (Op1 : Nat × Flags → Prop) (Op2 : Nat → Nat × Flags → Prop) (Op3 : Nat → Nat × Flags → Prop)
     (h1 : Op1 (r1.1.toNat, r1.2)) (h2 : ∀ p : BitVec 32, Op2 p.toNat ((r2 p).1.toNat, (r2 p).2))
     (h3 : ∀ q : BitVec 32, Op3 q.toNat ((r3 q).1.toNat, (r3 q).2)) :
-    ∃ out, (∃ o1, OpStep Op1 s.fcsr o1 ∧ OpThen o1 (fun c1 p out1 =>
-        ∃ o2, OpStep (Op2 p) c1 o2 ∧ OpThen o2 (fun c2 q out2 => OpStep (Op3 q) c2 out2) out1) out) ∧
-      fpThen s r1 (fun s1 p => fpThen s1 (r2 p) (fun s2 q => fpFinishS s2 fd (r3 q))) =
+    ∃ out, OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 =>
+        OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1) out ∧
+      fpStep s r1 (fun s1 p => fpStep s1 (accFlags r1.2 (r2 p))
+        (fun s2 q => fpFinishS s2 fd (accFlags (accFlags r1.2 (r2 p)).2 (r3 q)))) =
         outcomeStateS s fd out := by
-  obtain ⟨out, h, e⟩ := then_outcome s r1 (fun s1 p => fpThen s1 (r2 p) (fun s2 q => fpFinishS s2 fd (r3 q))) (fun st o => outcomeStateS st fd o)
-    (fun c1 p out1 => ∃ o2, OpStep (Op2 p) c1 o2 ∧ OpThen o2 (fun c2 q out2 => OpStep (Op3 q) c2 out2) out1)
-    (fun c p => by
-      obtain ⟨out1, ha, hb⟩ := two_stepsS { s with fcsr := c } fd (r2 p) r3 (Op2 p.toNat) Op3 (h2 p) h3
-      exact ⟨out1, ha, hb.trans (outcomeStateS_fcsr s fd c out1)⟩)
-    (fun c o => outcomeStateS_fcsr s fd c o) (fun _ => rfl)
-  exact ⟨out, ⟨_, opStep_of s.fcsr r1 h1, h⟩, e⟩
+  rw [fpStep_unfold]
+  cases he : fpeEnabled s.fcsr r1.2
+  · simp only [Bool.false_eq_true, ite_false]
+    rw [fpStep_unfold]
+    simp only [fpeEnabled_setCause]
+    have hm : ∀ out, (fun acc p (_ : BitVec 32) out1 =>
+        OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1)
+          (Flags.none.or r1.2) r1.1.toNat (fpUpdate s.fcsr (Flags.none.or r1.2)).1 out →
+        OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 =>
+          OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1) out :=
+      fun out hx => opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun h => by rw [Flags.none_or, he] at h; cases h)
+        (fun _ => hx)
+    cases he2 : fpeEnabled s.fcsr (accFlags r1.2 (r2 r1.1)).2
+    · refine ⟨outcomeOf s.fcsr (accFlags (accFlags r1.2 (r2 r1.1)).2 (r3 (r2 r1.1).1)), hm _ ?_, ?_⟩
+      · simp only [Flags.none_or]
+        refine opAcc_mid (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1) _ _ (fun h => ?_) (fun _ => ?_)
+        · simp only [accFlags] at he2; rw [he2] at h; cases h
+        · exact opAcc_last (Op3 (r2 r1.1).1.toNat) s.fcsr _ (r3 (r2 r1.1).1) (h3 _)
+      · simp only [Bool.false_eq_true, ite_false]
+        show fpFinishS { s with fcsr := setCause (setCause s.fcsr r1.2) (accFlags r1.2 (r2 r1.1)).2 } fd _ = _
+        rw [setCause_setCause]; exact finishS_setCause s fd _ _
+    · refine ⟨.trap (setCause s.fcsr (accFlags r1.2 (r2 r1.1)).2), hm _ ?_, ?_⟩
+      · simp only [Flags.none_or]
+        refine opAcc_mid (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1) _ _ (fun _ => rfl) (fun h => ?_)
+        · simp only [accFlags] at he2; rw [he2] at h; cases h
+      · simp only [ite_true]
+        show takeException { s with fcsr := setCause (setCause s.fcsr r1.2) (accFlags r1.2 (r2 r1.1)).2 } excCodeFPE =
+          takeException { s with fcsr := setCause s.fcsr (accFlags r1.2 (r2 r1.1)).2 } excCodeFPE
+        rw [setCause_setCause]
+  · refine ⟨.trap (setCause s.fcsr r1.2), ?_, rfl⟩
+    refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun _ => by rw [Flags.none_or]) (fun h => ?_)
+    rw [Flags.none_or, he] at h; cases h
 
 /-- Three operations, the third completing to the double `fd`. -/
 theorem three_stepsD (s : State) (fd : W32) (r1 : BitVec 64 × Flags) (r2 : BitVec 64 → BitVec 64 × Flags)
@@ -145,17 +191,43 @@ theorem three_stepsD (s : State) (fd : W32) (r1 : BitVec 64 × Flags) (r2 : BitV
     (Op1 : Nat × Flags → Prop) (Op2 : Nat → Nat × Flags → Prop) (Op3 : Nat → Nat × Flags → Prop)
     (h1 : Op1 (r1.1.toNat, r1.2)) (h2 : ∀ p : BitVec 64, Op2 p.toNat ((r2 p).1.toNat, (r2 p).2))
     (h3 : ∀ q : BitVec 64, Op3 q.toNat ((r3 q).1.toNat, (r3 q).2)) :
-    ∃ out, (∃ o1, OpStep Op1 s.fcsr o1 ∧ OpThen o1 (fun c1 p out1 =>
-        ∃ o2, OpStep (Op2 p) c1 o2 ∧ OpThen o2 (fun c2 q out2 => OpStep (Op3 q) c2 out2) out1) out) ∧
-      fpThen s r1 (fun s1 p => fpThen s1 (r2 p) (fun s2 q => fpFinishD s2 fd (r3 q))) =
+    ∃ out, OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 =>
+        OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1) out ∧
+      fpStep s r1 (fun s1 p => fpStep s1 (accFlags r1.2 (r2 p))
+        (fun s2 q => fpFinishD s2 fd (accFlags (accFlags r1.2 (r2 p)).2 (r3 q)))) =
         outcomeStateD s fd out := by
-  obtain ⟨out, h, e⟩ := then_outcome s r1 (fun s1 p => fpThen s1 (r2 p) (fun s2 q => fpFinishD s2 fd (r3 q))) (fun st o => outcomeStateD st fd o)
-    (fun c1 p out1 => ∃ o2, OpStep (Op2 p) c1 o2 ∧ OpThen o2 (fun c2 q out2 => OpStep (Op3 q) c2 out2) out1)
-    (fun c p => by
-      obtain ⟨out1, ha, hb⟩ := two_stepsD { s with fcsr := c } fd (r2 p) r3 (Op2 p.toNat) Op3 (h2 p) h3
-      exact ⟨out1, ha, hb.trans (outcomeStateD_fcsr s fd c out1)⟩)
-    (fun c o => outcomeStateD_fcsr s fd c o) (fun _ => rfl)
-  exact ⟨out, ⟨_, opStep_of s.fcsr r1 h1, h⟩, e⟩
+  rw [fpStep_unfold]
+  cases he : fpeEnabled s.fcsr r1.2
+  · simp only [Bool.false_eq_true, ite_false]
+    rw [fpStep_unfold]
+    simp only [fpeEnabled_setCause]
+    have hm : ∀ out, (fun acc p (_ : BitVec 32) out1 =>
+        OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1)
+          (Flags.none.or r1.2) r1.1.toNat (fpUpdate s.fcsr (Flags.none.or r1.2)).1 out →
+        OpAcc Op1 s.fcsr Flags.none (fun acc p _ out1 =>
+          OpAcc (Op2 p) s.fcsr acc (fun acc2 q _ out2 => OpAcc (Op3 q) s.fcsr acc2 OpDone out2) out1) out :=
+      fun out hx => opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun h => by rw [Flags.none_or, he] at h; cases h)
+        (fun _ => hx)
+    cases he2 : fpeEnabled s.fcsr (accFlags r1.2 (r2 r1.1)).2
+    · refine ⟨outcomeOf s.fcsr (accFlags (accFlags r1.2 (r2 r1.1)).2 (r3 (r2 r1.1).1)), hm _ ?_, ?_⟩
+      · simp only [Flags.none_or]
+        refine opAcc_mid (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1) _ _ (fun h => ?_) (fun _ => ?_)
+        · simp only [accFlags] at he2; rw [he2] at h; cases h
+        · exact opAcc_last (Op3 (r2 r1.1).1.toNat) s.fcsr _ (r3 (r2 r1.1).1) (h3 _)
+      · simp only [Bool.false_eq_true, ite_false]
+        show fpFinishD { s with fcsr := setCause (setCause s.fcsr r1.2) (accFlags r1.2 (r2 r1.1)).2 } fd _ = _
+        rw [setCause_setCause]; exact finishD_setCause s fd _ _
+    · refine ⟨.trap (setCause s.fcsr (accFlags r1.2 (r2 r1.1)).2), hm _ ?_, ?_⟩
+      · simp only [Flags.none_or]
+        refine opAcc_mid (Op2 r1.1.toNat) s.fcsr r1.2 (r2 r1.1) (h2 r1.1) _ _ (fun _ => rfl) (fun h => ?_)
+        · simp only [accFlags] at he2; rw [he2] at h; cases h
+      · simp only [ite_true]
+        show takeException { s with fcsr := setCause (setCause s.fcsr r1.2) (accFlags r1.2 (r2 r1.1)).2 } excCodeFPE =
+          takeException { s with fcsr := setCause s.fcsr (accFlags r1.2 (r2 r1.1)).2 } excCodeFPE
+        rw [setCause_setCause]
+  · refine ⟨.trap (setCause s.fcsr r1.2), ?_, rfl⟩
+    refine opAcc_mid Op1 s.fcsr Flags.none r1 h1 _ _ (fun _ => by rw [Flags.none_or]) (fun h => ?_)
+    rw [Flags.none_or, he] at h; cases h
 
 /-! ## The eight instructions -/
 
@@ -171,6 +243,7 @@ theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
   rw [maddS_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := two_stepsS s fd (r1 := f32Mul (envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
     (Op1 := binary32.MulSpec (envOf s.fcsr) (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat)
     (r2 := fun p => f32Add (envOf s.fcsr) p (readFpReg s (regIdx fr)))
@@ -189,6 +262,7 @@ theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
   rw [msubS_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := two_stepsS s fd (r1 := f32Mul (envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
     (Op1 := binary32.MulSpec (envOf s.fcsr) (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat)
     (r2 := fun p => f32Sub (envOf s.fcsr) p (readFpReg s (regIdx fr)))
@@ -207,6 +281,7 @@ theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
   rw [nmaddS_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := three_stepsS s fd (r1 := f32Mul (envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
     (Op1 := binary32.MulSpec (envOf s.fcsr) (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat)
     (r2 := fun p => f32Add (envOf s.fcsr) (readFpReg s (regIdx fr)) p)
@@ -228,6 +303,7 @@ theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) := by
   rw [nmsubS_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := three_stepsS s fd (r1 := f32Mul (envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
     (Op1 := binary32.MulSpec (envOf s.fcsr) (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat)
     (r2 := fun p => f32Sub (envOf s.fcsr) p (readFpReg s (regIdx fr)))
@@ -249,6 +325,7 @@ theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
   rw [maddD_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := two_stepsD s fd (r1 := f64Mul (envOf s.fcsr) (readFpD s fs) (readFpD s ft))
     (Op1 := binary64.MulSpec (envOf s.fcsr) (readFpD s fs).toNat (readFpD s ft).toNat)
     (r2 := fun p => f64Add (envOf s.fcsr) p (readFpD s fr))
@@ -267,6 +344,7 @@ theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
   rw [msubD_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := two_stepsD s fd (r1 := f64Mul (envOf s.fcsr) (readFpD s fs) (readFpD s ft))
     (Op1 := binary64.MulSpec (envOf s.fcsr) (readFpD s fs).toNat (readFpD s ft).toNat)
     (r2 := fun p => f64Sub (envOf s.fcsr) p (readFpD s fr))
@@ -285,6 +363,7 @@ theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
   rw [nmaddD_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := three_stepsD s fd (r1 := f64Mul (envOf s.fcsr) (readFpD s fs) (readFpD s ft))
     (Op1 := binary64.MulSpec (envOf s.fcsr) (readFpD s fs).toNat (readFpD s ft).toNat)
     (r2 := fun p => f64Add (envOf s.fcsr) (readFpD s fr) p)
@@ -306,6 +385,7 @@ theorem nmsubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
         | .trap c => takeException { s with fcsr := c } excCodeFPE
         | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) := by
   rw [nmsubD_spec_raw s w fd fr fs ft hfetch hdecode hpb hcu hexec]
+  dsimp only
   obtain ⟨out, h, e⟩ := three_stepsD s fd (r1 := f64Mul (envOf s.fcsr) (readFpD s fs) (readFpD s ft))
     (Op1 := binary64.MulSpec (envOf s.fcsr) (readFpD s fs).toNat (readFpD s ft).toNat)
     (r2 := fun p => f64Sub (envOf s.fcsr) p (readFpD s fr))

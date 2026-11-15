@@ -757,8 +757,10 @@ Proved in `Semantics/Specs/` — Cp0.lean. -/
 /-- **`mfc0` reads a modeled CP0 register `(rd, sel)` into GPR `$rt`**:
 `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
 `(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, MD00090 Vol III Rev 6.02
-Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1,
-`(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
+Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1
+(reads `0x8000_0001`: `M = 1`, `FP = 1`, Table 9.65, p.237-240), `(16,2)` Config2 (reads `0x8000_0000`:
+`M = 1`, no level 2/3 cache, §9.47, Table 9.66, p.241-243), `(16,3)` Config3 (reads 0: none of its
+optional features, no Config4, §9.48, Table 9.67, p.245-251), `(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
 request: `TI` (bit 30) and, merged
 into it (`IntCtl.IPTI = 7` pin), `IP7` (bit 15) while a timer interrupt is pending (MD00090 Vol III
 Rev 6.02 Table 9.52, p.209, 211; Table 6.2, p.73). The read happens before the step's timer tick, so
@@ -789,7 +791,9 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
       | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
-      | 16, 1 => read 0x00000001#32
+      | 16, 1 => read 0x80000001#32
+      | 16, 2 => read 0x80000000#32
+      | 16, 3 => read 0#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI) := by
   sorry
@@ -804,7 +808,9 @@ writable, and so is `Count` (9,0) (MD00090 Vol III Rev 6.02 §9.27, p.183). A wr
 keeps bits 3..0 (`hwrenaWriteMask`; Table 9.39, p.175). `EBase` (15,1) takes bits 29..12 of the
 written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0)
 (Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317);
-`BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `IntCtl` (12,1: no writable field, `VS` "is
+`BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `Config2` (16,2: `TU`/`SU` not implemented, "read as
+zero and be ignored on write", Table 9.66, p.241-242), `Config3` (16,3: "All fields in the Config3
+register are read-only", §9.48, p.245), `IntCtl` (12,1: no writable field, `VS` "is
 ignored on write" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201) and `SRSCtl` (12,2: with
 `HSS = 0` its fields can only hold 0, Table 9.49, p.203-204; pin) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
@@ -842,6 +848,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
               pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
+      | 16, 2 => { s with pc := s.pc + 4#32 }
+      | 16, 3 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | _, _ => takeException s excCodeRI) := by
@@ -1776,9 +1784,11 @@ theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
 `Manual.Oracle.Valid`, which formalizes the three restrictions on UNPREDICTABLE operations of MD00086
 Vol II-A Rev 6.06 §1.2.1 (p.3-4): every UNPREDICTABLE outcome is an exception, `proceed`, or a state
 within `Manual.UnpredictableLimits` (no change to the state inaccessible in the current mode, no entry
-into the lower power mode), and in User Mode every UNPREDICTABLE outcome and value is
+into the lower power mode, no change to the hardware interrupt inputs `HW`: a model-side
+strengthening, MD00090 Vol III Rev 6.02 Table 6.2, p.73; Table 9.52, p.211), and in User Mode every UNPREDICTABLE outcome and value is
 non-interfering (`Manual.NIOutcome`, `Manual.NIValue`: it does not depend on the state inaccessible in
-that mode); the UNDEFINED outcomes do not hang the processor (§1.2.2, p.4); the QNaN choices of
+that mode); the UNDEFINED outcomes do not hang the processor (§1.2.2, p.4) and leave `HW` unchanged
+(the same strengthening); the QNaN choices of
 `CVT.D.S`/`CVT.S.D` are quiet NaNs (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82); a Reset changes
 registers only. This makes `Manual.Step` in `step_refines_manual` meaningful. -/
 theorem modelOracle_valid : Manual.modelOracle.Valid := by
@@ -1817,7 +1827,9 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation of `1.0 / fs` (MD00086 Vol II-A Rev
 6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`) and of the exact `1/fs`
 (`Manual.Impl.RecipExact`), and `RSQRT.fmt` within 2 ULP of the exact `1/√fs` (RSQRT.fmt, p.343;
-`Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`, wave 10). -/
+`Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`, wave 10); and
+both signal Invalid Operation and Division by Zero as `Manual.Impl.RecipFlags` requires (MD00082 Vol
+I-A Rev 6.01 §6.3.1.4-5, p.81-82; §6.7.2.1-2, p.100; Overflow, Underflow, Inexact left free). -/
 theorem modelImpl_valid : Manual.modelImpl.Valid := by
   sorry
 
@@ -2203,7 +2215,8 @@ theorem f64Neg_spec (x : BitVec 64) :
 
 /-- **The FCSR update of an FP operation** (MD00082 Vol I-A Rev 6.01 §6.7.1 p.99; CheckFPException,
 MD00086 §2.2.2.3.3 Figure 2.24 p.23): `Mips.Fp.fpUpdate`, which `step` uses for every FP
-arithmetic instruction (`fpFinishS`/`fpFinishD`/`fpFinishCmp`/`fpThen`), meets `Mips.Fp.FcsrSpec`:
+arithmetic instruction (`fpFinishS`/`fpFinishD`/`fpFinishCmp`/`fpThen`; the multiply-add family's
+completion with the union of its operations' conditions), meets `Mips.Fp.FcsrSpec`:
 Cause ← the exceptions (E = 0), trap iff CheckFPException on the new FCSR, Flags |= the exceptions
 unless trapping, every other bit unchanged. -/
 theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
@@ -2217,8 +2230,11 @@ theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 3
 
 /-- **`MADD.S` is "as if separate floating-point" operations "were executed"** (MD00086 MADD.fmt p.256):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 0): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.maddS fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2231,8 +2247,11 @@ theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
 
 /-- **`MSUB.S` is "as if separate floating-point" operations "were executed"** (MD00086 MSUB.fmt p.287):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 1): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.msubS fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2245,8 +2264,11 @@ theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
 
 /-- **`NMADD.S` is "as if separate floating-point" operations "were executed"** (MD00086 NMADD.fmt p.308):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 2): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.nmaddS fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2259,8 +2281,11 @@ theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
 
 /-- **`NMSUB.S` is "as if separate floating-point" operations "were executed"** (MD00086 NMSUB.fmt p.310):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 3): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.nmsubS fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2273,8 +2298,11 @@ theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
 
 /-- **`MADD.D` is "as if separate floating-point" operations "were executed"** (MD00086 MADD.fmt p.256):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 0): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.maddD fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2287,8 +2315,11 @@ theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
 
 /-- **`MSUB.D` is "as if separate floating-point" operations "were executed"** (MD00086 MSUB.fmt p.287):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 1): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.msubD fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2301,8 +2332,11 @@ theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s
 
 /-- **`NMADD.D` is "as if separate floating-point" operations "were executed"** (MD00086 NMADD.fmt p.308):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 2): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.nmaddD fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2315,8 +2349,11 @@ theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord 
 
 /-- **`NMSUB.D` is "as if separate floating-point" operations "were executed"** (MD00086 NMSUB.fmt p.310):
 `step` yields the state of an outcome allowed by `Mips.Fp.MaddSpec` (kind 3): each step
-(multiply, add/subtract, [negate]) meets its own reference and its own FCSR update/trap check; a
-trapping step takes the Floating-Point exception with its FCSR, else `fd` gets the final value. -/
+(multiply, add/subtract, [negate]) meets its own reference; the FCSR is per instruction (Wave 12a,
+`Mips.Fp.OpAcc`): after each step Cause is the union of the steps' exception conditions so far (MD00082
+Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94) and the trap check is made; a trapping step takes the
+Floating-Point exception with that FCSR and the Flags unchanged, else `fd` gets the final value and the
+Flags |= the union ("The Cause bits are ORed into the Flag bits if no exception is taken"). -/
 theorem nmsubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
     (hdecode : decode w = some (.nmsubD fd fr fs ft)) (hpb : s.pendingBranch = none)
     (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :

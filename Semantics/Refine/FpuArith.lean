@@ -301,7 +301,7 @@ theorem rsqrtD_refines (s : State) (hg : Good s) (fd fs w : W32)
       modelCtx_impl, modelImpl_rsqrtD, Mips.Fp.f64Rsqrt]
 
 
-/-- **MADD.S refines (separate multiply, add steps).** -/
+/-- **MADD.S refines (separate multiply, add steps; Cause = the union, Flags at completion).** -/
 theorem maddS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
     (hw : enc (.maddS fd fr fs ft) = some w) :
     Execute modelCtx w (.maddS fd fr fs ft) (abs s) =
@@ -310,114 +310,20 @@ theorem maddS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
   refine execute_cop1 s w _ (Ops.MADD_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.maddS fd fr fs ft) =
-      fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-        (fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Add (fpEnv s) p (readFpReg s (regIdx fr)))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
+      fpStep s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        (fun s1 p => fpFinishS s1 fd (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2
+          (Mips.Fp.f32Add (fpEnv s) p (readFpReg s (regIdx fr))))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
     (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.addS a p (readFpReg s (regIdx fr)))
-      StoreFPR32 (reg fd) r) _ fun _ => ?_)
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.addS (abs s) p (readFpReg s (regIdx fr))))
+      StoreFPR32 (reg fd) v) _ fun _ => ?_)
   · apply runAbs_congr
-    simp only [Ops.MADD_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.mulS]
+    simp only [Ops.MADD_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.mulS, Mips.Fp.accFlags]
   · refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
     apply runAbs_congr
-    simp only [bind, Pseudo.get, IEEE.addS, env_abs, fpEnv_raiseFlags]
+    simp only [bind, IEEE.addS, env_abs]
 
-
-/-- **MSUB.S refines (separate multiply, sub steps).** -/
-theorem msubS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
-    (hw : enc (.msubS fd fr fs ft) = some w) :
-    Execute modelCtx w (.msubS fd fr fs ft) (abs s) =
-      some (abs (execInstr s (.msubS fd fr fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
-  refine execute_cop1 s w _ (Ops.MSUB_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.msubS fd fr fs ft) =
-      fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-        (fun s1 p => fpFinishS s1 fd (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
-    (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.subS a p (readFpReg s (regIdx fr)))
-      StoreFPR32 (reg fd) r) _ fun _ => ?_)
-  · apply runAbs_congr
-    simp only [Ops.MSUB_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.mulS]
-  · refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
-    apply runAbs_congr
-    simp only [bind, Pseudo.get, IEEE.subS, env_abs, fpEnv_raiseFlags]
-
-
-/-- **NMADD.S refines (separate multiply, add, negate steps).** -/
-theorem nmaddS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
-    (hw : enc (.nmaddS fd fr fs ft) = some w) :
-    Execute modelCtx w (.nmaddS fd fr fs ft) (abs s) =
-      some (abs (execInstr s (.nmaddS fd fr fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
-  refine execute_cop1 s w _ (Ops.NMADD_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.nmaddS fd fr fs ft) =
-      fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-        (fun s1 p => fpThen s1 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p)
-          (fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
-    (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.addS a (readFpReg s (regIdx fr)) p)
-      let o ← Pseudo.oracle
-      let r ← FPResult (IEEE.negS o.absNegNaN r)
-      StoreFPR32 (reg fd) r) _ fun _ => ?_)
-  · apply runAbs_congr
-    simp only [Ops.NMADD_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs,
-        IEEE.mulS]
-  · refine Eq.trans ?_ (runAbs_FPResult _ _
-      (fun r => do
-        let o ← Pseudo.oracle
-        let r ← FPResult (IEEE.negS o.absNegNaN r)
-        StoreFPR32 (reg fd) r) _ fun _ => ?_)
-    · apply runAbs_congr
-      simp only [bind, Pseudo.get, IEEE.addS, env_abs, fpEnv_raiseFlags]
-    · rw [f32Neg_eq]
-      refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
-      apply runAbs_congr
-      simp only [bind, Pseudo.oracle, modelCtx_oracle, modelOracle_absNegNaN]
-
-
-/-- **NMSUB.S refines (separate multiply, sub, negate steps).** -/
-theorem nmsubS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
-    (hw : enc (.nmsubS fd fr fs ft) = some w) :
-    Execute modelCtx w (.nmsubS fd fr fs ft) (abs s) =
-      some (abs (execInstr s (.nmsubS fd fr fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
-  refine execute_cop1 s w _ (Ops.NMSUB_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.nmsubS fd fr fs ft) =
-      fpThen s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
-        (fun s1 p => fpThen s1 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))
-          (fun s2 q => fpFinishS s2 fd (Mips.Fp.f32Neg q))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
-    (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.subS a p (readFpReg s (regIdx fr)))
-      let o ← Pseudo.oracle
-      let r ← FPResult (IEEE.negS o.absNegNaN r)
-      StoreFPR32 (reg fd) r) _ fun _ => ?_)
-  · apply runAbs_congr
-    simp only [Ops.NMSUB_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs,
-        IEEE.mulS]
-  · refine Eq.trans ?_ (runAbs_FPResult _ _
-      (fun r => do
-        let o ← Pseudo.oracle
-        let r ← FPResult (IEEE.negS o.absNegNaN r)
-        StoreFPR32 (reg fd) r) _ fun _ => ?_)
-    · apply runAbs_congr
-      simp only [bind, Pseudo.get, IEEE.subS, env_abs, fpEnv_raiseFlags]
-    · rw [f32Neg_eq]
-      refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
-      apply runAbs_congr
-      simp only [bind, Pseudo.oracle, modelCtx_oracle, modelOracle_absNegNaN]
-
-
-/-- **MADD.D refines (separate multiply, add steps).** -/
+/-- **MADD.D refines (separate multiply, add steps; Cause = the union, Flags at completion).** -/
 theorem maddD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
     (hw : enc (.maddD fd fr fs ft) = some w) :
     Execute modelCtx w (.maddD fd fr fs ft) (abs s) =
@@ -426,21 +332,42 @@ theorem maddD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
   refine execute_cop1 s w _ (Ops.MADD_D fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.maddD fd fr fs ft) =
-      fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-        (fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Add (fpEnv s) p (readFpD s fr))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
+      fpStep s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+        (fun s1 p => fpFinishD s1 fd (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2
+          (Mips.Fp.f64Add (fpEnv s) p (readFpD s fr)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
     (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.addD a p (readFpD s fr))
-      StoreFPR64 (reg fd) r) _ fun _ => ?_)
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.addD (abs s) p (readFpD s fr)))
+      StoreFPR64 (reg fd) v) _ fun _ => ?_)
   · apply runAbs_congr
-    simp only [Ops.MADD_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.mulD]
+    simp only [Ops.MADD_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.mulD, Mips.Fp.accFlags]
   · refine Eq.trans ?_ (runAbs_finD _ (by exact hfsz) fd _)
     apply runAbs_congr
-    simp only [bind, Pseudo.get, IEEE.addD, env_abs, fpEnv_raiseFlags]
+    simp only [bind, IEEE.addD, env_abs]
 
+/-- **MSUB.S refines (separate multiply, sub steps; Cause = the union, Flags at completion).** -/
+theorem msubS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
+    (hw : enc (.msubS fd fr fs ft) = some w) :
+    Execute modelCtx w (.msubS fd fr fs ft) (abs s) =
+      some (abs (execInstr s (.msubS fd fr fs ft))) := by
+  obtain ⟨-, hfsz, -⟩ := hg
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
+  refine execute_cop1 s w _ (Ops.MSUB_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
+  rw [show execBody s (.msubS fd fr fs ft) =
+      fpStep s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        (fun s1 p => fpFinishS s1 fd (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2
+          (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr))))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
+    (fun p => do
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.subS (abs s) p (readFpReg s (regIdx fr))))
+      StoreFPR32 (reg fd) v) _ fun _ => ?_)
+  · apply runAbs_congr
+    simp only [Ops.MSUB_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.mulS, Mips.Fp.accFlags]
+  · refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
+    apply runAbs_congr
+    simp only [bind, IEEE.subS, env_abs]
 
-/-- **MSUB.D refines (separate multiply, sub steps).** -/
+/-- **MSUB.D refines (separate multiply, sub steps; Cause = the union, Flags at completion).** -/
 theorem msubD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
     (hw : enc (.msubD fd fr fs ft) = some w) :
     Execute modelCtx w (.msubD fd fr fs ft) (abs s) =
@@ -449,21 +376,53 @@ theorem msubD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
   refine execute_cop1 s w _ (Ops.MSUB_D fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.msubD fd fr fs ft) =
-      fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-        (fun s1 p => fpFinishD s1 fd (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
+      fpStep s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+        (fun s1 p => fpFinishD s1 fd (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2
+          (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
     (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.subD a p (readFpD s fr))
-      StoreFPR64 (reg fd) r) _ fun _ => ?_)
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.subD (abs s) p (readFpD s fr)))
+      StoreFPR64 (reg fd) v) _ fun _ => ?_)
   · apply runAbs_congr
-    simp only [Ops.MSUB_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.mulD]
+    simp only [Ops.MSUB_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.mulD, Mips.Fp.accFlags]
   · refine Eq.trans ?_ (runAbs_finD _ (by exact hfsz) fd _)
     apply runAbs_congr
-    simp only [bind, Pseudo.get, IEEE.subD, env_abs, fpEnv_raiseFlags]
+    simp only [bind, IEEE.subD, env_abs]
 
+/-- **NMADD.S refines (separate multiply, add, negate steps; Cause = the union, Flags at completion).** -/
+theorem nmaddS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
+    (hw : enc (.nmaddS fd fr fs ft) = some w) :
+    Execute modelCtx w (.nmaddS fd fr fs ft) (abs s) =
+      some (abs (execInstr s (.nmaddS fd fr fs ft))) := by
+  obtain ⟨-, hfsz, -⟩ := hg
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
+  refine execute_cop1 s w _ (Ops.NMADD_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
+  rw [show execBody s (.nmaddS fd fr fs ft) =
+      fpStep s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        (fun s1 p => fpStep s1 (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p))
+          (fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) p)).2 (Mips.Fp.f32Neg q)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
+    (fun p => do
+      let q ← FPCheck (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.addS (abs s) (readFpReg s (regIdx fr)) p))
+      let o ← Pseudo.oracle
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.addS (abs s) (readFpReg s (regIdx fr)) p)).2
+        (IEEE.negS o.absNegNaN q))
+      StoreFPR32 (reg fd) v) _ fun _ => ?_)
+  · apply runAbs_congr
+    simp only [Ops.NMADD_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.mulS, Mips.Fp.accFlags]
+  · refine Eq.trans ?_ (runAbs_FPCheck _ _
+      (fun q => do
+        let o ← Pseudo.oracle
+        let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fr)) (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).1)).2 (IEEE.negS o.absNegNaN q))
+        StoreFPR32 (reg fd) v) _ fun _ => ?_)
+    · apply runAbs_congr
+      simp only [bind, IEEE.addS, env_abs]
+    · rw [f32Neg_eq]
+      refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
+      apply runAbs_congr
+      simp only [bind, Pseudo.oracle, modelCtx_oracle, modelOracle_absNegNaN]
 
-/-- **NMADD.D refines (separate multiply, add, negate steps).** -/
+/-- **NMADD.D refines (separate multiply, add, negate steps; Cause = the union, Flags at completion).** -/
 theorem nmaddD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
     (hw : enc (.nmaddD fd fr fs ft) = some w) :
     Execute modelCtx w (.nmaddD fd fr fs ft) (abs s) =
@@ -472,32 +431,64 @@ theorem nmaddD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
   refine execute_cop1 s w _ (Ops.NMADD_D fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.nmaddD fd fr fs ft) =
-      fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-        (fun s1 p => fpThen s1 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p)
-          (fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
+      fpStep s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+        (fun s1 p => fpStep s1 (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p))
+          (fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) p)).2 (Mips.Fp.f64Neg q)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
     (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.addD a (readFpD s fr) p)
+      let q ← FPCheck (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.addD (abs s) (readFpD s fr) p))
       let o ← Pseudo.oracle
-      let r ← FPResult (IEEE.negD o.absNegNaN r)
-      StoreFPR64 (reg fd) r) _ fun _ => ?_)
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.addD (abs s) (readFpD s fr) p)).2
+        (IEEE.negD o.absNegNaN q))
+      StoreFPR64 (reg fd) v) _ fun _ => ?_)
   · apply runAbs_congr
-    simp only [Ops.NMADD_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.mulD]
-  · refine Eq.trans ?_ (runAbs_FPResult _ _
-      (fun r => do
+    simp only [Ops.NMADD_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.mulD, Mips.Fp.accFlags]
+  · refine Eq.trans ?_ (runAbs_FPCheck _ _
+      (fun q => do
         let o ← Pseudo.oracle
-        let r ← FPResult (IEEE.negD o.absNegNaN r)
-        StoreFPR64 (reg fd) r) _ fun _ => ?_)
+        let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Add (fpEnv s) (readFpD s fr) (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).1)).2 (IEEE.negD o.absNegNaN q))
+        StoreFPR64 (reg fd) v) _ fun _ => ?_)
     · apply runAbs_congr
-      simp only [bind, Pseudo.get, IEEE.addD, env_abs, fpEnv_raiseFlags]
+      simp only [bind, IEEE.addD, env_abs]
     · rw [f64Neg_eq]
       refine Eq.trans ?_ (runAbs_finD _ (by exact hfsz) fd _)
       apply runAbs_congr
       simp only [bind, Pseudo.oracle, modelCtx_oracle, modelOracle_absNegNaN]
 
+/-- **NMSUB.S refines (separate multiply, sub, negate steps; Cause = the union, Flags at completion).** -/
+theorem nmsubS_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
+    (hw : enc (.nmsubS fd fr fs ft) = some w) :
+    Execute modelCtx w (.nmsubS fd fr fs ft) (abs s) =
+      some (abs (execInstr s (.nmsubS fd fr fs ft))) := by
+  obtain ⟨-, hfsz, -⟩ := hg
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
+  refine execute_cop1 s w _ (Ops.NMSUB_S fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
+  rw [show execBody s (.nmsubS fd fr fs ft) =
+      fpStep s (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))
+        (fun s1 p => fpStep s1 (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr))))
+          (fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Sub (fpEnv s) p (readFpReg s (regIdx fr)))).2 (Mips.Fp.f32Neg q)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
+    (fun p => do
+      let q ← FPCheck (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.subS (abs s) p (readFpReg s (regIdx fr))))
+      let o ← Pseudo.oracle
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (IEEE.subS (abs s) p (readFpReg s (regIdx fr)))).2
+        (IEEE.negS o.absNegNaN q))
+      StoreFPR32 (reg fd) v) _ fun _ => ?_)
+  · apply runAbs_congr
+    simp only [Ops.NMSUB_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.mulS, Mips.Fp.accFlags]
+  · refine Eq.trans ?_ (runAbs_FPCheck _ _
+      (fun q => do
+        let o ← Pseudo.oracle
+        let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 (Mips.Fp.f32Sub (fpEnv s) (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).1 (readFpReg s (regIdx fr)))).2 (IEEE.negS o.absNegNaN q))
+        StoreFPR32 (reg fd) v) _ fun _ => ?_)
+    · apply runAbs_congr
+      simp only [bind, IEEE.subS, env_abs]
+    · rw [f32Neg_eq]
+      refine Eq.trans ?_ (runAbs_finS _ (by exact hfsz) fd _)
+      apply runAbs_congr
+      simp only [bind, Pseudo.oracle, modelCtx_oracle, modelOracle_absNegNaN]
 
-/-- **NMSUB.D refines (separate multiply, sub, negate steps).** -/
+/-- **NMSUB.D refines (separate multiply, sub, negate steps; Cause = the union, Flags at completion).** -/
 theorem nmsubD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
     (hw : enc (.nmsubD fd fr fs ft) = some w) :
     Execute modelCtx w (.nmsubD fd fr fs ft) (abs s) =
@@ -506,25 +497,25 @@ theorem nmsubD_refines (s : State) (hg : Good s) (fd fr fs ft w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inr rfl) rfl hw
   refine execute_cop1 s w _ (Ops.NMSUB_D fd fr fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.nmsubD fd fr fs ft) =
-      fpThen s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
-        (fun s1 p => fpThen s1 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))
-          (fun s2 q => fpFinishD s2 fd (Mips.Fp.f64Neg q))) from rfl]
-  refine Eq.trans ?_ (runAbs_FPResult s _
+      fpStep s (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft))
+        (fun s1 p => fpStep s1 (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr)))
+          (fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Sub (fpEnv s) p (readFpD s fr))).2 (Mips.Fp.f64Neg q)))) from rfl]
+  refine Eq.trans ?_ (runAbs_FPCheck s _
     (fun p => do
-      let a ← Pseudo.get
-      let r ← FPResult (IEEE.subD a p (readFpD s fr))
+      let q ← FPCheck (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.subD (abs s) p (readFpD s fr)))
       let o ← Pseudo.oracle
-      let r ← FPResult (IEEE.negD o.absNegNaN r)
-      StoreFPR64 (reg fd) r) _ fun _ => ?_)
+      let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (IEEE.subD (abs s) p (readFpD s fr))).2
+        (IEEE.negD o.absNegNaN q))
+      StoreFPR64 (reg fd) v) _ fun _ => ?_)
   · apply runAbs_congr
-    simp only [Ops.NMSUB_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.mulD]
-  · refine Eq.trans ?_ (runAbs_FPResult _ _
-      (fun r => do
+    simp only [Ops.NMSUB_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.mulD, Mips.Fp.accFlags]
+  · refine Eq.trans ?_ (runAbs_FPCheck _ _
+      (fun q => do
         let o ← Pseudo.oracle
-        let r ← FPResult (IEEE.negD o.absNegNaN r)
-        StoreFPR64 (reg fd) r) _ fun _ => ?_)
+        let v ← FPResult (Mips.Fp.accFlags (Mips.Fp.accFlags (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).2 (Mips.Fp.f64Sub (fpEnv s) (Mips.Fp.f64Mul (fpEnv s) (readFpD s fs) (readFpD s ft)).1 (readFpD s fr))).2 (IEEE.negD o.absNegNaN q))
+        StoreFPR64 (reg fd) v) _ fun _ => ?_)
     · apply runAbs_congr
-      simp only [bind, Pseudo.get, IEEE.subD, env_abs, fpEnv_raiseFlags]
+      simp only [bind, IEEE.subD, env_abs]
     · rw [f64Neg_eq]
       refine Eq.trans ?_ (runAbs_finD _ (by exact hfsz) fd _)
       apply runAbs_congr

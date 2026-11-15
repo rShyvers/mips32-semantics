@@ -4,7 +4,7 @@ import Semantics.Manual.Exceptions
 # Manual.Interrupts — interrupt compatibility mode
 
 MD00090 Vol III Rev 6.02 §6.1 (p.72) and §6.1.1.1, Table 6.2 (p.73). Vectored Interrupt and EIC
-modes are optional and absent (`Config3` does not exist: `Config1.M = 0`; `IntCtl.VS = 0`).
+modes are optional and absent (`Config3.VInt = Config3.VEIC = 0`, `Impl.WF`; `IntCtl.VS = 0`).
 -/
 
 namespace Manual

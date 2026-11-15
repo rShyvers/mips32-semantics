@@ -819,6 +819,23 @@ def fpUpdate (fcsr : BitVec 32) (f : Flags) : BitVec 32 × Bool :=
     ((fcsr &&& ~~~fcsrCauseMask) ||| ((f.toBits.zeroExtend 32 : BitVec 32) <<< 12), true)
   else (raiseFlags fcsr f, false)
 
+/-- FCSR.Cause set to *exactly* `f` (E cleared), every other bit unchanged — the
+Cause write of one operation of an instruction made of several FP operations
+(`MADD.fmt` … `NMSUB.fmt`), without the Flags update, which is made only when
+the whole instruction completes ("The Cause bits are ORed into the Flag bits if
+no exception is taken", MD00086 Vol II-A Rev 6.06, MADD.fmt p.256; "instructions
+that trap do not update the Flag bits", MD00082 Vol I-A Rev 6.01 §6.7.1, p.99).
+It is the FCSR `fpUpdate` gives when it traps. -/
+def setCause (fcsr : BitVec 32) (f : Flags) : BitVec 32 :=
+  (fcsr &&& ~~~fcsrCauseMask) ||| ((f.toBits.zeroExtend 32 : BitVec 32) <<< 12)
+
+/-- The result of one operation of a multi-operation instruction with its
+exceptions joined to those `acc` of the operations before it: FCSR.Cause
+reports the conditions that arose "during the execution of an instruction"
+(MD00082 Vol I-A Rev 6.01, Table 6.8 `Cause`, p.94), so after the operations
+`o₁ … oₙ` it is the union of their exceptions. -/
+def accFlags {α : Type} (acc : Flags) (r : α × Flags) : α × Flags := (r.1, acc.or r.2)
+
 /-- After a `CTC1` write: a Floating-Point exception is taken if any Cause bit
 is set whose Enable bit is also set, or if Cause.E (always enabled) is set
 (MD00086 `CTC1`). -/
@@ -1110,10 +1127,13 @@ executed." — i.e. **unfused**, two roundings. NMADD.fmt (p.308) / NMSUB.fmt
 (p.310): "… as if separate floating-point multiply and add and negate
 instructions were executed", so the final negation is the (legacy, arithmetic)
 `NEG.fmt`, which signals Invalid for a NaN. The functions below give the
-result value and the union of the IEEE exceptions of the steps. `step` does
-not use their flags: it executes the steps one after the other with their own
-FCSR Cause / trap check / Flags (`Step.lean`, `fpThen`), so a trapping
-multiply stops the instruction with the multiply's Cause only.
+result value and the union of the IEEE exceptions of the steps — the FCSR
+Cause of an untrapped multiply-add (Table 6.8 `Cause`, MD00082 Vol I-A Rev 6.01
+p.94: set "if the corresponding exception condition arises during the
+execution of an instruction"). `step` runs the steps one after the other
+(`Step.lean`, `fpStep`): each writes Cause with the union so far and is
+trap-checked, so a trapping multiply stops the instruction with the multiply's
+Cause; Flags are updated with the union only when no step traps.
 
 RECIP.fmt (p.336) and RSQRT.fmt (p.343) leave the accuracy
 implementation-dependent (within 1 resp. 2 ulp) and "it is implementation

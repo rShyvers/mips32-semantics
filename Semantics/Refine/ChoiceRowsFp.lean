@@ -83,6 +83,30 @@ theorem row_AB {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation 
     (fun x y hx hy => obs_bit16 x y (hx.trans (by decide)) (hy.trans (by decide))) (fun ce => h ce .A)
     (fun ce => h ce .B)
 
+/-- The readings `A` and `A'` of a quiet NaN deliver the value `q` and `q` with its sign bit changed
+(Wave 12a: the Invalid Operation of the negate no longer tells `A`/`A'` from `B` when an earlier
+operation of the instruction raised it too, the instruction's Cause being the union). -/
+theorem row_AA'S {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation ins = some O) (rd : BitVec 64)
+    (fd q : W32)
+    (h : ∀ ce, RunP a (fun x => x.FPR (reg fd) = q)
+      (O (ctxOf modelImpl (wo { rd := rd, anr := .A } ce)) { arch := a }))
+    (h' : ∀ ce, RunP a (fun x => x.FPR (reg fd) = q ^^^ (1#32 <<< 31))
+      (O (ctxOf modelImpl (wo { rd := rd, anr := .A' } ce)) { arch := a })) : RowWitness ins a :=
+  row_of hO { rd := rd, anr := .A } { rd := rd, anr := .A' } _ _
+    (fun x y hx hy => obs_fpr fd _ _ (by
+      intro e; have := congrArg (·.getLsbD 31) e; simp at this) x y hx hy) h h'
+
+/-- As `row_AA'S`, for a double in the pair `fd`. -/
+theorem row_AA'D {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation ins = some O) (rd : BitVec 64)
+    (fd : W32) (q : BitVec 64)
+    (h : ∀ ce, RunP a (fun x => FPRPair x fd = q)
+      (O (ctxOf modelImpl (wo { rd := rd, anr := .A } ce)) { arch := a }))
+    (h' : ∀ ce, RunP a (fun x => FPRPair x fd = q ^^^ (1#64 <<< 63))
+      (O (ctxOf modelImpl (wo { rd := rd, anr := .A' } ce)) { arch := a })) : RowWitness ins a :=
+  row_of hO { rd := rd, anr := .A } { rd := rd, anr := .A' } _ _
+    (fun x y hx hy => obs_pair fd _ _ (by
+      intro e; have := congrArg (·.getLsbD 63) e; simp at this) x y hx hy) h h'
+
 section
 set_option linter.unusedSimpArgs false
 
@@ -413,12 +437,14 @@ theorem rw_nmaddS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddS fd
     RowWitness (.nmaddS fd fr fs ft) a := by
   simp only [ConsultsOracle] at h
   have hs := qnan32_not_snan _ h
-  exact row_AB rfl QA64 fun _ r => by simp only [Ops.NMADD_S]; cases r <;> runp_fp
+  exact row_AA'S rfl QA64 fd (IEEE.addS a (a.FPR (reg fr)) (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1).1
+    (fun _ => by simp only [Ops.NMADD_S]; runp_fp) (fun _ => by simp only [Ops.NMADD_S]; runp_fp)
 theorem rw_nmsubS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmsubS fd fr fs ft) a = true) :
     RowWitness (.nmsubS fd fr fs ft) a := by
   simp only [ConsultsOracle] at h
   have hs := qnan32_not_snan _ h
-  exact row_AB rfl QA64 fun _ r => by simp only [Ops.NMSUB_S]; cases r <;> runp_fp
+  exact row_AA'S rfl QA64 fd (IEEE.subS a (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1 (a.FPR (reg fr))).1
+    (fun _ => by simp only [Ops.NMSUB_S]; runp_fp) (fun _ => by simp only [Ops.NMSUB_S]; runp_fp)
 
 end
 

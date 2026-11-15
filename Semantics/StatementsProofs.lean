@@ -498,7 +498,9 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
       | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
-      | 16, 1 => read 0x00000001#32
+      | 16, 1 => read 0x80000001#32
+      | 16, 2 => read 0x80000000#32
+      | 16, 3 => read 0#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI) :=
   _root_.mfc0_spec_raw s w rt rd sel hfetch hdecode hpb hcp0 hexec
@@ -536,6 +538,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
               pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
+      | 16, 2 => { s with pc := s.pc + 4#32 }
+      | 16, 3 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | _, _ => takeException s excCodeRI) :=

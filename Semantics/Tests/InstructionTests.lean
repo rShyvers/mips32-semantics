@@ -705,7 +705,10 @@ example : decode 0x41686800#32 = none := by decide                              
 example : decode 0x40087801#32 = some (.mfc0 8#32 15#32 1#32) := by decide         -- mfc0 $8,$15,1 (EBase)
 example : decode 0x40888001#32 = some (.mtc0 8#32 16#32 1#32) := by decide         -- mtc0 $8,$16,1 (Config1)
 example : decode 0x40087800#32 = some (.mfc0 8#32 15#32 0#32) := by decide         -- PRId
-example : decode 0x40088002#32 = none := by decide                                 -- Config2: not modeled
+example : decode 0x40088002#32 = some (.mfc0 8#32 16#32 2#32) := by decide         -- mfc0 $8,$16,2 (Config2)
+example : decode 0x40888003#32 = some (.mtc0 8#32 16#32 3#32) := by decide         -- mtc0 $8,$16,3 (Config3)
+example : decode 0x40088004#32 = none := by decide                                 -- Config4: not implemented
+example : decode 0x40087002#32 = none := by decide                                 -- (14,2): not modeled
 example : decode 0x0000000c#32 = some (.syscall 0#32) := by decide
 example : decode 0x0001234d#32 = some (.break 0x48d#32) := by decide               -- code 0x48d = 1165
 example : decode 0x00a41df4#32 = some (.teq 5#32 4#32 0x77#32) := by decide        -- teq $5,$4,0x77

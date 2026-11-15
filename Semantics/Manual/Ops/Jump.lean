@@ -9,9 +9,8 @@ is the delay slot's address, `PC + 4` (§1.3, Table 1.1, p.6).
 `JR` and `JALR` have an `I+1:` arm for processors that implement MIPS16e or microMIPS
 (`Config3ISA ≠ 0` or `Config1CA ≠ 0`); `ISAMode` is not a state of this profile (pre-Release 6
 MIPS32 only), and `Config1.CA` (bit 2, MD00090 Vol III Rev 6.02, Table 9.65, p.240: "Code
-compression (MIPS16e) implemented") is 0 in `Impl.Config1`; the profile has no `Config3`:
-`Config1.M` (bit 31, Table 9.65, p.237) is 0, "reserved to indicate that a Config2 register is
-present", and `Config2.M` (Table 9.66, p.241) indicates Config3, so `Config3ISA = 0`.
+compression (MIPS16e) implemented") is 0 in `Impl.Config1`; `Config3ISA` (bits 15..14, Table 9.67,
+p.248: "0 Only MIPS32 Instruction Set is implemented") is 0, since `Impl.WF` requires `Config3 = 0`.
 -/
 
 namespace Manual.Ops

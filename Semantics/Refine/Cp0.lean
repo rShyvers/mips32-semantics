@@ -84,6 +84,8 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
                                    cp0ConfigK23 := (readReg s (regIdx rt) >>> 28).setWidth 3,
                                    cp0ConfigKU := (readReg s (regIdx rt) >>> 25).setWidth 3 }
       | 16, 1 => mkNext s s
+      | 16, 2 => mkNext s s
+      | 16, 3 => mkNext s s
       | 30, 0 => mkNext s { s with cp0ErrorEpc := readReg s (regIdx rt) }
       | _, _ => takeException s excCodeRI) := rfl
     rw [hb]; clear hb hex hw hw' hc0 hc1 hop hcti
@@ -144,6 +146,8 @@ theorem mfc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
       | 15, 1 => mkNext s (writeReg s (regIdx rt) (ebaseValue s))
       | 16, 0 => mkNext s (writeReg s (regIdx rt) (configValue s))
       | 16, 1 => mkNext s (writeReg s (regIdx rt) config1Value)
+      | 16, 2 => mkNext s (writeReg s (regIdx rt) config2Value)
+      | 16, 3 => mkNext s (writeReg s (regIdx rt) config3Value)
       | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
       | _, _ => takeException s excCodeRI) := rfl
     rw [hb]; clear hb hw hw' hc0 hc1
@@ -157,7 +161,8 @@ theorem mfc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
         first
           | (simp only [cprRead_hwrena, cprRead_badvaddr, cprRead_count, cprRead_compare,
               cprRead_status, cprRead_intctl, cprRead_srsctl, cprRead_cause, cprRead_epc, cprRead_prid,
-              cprRead_ebase, cprRead_config, cprRead_config1, cprRead_errorepc]
+              cprRead_ebase, cprRead_config, cprRead_config1, cprRead_config2, cprRead_config3,
+              cprRead_errorepc]
              exact complete_writeReg s hsz _ _)
           | (exfalso; simp at hI)
           | (exfalso; revert hI; split <;> simp_all)

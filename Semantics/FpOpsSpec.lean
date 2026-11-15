@@ -603,29 +603,46 @@ def OpStep {α : Type} (Op : α × Flags → Prop) (fcsr : BitVec 32) (o : FpOut
   ∃ r : α × Flags, Op r ∧ ∃ new trap, FcsrSpec fcsr r.2 new trap ∧
     (trap = true → o = .trap new) ∧ (trap = false → o = .done new r.1)
 
-/-- Run a second operation after the first unless the first trapped. -/
-def OpThen {α β : Type} (o : FpOutcome α) (next : BitVec 32 → α → FpOutcome β → Prop)
-    (out : FpOutcome β) : Prop :=
-  match o with
-  | .trap c => out = .trap c
-  | .done c v => next c v out
+/-- **One operation of an instruction made of several FP operations** (the multiply-add family):
+some result `r` allowed by the operation's spec `Op`; the exceptions so far are `acc.or r.2` (`acc`
+those of the instruction's earlier operations), and the FCSR `fcsr` *before the instruction* is
+updated with them per `FcsrSpec`: Cause ← the exceptions so far ("A bit is set to 1 if the
+corresponding exception condition arises during the execution of an instruction and is set to 0
+otherwise", MD00082 Vol I-A Rev 6.01, Table 6.8 `Cause`, p.94), the trap check, and — only when
+nothing traps — Flags (`FcsrSpec` sets Flags only for `trap = false`; "instructions that trap do not
+update the Flag bits", §6.7.1, p.99). If it traps the instruction ends with that FCSR; otherwise
+`next` continues with the exceptions so far, the value `r.1` and the FCSR `new` it would complete
+with. -/
+def OpAcc {α β : Type} (Op : α × Flags → Prop) (fcsr : BitVec 32) (acc : Flags)
+    (next : Flags → α → BitVec 32 → FpOutcome β → Prop) (out : FpOutcome β) : Prop :=
+  ∃ r : α × Flags, Op r ∧ ∃ new trap, FcsrSpec fcsr (acc.or r.2) new trap ∧
+    (trap = true → out = .trap new) ∧ (trap = false → next (acc.or r.2) r.1 new out)
+
+/-- The instruction's last operation completes with its FCSR and value. -/
+def OpDone {α : Type} (_acc : Flags) (v : α) (new : BitVec 32) (out : FpOutcome α) : Prop :=
+  out = .done new v
 
 /-- **`MADD.fmt` / `MSUB.fmt` / `NMADD.fmt` / `NMSUB.fmt` "as if separate floating-point multiply and add
-[subtract] [and negate] instructions were executed"** (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256,
-MSUB.fmt p.287, NMADD.fmt p.308, NMSUB.fmt p.310): the multiply `fs × ft` (`MulSpec`) as one
-instruction, then the add/subtract of the rounded product `p` and `fr` (`AddSpec`, operand order as
-printed: MADD `p + fr`, MSUB `p − fr`, NMADD `fr + p`, NMSUB `p − fr`), then for NMADD/NMSUB the negate
-(`SignOpSpec`, NEG.fmt), each its own FCSR update and trap check; a trap ends the instruction. The
-operations read FCSR.RM, Enables and FS (`e`), which the operations do not change. `kind`: 0 MADD,
-1 MSUB, 2 NMADD, 3 NMSUB. -/
+[subtract] [and negate] instructions were executed ... The Cause bits are ORed into the Flag bits if no
+exception is taken"** (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256, MSUB.fmt p.287, NMADD.fmt p.308,
+NMSUB.fmt p.310): the multiply `fs × ft` (`MulSpec`), rounded, then the add/subtract of the rounded
+product `p` and `fr` (`AddSpec`, operand order as printed: MADD `p + fr`, MSUB `p − fr`, NMADD
+`fr + p`, NMSUB `p − fr`), rounded, then for NMADD/NMSUB the negate (`SignOpSpec`, NEG.fmt) — each
+operation's result and exceptions as the separate instruction's. FCSR, per instruction (`OpAcc`):
+after each operation Cause holds the union of the exceptions of the operations so far (MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94: the conditions that arise "during the execution of an
+instruction") and the trap check is made; a trap ends the instruction there (the later operations
+are not executed, as a separate instruction after a trapping one would not be) with Flags
+unchanged (§6.7.1, p.99); otherwise, after the last operation, Flags |= the union. The operations
+read FCSR.RM, Enables and FS (`e`), which the operations do not change. `kind`: 0 MADD, 1 MSUB,
+2 NMADD, 3 NMSUB. -/
 def MaddSpec (f : Format) (e : Env) (kind : Nat) (fcsr : BitVec 32) (fr fs ft : Nat)
     (out : FpOutcome Nat) : Prop :=
-  ∃ o1, OpStep (f.MulSpec e fs ft) fcsr o1 ∧
-    OpThen o1 (fun c1 p out1 =>
-      if kind < 2 then
-        OpStep (if kind = 0 then f.AddSpec e false p fr else f.AddSpec e true p fr) c1 out1
-      else
-        ∃ o2, OpStep (if kind = 2 then f.AddSpec e false fr p else f.AddSpec e true p fr) c1 o2 ∧
-          OpThen o2 (fun c2 q out2 => OpStep (f.SignOpSpec false q) c2 out2) out1) out
+  OpAcc (f.MulSpec e fs ft) fcsr Flags.none (fun acc p _ out1 =>
+    if kind < 2 then
+      OpAcc (if kind = 0 then f.AddSpec e false p fr else f.AddSpec e true p fr) fcsr acc OpDone out1
+    else
+      OpAcc (if kind = 2 then f.AddSpec e false fr p else f.AddSpec e true p fr) fcsr acc
+        (fun acc2 q _ out2 => OpAcc (f.SignOpSpec false q) fcsr acc2 OpDone out2) out1) out
 
 end Mips.Fp

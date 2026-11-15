@@ -49,6 +49,13 @@ theorem rz_congr (x y : W32) (h : ∀ i, 18 ≤ i → i < 23 → x.getLsbD i = y
     · simp [h1]
   unfold RZ; rw [key]
 
+theorem rz_setCause (f : W32) (g : Mips.Fp.Flags) : RZ (Mips.Fp.setCause f g) ↔ RZ f := by
+  apply rz_congr; intro i h1 h2
+  obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
+  all_goals
+    unfold Mips.Fp.setCause
+    simp [Mips.Fp.fcsrCauseMask, BitVec.getLsbD_of_ge]
+
 theorem rz_fpUpdate (f : W32) (g : Mips.Fp.Flags) : RZ (Mips.Fp.fpUpdate f g).1 ↔ RZ f := by
   apply rz_congr; intro i h1 h2
   obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
@@ -200,6 +207,16 @@ theorem kept_fpFinishCmp_iff (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) 
 theorem kept_trans {s t r : State} (h1 : Kept s t) (h2 : Kept t r) : Kept s r :=
   ⟨fun h => h2.1 (h1.1 h), fun h => h2.2 (h1.2 h)⟩
 
+theorem kept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
+    (h : ∀ p, Kept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
+      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
+    Kept s (fpStep s r k) := by
+  unfold fpStep
+  split
+  · exact ⟨fun h => (rz_setCause _ _).mpr h, fun h => (si_or_exl _).mpr h⟩
+  · exact kept_trans (t := { s with fcsr := Mips.Fp.setCause s.fcsr r.2 })
+      ⟨fun h => (rz_setCause _ _).mpr h, id⟩ (h _)
+
 theorem kept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
     (h : ∀ p, Kept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
       (k { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 } p)) :
@@ -265,7 +282,7 @@ theorem execInstr_kept (s : State) (instr : Instruction) : Kept s (execInstr s i
       · exact ⟨id, fun h => (si_or_exl _).mpr h⟩
       · unfold execBody
         cases instr <;> dsimp only <;>
-          repeat' (first | (kp_fwd; kp_close; done) | split | (apply kept_fpThen; intro _))
+          repeat' (first | (kp_fwd; kp_close; done) | split | (apply kept_fpThen; intro _) | (apply kept_fpStep; intro _))
 
 /-! ## `step` -/
 

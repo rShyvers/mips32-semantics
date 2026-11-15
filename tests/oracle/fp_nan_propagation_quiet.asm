@@ -1,35 +1,36 @@
 # add/sub/mul/div.s with QUIET NaN operands (0x7fa00003 = QNaN, 0x7fa00004 = QNaN, 0x7fc00001 = sNaN): no Invalid for a QNaN with a number; the result is a NaN and never
 # a signaling one (compared: isNaN, bit 22, FCSR). The exact payload is a documented pin: the model returns the first quiet-NaN operand unchanged ('when possible ... one of the operand QNaN values'),
-# QEMU returns the default QNaN 0x7fbfffff; which NaN is returned is not specified, so the raw word slots are 'unpredictable' and the model value is pinned with 'expect' where a single QNaN is the only candidate.
+# QEMU returns the default QNaN 0x7fbfffff. With exactly one QNaN operand (and a number) the operand QNaN is mandatory, so those slots are 'expect-deviation' (+ 'expect');
+# with two NaN operands which one is returned is not specified, so those raw word slots stay 'unpredictable'.
 # MD00082 Vol I-A Rev 6.01 sec 6.3.1.4 p.81 ('An SNaN is never produced as a result value'), sec 6.3.1.5 p.82 ('a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible, this QNaN result is one of the operand QNaN values'; Table 6.3: new QNaN 0x7fbfffff when none can be copied), sec 6.7.2.1 p.100.
 # NOTE legacy encoding (Has2008 = 0): fraction MSB (bit 22) = 1 is SIGNALING, 0 is QUIET, so 0x7fc00001 is an sNaN and 0x7fa00003 a QNaN.
-# oracle: unpredictable mem:0x10010000 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x10010000 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x10010000=0x7fa00003
-# oracle: unpredictable mem:0x1001000c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x1001000c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x1001000c=0x7fa00003
 # oracle: unpredictable mem:0x10010018 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010024 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010030 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x1001003c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: unpredictable mem:0x10010048 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x10010048 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x10010048=0x7fa00003
-# oracle: unpredictable mem:0x10010054 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x10010054 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x10010054=0x7fa00003
 # oracle: unpredictable mem:0x10010060 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x1001006c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010078 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010084 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: unpredictable mem:0x10010090 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x10010090 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x10010090=0x7fa00003
-# oracle: unpredictable mem:0x1001009c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x1001009c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x1001009c=0x7fa00003
 # oracle: unpredictable mem:0x100100a8 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100b4 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100c0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100cc MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: unpredictable mem:0x100100d8 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x100100d8 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x100100d8=0x7fa00003
-# oracle: unpredictable mem:0x100100e4 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: expect-deviation mem:0x100100e4 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
 # oracle: expect mem:0x100100e4=0x7fa00003
 # oracle: unpredictable mem:0x100100f0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100fc MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified

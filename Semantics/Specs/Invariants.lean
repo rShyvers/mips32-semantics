@@ -153,7 +153,7 @@ theorem zeroKept_fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) 
     · show (advance _ _).regs.getD 0 0#32 = _
       rw [advance_regs]; rfl)
 
-/-- A multi-operation FP instruction (`fpThen`, the multiply-add family) keeps `$zero` when every
+/-- One FP operation completed through `fpThen` keeps `$zero` when every
 continuation does, from the state with the FCSR updated. -/
 theorem zeroKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
     (h : ∀ p, ZeroKept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
@@ -161,6 +161,17 @@ theorem zeroKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : S
     ZeroKept s (fpThen s r k) := by
   unfold fpThen
   dsimp only
+  split
+  · rfl
+  · exact h _
+
+/-- One operation of a multiply-add (`fpStep`) keeps `$zero` when every continuation does, from the
+state with the new Cause. -/
+theorem zeroKept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
+    (h : ∀ p, ZeroKept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
+      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
+    ZeroKept s (fpStep s r k) := by
+  unfold fpStep
   split
   · rfl
   · exact h _
@@ -217,7 +228,7 @@ theorem execInstr_zeroKept (s : State) (instr : Instruction) :
       · unfold execBody
         cases instr <;> dsimp only <;>
           repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split |
-            (apply zeroKept_fpThen; intro _))
+            (apply zeroKept_fpThen; intro _) | (apply zeroKept_fpStep; intro _))
 
 /-- **Global invariant: `$zero` is never changed by a step.** Register `0` reads the same thing
 after a step as before — for **every** state and instruction, with no side conditions

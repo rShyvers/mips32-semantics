@@ -47,7 +47,7 @@ def IntCtlVS (i : Impl) : BitVec 5 := i.IntCtl.extractLsb' 5 5
 `StatusEXL = 1`; for an Interrupt, `0x180` when `CauseIV = 0`, else `0x200` "if (StatusBEV = 1) or
 (IntCtlVS = 0)"; `0x180` for every other exception (no TLB Refill: no TLB). The vectored arm
 (`IntCtlVS ≠ 0`: `VecNum ← VIntPriorityEncoder()`, `vectorOffset ← 0x200 + (VecNum × (IntCtlVS ||
-0b00000))`) needs VI or EIC interrupt mode, which this profile does not have (no `Config3`);
+0b00000))`) needs VI or EIC interrupt mode, which this profile does not have (`Config3.VInt = VEIC = 0`);
 `Impl.WF` requires `IntCtlVS = 0` ("If neither EIC interrupt mode nor VI mode are implemented ...,
 this field is ignored on write and reads as zero", Table 9.48, p.201). That arm is not transcribed:
 outside `Impl.WF` the spec gives `0x200` there. -/

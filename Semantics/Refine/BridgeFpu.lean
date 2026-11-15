@@ -12,7 +12,8 @@ Proved once and reused by `Refine/FpuArith.lean`, `Refine/FpuConvert.lean`,
 * **The FCSR bookkeeping** (`FPResult`: Cause, `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01
   §6.7.1, p.98-99) against the model's `Mips.Fp.fpUpdate`: `runAbs_FPResult` (one operation
   followed by the rest of the Operation, the model's `fpThen`), and its instances `runAbs_finS`
-  (`fpFinishS`), `runAbs_finD` (`fpFinishD`).
+  (`fpFinishS`), `runAbs_finD` (`fpFinishD`); `runAbs_FPCheck` (`FPCheck`, one operation of a
+  multiply-add: Cause and trap check only, the model's `fpStep`; Wave 12a).
 * `ValueFPR`/`StoreFPR` of a double with the model's oracle choices for an odd register
   (`Oracle.fprOddRead`/`fprOddWrite`, which read/write the pair `(fpr, fpr+1)`, as `readFpD`/`writeFpD`).
 -/
@@ -122,6 +123,43 @@ theorem runAbs_FPResult {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : �
     simp only [Mips.Fp.fpeEnabled] at hX
     unfold runAbs
     simp only [Pseudo.run, bind, FPResult_run, abs_FCSR, hX, Bool.false_eq_true, ↓reduceIte]
+    rfl
+
+/-- **`FPCheck` in closed form**: Cause written, then the trap check on the new FCSR; Flags untouched. -/
+theorem FPCheck_run {α : Type} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
+    FPCheck r c f =
+      if (r.2.toBits &&& f.arch.FCSR.extractLsb' 7 5) != 0#5 then
+        (.signal .FloatingPoint, { f with arch := { f.arch with FCSR :=
+          (f.arch.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (r.2.toBits.setWidth 32 <<< 12) } })
+      else
+        (.ok r.1, { f with arch := { f.arch with FCSR :=
+          (f.arch.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (r.2.toBits.setWidth 32 <<< 12) } }) := by
+  obtain ⟨h17, hcause, hen⟩ := fcsr1_fields f.arch.FCSR r.2.toBits
+  simp only [FPCheck, bind, Pseudo.modify, CheckFPException, Pseudo.get, h17, hcause, hen,
+    Bool.false_or]
+  cases (r.2.toBits &&& f.arch.FCSR.extractLsb' 7 5 != 0#5) <;> rfl
+
+/-- **One operation of a multi-operation instruction (Cause and trap check only), then the rest** =
+the model's `fpStep`. -/
+theorem runAbs_FPCheck {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : α → Pseudo Unit)
+    (K : State → α → State)
+    (hk : Mips.Fp.fpeEnabled s.fcsr r.2 = false →
+      runAbs (k r.1) { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } =
+        some (abs (K { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } r.1))) :
+    runAbs (FPCheck r >>= k) s = some (abs (fpStep s r K)) := by
+  unfold fpStep
+  by_cases hX : Mips.Fp.fpeEnabled s.fcsr r.2 = true
+  · simp only [hX, ↓reduceIte]
+    unfold runAbs
+    simp only [Mips.Fp.fpeEnabled] at hX
+    simp only [Pseudo.run, bind, FPCheck_run, abs_FCSR, hX, ↓reduceIte]
+    rw [← gep_take _ .FloatingPoint rfl excCodeFPE (by decide)]
+    rfl
+  · simp only [hX, Bool.false_eq_true, ↓reduceIte]
+    rw [← hk (by simpa using hX)]
+    simp only [Mips.Fp.fpeEnabled] at hX
+    unfold runAbs
+    simp only [Pseudo.run, bind, FPCheck_run, abs_FCSR, hX, Bool.false_eq_true, ↓reduceIte]
     rfl
 
 /-! ## Stores -/

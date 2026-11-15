@@ -422,7 +422,23 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 0#32)) regs0) 9 0x00010000#32
 -- Config: M=1, K23=2, KU=2, BE=1, AR=1, MT=3 (Fixed Mapping), K0=2
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0xA4008582#32
-#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x00000001#32
+-- Config1: M=1 (Config2 present), FP=1; Config2: M=1 (Config3 present), no L2/L3 cache; Config3 = 0
+-- (MD00090 Vol III Rev 6.02 Tables 9.65-9.67, p.237-251)
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x80000001#32
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 2#32)) regs0) 9 0x80000000#32
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 3#32)) regs0) 9 0x00000000#32
+-- Config1/2/3 are read-only: an all-ones write changes nothing (the state after it is the state after
+-- a `nop`), and they read back their fixed values
+#guard [1, 2, 3].all fun (q : Nat) =>
+  (match hstep (prog1 (.mtc0 9#32 16#32 (BitVec.ofNat 32 q))) (setRegs regs0 [(9, 0xffffffff#32)]),
+         hstep (prog1 (.sll 0#32 0#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
+   | .next s, .next t => s.cp0ConfigK0 == t.cp0ConfigK0 && s.cp0ConfigK23 == t.cp0ConfigK23 &&
+       s.cp0ConfigKU == t.cp0ConfigKU && s.cp0Status == t.cp0Status && s.pc == t.pc &&
+       nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 (BitVec.ofNat 32 q))) { s with pc := textBase }) 10
+         (if q == 1 then 0x80000001#32 else if q == 2 then 0x80000000#32 else 0#32)
+   | _, _ => false)
+-- Config4 (16,4) is not implemented (Config3.M = 0): the word does not decode
+#guard decode (encode (.mfc0 9#32 16#32 4#32)) == none
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 1#32)) regs0) 9 0x80000000#32
 -- `Config` (16,0): only `K23` (30..28), `KU` (27..25) and `K0` (2..0) are writable (MD00090 Vol III
 -- Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317); writing all ones sets the three to 7 and leaves

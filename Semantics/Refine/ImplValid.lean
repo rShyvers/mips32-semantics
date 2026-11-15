@@ -1,5 +1,6 @@
 import Semantics.Manual.Accuracy
 import Semantics.FpOpsCorrectRsqrt
+import Semantics.FpOpsCorrectSpecial
 
 /-!
 # Refine.ImplValid — the model's implementation constants are valid
@@ -8,6 +9,12 @@ import Semantics.FpOpsCorrectRsqrt
 `DIV.fmt`) is of this profile and meets the accuracy of RECIP.fmt (p.336) and RSQRT.fmt (p.343),
 against the IEEE-mandated representation and against the exact result. The exact-result bounds come
 from the correctness of the IEEE rounding core (`Semantics/FpOpsCorrect*.lean`).
+
+`modelImpl_recipFlags`: the Invalid Operation and Division-by-Zero conditions of the two are those
+`Manual.RecipFlagsOK` requires, for every operand and environment. The one non-trivial case is
+`RSQRT` of a positive finite operand: the square root is neither a NaN nor a zero, with or without
+`FCSR.FS = 1` (`sqrt_not_tiny`: a square root is never below the normal range, so it is not flushed;
+`sqrt_pos_class` then takes the class from `rsqrt_error`).
 -/
 
 namespace Manual
@@ -64,10 +71,258 @@ theorem modelImpl_rsqrtAccurate : modelImpl.RsqrtAccurate := by
     subst this
     refine ⟨ex, h1, h2, ?_, ?_⟩ <;> simp only [ULP_binary64, Rat.natCast_ofNat] <;> assumption
 
+section flags
+variable (f : Format)
+
+/-! ## The Invalid Operation and Division-by-Zero conditions of `RECIP` and `RSQRT` (`Impl.RecipFlags`) -/
+
+theorem qnan_split {n : Nat} (h : f.isQNaN n = true) : f.isNaN n = true ∧ f.isSNaN n = false := by
+  simp only [Format.isQNaN, Format.isSNaN, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  refine ⟨h.1, ?_⟩
+  simp [h.1, h.2]
+
+theorem snan_split {n : Nat} (h : f.isSNaN n = true) : f.isNaN n = true ∧ f.isQNaN n = false := by
+  simp only [Format.isQNaN, Format.isSNaN, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  refine ⟨h.1, ?_⟩
+  simp [h.1, h.2]
+
+theorem zero_not_inf (hM : f.expMax ≠ 0) {n : Nat} (h : f.isZero n = true) : f.isInf n = false := by
+  simp only [Format.isZero, Format.isInf, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  rw [h.1]; simp only [Bool.and_eq_false_imp, beq_iff_eq]; intro h'; exact absurd h'.symm hM
+
+/-- The conditions of `DIV.fmt` with a dividend that is finite and non-zero, by the class of the
+divisor. -/
+theorem div_one_flags (hM : f.expMax ≠ 0) (e : Env) {one q : Nat} (hn : f.isNaN one = false)
+    (hz : f.isZero one = false) (hi : f.isInf one = false) (hs : f.isSNaN one = false) :
+    (f.isNaN q = true → (f.div e one q).2 = { invalid := f.isSNaN q }) ∧
+    (f.isNaN q = false → f.isZero q = true → (f.div e one q).2 = { divZero := true }) ∧
+    (f.isNaN q = false → f.isZero q = false →
+      (f.div e one q).2.invalid = false ∧ (f.div e one q).2.divZero = false) := by
+  refine ⟨fun h => ?_, fun h1 h2 => ?_, fun h1 h2 => ?_⟩
+  · simp [Format.div, h, Format.nanFlags, hs]
+  · have h3 := zero_not_inf f hM h2
+    simp [Format.div, hn, h1, hz, hi, h2, h3]
+  · simp only [Format.div, hn, h1, hz, hi, h2, Bool.or_false, Bool.false_and, Bool.and_false,
+      Bool.false_eq_true, ite_false]
+    split
+    · exact ⟨rfl, rfl⟩
+    · exact ⟨rfl, rfl⟩
+
+
+/-- `RECIP` as `DIV.fmt` of `one` meets `RecipFlagsOK`. -/
+theorem recip_flagsOK (hM : f.expMax ≠ 0) (e : Env) {one : Nat} (hn : f.isNaN one = false)
+    (hz : f.isZero one = false) (hi : f.isInf one = false) (hs : f.isSNaN one = false) (n : Nat) :
+    RecipFlagsOK f false e n (f.div e one n).2 := by
+  obtain ⟨D1, D2, D3⟩ := div_one_flags f hM e (q := n) hn hz hi hs
+  refine ⟨fun hq => ?_, fun hsn => ?_, fun h1 h2 => ?_, fun h1 h2 _ => ?_⟩
+  · obtain ⟨a, b⟩ := qnan_split f hq
+    rw [D1 a, b]; rfl
+  · rw [D1 (snan_split f hsn).1, hsn]; exact ⟨rfl, rfl⟩
+  · rw [D2 h1 h2]; exact ⟨rfl, rfl⟩
+  · obtain ⟨a, b⟩ := D3 h1 h2
+    exact ⟨b, by rw [a]; rfl⟩
+
+/-- Rounding with flushing is rounding without it when the result is not tiny before rounding. -/
+theorem roundCore_noflush (rm : RoundingMode) (fl : Bool) (v : Exact)
+    (h : f.qMin ≤ v.exp + (bitLen v.sig : Int) - ((f.fracBits + 1 : Nat) : Int)) :
+    f.roundCore rm fl v = f.roundCore rm false v := by
+  cases fl
+  · rfl
+  · have : ¬ (v.exp + (bitLen v.sig : Int) - ((f.fracBits + 1 : Nat) : Int) < f.qMin) := by omega
+    simp only [Format.roundCore, Bool.true_and, Bool.false_and, decide_eq_true_eq, this,
+      ite_false, Bool.false_eq_true]
+
+/-- **The square root of a value of the format is never tiny** (with `fracBits + 2 ≤ bias`): its
+exponent at full precision is at least `qMin`. -/
+theorem sqrt_not_tiny (hb : f.fracBits + 2 ≤ f.bias) (a : Exact) (hs : a.sig ≠ 0)
+    (he : f.qMin ≤ a.exp) :
+    f.qMin ≤ (Exact.sqrt (f.fracBits + 1) a).exp + (bitLen (Exact.sqrt (f.fracBits + 1) a).sig : Int) -
+      ((f.fracBits + 1 : Nat) : Int) := by
+  simp only [Exact.sqrt]
+  generalize hp : f.fracBits + 1 = p
+  generalize hsh : 2 * (p + 2) + (if a.exp % 2 = 0 then 0 else 1) = sh
+  have hshp : 2 * (p + 2) ≤ sh ∧ sh ≤ 2 * (p + 2) + 1 ∧ (a.exp - (sh : Int)) % 2 = 0 := by
+    subst hsh; split <;> omega
+  have hn : 2 ^ (2 * (p + 2)) ≤ a.sig * 2 ^ sh := by
+    have h1 : 2 ^ (2 * (p + 2)) ≤ 2 ^ sh := Nat.pow_le_pow_right (by omega) hshp.1
+    have h2 : 1 ≤ a.sig := Nat.pos_of_ne_zero hs
+    calc 2 ^ (2 * (p + 2)) ≤ 2 ^ sh := h1
+      _ = 1 * 2 ^ sh := (Nat.one_mul _).symm
+      _ ≤ a.sig * 2 ^ sh := Nat.mul_le_mul_right _ h2
+  generalize a.sig * 2 ^ sh = n at hn
+  have hr : 2 ^ (p + 2) ≤ isqrt n := by
+    have hsp := (isqrt_spec n).2
+    refine Nat.le_of_not_lt fun hlt => ?_
+    have : isqrt n + 1 ≤ 2 ^ (p + 2) := hlt
+    have := Nat.mul_le_mul this this
+    rw [← Nat.pow_add, show p + 2 + (p + 2) = 2 * (p + 2) by omega] at this
+    omega
+  have hb2 : p + 4 ≤ bitLen (2 * isqrt n + (if isqrt n * isqrt n = n then 0 else 1)) := by
+    apply bitLen_ge_of
+    rw [Nat.pow_succ]; split <;> omega
+  have hq := f.qMin
+  simp only [Format.qMin] at he ⊢
+  omega
+
+
+theorem toExact_facts {n : Nat} (hz : f.isZero n = false) :
+    (f.toExact n).sig ≠ 0 ∧ f.qMin ≤ (f.toExact n).exp := by
+  refine ⟨fun h => ?_, ?_⟩
+  · rw [(f.toExact_sig_zero_iff n).1 h] at hz; cases hz
+  simp only [Format.toExact, Format.qMin]
+  split
+  · exact Int.le_refl _
+  · rename_i h; dsimp only; omega
+
+/-- `SQRT.fmt` of a positive finite non-zero operand does not flush (`FCSR.FS` has no effect). -/
+theorem sqrt_flush (hb : f.fracBits + 2 ≤ f.bias) (e : Env) (n : Nat) (hn : f.isNaN n = false)
+    (hz : f.isZero n = false) (hs : f.signBit n = false) (hi : f.isInf n = false) :
+    f.sqrt e n = f.sqrt { e with flush := false } n := by
+  obtain ⟨h1, h2⟩ := toExact_facts f hz
+  simp only [Format.sqrt, hn, hz, hs, hi, Bool.false_eq_true, ite_false, Format.roundEnv]
+  rw [roundCore_noflush f _ e.flush _ (sqrt_not_tiny f hb _ h1 h2)]
+
+/-- **`SQRT.fmt` of a positive finite non-zero operand is neither a NaN nor a zero** (a pattern of
+the format): from `rsqrt_error`, `1 / √x` is finite. -/
+theorem sqrt_pos_class (hf : f.WF) (hb : f.fracBits + 2 ≤ f.bias) (hb4 : 4 ≤ f.bias)
+    (hM : f.expMax ≠ 0) (hInf : ∀ s, f.expField (f.inf s) = f.expMax)
+    (hDQ : f.expField f.defaultQNaN = f.expMax) {one : Nat} (h1 : f.value one = some 1)
+    (hq1 : f.isQNaN one = false) (hn1 : f.isNaN one = false) (hz1 : f.isZero one = false)
+    (hi1 : f.isInf one = false) (e : Env) (n : Nat) (hlt : n < 2 ^ f.width)
+    (hn : f.isNaN n = false) (hz : f.isZero n = false) (hs : f.signBit n = false)
+    (hi : f.isInf n = false) :
+    f.isNaN (f.sqrt e n).1 = false ∧ f.isZero (f.sqrt e n).1 = false ∧ (f.sqrt e n).1 < 2 ^ f.width := by
+  rw [sqrt_flush f hb e n hn hz hs hi]
+  have hval : f.value n = some (f.toExact n).toRat := by
+    rcases f.classify hf n hlt with ⟨h, -⟩ | ⟨-, h, -⟩ | ⟨-, -, -, -, h, -⟩
+    · rw [hn] at h; cases h
+    · rw [hi] at h; cases h
+    · exact h
+  have hsg : (f.toExact n).sign = false := by
+    simp only [Format.toExact]; split <;> exact hs
+  have hy : 0 < (f.toExact n).toRat := by
+    rw [Exact.toRat_signed, hsg]
+    simp only [Bool.false_eq_true, ite_false]
+    have h0 : (0 : Rat) < ((f.toExact n).sig : Rat) := by
+      exact_mod_cast Nat.pos_of_ne_zero (toExact_facts f hz).1
+    exact Rat.mul_pos h0 (rat_two_zpow_pos _)
+  obtain ⟨r, hv, -, hlt', -⟩ := rsqrt_error f hf hb hb4 { e with flush := false } rfl h1 hval hy
+  have hne := (value_some_lt f hv).2
+  generalize (f.sqrt { e with flush := false } n).1 = q at hne hlt' ⊢
+  have hqn : f.isNaN q = false := by
+    cases hq : f.isNaN q
+    · rfl
+    · exfalso; apply hne
+      unfold Format.div
+      simp only [hn1, hq, Bool.false_or, ite_true]
+      simp only [Format.nanResult, List.find?, hq1]
+      cases hqq : f.isQNaN q
+      · exact hDQ
+      · simp only [Format.isNaN, Bool.and_eq_true, beq_iff_eq] at hq
+        exact hq.1
+  have hqz : f.isZero q = false := by
+    cases hq : f.isZero q
+    · rfl
+    · exfalso; apply hne
+      unfold Format.div
+      simp only [hn1, hqn, Bool.or_false, Bool.false_eq_true, ite_false, hi1, Bool.false_and,
+        hz1, zero_not_inf f hM hq, hq, ite_true]
+      exact hInf _
+  exact ⟨hqn, hqz, hlt'⟩
+
+/-- `RSQRT` as `SQRT.fmt` then `DIV.fmt` of `one` (conditions ORed) meets `RecipFlagsOK`; `M` is the
+modulus of the `BitVec` round trip between the two operations. -/
+theorem rsqrt_flagsOK (hf : f.WF) (hb : f.fracBits + 2 ≤ f.bias) (hb4 : 4 ≤ f.bias)
+    (hM : f.expMax ≠ 0) (hInf : ∀ s, f.expField (f.inf s) = f.expMax)
+    (hDQ : f.expField f.defaultQNaN = f.expMax) (hQ : f.isQNaN f.defaultQNaN = true)
+    {one : Nat} (h1 : f.value one = some 1) (hq1 : f.isQNaN one = false)
+    (hn1 : f.isNaN one = false) (hz1 : f.isZero one = false) (hi1 : f.isInf one = false)
+    (hs1 : f.isSNaN one = false) (M : Nat) (hW : 2 ^ f.width ≤ M) (e : Env) (n : Nat)
+    (hlt : n < 2 ^ f.width) :
+    RecipFlagsOK f true e n ((f.sqrt e n).2.or (f.div e one ((f.sqrt e n).1 % M)).2) := by
+  have D := fun q => div_one_flags f hM e (q := q) hn1 hz1 hi1 hs1
+  have hnM : n % M = n := Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hlt hW)
+  obtain ⟨hdqn, hdqs⟩ := qnan_split f hQ
+  have hdqM : f.defaultQNaN % M = f.defaultQNaN :=
+    Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (f.defaultQNaN_lt hf) hW)
+  by_cases hN : f.isNaN n = true
+  · have hS : f.sqrt e n = (f.nanResult [n], f.nanFlags [n]) := by simp [Format.sqrt, hN]
+    rw [hS]
+    refine ⟨fun hq => ?_, fun hsn => ?_, fun h => absurd hN (by simp [h]),
+      fun h => absurd hN (by simp [h])⟩
+    · have hnr : f.nanResult [n] = n := by simp [Format.nanResult, List.find?, hq]
+      obtain ⟨-, hsn⟩ := qnan_split f hq
+      simp only [hnr, hnM, (D n).1 hN, hsn, Format.nanFlags, List.any_cons, List.any_nil,
+        Bool.or_false]
+      rfl
+    · obtain ⟨-, hqn⟩ := snan_split f hsn
+      have hnr : f.nanResult [n] = f.defaultQNaN := by simp [Format.nanResult, List.find?, hqn]
+      simp only [hnr, hdqM, (D _).1 hdqn, hdqs, Format.nanFlags, List.any_cons, List.any_nil,
+        Bool.or_false, hsn]
+      exact ⟨rfl, rfl⟩
+  · have hN' : f.isNaN n = false := by simpa using hN
+    have hq : f.isQNaN n = false := by
+      cases h : f.isQNaN n
+      · rfl
+      · exact absurd (qnan_split f h).1 hN
+    have hsn : f.isSNaN n = false := by
+      cases h : f.isSNaN n
+      · rfl
+      · exact absurd (snan_split f h).1 hN
+    refine ⟨fun h => absurd (hq.symm.trans h) (by decide), fun h => absurd (hsn.symm.trans h) (by decide),
+      fun _ hz => ?_,
+      fun _ hz _ => ?_⟩
+    · have hS : f.sqrt e n = (n, Flags.none) := by simp [Format.sqrt, hN', hz]
+      rw [hS]
+      simp only [hnM, (D n).2.1 hN' hz]
+      exact ⟨rfl, rfl⟩
+    · by_cases hsg : f.signBit n = true
+      · have hS : f.sqrt e n = (f.defaultQNaN, Flags.invalidOnly) := by simp [Format.sqrt, hN', hz, hsg]
+        rw [hS]
+        simp only [hdqM, (D _).1 hdqn, hdqs, hsg]
+        exact ⟨rfl, rfl⟩
+      · have hsg' : f.signBit n = false := by simpa using hsg
+        by_cases hI : f.isInf n = true
+        · have hS : f.sqrt e n = (n, Flags.none) := by simp [Format.sqrt, hN', hz, hsg', hI]
+          rw [hS]
+          obtain ⟨a, b⟩ := (D n).2.2 hN' hz
+          simp only [hnM, hsg']
+          exact ⟨by simp [Flags.or, Flags.none, b], by simp [Flags.or, Flags.none, a]⟩
+        · have hI' : f.isInf n = false := by simpa using hI
+          obtain ⟨hqn, hqz, hqlt⟩ :=
+            sqrt_pos_class f hf hb hb4 hM hInf hDQ h1 hq1 hn1 hz1 hi1 e n hlt hN' hz hsg' hI'
+          have hqM : (f.sqrt e n).1 % M = (f.sqrt e n).1 := Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hqlt hW)
+          obtain ⟨a, b⟩ := (D _).2.2 hqn hqz
+          have hS : (f.sqrt e n).2.invalid = false ∧ (f.sqrt e n).2.divZero = false := by
+            simp only [Format.sqrt, hN', hz, hsg', hI', Bool.false_eq_true, ite_false, Format.roundEnv]
+            exact ⟨rfl, rfl⟩
+          rw [hqM, hsg']
+          exact ⟨by simp [Flags.or, hS.2, b], by simp [Flags.or, hS.1, a]⟩
+
+end flags
+
+/-- `modelImpl`'s `RECIP` and `RSQRT` signal Invalid Operation and Division by Zero as the manual
+mandates (`Impl.RecipFlags`). -/
+theorem modelImpl_recipFlags : modelImpl.RecipFlags := by
+  refine ⟨fun e x => ?_, fun e x => ?_, fun e x => ?_, fun e x => ?_⟩
+  · exact recip_flagsOK binary32 (by decide) e (one := 0x3F800000) (by decide) (by decide) (by decide)
+      (by decide) x.toNat
+  · exact recip_flagsOK binary64 (by decide) e (one := 0x3FF0000000000000) (by decide) (by decide)
+      (by decide) (by decide) x.toNat
+  · exact rsqrt_flagsOK binary32 binary32_wf (by decide) (by decide) (by decide)
+      (fun s => by cases s <;> decide) (by decide) (by decide) value_one32 (by decide) (by decide)
+      (by decide) (by decide) (by decide) (2 ^ 32) (Nat.le_refl _) e x.toNat x.isLt
+  · exact rsqrt_flagsOK binary64 binary64_wf (by decide) (by decide) (by decide)
+      (fun s => by cases s <;> decide) (by decide) (by decide) value_one64 (by decide) (by decide)
+      (by decide) (by decide) (by decide) (2 ^ 64) (Nat.le_refl _) e x.toNat x.isLt
+
+
 /-- **`modelImpl` is a valid implementation** (`Impl.Valid`: `Impl.WF`, `RECIP.fmt` within 1 ULP of
 the IEEE-mandated representation and of the exact result, `RSQRT.fmt` within 2 ULP of the exact
-result). -/
+result, and the Invalid Operation / Division-by-Zero conditions of both as `Impl.RecipFlags`
+requires). -/
 theorem modelImpl_valid : modelImpl.Valid :=
-  ⟨modelImpl_WF, modelImpl_recipAccurate, modelImpl_recipExact, modelImpl_rsqrtAccurate⟩
+  ⟨modelImpl_WF, modelImpl_recipAccurate, modelImpl_recipExact, modelImpl_rsqrtAccurate,
+    modelImpl_recipFlags⟩
 
 end Manual

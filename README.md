@@ -300,7 +300,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | I-type "branch likely" family | 8 | 8 | 0 | 8 | beql, bnel, blezl, bgtzl, bltzl, bgezl, bltzall, bgezall |
 | I-type REGIMM trap-immediate family | 6 | 6 | 6 | 6 | teqi, tnei, tgei, tgeiu, tlti, tltiu |
 | Instruction-cache synchronize hint | 1 | 1 | 0 | 1 | synci |
-| J-type | 2 | 2 | 2 | 1 | j, jal |
+| J-type | 2 | 2 | 2 | 2 | j, jal |
 | syscall | 1 | 1 | 1 | 1 | syscall |
 | R-type trap-on-condition | 9 | 9 | 7 | 9 | teq, tne, tlt, tge, tltu, tgeu, break, sync, pref |
 | Coprocessor 0 | 8 | 8 | 0 | 8 | mfc0, mtc0, di, ei, eret, wait, rdpgpr, wrpgpr |
@@ -311,7 +311,7 @@ encode clauses, the step arm, the spec theorems, the manual page and the tests, 
 | Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
 | Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
 | FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **183** | **183** | **119** | **182** | |
+| **Total** | **183** | **183** | **119** | **183** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->
@@ -331,7 +331,8 @@ Details, manual citations and priorities are in `docs/spec/MIPS-COVERAGE-GAPS.md
   shadow register sets beyond the normal GPRs, the TLB (the
   MMU is the Fixed Mapping MMU, `Config.MT = 3`, with kseg0/kseg1 aliasing and the User-Mode Address Errors;
   SPEC-NOTES §9 item 27), caches, `WatchLo`/`WatchHi`, EJTAG,
-  coprocessor 2, `Config2`..`Config5`.
+  coprocessor 2, `Config4`/`Config5` (`Config2` = `0x8000_0000` and `Config3` = 0 are implemented as read-only
+  constants declaring no L2/L3 cache and none of the Config3 features; Wave 12a, F17).
 - The manuals themselves are inconsistent about the L format with `FR = 0` (`FIR.L = 1` is required, the L-format
   instructions are UNPREDICTABLE with `FR = 0`); the model reports `FIR.L = 1` and leaves the L format undecoded (SPEC-NOTES §9 item 13).
 

@@ -37,8 +37,10 @@ set_option maxRecDepth 4000
 /-- **`mfc0` reads a modeled CP0 register `(rd, sel)` into GPR `$rt`**:
 `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
 `(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, MD00090 Vol III Rev 6.02
-Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1,
-`(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
+Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1
+(reads `0x8000_0001`: `M = 1`, `FP = 1`, Table 9.65, p.237-240), `(16,2)` Config2 (reads `0x8000_0000`:
+`M = 1`, no level 2/3 cache, §9.47, Table 9.66, p.241-243), `(16,3)` Config3 (reads 0: none of its
+optional features, no Config4, §9.48, Table 9.67, p.245-251), `(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
 request: `TI` (bit 30) and, merged
 into it (`IntCtl.IPTI = 7` pin), `IP7` (bit 15) while a timer interrupt is pending (MD00090 Vol III
 Rev 6.02 Table 9.52, p.209, 211; Table 6.2, p.73). The read happens before the step's timer tick, so
@@ -69,7 +71,9 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
       | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
-      | 16, 1 => read 0x00000001#32
+      | 16, 1 => read 0x80000001#32
+      | 16, 2 => read 0x80000000#32
+      | 16, 3 => read 0#32
       | 30, 0 => read s.cp0ErrorEpc
       | _, _ => takeException s excCodeRI) := by
   cp0_step_spec
@@ -83,7 +87,9 @@ writable, and so is `Count` (9,0) (MD00090 Vol III Rev 6.02 §9.27, p.183). A wr
 (11,0) stores the value and clears the timer interrupt (`Cause.TI`; §9.30, p.187). `HWREna` (7,0)
 keeps bits 3..0 (`hwrenaWriteMask`; Table 9.39, p.175). `EBase` (15,1) takes bits 29..12 of the
 written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K0` (bits 2..0, Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.235);
-`BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `IntCtl` (12,1: no writable field, `VS` "is
+`BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `Config2` (16,2: `TU`/`SU` not implemented, "read as
+zero and be ignored on write", Table 9.66, p.241-242), `Config3` (16,3: "All fields in the Config3
+register are read-only", §9.48, p.245), `IntCtl` (12,1: no writable field, `VS` "is
 ignored on write" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201) and `SRSCtl` (12,2: with
 `HSS = 0` its fields can only hold 0, Table 9.49, p.203-204; pin) are read-only: the write is ignored. Any other pair
 raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
@@ -121,6 +127,8 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
               cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
               pc := s.pc + 4#32 }
       | 16, 1 => { s with pc := s.pc + 4#32 }
+      | 16, 2 => { s with pc := s.pc + 4#32 }
+      | 16, 3 => { s with pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | _, _ => takeException s excCodeRI) := by

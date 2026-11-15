@@ -64,9 +64,10 @@ def specFp (s : State) (i : Fin 32) : Option (W32 × W32) := (specTime s).map fu
         | none => false)
 #guard agree (fpState (.maddS 8#32 6#32 2#32 4#32)
   [(2, 0x7f7fffff#32), (4, 0x40000000#32), (6, 0xff800000#32), (8, 0x12345678#32)] 0x200#32)
--- (1) without enables: Cause is the add's (V), Flags V|O|I (review r1c).
+-- (1) without enables: Cause is the union of the multiply's (O|I) and the add's (V), Flags V|O|I
+-- (MD00082 Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94; Wave 12a, audit B2).
 #guard specFp (fpState (.maddS 8#32 6#32 2#32 4#32)
-  [(2, 0x7f7fffff#32), (4, 0x40000000#32), (6, 0xff800000#32)]) 8 = some (0x7fbfffff#32, 0x00010054#32)
+  [(2, 0x7f7fffff#32), (4, 0x40000000#32), (6, 0xff800000#32)]) 8 = some (0x7fbfffff#32, 0x00015054#32)
 -- (2) NMADD.S: -(vfr + (vfs x vft)): fr's QNaN is the add's first operand, the negate flips its sign and
 -- signals Invalid; MADD.S keeps the product (vfs) first (review r2).
 #guard specFp (fpState (.nmaddS 8#32 6#32 2#32 4#32)

@@ -181,7 +181,7 @@ elab "sk_fwd" : tactic => Lean.Elab.Tactic.withMainContext do
           return [g]
       catch _ => pure ()
 
-/-- A multi-operation FP instruction (`fpThen`, the multiply-add family) keeps the sizes when every
+/-- One FP operation completed through `fpThen` keeps the sizes when every
 continuation does, from the state with the FCSR updated. -/
 theorem sizesKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
     (h : ∀ p, SizesKept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
@@ -189,6 +189,17 @@ theorem sizesKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : 
     SizesKept s (fpThen s r k) := by
   unfold fpThen
   dsimp only
+  split
+  · exact ⟨rfl, rfl⟩
+  · exact h _
+
+/-- One operation of a multiply-add (`fpStep`) keeps the sizes when every continuation does, from
+the state with the new Cause. -/
+theorem sizesKept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
+    (h : ∀ p, SizesKept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
+      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
+    SizesKept s (fpStep s r k) := by
+  unfold fpStep
   split
   · exact ⟨rfl, rfl⟩
   · exact h _
@@ -227,7 +238,7 @@ theorem execInstr_sizesKept (s : State) (instr : Instruction) :
       · unfold execBody
         cases instr <;> dsimp only <;>
           repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split |
-            (apply sizesKept_fpThen; intro _))
+            (apply sizesKept_fpThen; intro _) | (apply sizesKept_fpStep; intro _))
 
 /-! ## Statements -/
 

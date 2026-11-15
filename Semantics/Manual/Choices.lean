@@ -7,7 +7,7 @@ import Semantics.FpOps
 
 * `Impl` holds the **implementation-dependent constants and rates** that the manual leaves to the
   implementation but that are then fixed for that implementation (the rate of `Count`, `PRId`, the
-  read-only parts of `Config`, `Config1`, `IntCtl`, `SRSCtl`, `CCRes`, `SYNCI_Step`, whether `WAIT`
+  read-only parts of `Config`, `Config1`, `Config2`, `Config3`, `IntCtl`, `SRSCtl`, `CCRes`, `SYNCI_Step`, whether `WAIT`
   restarts on a request that is not enabled).
 * `Oracle` has **one field for each place where the manual allows several outcomes** (UNPREDICTABLE,
   UNDEFINED, "may succeed or may fail", "loaded, but not defined"). The spec takes an oracle as an
@@ -60,6 +60,12 @@ structure Impl where
   ConfigFixed : W32
   /-- `Config1` (16, 1; Vol III §9.46, Table 9.65, p.237-240), read-only. -/
   Config1 : W32
+  /-- `Config2` (16, 2; Vol III §9.47, Table 9.66, p.241-243): read-only here (its R/W fields `TU`,
+  `SU` must be unimplemented, `Impl.WF`). -/
+  Config2 : W32
+  /-- `Config3` (16, 3; Vol III §9.48, Table 9.67, p.245-251): "All fields in the Config3 register
+  are read-only" (p.245). -/
+  Config3 : W32
   /-- `IntCtl` (12, 1; Vol III §9.33, Table 9.48, p.199-201), read-only here; `VS` = 0 is required
   by `Impl.WF`. -/
   IntCtl : W32
@@ -244,8 +250,8 @@ def IsPAUSE : Instruction → Bool
   | .sll rd rt shamt => rd == 0#32 && rt == 0#32 && shamt == 5#32
   | _ => false
 
-/-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only and no
-`Config3`; an `Impl` describes such a processor when:
+/-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only, no
+caches and none of the features `Config3` describes; an `Impl` describes such a processor when:
 
 * `SRSCtl.HSS = 0` (bits 29..26): "A value of zero in this field indicates that only the normal
   GPRs are implemented" (MD00090 Vol III Rev 6.02, Table 9.49, p.203), and then `SRSCtl.PSS = 0`
@@ -254,9 +260,24 @@ def IsPAUSE : Instruction → Bool
   normal GPRs are logically considered shadow set 0", Vol III Chapter 7, p.103).
 * `IntCtl.VS = 0` (bits 9..5): "If neither EIC interrupt mode nor VI mode are implemented
   (Config3VEIC = 0 and Config3VInt = 0), this field is ignored on write and reads as zero" (Table
-  9.48, p.201); there is no `Config3` (`Config1.M = 0`). -/
+  9.48, p.201); `Config3.VEIC = Config3.VInt = 0` follows from the next item.
+* `Config3 = 0`: the profile is Release 2, so Config3 exists ("Required if any optional feature
+  described by this register is implemented: Release 2 of the Architecture, ...", Vol III §9.48,
+  p.245), and every field of it flags a feature the spec does not have (Table 9.67, p.245-251:
+  Config4, CM GCR space, MSA, BadInstr/BadInstrP, Segment Control, page table walk, VZ, the MCU ASE,
+  microMIPS (`ISA`, `ISAOnExc`, `MMAR`), UserLocal, RI/XI, DSP, ContextConfig, IFlowtrace, XPA,
+  EIC and vectored interrupts, small pages, CDMM, MT, SmartMIPS, trace logic). Its fields are all
+  read-only (p.245), so `CPRWrite` ignores a write.
+* `Config2.M = 1` ("If the Config3 register is implemented, this bit should read as a 1", §9.47,
+  Table 9.66, p.241; Config2 is "Required if ... the Config3 register is required", p.241), no level
+  2 or 3 cache (`SL` = `TL` = 0, "No cache present", p.242-243), and the implementation-specific R/W
+  fields `TU` (30..28), `SU` (15..12) not implemented ("it should read as zero and be ignored on
+  write", p.241-242): bits 31..28, 23..20, 15..12, 7..4 are `1000`, `0`, `0`, `0`.
+* `Config1.M = 1` ("If the Config2 register is implemented, this bit should read as a 1", §9.46,
+  Table 9.65, p.237). -/
 def Impl.WF (i : Impl) : Prop :=
-  i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5
+  i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5 ∧
+  i.Config3 = 0#32 ∧ i.Config2 &&& 0xF0F0F0F0#32 = 0x80000000#32 ∧ i.Config1.extractLsb' 31 1 = 1#1
 
 instance (i : Impl) : Decidable i.WF := by unfold Impl.WF; infer_instance
 
@@ -288,14 +309,17 @@ def Impl.RecipAccurate (i : Impl) : Prop :=
 
 /-- **The model's implementation constants** (SPEC-NOTES §9, the pins listed there): `Count` + 1 per
 instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_8580`
-(`M = 1`, `BE = 1`, `AT = 0`, `AR = 1`, `MT = 3`); `Config1 = 0x0000_0001` (`FP = 1`); `IntCtl`
+(`M = 1`, `BE = 1`, `AT = 0`, `AR = 1`, `MT = 3`); `Config1 = 0x8000_0001` (`M = 1`, `FP = 1`);
+`Config2 = 0x8000_0000` (`M = 1`, no L2/L3 cache); `Config3 = 0`; `IntCtl`
 with `IPTI = 7` (`0xE000_0000`), `SRSCtl = 0`; `CCRes = 1`; `SYNCI_Step = 0`; `WAIT` restarts on any
 pending request not masked by `IM`. -/
 def modelImpl : Impl where
   CountIncrement := 1#32
   PRId := 0x00010000#32
   ConfigFixed := 0x80008580#32
-  Config1 := 0x00000001#32
+  Config1 := 0x80000001#32
+  Config2 := 0x80000000#32
+  Config3 := 0#32
   IntCtl := 0xE0000000#32
   SRSCtl := 0#32
   CCRes := 1#32

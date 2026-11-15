@@ -137,7 +137,7 @@ macro "ofree_simp" : tactic => `(tactic| simp only [bind, GPR, Pseudo.get, Addre
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, *, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf])
 
 macro "cf_pre" h:ident : tactic => `(tactic| (
@@ -150,7 +150,7 @@ macro "ofree_all" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
@@ -158,7 +158,7 @@ macro "ofree_all" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
@@ -168,7 +168,7 @@ macro "ofree_ll" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
@@ -176,7 +176,7 @@ macro "ofree_ll" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
@@ -459,32 +459,46 @@ theorem cf_movzD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movzD fd fs r
 theorem env_fpf (a : Arch) (fl : Mips.Fp.Flags) : IEEE.env { a with FCSR := fpf a.FCSR fl } = IEEE.env a :=
   env_fpResult a fl.toBits
 
-/-- The pieces of `MaddAbsorbs`. -/
-theorem maddAbsorbs_parts (a : Arch) (fr fs ft : W32) (h : MaddAbsorbs a fr fs ft = true) :
-    OddFPR fs = false ∧ OddFPR ft = true ∧ OddFPR fr = false ∧ Mips.Fp.isQNaN64 (FPRPair a fs) = true ∧
-      bit a.FCSR 11 = false ∧ (bit a.FCSR 6 || Mips.Fp.isSNaN64 (FPRPair a fr)) = true := by
-  simp only [MaddAbsorbs, Bool.and_eq_true, Bool.not_eq_true'] at h
-  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
-  exact ⟨h1, h2, h3, h4, h5, h6⟩
+/-- The two corners of `MaddAbsorbs`. -/
+theorem maddAbsorbs_cases (a : Arch) (fr fs ft : W32) (h : MaddAbsorbs a fr fs ft = true) :
+    (OddFPR fs = false ∧ OddFPR ft = true ∧ OddFPR fr = false ∧ Mips.Fp.isQNaN64 (FPRPair a fs) = true ∧
+      bit a.FCSR 11 = false ∧ Mips.Fp.isSNaN64 (FPRPair a fr) = true) ∨
+    (OddFPR fs = false ∧ OddFPR ft = false ∧ OddFPR fr = true ∧
+      (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).2.invalid = true) := by
+  simp only [MaddAbsorbs, Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
+  rcases h with ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ | ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
+  · exact .inl ⟨h1, h2, h3, h4, h5, h6⟩
+  · exact .inr ⟨h1, h2, h3, h4⟩
 
 set_option linter.unusedSimpArgs false in
-/-- **`MADD.D`/`MSUB.D` in the corner `MaddAbsorbs` do not depend on the oracle** (wave 9): the
-multiply delivers the quiet NaN of `fs` and raises at most Invalid, which does not trap (`FCSR` bit 11
-is 0), whose `Cause` bit the add overwrites and whose `Flag` bit is set anyway (`fpf_fpf`). -/
+/-- **`MADD.D`/`MSUB.D` in the corner `MaddAbsorbs` do not depend on the oracle** (wave 9; Wave 12a):
+in the first corner the multiply delivers the quiet NaN of `fs` and raises at most Invalid, which does
+not trap (`FCSR` bit 11 is 0); the add of that quiet NaN and the signaling NaN `fr` raises Invalid, so
+the union of the operations' conditions (the instruction's Cause, ORed into the Flags) is Invalid
+either way (`inv_or_true`). In the second the multiply raises Invalid and delivers a quiet NaN
+(`mul_inv_q`), which the add delivers whatever `fr` reads; the add's Invalid is absorbed by the
+union (`or_inv_absorb`). -/
 theorem cf_maddD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.maddD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MADD_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.MADD_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
   simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
   obtain ⟨hd, h | h⟩ := h
   · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MADD_D]; ofree
-  · obtain ⟨hs, ht, hr, hq, h11, h6⟩ := maddAbsorbs_parts a fr fs ft h
-    simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
-    simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPResult_eq, FP32RegistersMode, hd, hs,
-      ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, mul_qnan_left _ _ _ hq, trapC_inv _ _ h11, env_fpf,
-      trapC_fpf, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true]
-    rw [add_qnan_left _ _ _ hq, trapC_inv _ _ h11]
-    simp only [Bool.false_eq_true, ↓reduceIte]
-    rw [fpf_fpf _ (Mips.Fp.isSNaN64 (o₁.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6),
-      fpf_fpf _ (Mips.Fp.isSNaN64 (o₂.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6)]
+  · rcases maddAbsorbs_cases a fr fs ft h with ⟨hs, ht, hr, hq, h11, h6⟩ | ⟨hs, ht, hr, hm⟩
+    · simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
+      simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
+        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, mul_qnan_left _ _ _ hq,
+        trapC_inv _ _ h11, trapC_fpc, fpf_fpc, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true,
+        add_qnan_left _ _ _ hq, h6, inv_or_true]
+    · simp only [OddFPR, FPRPair, IEEE.mulD] at hd hs ht hr hm
+      have hq := mul_inv_q _ _ _ hm
+      simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
+        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, Bool.false_eq_true, ctxOf,
+        beq_self_eq_true, Bool.not_true, add_qnan_left _ _ _ hq, or_inv_absorb _ hm]
+      by_cases htr : trapC a.FCSR (Mips.Fp.f64Mul (IEEE.env a) (a.FPR (reg fs + 1) ++ a.FPR (reg fs))
+          (a.FPR (reg ft + 1) ++ a.FPR (reg ft))).snd = true
+      · simp only [htr, ↓reduceIte]
+      · simp only [htr, Bool.false_eq_true, ↓reduceIte, add_qnan_left _ _ _ hq, or_inv_absorb _ hm, trapC_fpc,
+          fpf_fpc]
 
 set_option linter.unusedSimpArgs false in
 theorem cf_msubD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.msubD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
@@ -492,15 +506,22 @@ theorem cf_msubD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.msubD fd f
   simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
   obtain ⟨hd, h | h⟩ := h
   · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MSUB_D]; ofree
-  · obtain ⟨hs, ht, hr, hq, h11, h6⟩ := maddAbsorbs_parts a fr fs ft h
-    simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
-    simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPResult_eq, FP32RegistersMode, hd, hs,
-      ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, mul_qnan_left _ _ _ hq, trapC_inv _ _ h11, env_fpf,
-      trapC_fpf, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true]
-    rw [sub_qnan_left _ _ _ hq, trapC_inv _ _ h11]
-    simp only [Bool.false_eq_true, ↓reduceIte]
-    rw [fpf_fpf _ (Mips.Fp.isSNaN64 (o₁.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6),
-      fpf_fpf _ (Mips.Fp.isSNaN64 (o₂.fprOddRead a (reg ft))) _ (by simpa [qnan64_not_snan _ hq] using h6)]
+  · rcases maddAbsorbs_cases a fr fs ft h with ⟨hs, ht, hr, hq, h11, h6⟩ | ⟨hs, ht, hr, hm⟩
+    · simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
+      simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
+        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, mul_qnan_left _ _ _ hq,
+        trapC_inv _ _ h11, trapC_fpc, fpf_fpc, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true,
+        sub_qnan_left _ _ _ hq, h6, inv_or_true]
+    · simp only [OddFPR, FPRPair, IEEE.mulD] at hd hs ht hr hm
+      have hq := mul_inv_q _ _ _ hm
+      simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
+        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, Bool.false_eq_true, ctxOf,
+        beq_self_eq_true, Bool.not_true, sub_qnan_left _ _ _ hq, or_inv_absorb _ hm]
+      by_cases htr : trapC a.FCSR (Mips.Fp.f64Mul (IEEE.env a) (a.FPR (reg fs + 1) ++ a.FPR (reg fs))
+          (a.FPR (reg ft + 1) ++ a.FPR (reg ft))).snd = true
+      · simp only [htr, ↓reduceIte]
+      · simp only [htr, Bool.false_eq_true, ↓reduceIte, sub_qnan_left _ _ _ hq, or_inv_absorb _ hm, trapC_fpc,
+          fpf_fpc]
 
 theorem cf_nmaddS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddS fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.NMADD_S fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMADD_S fd fr fs ft (ctxOf i o₂) { arch := a } := by

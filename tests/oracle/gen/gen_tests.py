@@ -233,7 +233,8 @@ def gen_nanprop():
     dirs = []
     t = T("fp_nan_propagation_quiet", "add/sub/mul/div.s with QUIET NaN operands (0x7fa00003 = QNaN, 0x7fa00004 = QNaN, 0x7fc00001 = sNaN): no Invalid for a QNaN with a number; the result is a NaN and never\n"
           "a signaling one (compared: isNaN, bit 22, FCSR). The exact payload is a documented pin: the model returns the first quiet-NaN operand unchanged ('when possible ... one of the operand QNaN values'),\n"
-          "QEMU returns the default QNaN 0x7fbfffff; which NaN is returned is not specified, so the raw word slots are 'unpredictable' and the model value is pinned with 'expect' where a single QNaN is the only candidate.",
+          "QEMU returns the default QNaN 0x7fbfffff. With exactly one QNaN operand (and a number) the operand QNaN is mandatory, so those slots are 'expect-deviation' (+ 'expect');\n"
+          "with two NaN operands which one is returned is not specified, so those raw word slots stay 'unpredictable'.",
           cites, dirs)
     QA, QB = 0x7fa00003, 0x7fa00004
     cases = [(f32(1.0), QA), (QA, f32(1.0)), (QA, QB), (QB, QA), (QA, Q1), (Q1, QA)]
@@ -245,8 +246,11 @@ def gen_nanprop():
             t.e("sw $t0, %d($s7)" % raw)
             t.e("sll $t2, $t0, 1", "lui $t3, 0xff00", "sltu $t2, $t3, $t2", "srl $t4, $t0, 22", "andi $t4, $t4, 1", "sll $t2, $t2, 1", "or $t2, $t2, $t4"); t.store("$t2"); t.store("$t1")
             addr = 0x10010000 + raw
-            dirs.append("unpredictable mem:0x%08x MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified" % addr)
-            if ci in (0, 1): dirs.append("expect mem:0x%08x=0x%08x" % (addr, QA))
+            if ci in (0, 1):
+                dirs.append("expect-deviation mem:0x%08x MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: \"When possible, this QNaN result is one of the operand QNaN values\" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff" % addr)
+                dirs.append("expect mem:0x%08x=0x%08x" % (addr, QA))
+            else:
+                dirs.append("unpredictable mem:0x%08x MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified" % addr)
     dirs.append("unpredictable gpr:t0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result (see mem slots)")
     dirs.append("unpredictable fpr:f6 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result")
     t.dirs[:] = dirs

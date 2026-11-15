@@ -35,7 +35,7 @@ theorem toBits_b4' (f : Mips.Fp.Flags) : f.toBits[4] = f.invalid := by
 /-- Unfold an Operation run under a witness oracle into its paths. -/
 macro "runp_simp" : tactic => `(tactic| simp only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory, StoreMemory, ValueFPR64,
-    StoreFPR64, ValueFPR32, StoreFPR32, Pseudo.modify, resolve, unpredictableOr, FPResult, CheckFPException,
+    StoreFPR64, ValueFPR32, StoreFPR32, Pseudo.modify, resolve, unpredictableOr, FPResult, FPCheck, CheckFPException,
     FPConditionCode, setHI, setLO, wo, ctxOf, sigRI, RunP_ok, RunP_sig, NotCpU, ne_eq, reduceCtorEq,
     not_false_eq_true, implies_true, ↓reduceIte, Bool.false_eq_true, CEof_writeGPR, writeGPR_LLbit,
     writeGPR_HI, and_true, true_and, FP32RegistersMode, beq_self_eq_true, SetFPConditionCode, *])

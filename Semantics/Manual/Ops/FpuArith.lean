@@ -296,10 +296,14 @@ StoreFPR(fd, fmt, (vfs xfmt vft) +fmt vfr)
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.256): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and add instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). -/
 def MADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -307,14 +311,16 @@ def MADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulS a vfs vft)
-  -- (...) +fmt vfr (the add, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.addS a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulS a vfs vft
+  let p ← FPCheck m
+  -- (...) +fmt vfr (the add, of the rounded product), rounded
+  let r := IEEE.addS a p vfr
+  -- Cause = the union of the two operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (r.1, m.2.or r.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) v
 
 /-- **MADD.D fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, MADD.fmt, p.256 (fmt = D).
 ```
@@ -326,10 +332,14 @@ StoreFPR(fd, fmt, (vfs xfmt vft) +fmt vfr)
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.256): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and add instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). -/
 def MADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -337,14 +347,16 @@ def MADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulD a vfs vft)
-  -- (...) +fmt vfr (the add, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.addD a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulD a vfs vft
+  let p ← FPCheck m
+  -- (...) +fmt vfr (the add, of the rounded product), rounded
+  let r := IEEE.addD a p vfr
+  -- Cause = the union of the two operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (r.1, m.2.or r.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) v
 
 /-- **MSUB.S fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, MSUB.fmt, p.287 (fmt = S).
 ```
@@ -356,10 +368,14 @@ StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr)
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.287): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and subtract instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). -/
 def MSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -367,14 +383,16 @@ def MSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulS a vfs vft)
-  -- (...) -fmt vfr (the subtract, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.subS a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulS a vfs vft
+  let p ← FPCheck m
+  -- (...) -fmt vfr (the subtract, of the rounded product), rounded
+  let r := IEEE.subS a p vfr
+  -- Cause = the union of the two operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (r.1, m.2.or r.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) v
 
 /-- **MSUB.D fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, MSUB.fmt, p.287 (fmt = D).
 ```
@@ -386,10 +404,14 @@ StoreFPR(fd, fmt, (vfs xfmt vft) -fmt vfr)
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.287): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and subtract instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). -/
 def MSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -397,14 +419,16 @@ def MSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulD a vfs vft)
-  -- (...) -fmt vfr (the subtract, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.subD a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulD a vfs vft
+  let p ← FPCheck m
+  -- (...) -fmt vfr (the subtract, of the rounded product), rounded
+  let r := IEEE.subD a p vfr
+  -- Cause = the union of the two operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (r.1, m.2.or r.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) v
 
 /-- **NMADD.S fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, NMADD.fmt, p.308 (fmt = S).
 ```
@@ -416,10 +440,14 @@ StoreFPR(fd, fmt, -(vfr +fmt (vfs xfmt vft)))
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.308): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and add and negate instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -427,17 +455,21 @@ def NMADD_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulS a vfs vft)
-  -- vfr +fmt (...) (the add, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.addS a vfr p)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulS a vfs vft
+  let p ← FPCheck m
+  -- vfr +fmt (...) (the add, of the rounded product), rounded
+  let r := IEEE.addS a vfr p
+  -- Cause = the union so far, CheckFPException
+  let q ← FPCheck (r.1, m.2.or r.2)
   -- -(...) (the negate)
   let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negS o.absNegNaN r)
+  let n := IEEE.negS o.absNegNaN q
+  -- Cause = the union of the three operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (n.1, (m.2.or r.2).or n.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) v
 
 /-- **NMADD.D fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, NMADD.fmt, p.308 (fmt = D).
 ```
@@ -449,10 +481,14 @@ StoreFPR(fd, fmt, -(vfr +fmt (vfs xfmt vft)))
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.308): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and add and negate instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -460,17 +496,21 @@ def NMADD_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulD a vfs vft)
-  -- vfr +fmt (...) (the add, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.addD a vfr p)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulD a vfs vft
+  let p ← FPCheck m
+  -- vfr +fmt (...) (the add, of the rounded product), rounded
+  let r := IEEE.addD a vfr p
+  -- Cause = the union so far, CheckFPException
+  let q ← FPCheck (r.1, m.2.or r.2)
   -- -(...) (the negate)
   let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negD o.absNegNaN r)
+  let n := IEEE.negD o.absNegNaN q
+  -- Cause = the union of the three operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (n.1, (m.2.or r.2).or n.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) v
 
 /-- **NMSUB.S fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, NMSUB.fmt, p.310 (fmt = S).
 ```
@@ -482,10 +522,14 @@ StoreFPR(fd, fmt, -((vfs xfmt vft) -fmt vfr))
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.310): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and subtract and negate instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, S)
   let vfr ← ValueFPR32 (reg fr)
@@ -493,17 +537,21 @@ def NMSUB_S (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR32 (reg fs)
   -- vft <- ValueFPR(ft, S)
   let vft ← ValueFPR32 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulS a vfs vft)
-  -- (...) -fmt vfr (the subtract, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.subS a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulS a vfs vft
+  let p ← FPCheck m
+  -- (...) -fmt vfr (the subtract, of the rounded product), rounded
+  let r := IEEE.subS a p vfr
+  -- Cause = the union so far, CheckFPException
+  let q ← FPCheck (r.1, m.2.or r.2)
   -- -(...) (the negate)
   let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negS o.absNegNaN r)
+  let n := IEEE.negS o.absNegNaN q
+  -- Cause = the union of the three operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (n.1, (m.2.or r.2).or n.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) v
 
 /-- **NMSUB.D fd, fr, fs, ft** — MD00086 Vol II-A Rev 6.06, NMSUB.fmt, p.310 (fmt = D).
 ```
@@ -515,10 +563,14 @@ StoreFPR(fd, fmt, -((vfs xfmt vft) -fmt vfr))
 (the operators of the last line are lost in the text extraction; read from the PDF page.)
 Description (p.310): "The intermediate product is rounded according to the current rounding mode in
 FCSR ... The results and flags are as if separate floating-point multiply and subtract and negate instructions were
-executed." Each operation is therefore written as the instruction it stands for: its result is
-rounded and goes through `FPResult` (Cause written, `CheckFPException`, then Flags; MD00082 Vol I-A
-Rev 6.01 §6.7.1, p.98-99), so a trap of the multiply stops the instruction with the multiply's
-Cause, and the Flags of the completed operations accumulate. The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
+executed. ... The Cause bits are ORed into the Flag bits if no exception is taken." Each operation is
+written as the instruction it stands for, its result rounded; the FCSR is per instruction: after
+each operation Cause holds the union of the exceptions of the operations so far ("set to 1 if the
+corresponding exception condition arises during the execution of an instruction", MD00082 Vol I-A
+Rev 6.01, Table 6.8 `Cause`, p.94) and `CheckFPException` is made (`FPCheck`); the last operation
+goes through `FPResult` with the union, which also ORs it into the Flags. A trap of the multiply
+stops the instruction with the multiply's Cause; a trapping instruction leaves the Flags unchanged
+("instructions that trap do not update the Flag bits", §6.7.1, p.99). The negation is `NEG.fmt` (arithmetic with `FIR.Has2008 = 0`, NEG.fmt p.307; `Oracle.absNegNaN`). -/
 def NMSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   -- vfr <- ValueFPR(fr, D)
   let vfr ← ValueFPR64 (reg fr)
@@ -526,16 +578,20 @@ def NMSUB_D (fd fr fs ft : W32) : Pseudo Unit := do
   let vfs ← ValueFPR64 (reg fs)
   -- vft <- ValueFPR(ft, D)
   let vft ← ValueFPR64 (reg ft)
-  -- vfs xfmt vft (the multiply)
   let a ← Pseudo.get
-  let p ← FPResult (IEEE.mulD a vfs vft)
-  -- (...) -fmt vfr (the subtract, of the rounded product)
-  let a ← Pseudo.get
-  let r ← FPResult (IEEE.subD a p vfr)
+  -- vfs xfmt vft (the multiply), rounded: Cause, CheckFPException
+  let m := IEEE.mulD a vfs vft
+  let p ← FPCheck m
+  -- (...) -fmt vfr (the subtract, of the rounded product), rounded
+  let r := IEEE.subD a p vfr
+  -- Cause = the union so far, CheckFPException
+  let q ← FPCheck (r.1, m.2.or r.2)
   -- -(...) (the negate)
   let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negD o.absNegNaN r)
+  let n := IEEE.negD o.absNegNaN q
+  -- Cause = the union of the three operations' exceptions, CheckFPException, Flags
+  let v ← FPResult (n.1, (m.2.or r.2).or n.2)
   -- StoreFPR(fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) v
 
 end Manual.Ops

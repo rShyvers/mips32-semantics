@@ -205,6 +205,8 @@ theorem cprRead_srsctl (s : State) : CPRRead modelImpl 12 2 (abs s) = srsCtlValu
 theorem cprRead_epc (s : State) : CPRRead modelImpl 14 0 (abs s) = s.cp0Epc := rfl
 theorem cprRead_prid (s : State) : CPRRead modelImpl 15 0 (abs s) = prIdValue := rfl
 theorem cprRead_config1 (s : State) : CPRRead modelImpl 16 1 (abs s) = config1Value := rfl
+theorem cprRead_config2 (s : State) : CPRRead modelImpl 16 2 (abs s) = config2Value := rfl
+theorem cprRead_config3 (s : State) : CPRRead modelImpl 16 3 (abs s) = config3Value := rfl
 theorem cprRead_errorepc (s : State) : CPRRead modelImpl 30 0 (abs s) = s.cp0ErrorEpc := rfl
 
 /-- `Cause` (13, 0): the stored bits, `HW5..HW0` in `IP7..IP2`, and the timer request in `TI` and
