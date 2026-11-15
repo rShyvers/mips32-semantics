@@ -1,6 +1,7 @@
 import Semantics.Refine.Instr
 import Semantics.Manual.Relation
 import Semantics.Refine.Decode
+import Semantics.Refine.DecodeBridge  -- 12b
 import Semantics.Specs.RegFileSize
 import Semantics.Specs.Invariants
 import Semantics.Env
@@ -102,10 +103,10 @@ theorem stepCore_abs (s : State) (hg : Inv s) :
 
 /-! ## The top theorems -/
 
-/-- **`step` is one instruction time of the manual** under the model's implementation constants and
-choices (`modelImpl`, `modelOracle`), with the model's `decode` as the spec's decoder
-(`Manual.DecoderSound decode`, `decoderSound_decode`), from every state of the invariant. -/
-theorem step_eq_manual (s : State) (hg : Inv s) :
+-- 12b: the top theorems take the spec's own decoder `Manual.decodeDiagram` (`Manual/Decode.lean`);
+-- the `_decode` versions, with the model's `decode`, are the step to them.
+/-- `step` is one instruction time of the manual with the model's `decode` as the decoder. -/
+theorem step_eq_manual_decode (s : State) (hg : Inv s) :
     InstructionTime modelImpl modelOracle decode (abs s) = some (abs (step s)) := by
   have h := stepCore_abs s hg
   unfold InstructionTime
@@ -113,14 +114,25 @@ theorem step_eq_manual (s : State) (hg : Inv s) :
   rw [show ({ impl := modelImpl, oracle := modelOracle } : Ctx) = modelCtx from rfl, h]
   simp only [Option.map_some, step, timerTick_abs]
 
-/-- **`run` is a sequence of instruction times of the manual** (`Manual.InstructionTimes`). -/
+/-- **`step` is one instruction time of the manual** under the model's implementation constants and
+choices (`modelImpl`, `modelOracle`), with the spec's own decoder `Manual.decodeDiagram` (the format
+diagrams, `Manual/Decode.lean`; the model's `decode` agrees with it, `decode_agrees`,
+`decode_none_rejected`), from every state of the invariant. -/
+theorem step_eq_manual (s : State) (hg : Inv s) :
+    InstructionTime modelImpl modelOracle decodeDiagram (abs s) = some (abs (step s)) := by
+  rw [instructionTime_diagram]; exact step_eq_manual_decode s hg
+
+/-- **`run` is a sequence of instruction times of the manual** (`Manual.InstructionTimes`), with the
+spec's decoder. -/
 theorem run_refines_manual (s : State) (hg : Inv s) (n : Nat) :
-    InstructionTimes modelImpl modelOracle decode n (abs s) = some (abs (run s n)) := by
+    InstructionTimes modelImpl modelOracle decodeDiagram n (abs s) = some (abs (run s n)) := by
+  rw [instructionTimes_diagram]
   induction n generalizing s with
   | zero => rfl
   | succ n ih =>
-    simp only [InstructionTimes, step_eq_manual s hg, Option.bind_some]
+    simp only [InstructionTimes, step_eq_manual_decode s hg, Option.bind_some]
     exact ih (step s) (step_preserves_inv s hg)
+-- end 12b
 
 /-! ## Reset -/
 

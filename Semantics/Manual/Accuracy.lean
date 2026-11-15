@@ -23,6 +23,8 @@ on the values of the encodings:
   FS = 1 a tiny result may be replaced by zero, MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102, which no
   ULP bound survives). For `RECIP` the exact result `1/x` must be at most the largest finite number:
   beyond it the IEEE-mandated representation itself overflows.
+* `FPIsNaN`, `FPIsSNaN`, `FPIsQNaN`, `FPIsZero`, `FPIsSubnormal`, `FPSign` — the classes of an
+  encoding, Table 6.2 (p.80-81), legacy NaN encoding; the spec's own, not the model's.
 * `RecipFlagsOK`, `Impl.RecipFlags` — the Invalid Operation and Division-by-Zero conditions the
   manual mandates for `RECIP.fmt`/`RSQRT.fmt` by the class of the operand (Overflow, Underflow,
   Inexact left free: they belong to the approximate result).
@@ -42,6 +44,41 @@ def FPValue (eb fb : Nat) (n : Nat) : Option Rat :=
     else if e = 0 then some (s * (2 : Rat) ^ (1 - ((2 ^ (eb - 1) - 1 : Nat) : Int)) * fr)
     else some (s * (2 : Rat) ^ ((e : Int) - ((2 ^ (eb - 1) - 1 : Nat) : Int)) * (1 + fr))
   else none
+
+/-! ### The classes of an encoding (MD00082 Vol I-A Rev 6.01 Table 6.2, p.80-81)
+
+The spec's own classifiers of an `eb`-exponent-bit, `fb`-fraction-bit pattern, transcribed from
+Table 6.2 (the unbiased `E_max + 1` is the all-ones biased exponent, `E_min - 1` the zero biased
+exponent; the bias is that of Table 6.1, p.79) for the legacy NaN encoding of this profile
+(`FIR.Has2008 = 0`): "The high-order bit of the Fraction field, identified as b1, is also important
+for NaNs" (p.80); with `E_max + 1` and `f ≠ 0`, `b1 = 1` is SNaN and `b1 = 0` is QNaN
+"(FIRHas2008=0 or FCSRNAN2008=0)"; `E_max + 1` with `f = 0` is ±∞; `E_min - 1` with `f ≠ 0` a
+denormalized number, with `f = 0` a zero (p.81). The sign `s` is the top bit (Figures 6.1, 6.2,
+p.80). They are proved equal to the model's `Mips.Fp.Format` classifiers in `Refine/ImplValid.lean`. -/
+
+/-- The biased exponent field (Figures 6.1, 6.2). -/
+def FPExp (eb fb : Nat) (n : Nat) : Nat := (n / 2 ^ fb) % 2 ^ eb
+
+/-- The fraction field (Figures 6.1, 6.2). -/
+def FPFrac (fb : Nat) (n : Nat) : Nat := n % 2 ^ fb
+
+/-- The sign bit `s`, the top bit (Figures 6.1, 6.2). -/
+def FPSign (eb fb : Nat) (n : Nat) : Bool := (n / 2 ^ (eb + fb)) % 2 == 1
+
+/-- NaN: unbiased exponent `E_max + 1` (biased all ones), `f ≠ 0`. -/
+def FPIsNaN (eb fb : Nat) (n : Nat) : Bool := FPExp eb fb n == 2 ^ eb - 1 && FPFrac fb n != 0
+
+/-- Signaling NaN, legacy encoding: a NaN with `b1 = 1`. -/
+def FPIsSNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 1
+
+/-- Quiet NaN, legacy encoding: a NaN with `b1 = 0`. -/
+def FPIsQNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 0
+
+/-- ±0: unbiased exponent `E_min - 1` (biased 0), `f = 0`. -/
+def FPIsZero (eb fb : Nat) (n : Nat) : Bool := FPExp eb fb n == 0 && FPFrac fb n == 0
+
+/-- Denormalized: unbiased exponent `E_min - 1` (biased 0), `f ≠ 0`. -/
+def FPIsSubnormal (eb fb : Nat) (n : Nat) : Bool := FPExp eb fb n == 0 && FPFrac fb n != 0
 
 /-- The largest finite number `(2^(fb+1) - 1) × 2^(E_max - fb)` (`E_max` = the bias, Table 6.1). -/
 def FPMax (eb fb : Nat) : Rat :=
@@ -83,7 +120,8 @@ def Impl.RsqrtAccurate (i : Impl) : Prop :=
     0 < y → ∀ r, FPValue 11 52 (i.rsqrtD e x).1.toNat = some r → WithinULPsRsqrt 11 52 y r 2)
 
 /-- **The Invalid Operation and Division-by-Zero conditions of `RECIP.fmt` (`sq = false`) and
-`RSQRT.fmt` (`sq = true`)** for the operand pattern `n` of format `f` under the environment `e`, with
+`RSQRT.fmt` (`sq = true`)** for the operand pattern `n` of the `eb`-exponent-bit, `fb`-fraction-bit
+format (classified by Table 6.2: `FPIsQNaN`, `FPIsSNaN`, ...) under the environment `e`, with
 `fl` the conditions the implementation signals. The Operations are `1.0 / valueFPR(fs, fmt)` and
 `1.0 / SquareRoot(valueFPR(fs, fmt))` (MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336; RSQRT.fmt, p.343;
 both list "Inexact, Division-by-zero, ... Invalid Op, Overflow, Underflow"); the conditions are those
@@ -113,21 +151,21 @@ mode in FCSR", p.336; "The effect of the current FCSR rounding mode on the resul
 dependent", p.343), and those three conditions are properties of the delivered (approximate) result
 (§6.7.2.3, p.101; §6.7.2.5, §6.7.2.6, p.102). The QNaN result of a NaN operand is not constrained
 here either. Unimplemented Operation has no flag (`Mips.Fp.Flags`). -/
-def RecipFlagsOK (f : Mips.Fp.Format) (sq : Bool) (e : Mips.Fp.Env) (n : Nat) (fl : Mips.Fp.Flags) :
+def RecipFlagsOK (eb fb : Nat) (sq : Bool) (e : Mips.Fp.Env) (n : Nat) (fl : Mips.Fp.Flags) :
     Prop :=
-  (f.isQNaN n = true → fl = Mips.Fp.Flags.none) ∧
-  (f.isSNaN n = true → fl.invalid = true ∧ fl.divZero = false) ∧
-  (f.isNaN n = false → f.isZero n = true → fl.divZero = true ∧ fl.invalid = false) ∧
-  (f.isNaN n = false → f.isZero n = false → (e.flush = false ∨ f.isSubnormal n = false) →
-    fl.divZero = false ∧ fl.invalid = (sq && f.signBit n))
+  (FPIsQNaN eb fb n = true → fl = Mips.Fp.Flags.none) ∧
+  (FPIsSNaN eb fb n = true → fl.invalid = true ∧ fl.divZero = false) ∧
+  (FPIsNaN eb fb n = false → FPIsZero eb fb n = true → fl.divZero = true ∧ fl.invalid = false) ∧
+  (FPIsNaN eb fb n = false → FPIsZero eb fb n = false → (e.flush = false ∨ FPIsSubnormal eb fb n = false) →
+    fl.divZero = false ∧ fl.invalid = (sq && FPSign eb fb n))
 
 /-- **The IEEE conditions `RECIP.fmt` and `RSQRT.fmt` signal** are those `RecipFlagsOK` requires, for
 both formats and every environment. -/
 def Impl.RecipFlags (i : Impl) : Prop :=
-  (∀ e (x : W32), RecipFlagsOK Mips.Fp.binary32 false e x.toNat (i.recipS e x).2) ∧
-  (∀ e (x : BitVec 64), RecipFlagsOK Mips.Fp.binary64 false e x.toNat (i.recipD e x).2) ∧
-  (∀ e (x : W32), RecipFlagsOK Mips.Fp.binary32 true e x.toNat (i.rsqrtS e x).2) ∧
-  (∀ e (x : BitVec 64), RecipFlagsOK Mips.Fp.binary64 true e x.toNat (i.rsqrtD e x).2)
+  (∀ e (x : W32), RecipFlagsOK 8 23 false e x.toNat (i.recipS e x).2) ∧
+  (∀ e (x : BitVec 64), RecipFlagsOK 11 52 false e x.toNat (i.recipD e x).2) ∧
+  (∀ e (x : W32), RecipFlagsOK 8 23 true e x.toNat (i.rsqrtS e x).2) ∧
+  (∀ e (x : BitVec 64), RecipFlagsOK 11 52 true e x.toNat (i.rsqrtD e x).2)
 
 /-- **A valid implementation**: of this profile (`Impl.WF`) and with the accuracy the pages require:
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation (`Impl.RecipAccurate`) and of the exact

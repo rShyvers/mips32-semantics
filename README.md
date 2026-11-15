@@ -75,7 +75,7 @@ transcribes the manuals' pseudocode (each Operation copied from its instruction 
 interrupt, timer and reset processing of Vol III, the instruction diagrams as `Manual.enc`) into an executable
 specification `Manual.InstructionTime`, written independently of the model: it names no definition of
 `Step.lean`/`State.lean` and shares with the model only the words, the `Instruction` names and the IEEE rounding core
-of `FpOps.lean` (gate step 1 checks the imports and names, `scripts/manual_independence.py`). Since wave 10 that shared
+of `FpOps.lean` with its `Flags` type and fields (gate step 1 checks the imports and names, `scripts/manual_independence.py`). Since wave 10 that shared
 core is itself proved correct against the IEEE 754 definition the manual references (see (d)). The theorem
 
 ```lean
@@ -94,7 +94,9 @@ With it, on the trusted surface: `step_refines_manual` (`step` is a `Manual.Step
 *some* valid resolution of its choices), `modelOracle_valid` (the model's choices are valid), `run_refines_manual`
 (`n` steps), `step_unique_of_choiceFree` and `manual_step_deterministic` (where the manual makes no choice,
 `step` is the only behaviour it allows), `decoderSound_decode` (the model's `decode` is sound for the manual's
-diagrams), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
+diagrams), and since wave 12b the spec's own decoder `Manual.Decode` (from the diagrams; the top theorems use it)
+with `decode_diagram_sound`/`decode_diagram_complete` and the agreement of `decode` with it
+(`decode_agrees_manual`, `decode_none_manual`), and the invariant's establishment and preservation (`inv_resetState`, `inv_hostedStart`, `inv_load`,
 `step_preserves_inv`). So a mistake in `Step.lean` survives only if the same mistake is in the independent
 transcription, or in what is trusted below. Limits, stated plainly:
 - `Manual.ChoiceFree` decides exactly where the manual leaves a choice that can change the result: `false` at an

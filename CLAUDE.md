@@ -22,7 +22,8 @@ Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals
 
 ## The gate (one command)
 `scripts/gate.sh` is the single source of truth. Steps: 1 forbidden constructs (code only, comments/strings
-stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's names); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
+stripped) + manual-spec independence: `scripts/manual_independence.py` (token pre-check) and `scripts/manual_deps.py` →
+`scripts/ManualIndependence.lean` (walks the Lean environment from every `Manual.*` constant against an allow-list); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
 (needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness (incl. the manual-spec check: `Manual.InstructionTime` vs `step` through `Refine.abs`); 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
 (`trace.py --check`, `--check-readme`, `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
@@ -47,15 +48,17 @@ stripped) + `scripts/manual_independence.py` (Manual/* must not use the model's 
   `Unaligned`, `Branch`, `BranchLikely`, `Jump`, `Trap`, `Syscall`, `Cp0`, `Fpu*`), global theorems in `DecodeSpec`, `Exception`,
   `Fetch`, `SelfModifying`, `DelaySlot`, `Invariants`, `RegFileSize`, `Mode` (Kernel/User Mode), `Reset` (reset state, boot convention), `Mmu` (address translation), `Loader` (loader correctness), `Timer` (Count/Compare, timerTick, RDHWR/HWREna), `Interrupt` (interrupt delivery, WAIT standby, IntCtl/SRSCtl), `Hosted` (the environment layer vs `step`). Vocabulary: `Defs.lean`, `WellFormed.lean`. Plumbing: `Lemmas`, `Fixtures`,
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
-- Trusted surface: `Semantics/Statements.lean` (211 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
+- Trusted surface: `Semantics/Statements.lean` (216 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
 - Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
-  pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`,
+  pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`, `Decode` (the spec's OWN
+  decoder `Manual.Decode`/`decodeDiagram`, from the format diagrams; the top theorems use it),
   `Ops/*` one def per manual page, `Operation`, `Cycle` (`InstructionTime`), `Choices` (`modelImpl`/`modelOracle` pins)). It may import
   only `Word`, `Types` (W32/VAddr/PAddr), `Instruction` (constructor names), `FpOps` rounding core; enforced by gate step 1.
   `Semantics/Refine/` = proofs that `step` refines it: `Defs.lean` (`abs : State → Manual.Arch`, `Good`, `Inv` — trusted definitions),
   `Abs`/`Bridge*`/`Fetch` plumbing, `<Family>.lean` `<ctor>_refines` (all 183), `Instr.lean` (`allInstrRefines`), `Cycle` (non-instruction
-  paths), `Decode` (`decoderSound_decode`), `Invariant` (`step_preserves_inv`), `Step.lean` (TOP: `step_eq_manual`, `run_refines_manual`),
+  paths), `Decode` (`decoderSound_decode`), `DecodeDiagram`/`DecodeBridge` (`decode_agrees_manual`, `decode_diagram_complete`,
+  `decode_none_manual`: the model's `decode` agrees with `Manual.Decode`), `Invariant` (`step_preserves_inv`), `Step.lean` (TOP: `step_eq_manual`, `run_refines_manual`),
   `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`;
   imports `ChoiceFp`), `ChoiceWitness`/`ChoiceRows{,Fp,Fma}`/`ChoiceExact` (`choiceFree_exact`, `choiceFree_iff`: ChoiceFree is exact);
   `Manual/Relation.lean` = `Step`/`Oracle.Valid` (§1.2.1 limits incl. non-interference, §1.2.2 UNDEFINED, QNaN)/`UnpredictableLimits`/

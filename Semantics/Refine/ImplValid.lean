@@ -11,7 +11,8 @@ against the IEEE-mandated representation and against the exact result. The exact
 from the correctness of the IEEE rounding core (`Semantics/FpOpsCorrect*.lean`).
 
 `modelImpl_recipFlags`: the Invalid Operation and Division-by-Zero conditions of the two are those
-`Manual.RecipFlagsOK` requires, for every operand and environment. The one non-trivial case is
+`Manual.RecipFlagsOK` requires, for every operand and environment (its Table 6.2 classifiers
+`FPIsNaN`, ... are the model's `Format.isNaN`, ... by `rfl`: `FPIsNaN_eq`, ...). The one non-trivial case is
 `RSQRT` of a positive finite operand: the square root is neither a NaN nor a zero, with or without
 `FCSR.FS = 1` (`sqrt_not_tiny`: a square root is never below the normal range, so it is not flushed;
 `sqrt_pos_class` then takes the class from `rsqrt_error`).
@@ -71,6 +72,27 @@ theorem modelImpl_rsqrtAccurate : modelImpl.RsqrtAccurate := by
     subst this
     refine ⟨ex, h1, h2, ?_, ?_⟩ <;> simp only [ULP_binary64, Rat.natCast_ofNat] <;> assumption
 
+/-! ## The spec's Table 6.2 classifiers are the model's -/
+
+theorem FPExp_eq (f : Format) (n : Nat) : FPExp f.expBits f.fracBits n = f.expField n := rfl
+theorem FPFrac_eq (f : Format) (n : Nat) : FPFrac f.fracBits n = f.fracField n := rfl
+theorem FPSign_eq (f : Format) (n : Nat) : FPSign f.expBits f.fracBits n = f.signBit n := rfl
+theorem FPIsNaN_eq (f : Format) (n : Nat) : FPIsNaN f.expBits f.fracBits n = f.isNaN n := rfl
+theorem FPIsSNaN_eq (f : Format) (n : Nat) : FPIsSNaN f.expBits f.fracBits n = f.isSNaN n := rfl
+theorem FPIsQNaN_eq (f : Format) (n : Nat) : FPIsQNaN f.expBits f.fracBits n = f.isQNaN n := rfl
+theorem FPIsZero_eq (f : Format) (n : Nat) : FPIsZero f.expBits f.fracBits n = f.isZero n := rfl
+theorem FPIsSubnormal_eq (f : Format) (n : Nat) :
+    FPIsSubnormal f.expBits f.fracBits n = f.isSubnormal n := rfl
+
+/-- `RecipFlagsOK` of a `Format`'s field widths, in the model's classifiers. -/
+theorem recipFlagsOK_iff (f : Format) (sq : Bool) (e : Env) (n : Nat) (fl : Flags) :
+    RecipFlagsOK f.expBits f.fracBits sq e n fl ↔
+      ((f.isQNaN n = true → fl = Flags.none) ∧
+       (f.isSNaN n = true → fl.invalid = true ∧ fl.divZero = false) ∧
+       (f.isNaN n = false → f.isZero n = true → fl.divZero = true ∧ fl.invalid = false) ∧
+       (f.isNaN n = false → f.isZero n = false → (e.flush = false ∨ f.isSubnormal n = false) →
+         fl.divZero = false ∧ fl.invalid = (sq && f.signBit n))) := Iff.rfl
+
 section flags
 variable (f : Format)
 
@@ -112,7 +134,8 @@ theorem div_one_flags (hM : f.expMax ≠ 0) (e : Env) {one q : Nat} (hn : f.isNa
 /-- `RECIP` as `DIV.fmt` of `one` meets `RecipFlagsOK`. -/
 theorem recip_flagsOK (hM : f.expMax ≠ 0) (e : Env) {one : Nat} (hn : f.isNaN one = false)
     (hz : f.isZero one = false) (hi : f.isInf one = false) (hs : f.isSNaN one = false) (n : Nat) :
-    RecipFlagsOK f false e n (f.div e one n).2 := by
+    RecipFlagsOK f.expBits f.fracBits false e n (f.div e one n).2 := by
+  rw [recipFlagsOK_iff]
   obtain ⟨D1, D2, D3⟩ := div_one_flags f hM e (q := n) hn hz hi hs
   refine ⟨fun hq => ?_, fun hsn => ?_, fun h1 h2 => ?_, fun h1 h2 _ => ?_⟩
   · obtain ⟨a, b⟩ := qnan_split f hq
@@ -239,7 +262,9 @@ theorem rsqrt_flagsOK (hf : f.WF) (hb : f.fracBits + 2 ≤ f.bias) (hb4 : 4 ≤ 
     (hn1 : f.isNaN one = false) (hz1 : f.isZero one = false) (hi1 : f.isInf one = false)
     (hs1 : f.isSNaN one = false) (M : Nat) (hW : 2 ^ f.width ≤ M) (e : Env) (n : Nat)
     (hlt : n < 2 ^ f.width) :
-    RecipFlagsOK f true e n ((f.sqrt e n).2.or (f.div e one ((f.sqrt e n).1 % M)).2) := by
+    RecipFlagsOK f.expBits f.fracBits true e n
+      ((f.sqrt e n).2.or (f.div e one ((f.sqrt e n).1 % M)).2) := by
+  rw [recipFlagsOK_iff]
   have D := fun q => div_one_flags f hM e (q := q) hn1 hz1 hi1 hs1
   have hnM : n % M = n := Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hlt hW)
   obtain ⟨hdqn, hdqs⟩ := qnan_split f hQ
