@@ -17,6 +17,9 @@ import Semantics.Refine.FpuConvert
 import Semantics.Refine.FpuMemory
 import Semantics.Refine.FpuMove
 import Semantics.Refine.FpuControl
+-- BEGIN R6-3
+import Semantics.Refine.CompactBranch
+-- END R6-3
 
 /-!
 # Refine.Instr — the per-instruction refinement of every constructor (7D)
@@ -27,7 +30,7 @@ in: the invariant `Inv s` (`Refine/Defs.lean`), and `w` is a fetched word
 that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
 `instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
-`Instruction` (119, generated in constructor order), and `allInstrRefines` collects them by
+`Instruction` (119 + the 24 compact branches of wave R6-3, generated in constructor order), and `allInstrRefines` collects them by
 `cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
 constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
 and the build fails.
@@ -284,6 +287,57 @@ theorem instrRefines_cvtWD (fd fs : W32) : InstrRefines (.cvtWD fd fs) :=
 theorem instrRefines_cvtSD (fd fs : W32) : InstrRefines (.cvtSD fd fs) :=
   fun s w hg _ hw => cvtSD_refines s hg.1 fd fs w hw
 
+-- BEGIN R6-3
+theorem instrRefines_bc (off : W32) : InstrRefines (.bc off) :=
+  fun s w hg _ hw => bc_refines s hg.1 off w hw
+theorem instrRefines_balc (off : W32) : InstrRefines (.balc off) :=
+  fun s w hg _ hw => balc_refines s hg.1 off w hw
+theorem instrRefines_beqc (rs rt off : W32) : InstrRefines (.beqc rs rt off) :=
+  fun s w hg _ hw => beqc_refines s hg.1 rs rt off w hw
+theorem instrRefines_bnec (rs rt off : W32) : InstrRefines (.bnec rs rt off) :=
+  fun s w hg _ hw => bnec_refines s hg.1 rs rt off w hw
+theorem instrRefines_bltc (rs rt off : W32) : InstrRefines (.bltc rs rt off) :=
+  fun s w hg _ hw => bltc_refines s hg.1 rs rt off w hw
+theorem instrRefines_bgec (rs rt off : W32) : InstrRefines (.bgec rs rt off) :=
+  fun s w hg _ hw => bgec_refines s hg.1 rs rt off w hw
+theorem instrRefines_bltuc (rs rt off : W32) : InstrRefines (.bltuc rs rt off) :=
+  fun s w hg _ hw => bltuc_refines s hg.1 rs rt off w hw
+theorem instrRefines_bgeuc (rs rt off : W32) : InstrRefines (.bgeuc rs rt off) :=
+  fun s w hg _ hw => bgeuc_refines s hg.1 rs rt off w hw
+theorem instrRefines_blezc (rt off : W32) : InstrRefines (.blezc rt off) :=
+  fun s w hg _ hw => blezc_refines s hg.1 rt off w hw
+theorem instrRefines_bgezc (rt off : W32) : InstrRefines (.bgezc rt off) :=
+  fun s w hg _ hw => bgezc_refines s hg.1 rt off w hw
+theorem instrRefines_bgtzc (rt off : W32) : InstrRefines (.bgtzc rt off) :=
+  fun s w hg _ hw => bgtzc_refines s hg.1 rt off w hw
+theorem instrRefines_bltzc (rt off : W32) : InstrRefines (.bltzc rt off) :=
+  fun s w hg _ hw => bltzc_refines s hg.1 rt off w hw
+theorem instrRefines_beqzc (rs off : W32) : InstrRefines (.beqzc rs off) :=
+  fun s w hg _ hw => beqzc_refines s hg.1 rs off w hw
+theorem instrRefines_bnezc (rs off : W32) : InstrRefines (.bnezc rs off) :=
+  fun s w hg _ hw => bnezc_refines s hg.1 rs off w hw
+theorem instrRefines_blezalc (rt off : W32) : InstrRefines (.blezalc rt off) :=
+  fun s w hg _ hw => blezalc_refines s hg.1 rt off w hw
+theorem instrRefines_bgezalc (rt off : W32) : InstrRefines (.bgezalc rt off) :=
+  fun s w hg _ hw => bgezalc_refines s hg.1 rt off w hw
+theorem instrRefines_bgtzalc (rt off : W32) : InstrRefines (.bgtzalc rt off) :=
+  fun s w hg _ hw => bgtzalc_refines s hg.1 rt off w hw
+theorem instrRefines_bltzalc (rt off : W32) : InstrRefines (.bltzalc rt off) :=
+  fun s w hg _ hw => bltzalc_refines s hg.1 rt off w hw
+theorem instrRefines_beqzalc (rt off : W32) : InstrRefines (.beqzalc rt off) :=
+  fun s w hg _ hw => beqzalc_refines s hg.1 rt off w hw
+theorem instrRefines_bnezalc (rt off : W32) : InstrRefines (.bnezalc rt off) :=
+  fun s w hg _ hw => bnezalc_refines s hg.1 rt off w hw
+theorem instrRefines_bovc (rs rt off : W32) : InstrRefines (.bovc rs rt off) :=
+  fun s w hg _ hw => bovc_refines s hg.1 rs rt off w hw
+theorem instrRefines_bnvc (rs rt off : W32) : InstrRefines (.bnvc rs rt off) :=
+  fun s w hg _ hw => bnvc_refines s hg.1 rs rt off w hw
+theorem instrRefines_jic (rt off : W32) : InstrRefines (.jic rt off) :=
+  fun s w hg _ hw => jic_refines s hg.1 rt off w hw
+theorem instrRefines_jialc (rt off : W32) : InstrRefines (.jialc rt off) :=
+  fun s w hg _ hw => jialc_refines s hg.1 rt off w hw
+-- END R6-3
+
 theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   cases i
   case add rs rt rd => exact instrRefines_add rs rt rd
@@ -405,5 +459,31 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case floorWD fd fs => exact instrRefines_floorWD fd fs
   case cvtWD fd fs => exact instrRefines_cvtWD fd fs
   case cvtSD fd fs => exact instrRefines_cvtSD fd fs
+  -- BEGIN R6-3
+  case bc off => exact instrRefines_bc off
+  case balc off => exact instrRefines_balc off
+  case beqc rs rt off => exact instrRefines_beqc rs rt off
+  case bnec rs rt off => exact instrRefines_bnec rs rt off
+  case bltc rs rt off => exact instrRefines_bltc rs rt off
+  case bgec rs rt off => exact instrRefines_bgec rs rt off
+  case bltuc rs rt off => exact instrRefines_bltuc rs rt off
+  case bgeuc rs rt off => exact instrRefines_bgeuc rs rt off
+  case blezc rt off => exact instrRefines_blezc rt off
+  case bgezc rt off => exact instrRefines_bgezc rt off
+  case bgtzc rt off => exact instrRefines_bgtzc rt off
+  case bltzc rt off => exact instrRefines_bltzc rt off
+  case beqzc rs off => exact instrRefines_beqzc rs off
+  case bnezc rs off => exact instrRefines_bnezc rs off
+  case blezalc rt off => exact instrRefines_blezalc rt off
+  case bgezalc rt off => exact instrRefines_bgezalc rt off
+  case bgtzalc rt off => exact instrRefines_bgtzalc rt off
+  case bltzalc rt off => exact instrRefines_bltzalc rt off
+  case beqzalc rt off => exact instrRefines_beqzalc rt off
+  case bnezalc rt off => exact instrRefines_bnezalc rt off
+  case bovc rs rt off => exact instrRefines_bovc rs rt off
+  case bnvc rs rt off => exact instrRefines_bnvc rs rt off
+  case jic rt off => exact instrRefines_jic rt off
+  case jialc rt off => exact instrRefines_jialc rt off
+  -- END R6-3
 
 end Refine

@@ -131,7 +131,15 @@ structure State where
   separate Boolean) keeps one field for one fact: `pendingBranch.isSome` *is*
   "in a delay slot", for taken and not-taken branches alike. (Release 6 has no
   branch-likely instructions, so no delay-slot instruction is ever nullified;
-  a pre-Release 6 profile would add the `nullified` marker back.) -/
+  a pre-Release 6 profile would add the `nullified` marker back.)
+  -- BEGIN R6-3
+  A not-taken Release 6 conditional compact branch also sets `some (pc + 8)`: the next instruction
+  is in its **forbidden slot**, which the manual treats as a delay slot (a CTI there raises Reserved
+  Instruction, an exception there reports `EPC` = the branch with `Cause.BD = 1`: MD00082 Vol I-A
+  Rev 6.01 §5.3.2.1-5.3.2.2, p.62; DECISIONS D6). A taken compact branch or jump sets `none`
+  (`Exec/Branch.lean`).
+  -- END R6-3
+  -/
   pendingBranch : Option W32 := none
   /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
   Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure), by `eret`,

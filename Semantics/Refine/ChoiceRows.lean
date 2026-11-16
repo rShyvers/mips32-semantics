@@ -159,6 +159,33 @@ theorem rw_jalrHb (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalrHb rs rd) a
     RowWitness (.jalrHb rs rd) a := by
   simp only [ConsultsOracle, beq_iff_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.JALR_HB]; runp
+-- BEGIN R6-3
+-- The compact branch-and-link with `rt = 31` (`linkSourceIs31`): the witness oracle signals.
+theorem rw_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = true) :
+    RowWitness (.blezalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BLEZALC, Ops.BZALC]; runp
+theorem rw_bgezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgezalc rt off) a = true) :
+    RowWitness (.bgezalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BGEZALC, Ops.BZALC]; runp
+theorem rw_bgtzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgtzalc rt off) a = true) :
+    RowWitness (.bgtzalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BGTZALC, Ops.BZALC]; runp
+theorem rw_bltzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bltzalc rt off) a = true) :
+    RowWitness (.bltzalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BLTZALC, Ops.BZALC]; runp
+theorem rw_beqzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.beqzalc rt off) a = true) :
+    RowWitness (.beqzalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BEQZALC, Ops.BZALC]; runp
+theorem rw_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt off) a = true) :
+    RowWitness (.bnezalc rt off) a := by
+  simp only [ConsultsOracle, beq_iff_eq] at h
+  exact row_sig rfl fun _ => by simp only [Ops.BNEZALC, Ops.BZALC]; runp
+-- END R6-3
 theorem rw_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = true) : RowWitness (.mthc1 rt fs) a := by
   simp only [ConsultsOracle, OddFPR] at h
   exact row_sig rfl fun _ => by simp only [Ops.MTHC1]; runp

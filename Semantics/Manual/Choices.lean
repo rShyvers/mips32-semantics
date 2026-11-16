@@ -163,6 +163,14 @@ structure Oracle where
   instruction does not have the same effect when re-executed. The result of executing such an
   instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, JALR, p.196). -/
   jalrRsIsRd : Arch → Instruction → Outcome
+  -- BEGIN R6-3
+  /-- A Release 6 compact branch-and-link with `rt = 31` (BLEZALC, BGEZALC, BGTZALC, BLTZALC,
+  BEQZALC, BNEZALC): "Branch-and-link Restartability: GPR 31 must not be used for the source
+  registers, because such an instruction does not have the same effect when reexecuted. The result of
+  executing such an instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06,
+  B{LE,GE,GT,LT,EQ,NE}ZALC, Restrictions, p.78). -/
+  linkSourceIs31 : Arch → Instruction → Outcome
+  -- END R6-3
   -- end 7B S3
   -- 7B S4 FPU
   /-- `valueFPR ← UNPREDICTABLE` of `ValueFPR(fpr, D)` / `UNINTERPRETED_DOUBLEWORD` with the 32-bit
@@ -331,6 +339,10 @@ def modelOracle : Oracle where
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
   -- 7B S3 control + system
   jalrRsIsRd := fun _ _ => .proceed
+  -- BEGIN R6-3
+  -- the Operation as written: the link is written, then `GPR[rt]` (= the link) is compared
+  linkSourceIs31 := fun _ _ => .proceed
+  -- END R6-3
   -- end 7B S3
   -- 7B S4 FPU
   fprOddRead := fun a fpr => a.FPR (fpr + 1) ++ a.FPR fpr

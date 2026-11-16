@@ -134,6 +134,24 @@ theorem opcodeOf_or_mkJT (x t : W32) : opcodeOf (x ||| mkJT t) = x >>> 26 := by 
 theorem targetOf_or_mkJT (x t : W32) :
     targetOf (x ||| mkJT t) = (x &&& 67108863#32) ||| (t &&& 67108863#32) := by field_ext
 
+-- BEGIN R6-3
+/-! ## Field extraction: `mkOff21 ..` (BEQZC/BNEZC) -/
+
+private theorem m21 (i : Nat) : (2097151#32).getLsbD i = decide (i < 21) :=
+  getLsbD_lowMask 21 (by omega) i
+
+local macro "field_ext21" : tactic =>
+  `(tactic| (apply BitVec.eq_of_getLsbD_eq; intro i hi
+             simp [opcodeOf, rsOf, rtOf, off21Of, mkOff21, field, maskLow, m5, m6, m21]
+             try grind))
+
+theorem opcodeOf_mkOff21 (op a off : W32) : opcodeOf (mkOff21 op a off) = op &&& 63#32 := by
+  field_ext21
+theorem rsOf_mkOff21 (op a off : W32) : rsOf (mkOff21 op a off) = a &&& 31#32 := by field_ext21
+theorem off21Of_mkOff21 (op a off : W32) : off21Of (mkOff21 op a off) = off &&& 2097151#32 := by
+  field_ext21
+-- END R6-3
+
 /-! ## Masks are the identity on in-range fields -/
 
 private theorem and_lowMask (k : Nat) (hk : k ≤ 32) (a : W32) (h : a.toNat < 2 ^ k) :
@@ -159,6 +177,10 @@ theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
   and_lowMask 19 (by decide) a h
 theorem and_1048575 (a : W32) (h : a.toNat < 2 ^ 20) : a &&& 1048575#32 = a :=
   and_lowMask 20 (by decide) a h
+-- BEGIN R6-3
+theorem and_2097151 (a : W32) (h : a.toNat < 2 ^ 21) : a &&& 2097151#32 = a :=
+  and_lowMask 21 (by decide) a h
+-- END R6-3
 
 theorem isModeledCp0Reg_lt (rd sel : W32) (h : isModeledCp0Reg rd sel = true) :
     rd.toNat < 32 ∧ sel.toNat < 8 := by
@@ -196,6 +218,10 @@ theorem code10Of_lt (w : W32) : (code10Of w).toNat < 2 ^ 10 := by
   simp [code10Of, BitVec.extractLsb]; omega
 theorem code19Of_lt (w : W32) : (code19Of w).toNat < 2 ^ 19 := by
   simp [code19Of, BitVec.extractLsb]; omega
+-- BEGIN R6-3
+theorem off21Of_lt (w : W32) : (off21Of w).toNat < 2 ^ 21 := by
+  simp [off21Of, BitVec.extractLsb]; omega
+-- END R6-3
 
 end DecodeSpec
 
@@ -211,6 +237,9 @@ attribute [local simp] opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT s
   opcodeOf_mkTrap functOf_mkTrap rsOf_mkTrap rtOf_mkTrap code10Of_mkTrap
   opcodeOf_mkWait coOf_mkWait functOf_mkWait code19Of_mkWait
   and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_511 and_1023 and_524287 and_1048575
+  -- BEGIN R6-3
+  opcodeOf_mkOff21 rsOf_mkOff21 off21Of_mkOff21 and_2097151
+  -- END R6-3
 
 -- ~120 constructors, each unfolding the full `decode` match: needs more than
 -- the default heartbeat budget.
@@ -252,6 +281,38 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     · simp only [not_and] at e
       simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeIf, h1, h2, h3]
       bv_omega
+  -- BEGIN R6-3
+  -- The compact branches: the `rs`/`rt` constraint selects the constructor within its opcode.
+  case beqc rs rt off | bnec rs rt off =>
+    obtain ⟨h1, h2, h3, h4⟩ := h
+    have h5 : rs.toNat < 32 := by omega
+    have h6 : rs ≠ 0#32 := by intro e; subst e; simp at h1
+    simp [encode, decode, decodeFor, decodePrimary, decodeLtGe, h2, h3, h4, h5, h6]
+  case bltc rs rt off | bgec rs rt off | bltuc rs rt off | bgeuc rs rt off =>
+    obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
+    have h7 : rs ≠ 0#32 := by intro e; subst e; simp at h1
+    have h8 : rt ≠ 0#32 := by intro e; subst e; simp at h3
+    simp [encode, decode, decodeFor, decodePrimary, decodeIf, decodeZeroEqTwo, h2, h4, h5, h6, h7, h8]
+  case blezc rt off | bgezc rt off | bgtzc rt off | bltzc rt off | blezalc rt off | bgezalc rt off
+      | bgtzalc rt off | bltzalc rt off =>
+    obtain ⟨h1, h2, h3⟩ := h
+    have h4 : rt ≠ 0#32 := by intro e; subst e; simp at h1
+    simp [encode, decode, decodeFor, decodePrimary, decodeIf, decodeZeroEqTwo, h2, h3, h4]
+  case beqzalc rt off | bnezalc rt off =>
+    obtain ⟨h1, h2, h3⟩ := h
+    simp [encode, decode, decodeFor, decodePrimary, decodeLtGe, h1, h2, h3]
+  case bovc rs rt off | bnvc rs rt off =>
+    obtain ⟨h1, h2, h3⟩ := h
+    have h4 : rt.toNat < 32 := by omega
+    simp [encode, decode, decodeFor, decodePrimary, decodeLtGe, h2, h3, h4]
+    omega
+  case beqzc rs off | bnezc rs off =>
+    obtain ⟨h1, h2, h3⟩ := h
+    have h4 : rs ≠ 0#32 := by intro e; subst e; simp at h1
+    simp [encode, decode, decodeFor, decodePrimary, decodeJumpOrZ, h2, h3, h4]
+  case jic rt off | jialc rt off =>
+    simp [encode, decode, decodeFor, decodePrimary, decodeJumpOrZ, h]
+  -- END R6-3
   all_goals simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm,
     decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h]
 
@@ -264,12 +325,22 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   have h4 := shamtOf_lt w; have h5 := immOf_lt w; have h6 := targetOf_lt w
   have h7 := off9Of_lt w
   have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
+  -- BEGIN R6-3
+  have h13 := off21Of_lt w
+  -- END R6-3
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
-    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf] at h
+    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
+    -- BEGIN R6-3
+    decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ
+    -- END R6-3
+    ] at h
   repeat' split at h
   all_goals
     (cases h <;>
       simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h10, h11, h12,
+        -- BEGIN R6-3
+        h13,
+        -- END R6-3
         and_self, true_and])
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
@@ -278,3 +349,8 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
     | (simp only [Bool.and_eq_true] at hc; exact hc.2)
     | (simp only [Bool.and_eq_true, decide_eq_true_eq] at hc; exact hc.2)
     | (rename_i hp; intro ⟨ha, hb, hs⟩; simp [ha, hb, hs] at hp)
+    -- BEGIN R6-3
+    -- the compact branches: the decoder's `rs`/`rt` tests are the `WellFormed` constraint
+    | (simp only [beq_iff_eq, beq_eq_false_iff_ne, Bool.not_eq_true', ne_eq,
+        and_true, BitVec.toNat_eq, BitVec.toNat_zero] at *; omega)
+    -- END R6-3

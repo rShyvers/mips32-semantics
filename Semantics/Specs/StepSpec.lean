@@ -34,6 +34,9 @@ import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
 import Semantics.Specs.Timer
 import Semantics.Specs.Interrupt
+-- BEGIN R6-3
+import Semantics.Specs.CompactBranch
+-- END R6-3
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -102,7 +105,8 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Loads / stores | `Memory.lean` | alignment conditions and `AdEL`/`AdES`; sign/zero extension; `sync`/`synci`/`pref` no-ops |
 | `ll` / `sc` | `Atomic.lean` | when `sc` succeeds; `LLbit` |
 | Branches | `Branch.lean` | taken / not-taken corollaries; the link register of `nal`/`bal` |
-| Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd` |
+| Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd`; the compact jumps `jic`/`jialc` |
+| Compact branches (R6-3) | `CompactBranch.lean` | no delay slot; the forbidden slot (`compact_not_taken_forbidden_slot`, `forbidden_slot_cti_reserved`) |
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
 | `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
 | Hosted run (environment, not architecture) | `Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run` (where the hosted run differs from `step`); `hostStep_syscall_spec`, `hosted_print_int`, `hosted_exit` (the MARS-style services) |

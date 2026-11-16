@@ -44,6 +44,20 @@ inductive Delay where
   branch, with a delay slot", NAL p.306): the following instruction is still in the branch's delay
   slot, and `PC` is "automatically incremented by ... 4" after it (Table 1.1, p.6). -/
   | fallThrough
+  -- BEGIN R6-3
+  /-- A conditional compact branch was not taken: the following instruction is in its **forbidden
+  slot** (Release 6; MD00082 Vol I-A Rev 6.01 §5.3.2, p.62: conditional compact branches "do not
+  have a delay slot; they have instead a forbidden slot"; B<cond>C, Restrictions, p.84). It is not
+  an `I+1:` statement of the page: the Operation assigns nothing to `PC` and the next instruction is
+  `PC + 4`; what the slot changes is the rule for that instruction, which the manual gives as the
+  delay slot's: a CTI there signals Reserved Instruction (§5.3.2.1, p.62), and "If an exception or
+  interrupt prevents the completion of an instruction in a delay slot or forbidden slot, the
+  hardware reports an Exception PC (CP0 EPC) of the branch, with a status bit set ... to indicate
+  that the exception was for the instruction in the delay slot of the branch" (§5.3.2.2, p.62;
+  DECISIONS D6, a pin: MD00090 Vol III Rev 6.02 §6.2.3, p.87, tests only
+  `InstructionInBranchDelaySlot`). So it is recorded in `BranchDelay` as `fallThrough` is. -/
+  | forbiddenSlot
+  -- END R6-3
   deriving DecidableEq, Repr
 
 /-- **The architectural state between two instruction times.** -/
@@ -105,7 +119,12 @@ structure Arch where
   `some (branchPC + 8)` for `fallThrough` (the current instruction is the delay slot
   at `branchPC + 4`, and "If no value is assigned to PC during an instruction time ... it is
   automatically incremented by ... 4", Table 1.1, p.6). `isSome` is exactly "the instruction at
-  `PC` is in a branch delay slot" (`InstructionInBranchDelaySlot`, Vol III §6.2.3, p.87). -/
+  `PC` is in a branch delay slot" (`InstructionInBranchDelaySlot`, Vol III §6.2.3, p.87).
+  -- BEGIN R6-3
+  It is also `some (branchPC + 8)` in the forbidden slot of a not-taken conditional compact branch
+  (`Delay.forbiddenSlot`), which the manual treats as a delay slot (DECISIONS D6).
+  -- END R6-3
+  -/
   BranchDelay : Option W32
 
 end Manual

@@ -234,6 +234,8 @@ def execAgree (i : Instruction) (s : State) : Bool :=
   some 10#32
 #guard specExc (loadImage ((∅ : Program).insert textBase 0x51090001#32) regs0) == some 10#32
 #guard agree (loadImage ((∅ : Program).insert textBase 0x4C000000#32) { regs0 with cp0Status := 0#32 })
--- COP2 (opcode 0x12): Coprocessor Unusable, CE = 2; the old LWC2 opcode (0x32): Reserved Instruction.
+-- COP2 (opcode 0x12): Coprocessor Unusable, CE = 2; the old LWC2 opcode (0x32) is BC in Release 6
+-- (BC p.53): no exception, and the model agrees.
 #guard specExc (loadImage ((∅ : Program).insert textBase 0x48000000#32) regs0) == some 11#32
-#guard specExc (loadImage ((∅ : Program).insert textBase 0xC8000000#32) regs0) == some 10#32
+#guard specExc (loadImage ((∅ : Program).insert textBase 0xC8000000#32) regs0) == some 0#32
+#guard agree (loadImage ((∅ : Program).insert textBase 0xC8000000#32) regs0)

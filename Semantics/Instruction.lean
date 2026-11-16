@@ -445,6 +445,72 @@ inductive Instruction where
   | cvtWD (fd fs : W32)
   /-- Double → single, rounding per FCSR.RM (fmt = D, funct 0x20). -/
   | cvtSD (fd fs : W32)
+  -- BEGIN R6-3
+  -- Release 6 compact branches and jumps (MD00086 Vol II-A Rev 6.06): no delay slot. The
+  -- conditional ones have a forbidden slot (the next instruction, when not taken); BC, BALC, JIC
+  -- and JIALC have neither (MD00082 Vol I-A Rev 6.01 §5.3.2, p.62). Several share a primary opcode
+  -- and are told apart by the `rs`/`rt` fields (Table A.26 "B*C compact branch encodings", p.464):
+  -- each constructor's docstring gives its constraint, which `decode` checks and `WellFormed`
+  -- requires. `off` is the raw offset field (16 bits; 21 for BEQZC/BNEZC; 26 for BC/BALC).
+  /-- `BC offset`: `PC ← PC + 4 + sext(offset ‖ 00)` (opcode `110010`, 26-bit offset; BC, p.53). -/
+  | bc (off : W32)
+  /-- `BALC offset`: `GPR[31] ← PC + 4`, then as `bc` (opcode `111010`; BALC, p.52). -/
+  | balc (off : W32)
+  /-- `BEQC rs, rt, offset`: branch if `GPR[rs] = GPR[rt]` (POP10 `001000`, `0 < rs < rt`;
+  B<cond>C, p.82-85). -/
+  | beqc (rs rt off : W32)
+  /-- `BNEC rs, rt, offset`: branch if `GPR[rs] ≠ GPR[rt]` (POP30 `011000`, `0 < rs < rt`; p.82-85). -/
+  | bnec (rs rt off : W32)
+  /-- `BLTC rs, rt, offset`: branch if `GPR[rs] < GPR[rt]`, signed (POP27 `010111`, `rs ≠ 0`,
+  `rt ≠ 0`, `rs ≠ rt`; p.82-85). -/
+  | bltc (rs rt off : W32)
+  /-- `BGEC rs, rt, offset`: branch if `GPR[rs] ≥ GPR[rt]`, signed (POP26 `010110`, `rs ≠ 0`,
+  `rt ≠ 0`, `rs ≠ rt`; p.82-85). -/
+  | bgec (rs rt off : W32)
+  /-- `BLTUC rs, rt, offset`: branch if `GPR[rs] < GPR[rt]`, unsigned (POP07 `000111`, `rs ≠ 0`,
+  `rt ≠ 0`, `rs ≠ rt`; p.82-85). -/
+  | bltuc (rs rt off : W32)
+  /-- `BGEUC rs, rt, offset`: branch if `GPR[rs] ≥ GPR[rt]`, unsigned (POP06 `000110`, `rs ≠ 0`,
+  `rt ≠ 0`, `rs ≠ rt`; p.82-85). -/
+  | bgeuc (rs rt off : W32)
+  /-- `BLEZC rt, offset`: branch if `GPR[rt] ≤ 0` (POP26, `rs = 0`, `rt ≠ 0`; p.82-85). -/
+  | blezc (rt off : W32)
+  /-- `BGEZC rt, offset`: branch if `GPR[rt] ≥ 0` (POP26, `rs = rt ≠ 0`; p.82-85). -/
+  | bgezc (rt off : W32)
+  /-- `BGTZC rt, offset`: branch if `GPR[rt] > 0` (POP27, `rs = 0`, `rt ≠ 0`; p.82-85). -/
+  | bgtzc (rt off : W32)
+  /-- `BLTZC rt, offset`: branch if `GPR[rt] < 0` (POP27, `rs = rt ≠ 0`; p.82-85). -/
+  | bltzc (rt off : W32)
+  /-- `BEQZC rs, offset`: branch if `GPR[rs] = 0` (POP66 `110110`, `rs ≠ 0`, 21-bit offset;
+  p.82-85). -/
+  | beqzc (rs off : W32)
+  /-- `BNEZC rs, offset`: branch if `GPR[rs] ≠ 0` (POP76 `111110`, `rs ≠ 0`, 21-bit offset;
+  p.82-85). -/
+  | bnezc (rs off : W32)
+  /-- `BLEZALC rt, offset`: `GPR[31] ← PC + 4`; branch if `GPR[rt] ≤ 0` (POP06, `rs = 0`, `rt ≠ 0`;
+  B{LE,GE,GT,LT,EQ,NE}ZALC, p.77-79). -/
+  | blezalc (rt off : W32)
+  /-- `BGEZALC rt, offset`: link; branch if `GPR[rt] ≥ 0` (POP06, `rs = rt ≠ 0`; p.77-79). -/
+  | bgezalc (rt off : W32)
+  /-- `BGTZALC rt, offset`: link; branch if `GPR[rt] > 0` (POP07, `rs = 0`, `rt ≠ 0`; p.77-79). -/
+  | bgtzalc (rt off : W32)
+  /-- `BLTZALC rt, offset`: link; branch if `GPR[rt] < 0` (POP07, `rs = rt ≠ 0`; p.77-79). -/
+  | bltzalc (rt off : W32)
+  /-- `BEQZALC rt, offset`: link; branch if `GPR[rt] = 0` (POP10, `rs = 0`, `rt ≠ 0`; p.77-79). -/
+  | beqzalc (rt off : W32)
+  /-- `BNEZALC rt, offset`: link; branch if `GPR[rt] ≠ 0` (POP30, `rs = 0`, `rt ≠ 0`; p.77-79). -/
+  | bnezalc (rt off : W32)
+  /-- `BOVC rs, rt, offset`: branch if `GPR[rs] + GPR[rt]` overflows 32-bit signed (POP10,
+  `rs ≥ rt`; BOVC, p.107-108). -/
+  | bovc (rs rt off : W32)
+  /-- `BNVC rs, rt, offset`: branch if `GPR[rs] + GPR[rt]` does not overflow (POP30, `rs ≥ rt`;
+  BNVC, p.107-108). -/
+  | bnvc (rs rt off : W32)
+  /-- `JIC rt, offset`: `PC ← GPR[rt] + sext(offset)` (POP66, `rs = 0`; JIC, p.205). -/
+  | jic (rt off : W32)
+  /-- `JIALC rt, offset`: `GPR[31] ← PC + 4`, then as `jic` (POP76, `rs = 0`; JIALC, p.203). -/
+  | jialc (rt off : W32)
+  -- END R6-3
   deriving Repr, DecidableEq
 
 /-- Extract the 6-bit opcode field (bits 31..26), zero-extended to a `W32`. -/
@@ -471,6 +537,16 @@ def immOf (w : W32) : W32 := (w.extractLsb 15 0).zeroExtend 32
 
 /-- Extract the raw 26-bit jump-target field (bits 25..0), zero-extended to a `W32`. -/
 def targetOf (w : W32) : W32 := (w.extractLsb 25 0).zeroExtend 32
+
+-- BEGIN R6-3
+/-- Extract the raw 21-bit offset field of `BEQZC`/`BNEZC` (bits 20..0; B<cond>C, MD00086 Vol II-A
+Rev 6.06 p.82), zero-extended to a `W32`. -/
+def off21Of (w : W32) : W32 := (w.extractLsb 20 0).zeroExtend 32
+
+/-- A `BEQZC`/`BNEZC` word: `opcode` bits 31..26, `rs` bits 25..21, 21-bit `offset` bits 20..0. -/
+def mkOff21 (opcode rs off : W32) : W32 :=
+  field 6 26 opcode ||| field 5 21 rs ||| field 21 0 off
+-- END R6-3
 
 /-- Extract the `CO` bit (25) of a COP0 word. -/
 def coOf (w : W32) : W32 := (w.extractLsb 25 25).zeroExtend 32
@@ -775,13 +851,54 @@ def decodeCop1 (w : W32) : Option Instruction :=
     | _ => none
   | _ => none
 
+-- BEGIN R6-3
+/-! ### The Release 6 compact branches: one opcode, several instructions
+
+Release 6 packs several compact branches into one primary opcode and tells them apart by comparing
+the `rs` and `rt` fields ("the encoding 010110.rs rt.offset16 is BGEC if neither rs nor rt are 00000
+and rs is not equal to rt, but is BGEZC if rs is the same as rt, and is BLEZC if rs is 00000 and rt
+is not", MD00086 Vol II-A Rev 6.06 §A.4, p.463; Table A.26 "B*C compact branch encodings", p.464).
+Three shapes cover the nine shared opcodes. -/
+
+/-- **POP06, POP07, POP26, POP27 with `rt ≠ 0`** (Table A.26, p.464): `rs = 0` is the
+compare-with-zero form `zero rt` (BLEZALC, BGTZALC, BLEZC, BGTZC), `rs = rt` the other
+compare-with-zero form `eq rt` (BGEZALC, BLTZALC, BGEZC, BLTZC), any other `rs` the two-register
+form `two rs rt` (BGEUC, BLTUC, BGEC, BLTC). (`rt = 0` is BLEZ/BGTZ for POP06/POP07 and the removed
+BLEZL/BGTZL for POP26/POP27: the caller decides.) -/
+def decodeZeroEqTwo (zero eq : W32 → W32 → Instruction) (two : W32 → W32 → W32 → Instruction)
+    (w : W32) : Instruction :=
+  let rs := rsOf w
+  let rt := rtOf w
+  if rs == 0#32 then zero rt (immOf w)
+  else if rs == rt then eq rt (immOf w)
+  else two rs rt (immOf w)
+
+/-- **POP10, POP30** (Table A.26, p.464; BOVC/BNVC p.107: "rs >= rt"): `rs < rt` is the
+branch-and-link on zero `zero rt` when `rs = 0` (BEQZALC, BNEZALC) and the two-register compare
+`two rs rt` otherwise (BEQC, BNEC); `rs ≥ rt` (including `rs = rt = 0`) is the overflow branch
+`ovf rs rt` (BOVC, BNVC). -/
+def decodeLtGe (zero : W32 → W32 → Instruction) (two ovf : W32 → W32 → W32 → Instruction)
+    (w : W32) : Instruction :=
+  let rs := rsOf w
+  let rt := rtOf w
+  if rs.toNat < rt.toNat then
+    if rs == 0#32 then zero rt (immOf w) else two rs rt (immOf w)
+  else ovf rs rt (immOf w)
+
+/-- **POP66, POP76** (Table A.26, p.464; JIC p.205: "JIC and BEQZC differ only in the rs field"):
+`rs = 0` is the compact jump `jmp rt offset16` (JIC, JIALC), any other `rs` the compare-with-zero
+`z rs offset21` (BEQZC, BNEZC). -/
+def decodeJumpOrZ (jmp z : W32 → W32 → Instruction) (w : W32) : Instruction :=
+  if rsOf w == 0#32 then jmp (rtOf w) (immOf w) else z (rsOf w) (off21Of w)
+-- END R6-3
+
 /-- **The Release 6 primary opcode table** (Table A.2, p.451). Removed by Release 6 (do not decode):
 ADDI (0x08), COP1X (0x13: "Release 6 removes all pre-Release 6 COP1X instructions", Table A.21,
 p.459), BEQL/BNEL/BLEZL/BGTZL (0x14-0x17 with `rt = 0`), SPECIAL2 (0x1c), JALX (0x1d), LWL/LWR/
 SWL/SWR (0x22, 0x26, 0x2a, 0x2e), CACHE (0x2f), LL (0x30), LWC2/LDC2/SWC2/SDC2 (0x32, 0x36, 0x3a,
-0x3e), PREF (0x33), SC (0x38). LUI is AUI with `rs = 0` (0x0f).
--- W3: 0x06/0x07 with `rt ≠ 0` (POP06/POP07: BLEZALC, BGEZALC, BGEUC, BGTZALC, BLTZALC, BLTUC),
---     0x08 POP10, 0x16 POP26, 0x17 POP27, 0x18 POP30, 0x32 BC, 0x36 POP66, 0x3a BALC, 0x3e POP76.
+0x3e), PREF (0x33), SC (0x38). LUI is AUI with `rs = 0` (0x0f). Release 6 reuses 0x06/0x07 with
+`rt ≠ 0` (POP06/POP07), 0x08 (POP10), 0x16/0x17 with `rt ≠ 0` (POP26/POP27), 0x18 (POP30), 0x32
+(BC), 0x36 (POP66), 0x3a (BALC) and 0x3e (POP76) for the compact branches (Table A.26, p.464).
 -- W4: 0x3b PCREL (ADDIUPC, AUIPC, ALUIPC, LWPC). -/
 def decodePrimary (w : W32) : Option Instruction :=
   let rs := rsOf w
@@ -795,8 +912,18 @@ def decodePrimary (w : W32) : Option Instruction :=
   | 0x03 => some (.jal (targetOf w))
   | 0x04 => some (.beq rs rt imm)
   | 0x05 => some (.bne rs rt imm)
-  | 0x06 => decodeIf (z rt) (.blez rs imm)
-  | 0x07 => decodeIf (z rt) (.bgtz rs imm)
+  -- BEGIN R6-3
+  | 0x06 => if z rt then some (.blez rs imm) else some (decodeZeroEqTwo .blezalc .bgezalc .bgeuc w)
+  | 0x07 => if z rt then some (.bgtz rs imm) else some (decodeZeroEqTwo .bgtzalc .bltzalc .bltuc w)
+  | 0x08 => some (decodeLtGe .beqzalc .beqc .bovc w)
+  | 0x18 => some (decodeLtGe .bnezalc .bnec .bnvc w)
+  | 0x16 => decodeIf (!z rt) (decodeZeroEqTwo .blezc .bgezc .bgec w)
+  | 0x17 => decodeIf (!z rt) (decodeZeroEqTwo .bgtzc .bltzc .bltc w)
+  | 0x32 => some (.bc (targetOf w))
+  | 0x3a => some (.balc (targetOf w))
+  | 0x36 => some (decodeJumpOrZ .jic .beqzc w)
+  | 0x3e => some (decodeJumpOrZ .jialc .bnezc w)
+  -- END R6-3
   | 0x09 => some (.addiu rs rt imm)
   | 0x0a => some (.slti rs rt imm)
   | 0x0b => some (.sltiu rs rt imm)
@@ -970,3 +1097,30 @@ def encode (i : Instruction) : W32 :=
   | .cvtSD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x20#32
   | .cvtSW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x20#32
   | .cvtDW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x21#32
+  -- BEGIN R6-3
+  -- Compact branches and jumps (Table A.26, p.464): the canonical word of each form.
+  | .bc off => (0x32#32 <<< 26) ||| mkJT off
+  | .balc off => (0x3a#32 <<< 26) ||| mkJT off
+  | .beqc rs rt off => mkIT 0x08#32 rs rt off
+  | .bnec rs rt off => mkIT 0x18#32 rs rt off
+  | .bltc rs rt off => mkIT 0x17#32 rs rt off
+  | .bgec rs rt off => mkIT 0x16#32 rs rt off
+  | .bltuc rs rt off => mkIT 0x07#32 rs rt off
+  | .bgeuc rs rt off => mkIT 0x06#32 rs rt off
+  | .blezc rt off => mkIT 0x16#32 0#32 rt off
+  | .bgezc rt off => mkIT 0x16#32 rt rt off
+  | .bgtzc rt off => mkIT 0x17#32 0#32 rt off
+  | .bltzc rt off => mkIT 0x17#32 rt rt off
+  | .beqzc rs off => mkOff21 0x36#32 rs off
+  | .bnezc rs off => mkOff21 0x3e#32 rs off
+  | .blezalc rt off => mkIT 0x06#32 0#32 rt off
+  | .bgezalc rt off => mkIT 0x06#32 rt rt off
+  | .bgtzalc rt off => mkIT 0x07#32 0#32 rt off
+  | .bltzalc rt off => mkIT 0x07#32 rt rt off
+  | .beqzalc rt off => mkIT 0x08#32 0#32 rt off
+  | .bnezalc rt off => mkIT 0x18#32 0#32 rt off
+  | .bovc rs rt off => mkIT 0x08#32 rs rt off
+  | .bnvc rs rt off => mkIT 0x18#32 rs rt off
+  | .jic rt off => mkIT 0x36#32 0#32 rt off
+  | .jialc rt off => mkIT 0x3e#32 0#32 rt off
+  -- END R6-3

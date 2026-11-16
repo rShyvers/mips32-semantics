@@ -150,6 +150,28 @@ theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr :
     step s = timerTick (takeException s excCodeRI) :=
   _root_.branch_in_delay_slot_reserved_instruction s w instr hfetch hdecode hpb hbr hexec
 
+-- BEGIN R6-3
+theorem beqc_spec_raw (s : State) (w rs rt off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beqc rs rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
+        { s with pc := s.pc + 4#32 + (signExt16 off <<< 2), pendingBranch := none }
+      else
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) :=
+  _root_.beqc_spec_raw s w rs rt off hfetch hdecode hpb hexec
+
+theorem forbidden_slot_cti_reserved (s : State) (w w2 rs rt off : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beqc rs rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true)
+    (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt))
+    (hfetch2 : readMemWord (step s) (step s).pc = some w2) (hdecode2 : decode w2 = some instr)
+    (hcti : isBranchLikeSpec instr = true) (hexec2 : executesInstr (step s) = true) :
+    step (step s) = timerTick (takeException (step s) excCodeRI) :=
+  _root_.forbidden_slot_cti_reserved s w w2 rs rt off instr hfetch hdecode hpb hexec hnot hfetch2
+    hdecode2 hcti hexec2
+-- END R6-3
+
 /-! ## R-type arithmetic -/
 
 theorem add_spec_raw (s : State) (w rs rt rd : W32)

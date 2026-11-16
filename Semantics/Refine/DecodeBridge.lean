@@ -60,7 +60,11 @@ theorem exists_candidate (i : Instruction) (w : W32) (h : enc i = some w) :
   case mtc0 rt rd sel => exact key (.mtc0 rt rd (sel &&& 7#32)) (by rw [← enc_mtc0_sel]; exact h) (and7_lt sel)
   case rdhwr rt rd sel =>
     exact key (.rdhwr rt rd (sel &&& 7#32)) (by rw [← enc_rdhwr_sel]; exact h) (and7_lt sel)
-  all_goals exact key _ h trivial
+  -- BEGIN R6-3
+  all_goals first
+    | exact key _ h trivial
+    | exact key _ h (encIf_some h).1
+  -- END R6-3
 
 /-- **Completeness**: a word that is the diagram of an instruction is decoded to an instruction with
 that diagram. -/
@@ -109,18 +113,46 @@ attribute [local simp] fieldAt_rs fieldAt_rt fieldAt_rd fieldAt_sa fieldAt_imm f
   functOf_or_mkRT opcodeOf_mkRT rsOf_mkRT rtOf_mkRT rdOf_mkRT shamtOf_mkRT functOf_mkRT
   coOf_or_mkRT and_31 and_7 and_63
 
+-- BEGIN R6-3
+set_option hygiene false in
+/-- A compact-branch candidate whose diagram is `w` is well-formed: its constraint holds (`hje`). -/
+local macro "cb_wf" : tactic => `(tactic| (
+  left
+  rename_i hje
+  simp only [enc] at hje
+  have hcb := (encIf_some hje).1
+  simp only [bne_iff_ne, ne_eq, Bool.and_eq_true, decide_eq_true_eq] at hcb
+  simp only [Fin.ext_iff, reg_val, Fin.val_zero] at hcb
+  simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_imm, fieldAt_off21, ne_eq,
+    ← BitVec.toNat_inj] at hcb ⊢
+  omega))
+-- END R6-3
+
 set_option maxRecDepth 4000 in
 set_option maxHeartbeats 1000000 in
-/-- **Every candidate is well-formed or `Rejected`**, or it is `SLL r0, r0, 5`, whose word is the
-diagram of `PAUSE` (`decode_ne_sll_pause`). -/
-theorem candidate_cases (w : W32) : ∀ j ∈ candidates w,
+/-- **Every candidate whose diagram is `w` is well-formed or `Rejected`**, or it is `SLL r0, r0, 5`,
+whose word is the diagram of `PAUSE` (`decode_ne_sll_pause`). (Wave R6-3 added the hypothesis
+`enc j = some w`: a compact-branch candidate read from an arbitrary `w` need not meet the `rs`/`rt`
+constraint of its diagram, and is then no diagram of `w`.) -/
+theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
     j.WellFormed ∨ Rejected j ∨ j = .sll 0#32 0#32 5#32 := by
   simp only [candidates, List.forall_mem_cons]
   have hrd := rdOf_lt w; have hsa := shamtOf_lt w; have hrs := rsOf_lt w; have hrt := rtOf_lt w
   have hsel := fieldAt_sel_lt w; have hsel86 := fieldAt_sel86_lt w
   have himm := immOf_lt w; have htg := targetOf_lt w; have hoff := off9Of_lt w
   have hc20 := code20Of_lt w; have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
+  -- BEGIN R6-3
+  have hoff21 := off21Of_lt w
+  -- END R6-3
   repeat' apply And.intro
+  -- BEGIN R6-3
+  all_goals first
+    | (intro x hx; cases hx)
+    | intro _
+  all_goals first
+    | cb_wf
+    | skip
+  -- END R6-3
   all_goals first
     | (left; simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa,
         fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19];
@@ -187,7 +219,7 @@ theorem decode_rejected (j : Instruction) (h : Rejected j) : decode (encode j) =
 theorem decode_agrees (w : W32) (i : Instruction) (h : decode w = some i) : Decode w = .instr i := by
   obtain ⟨j, hj, he⟩ := decode_diagram_complete i w (decode_enc w i h)
   have hm := (decode_instr_mem hj).1
-  rcases candidate_cases w j hm with hwf | hr | hp
+  rcases candidate_cases w j hm he with hwf | hr | hp
   · rw [decode_of_enc j w hwf he] at h
     cases h; exact hj
   · rw [enc_eq_encode_gen j (rejected_selOK j hr)] at he
@@ -200,7 +232,7 @@ theorem decode_agrees (w : W32) (i : Instruction) (h : decode w = some i) : Deco
 theorem decode_none_rejected (w : W32) (h : decode w = none) (j : Instruction)
     (hj : Decode w = .instr j) : Rejected j := by
   obtain ⟨hm, he⟩ := decode_instr_mem hj
-  rcases candidate_cases w j hm with hwf | hr | hp
+  rcases candidate_cases w j hm he with hwf | hr | hp
   · rw [decode_of_enc j w hwf he] at h; cases h
   · exact hr
   · subst hp; exact absurd hj (decode_ne_sll_pause w)

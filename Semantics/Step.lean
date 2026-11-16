@@ -65,6 +65,13 @@ target; not taken: `pc + 8`). Every non-control-flow instruction goes
 through `mkNext`/`advance`, which commits a pending target. A control-transfer
 instruction in a delay slot raises Reserved Instruction, as Release 6 requires (`execInstr`).
 Release 6 has no branch-likely instructions, so no instruction is ever nullified.
+-- BEGIN R6-3
+The Release 6 compact branches and jumps (`Exec/Branch.lean`, `Exec/Jump.lean`) have no delay slot:
+taken, `pc` becomes the target at once. A conditional compact branch that is not taken sets
+`pendingBranch := some (pc + 8)`: its forbidden slot has the delay slot's rules (CTI → Reserved
+Instruction; an exception reports the branch with `Cause.BD = 1`; MD00082 Vol I-A Rev 6.01
+§5.3.2.1-5.3.2.2, p.62; DECISIONS D6).
+-- END R6-3
 
 ## Exceptions
 

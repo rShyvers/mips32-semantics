@@ -367,6 +367,33 @@ theorem cf_ins (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ins rt rs
   cf_pre h; simp only [Ops.INS]; ofree
 
 
+-- BEGIN R6-3
+theorem cf_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BLEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BLEZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BLEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+theorem cf_bgezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BGEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BGEZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BGEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+theorem cf_bgtzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgtzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BGTZALC rt off (ctxOf i o₁) { arch := a } = Ops.BGTZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BGTZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+theorem cf_bltzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bltzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BLTZALC rt off (ctxOf i o₁) { arch := a } = Ops.BLTZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BLTZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+theorem cf_beqzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.beqzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BEQZALC rt off (ctxOf i o₁) { arch := a } = Ops.BEQZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BEQZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+theorem cf_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.BNEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BNEZALC rt off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.BNEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
+
+-- END R6-3
+
 set_option maxHeartbeats 1000000 in
 set_option linter.unusedSimpArgs false in
 /-- **The Operation does not depend on the oracle where `ConsultsOracle` is `false`.** -/
@@ -419,6 +446,32 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case cvtSD fd fs => exact cf_cvtSD fd fs a h i o₁ o₂
   case ext rt rs pos size => exact cf_ext rt rs pos size a h i o₁ o₂
   case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
+  -- BEGIN R6-3
+  case blezalc rt off => exact cf_blezalc rt off a h i o₁ o₂
+  case bgezalc rt off => exact cf_bgezalc rt off a h i o₁ o₂
+  case bgtzalc rt off => exact cf_bgtzalc rt off a h i o₁ o₂
+  case bltzalc rt off => exact cf_bltzalc rt off a h i o₁ o₂
+  case beqzalc rt off => exact cf_beqzalc rt off a h i o₁ o₂
+  case bnezalc rt off => exact cf_bnezalc rt off a h i o₁ o₂
+  case bc off => simp only [Ops.BC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case balc off => simp only [Ops.BALC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case beqc rs rt off => simp only [Ops.BEQC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bnec rs rt off => simp only [Ops.BNEC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bltc rs rt off => simp only [Ops.BLTC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bgec rs rt off => simp only [Ops.BGEC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bltuc rs rt off => simp only [Ops.BLTUC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bgeuc rs rt off => simp only [Ops.BGEUC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case blezc rt off => simp only [Ops.BLEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bgezc rt off => simp only [Ops.BGEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bgtzc rt off => simp only [Ops.BGTZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bltzc rt off => simp only [Ops.BLTZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case beqzc rs off => simp only [Ops.BEQZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bnezc rs off => simp only [Ops.BNEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bovc rs rt off => simp only [Ops.BOVC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case bnvc rs rt off => simp only [Ops.BNVC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case jic rt off => simp only [Ops.JIC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  case jialc rt off => simp only [Ops.JIALC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
+  -- END R6-3
   case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; rcases n with _ | _ | _ | _ | n <;> rfl)

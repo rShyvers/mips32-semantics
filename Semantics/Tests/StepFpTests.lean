@@ -266,9 +266,11 @@ private def cuState : State :=
 #guard raises (hstep ((∅ : Program).insert textBase 0x00020001#32) regs0) excCodeRI
 -- coprocessor 2 does not exist: COP2 words raise Coprocessor Unusable with CE = 2
 #guard cpuRaised (hstep ((∅ : Program).insert textBase 0x48000000#32) regs0) regs0 2#32
--- the pre-Release 6 LWC2 opcode (0x32) is not COP2 space in Release 6 (it is BC, W3: not decoded
--- yet): Reserved Instruction
-#guard raises (hstep ((∅ : Program).insert textBase 0xc8000000#32) regs0) excCodeRI
+-- the pre-Release 6 LWC2 opcode (0x32) is not COP2 space in Release 6: it is BC (BC p.53), so
+-- `0xc8000000` (BC with offset 0) goes to the next instruction and raises nothing
+#guard (match hstep ((∅ : Program).insert textBase 0xc8000000#32) regs0 with
+        | .next s => s.pc == textBase + 4#32 && s.pendingBranch.isNone && causeExcCode s == causeExcCode regs0
+        | .halt _ => false)
 -- CpU in a delay slot: EPC = branch, BD set
 #guard (match hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with pendingBranch := some 0x1000#32 } with
         | .next s => s.cp0Epc == textBase - 4#32 && s.cp0Cause == 0x9000002c#32

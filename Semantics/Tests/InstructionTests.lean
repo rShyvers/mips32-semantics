@@ -113,7 +113,8 @@ example : decode (mkRT 29#32 8#32 0#32 0#32 0x33#32) = some (.tltu 29#32 8#32 0#
 example : decode (mkRT 29#32 8#32 0#32 0#32 0x31#32) = some (.tgeu 29#32 8#32 0#32) := by decide
 
 -- I-type arith/logic: rs=29, rt=8, imm=0x1234
-example : decode (mkIT 0x08#32 29#32 8#32 0x1234#32) = none := by decide  -- removed in R6 (was `addi`)
+-- opcode 0x08 (pre-Release 6 `addi`) is POP10 in Release 6: with rs ≥ rt it is BOVC (BOVC p.107)
+example : decode (mkIT 0x08#32 29#32 8#32 0x1234#32) = some (.bovc 29#32 8#32 0x1234#32) := by decide
 example : decode (mkIT 0x09#32 29#32 8#32 0x1234#32) = some (.addiu 29#32 8#32 0x1234#32) := by decide
 example : decode (mkIT 0x0a#32 29#32 8#32 0x1234#32) = some (.slti 29#32 8#32 0x1234#32) := by decide
 example : decode (mkIT 0x0b#32 29#32 8#32 0x1234#32) = some (.sltiu 29#32 8#32 0x1234#32) := by decide
@@ -400,12 +401,15 @@ example : decode (encode (.ll 29#32 8#32 0x1ff#32)) = some (.ll 29#32 8#32 0x1ff
 example : decode (encode (.sc 29#32 8#32 0x100#32)) = some (.sc 29#32 8#32 0x100#32) := by decide
 
 -- unknown opcodes → none
-#guard decode (mkIT 0x3a#32 0#32 0#32 0#32) = none  -- opcode 0x3a (W3: Release 6 BALC, BALC p.52; not decoded yet)
+#guard decode (mkIT 0x3a#32 0#32 0#32 0#32) = some (.balc 0#32)  -- opcode 0x3a: Release 6 BALC (BALC p.52)
+#guard decode (mkIT 0x3b#32 0#32 0#32 0#32) = none  -- opcode 0x3b (PCREL) with no instruction of this wave
 -- opcode 0x11 (COP1) is implemented for the fmt/funct combinations below;
 -- an unrecognized fmt (not MF/MT/BC1/S/W) still decodes to `none`.
 #guard decode (mkIT 0x11#32 0x1f#32 0#32 0#32) = none
--- opcodes 0x16/0x17 (pre-Release 6 blezl/bgtzl) and 0x12/0x13 (COP2, COP1X) do not decode
--- (W3: Release 6 reuses 0x16/0x17 for the compact branches, B<cond>C p.82).
+-- opcodes 0x16/0x17 with `rt = 0` (pre-Release 6 blezl/bgtzl) and 0x12/0x13 (COP2, COP1X) do not
+-- decode (Release 6 reuses 0x16/0x17 with `rt ≠ 0` for the compact branches, Table A.26 p.464).
+#guard decode (mkIT 0x16#32 29#32 0#32 0#32) = none
+#guard decode (mkIT 0x17#32 29#32 0#32 0#32) = none
 #guard decode (mkIT 0x12#32 0#32 0#32 0#32) = none
 -- Removed in Release 6 (decodes to `none`): opcode 0x13 (COP1X): funct 0x05 `luxc1` / 0x0d `suxc1` (UNPREDICTABLE with
 -- FR = 0) and the paired-single functs are not modeled
@@ -480,10 +484,12 @@ example : decode (mkRT 29#32 8#32 3#32 0#32 0x18#32) = none := by decide      --
 example : decode (mkRT 1#32 0#32 3#32 0#32 0x10#32) = none := by decide       -- mfhi, rs ≠ 0
 example : decode (mkRT 0#32 1#32 3#32 0#32 0x10#32) = none := by decide       -- mfhi, rt ≠ 0
 example : decode (mkIT 0x0f#32 1#32 8#32 0x1234#32) = some (.aui 1#32 8#32 0x1234#32) := by decide  -- aui, rs ≠ 0
-example : decode (mkIT 0x06#32 29#32 1#32 0x1234#32) = none := by decide      -- blez, rt ≠ 0
-example : decode (mkIT 0x07#32 29#32 1#32 0x1234#32) = none := by decide      -- bgtz, rt ≠ 0
-example : decode (mkIT 0x16#32 29#32 1#32 0x1234#32) = none := by decide      -- blezl, rt ≠ 0
-example : decode (mkIT 0x17#32 29#32 1#32 0x1234#32) = none := by decide      -- bgtzl, rt ≠ 0
+-- Release 6: BLEZ/BGTZ with rt ≠ 0 are POP06/POP07 and BLEZL/BGTZL's opcodes with rt ≠ 0 are POP26/
+-- POP27 (Table A.26, p.464); rs ≠ rt, both nonzero: BGEUC, BLTUC, BGEC, BLTC.
+example : decode (mkIT 0x06#32 29#32 1#32 0x1234#32) = some (.bgeuc 29#32 1#32 0x1234#32) := by decide
+example : decode (mkIT 0x07#32 29#32 1#32 0x1234#32) = some (.bltuc 29#32 1#32 0x1234#32) := by decide
+example : decode (mkIT 0x16#32 29#32 1#32 0x1234#32) = some (.bgec 29#32 1#32 0x1234#32) := by decide
+example : decode (mkIT 0x17#32 29#32 1#32 0x1234#32) = some (.bltc 29#32 1#32 0x1234#32) := by decide
 example : decode (mkRT 29#32 1#32 0#32 0#32 0x08#32) = none := by decide      -- jr, rt ≠ 0
 example : decode (mkRT 29#32 0#32 1#32 0#32 0x08#32) = none := by decide      -- jr, rd ≠ 0
 example : decode ((0x1f#32 <<< 26) ||| mkRT 1#32 8#32 3#32 0x10#32 0x20#32) = none := by decide  -- seb, rs ≠ 0
@@ -709,3 +715,41 @@ example : decode ((0x1c#32 <<< 26) ||| mkRT 29#32 8#32 3#32 0#32 0x02#32) = none
 example : decode 0x4c8628a0#32 = none := by decide
 example : decode (mkRT 29#32 4#32 3#32 0#32 0x01#32) = none := by decide
 example : decode (mkIT 0x11#32 0x08#32 0x1c#32 0x1234#32) = none := by decide
+
+-- BEGIN R6-3
+-- Release 6 compact branches and jumps: round trip (MD00086 Vol II-A Rev 6.06 Table A.26, p.464).
+example : decode (encode (.bc 0x2abcdef#32)) = some (.bc 0x2abcdef#32) := by decide
+example : decode (encode (.balc 0x3ffffff#32)) = some (.balc 0x3ffffff#32) := by decide
+example : decode (encode (.beqc 3#32 5#32 0x8001#32)) = some (.beqc 3#32 5#32 0x8001#32) := by decide
+example : decode (encode (.bnec 1#32 31#32 0x7fff#32)) = some (.bnec 1#32 31#32 0x7fff#32) := by decide
+example : decode (encode (.bltc 5#32 3#32 0xffff#32)) = some (.bltc 5#32 3#32 0xffff#32) := by decide
+example : decode (encode (.bgec 3#32 5#32 0#32)) = some (.bgec 3#32 5#32 0#32) := by decide
+example : decode (encode (.bltuc 31#32 1#32 0x1234#32)) = some (.bltuc 31#32 1#32 0x1234#32) := by decide
+example : decode (encode (.bgeuc 2#32 7#32 0x8000#32)) = some (.bgeuc 2#32 7#32 0x8000#32) := by decide
+example : decode (encode (.blezc 3#32 0x10#32)) = some (.blezc 3#32 0x10#32) := by decide
+example : decode (encode (.bgezc 31#32 0xfff0#32)) = some (.bgezc 31#32 0xfff0#32) := by decide
+example : decode (encode (.bgtzc 1#32 0x1#32)) = some (.bgtzc 1#32 0x1#32) := by decide
+example : decode (encode (.bltzc 9#32 0x8000#32)) = some (.bltzc 9#32 0x8000#32) := by decide
+example : decode (encode (.beqzc 3#32 0x1fffff#32)) = some (.beqzc 3#32 0x1fffff#32) := by decide
+example : decode (encode (.bnezc 31#32 0x100000#32)) = some (.bnezc 31#32 0x100000#32) := by decide
+example : decode (encode (.blezalc 4#32 0x4#32)) = some (.blezalc 4#32 0x4#32) := by decide
+example : decode (encode (.bgezalc 4#32 0x4#32)) = some (.bgezalc 4#32 0x4#32) := by decide
+example : decode (encode (.bgtzalc 31#32 0xffff#32)) = some (.bgtzalc 31#32 0xffff#32) := by decide
+example : decode (encode (.bltzalc 1#32 0#32)) = some (.bltzalc 1#32 0#32) := by decide
+example : decode (encode (.beqzalc 5#32 0x8#32)) = some (.beqzalc 5#32 0x8#32) := by decide
+example : decode (encode (.bnezalc 5#32 0x8#32)) = some (.bnezalc 5#32 0x8#32) := by decide
+example : decode (encode (.bovc 5#32 3#32 0x20#32)) = some (.bovc 5#32 3#32 0x20#32) := by decide
+example : decode (encode (.bovc 0#32 0#32 0#32)) = some (.bovc 0#32 0#32 0#32) := by decide
+example : decode (encode (.bnvc 7#32 7#32 0xfffe#32)) = some (.bnvc 7#32 7#32 0xfffe#32) := by decide
+example : decode (encode (.jic 3#32 0x8000#32)) = some (.jic 3#32 0x8000#32) := by decide
+example : decode (encode (.jialc 0#32 0x7fff#32)) = some (.jialc 0#32 0x7fff#32) := by decide
+-- The shared opcodes are split by the rs/rt relation (Table A.26, p.464):
+example : decode (mkIT 0x06#32 0#32 0#32 4#32) = some (.blez 0#32 4#32) := by decide        -- rt = 0: BLEZ
+example : decode (mkIT 0x06#32 0#32 3#32 4#32) = some (.blezalc 3#32 4#32) := by decide     -- rs = 0
+example : decode (mkIT 0x06#32 3#32 3#32 4#32) = some (.bgezalc 3#32 4#32) := by decide     -- rs = rt
+example : decode (mkIT 0x08#32 0#32 0#32 4#32) = some (.bovc 0#32 0#32 4#32) := by decide   -- rs = rt = 0
+example : decode (mkIT 0x08#32 0#32 3#32 4#32) = some (.beqzalc 3#32 4#32) := by decide     -- rs = 0 < rt
+example : decode (mkIT 0x18#32 3#32 3#32 4#32) = some (.bnvc 3#32 3#32 4#32) := by decide   -- rs = rt
+example : decode (mkIT 0x36#32 0#32 3#32 4#32) = some (.jic 3#32 4#32) := by decide         -- rs = 0: JIC
+example : decode (mkIT 0x3e#32 3#32 0#32 4#32) = some (.bnezc 3#32 4#32) := by decide       -- rs ≠ 0: BNEZC
+-- END R6-3

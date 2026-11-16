@@ -57,12 +57,29 @@ jumps, NAL, ERET, ERETNC, DERET, WAIT, and PAUSE"; "Release 6: If a control tran
 (CTI) is executed in the delay slot of a branch or jump, Release 6 implementations are required to
 signal a Reserved Instruction exception" (MD00086 Vol II-A Rev 6.06, JALR, p.196; MD00082 Vol I-A
 Rev 6.01 §5.3.2.1, p.62). `execInstr` raises Reserved Instruction when one of these is reached with
-`s.pendingBranch = some _`, i.e. directly after any branch or jump, taken or not.
--- W3: the compact branches and jumps (and their forbidden slots); W2: ERETNC. -/
+`s.pendingBranch = some _`, i.e. directly after any branch or jump with a delay slot, taken or not,
+and in the forbidden slot of a conditional compact branch that was not taken.
+-- BEGIN R6-3
+The Release 6 compact branches and jumps are CTIs too ("all branches and jumps"): `bc`, `balc`,
+the B<cond>C, the B*ZALC, `bovc`, `bnvc`, `jic`, `jialc`. **Forbidden slot**: "If a control
+transfer instruction (CTI) is placed in the forbidden slot of a compact branch, Release 6
+implementations are required to signal a Reserved Instruction exception, but only when the branch is
+not taken" (MD00086 Vol II-A Rev 6.06, B<cond>C, p.84); a not-taken conditional compact branch sets
+`pendingBranch := some (pc + 8)` (`Exec/Branch.lean`), so the same check covers it. A taken compact
+branch, and `bc`/`balc`/`jic`/`jialc`, leave no slot ("neither a delay slot nor a forbidden slot",
+MD00082 Vol I-A Rev 6.01 §5.3.2.2, p.62).
+-- END R6-3
+-- W2: ERETNC. -/
 def isBranchLike (instr : Instruction) : Bool :=
   match instr with
   | .beq _ _ _ | .bne _ _ _ | .blez _ _ | .bgtz _ _ | .bltz _ _ | .bgez _ _ | .nal _ | .bal _
   | .j _ | .jal _ | .jalr _ _ | .jalrHb _ _ | .eret | .wait _ | .pause => true
+  -- BEGIN R6-3
+  | .bc _ | .balc _ | .beqc _ _ _ | .bnec _ _ _ | .bltc _ _ _ | .bgec _ _ _ | .bltuc _ _ _
+  | .bgeuc _ _ _ | .blezc _ _ | .bgezc _ _ | .bgtzc _ _ | .bltzc _ _ | .beqzc _ _ | .bnezc _ _
+  | .blezalc _ _ | .bgezalc _ _ | .bgtzalc _ _ | .bltzalc _ _ | .beqzalc _ _ | .bnezalc _ _
+  | .bovc _ _ _ | .bnvc _ _ _ | .jic _ _ | .jialc _ _ => true
+  -- END R6-3
   | _ => false
 
 /-- Signed-overflow predicate for `add`/`addi`, following INSTRUCTION-REF's
@@ -154,7 +171,9 @@ PC ← vector                              -- `exceptionVector`
 exception the field "is loaded, but not defined" (p.87) and the model loads
 `0` (the default argument).
 
-"In a branch delay slot" is `s.pendingBranch.isSome`. The pending branch is
+"In a branch delay slot" is `s.pendingBranch.isSome`; this includes the forbidden slot of a
+not-taken compact branch (`Exec/Branch.lean`), for which MD00082 Vol I-A Rev 6.01 §5.3.2.2, p.62
+also reports `EPC` = the branch with `BD` set (DECISIONS D6). The pending branch is
 abandoned (`pendingBranch := none`):
 the handler runs sequentially from the vector, and `eret` to `EPC` re-executes the branch. `LLbit` is cleared
 (MD00086 Vol II-A Rev 6.06, SC, p.350: "Exceptions between the LL and SC

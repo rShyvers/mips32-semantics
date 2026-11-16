@@ -3,19 +3,22 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DecodeSpec
 
 /-!
-# Jump — jumps and calls (`j`/`jal`/`jalr`/`jalr.hb`; `jr` = `jalr` with `rd = 0`)
+# Jump — jumps and calls (`j`/`jal`/`jalr`/`jalr.hb`; `jr` = `jalr` with `rd = 0`; `jic`/`jialc`)
 
-Constructors: `j` `jal` `jalr` `jalrHb` (Release 6 has no separate `jr`/`jr.hb` encodings).
+Constructors: `j` `jal` `jalr` `jalrHb` (Release 6 has no separate `jr`/`jr.hb` encodings), and the
+Release 6 compact jumps `jic` `jialc` (no delay slot, no forbidden slot).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  J p.194; JAL p.195; JALR p.196-197; JALR.HB p.198-199; JR p.206-207; JR.HB p.208-209.
+  J p.194; JAL p.195; JALR p.196-197; JALR.HB p.198-199; JR p.206-207; JR.HB p.208-209;
+  JIC p.205; JIALC p.203-204.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Control flow"; "Register-indirect jump/call (real MIPS32 ISA)".
 
-## Theorems in this file (10)
+## Theorems in this file (13)
 
   `target_mask_of_lt` `jal_spec_raw` `jal_sets_ra` `j_spec_raw` `jalr_spec_raw` `jalrHb_spec_raw`
   `jalr_rd_zero_is_jr` `jalrHb_rd_zero_is_jrHb` `jalr_sets_rd` `jalr_rd_eq_rs_targets_original_value`
+  `jic_spec_raw` `jialc_spec_raw` `jialc_ra_targets_original_value`
 -/
 
 set_option maxRecDepth 4000
@@ -198,3 +201,32 @@ theorem jalr_rd_eq_rs_targets_original_value (s : State) (w rs : W32)
           (setRegsSpec (initialState textBase) [(9, 0x80020000#32)])
         s.pendingBranch == some 0x80020000#32 && readReg s 9 == textBase + 8#32 &&
             s.pendingBranch ≠ some (readReg s 9)) = true
+
+-- BEGIN R6-3
+/-- **`jic`: `pc ← GPR[rt] + sext(offset)` at once** (JIC p.205: "temp ← GPR[rt] + sign_extend(offset)
+... PC ← temp"; the offset is not shifted; "neither a delay slot nor a forbidden slot"). A target that
+is not word-aligned raises Address Error when it is fetched (p.205), i.e. at the next step. -/
+theorem jic_spec_raw (s : State) (w rt off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jic rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick { s with pc := readReg s (regIdxSpec rt) + signExt16 off, pendingBranch := none } := by
+  step_spec
+
+/-- **`jialc`: `$ra ← pc + 4`, `pc ← GPR[rt] + sext(offset)` at once** (JIALC p.203). -/
+theorem jialc_spec_raw (s : State) (w rt off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jialc rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick { writeReg s 31 (s.pc + 4#32) with
+      pc := readReg s (regIdxSpec rt) + signExt16 off, pendingBranch := none } := by
+  step_spec
+
+/-- **`jialc $ra, off` jumps to the old `$ra`** ("The register specifier may be set to the link
+register $31, because compact jumps do not have the restartability issues of jumps with delay slots",
+JIALC p.203): the target is computed before the link is written. -/
+theorem jialc_ra_targets_original_value (s : State) (w off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jialc 31#32 off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    (step s).pc = readReg s 31 + signExt16 off := by
+  rw [jialc_spec_raw s w 31#32 off hfetch hdecode hpb hexec]
+  rfl
+-- END R6-3

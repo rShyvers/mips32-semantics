@@ -1,7 +1,7 @@
 import Semantics.Manual.Pseudocode
 
 /-!
-# Manual.Ops.Jump — jumps with a delay slot (MD00086 Vol II-A Rev 6.06)
+# Manual.Ops.Jump — jumps with a delay slot, and the compact jumps (MD00086 Vol II-A Rev 6.06)
 
 7B S3. `I+1:` statements are scheduled with `I1` and happen in the next instruction time, whose `PC`
 is the delay slot's address, `PC + 4` (§1.3, Table 1.1, p.6).
@@ -105,5 +105,59 @@ def JALR_HB (rs rd : W32) : Pseudo Unit := do
     else I1 (.jump (bits temp 31 1 ++ 0#1 : BitVec 32))
   -- Restrictions: rs = rd is UNPREDICTABLE
   if reg rs == reg rd then unpredictableOr (o.jalrRsIsRd a (.jalrHb rs rd)) body else body
+
+-- BEGIN R6-3
+/-! ## The Release 6 compact jumps (no delay slot, no forbidden slot)
+
+"This instruction is an unconditional, always taken, compact jump, and hence has neither a delay slot
+nor a forbidden slot" (JIC p.205, JIALC p.203): `PC` is assigned at time `I` (`setPC`). The `else`
+arm (MIPS16e or microMIPS implemented) is not taken on this profile (`Config3.ISA = 0`, `Config1.CA =
+0`, module doc); it is transcribed without `ISAMode`, which this profile does not have. -/
+
+/-- **JIC rt, offset** — MD00086 Vol II-A Rev 6.06, JIC, p.205.
+```
+temp ← GPR[rt] + sign_extend(offset)
+if (Config3ISA = 0) and (Config1CA = 0) then
+   PC ← temp
+else
+   PC ← ( tempGPRLEN-1..1 || 0 )
+   ISAMode ← temp0
+endif
+```
+"The offset is NOT shifted" (p.205). -/
+def JIC (rt offset : W32) : Pseudo Unit := do
+  let impl ← Pseudo.impl
+  -- temp ← GPR[rt] + sign_extend(offset)
+  let temp := (← GPR (reg rt)) + sign_extend (imm16 offset)
+  -- if (Config3ISA = 0) and (Config1CA = 0) then PC ← temp
+  if bits impl.Config3 15 14 == 0#2 && !bit impl.Config1 2 then setPC temp
+  -- else PC ← temp_{GPRLEN-1..1} || 0 (ISAMode ← temp_0: not modelled)
+  else setPC (bits temp 31 1 ++ 0#1 : BitVec 32)
+
+/-- **JIALC rt, offset** — MD00086 Vol II-A Rev 6.06, JIALC, p.203.
+```
+temp ← GPR[rt] + sign_extend(offset)
+GPR[31] ← PC + 4
+if (Config3ISA = 0) and (Config1CA = 0) then
+   PC ← temp
+else
+   PC ← ( tempGPRLEN-1..1 || 0 )
+   ISAMode ← temp0
+endif
+```
+"The register specifier may be set to the link register $31, because compact jumps do not have the
+restartability issues of jumps with delay slots" (p.203): `temp` is read before the link is written. -/
+def JIALC (rt offset : W32) : Pseudo Unit := do
+  let impl ← Pseudo.impl
+  -- temp ← GPR[rt] + sign_extend(offset)
+  let temp := (← GPR (reg rt)) + sign_extend (imm16 offset)
+  -- GPR[31] ← PC + 4
+  let pc ← PC
+  setGPR 31 (pc + 4#32)
+  -- if (Config3ISA = 0) and (Config1CA = 0) then PC ← temp
+  if bits impl.Config3 15 14 == 0#2 && !bit impl.Config1 2 then setPC temp
+  -- else PC ← temp_{GPRLEN-1..1} || 0 (ISAMode ← temp_0: not modelled)
+  else setPC (bits temp 31 1 ++ 0#1 : BitVec 32)
+-- END R6-3
 
 end Manual.Ops

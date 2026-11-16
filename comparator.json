@@ -197,7 +197,9 @@
     "Trusted.f64Abs_spec",
     "Trusted.f64Neg_spec",
     "Trusted.fpUpdate_spec",
-    "Trusted.fcsrSpec_unique"
+    "Trusted.fcsrSpec_unique",
+    "Trusted.beqc_spec_raw",
+    "Trusted.forbidden_slot_cti_reserved"
   ],
   "definition_names": [],
   "permitted_axioms": [

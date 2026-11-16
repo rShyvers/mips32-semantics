@@ -52,6 +52,9 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   causeCE := fun _ _ => ce
   resetUndefined := modelOracle.resetUndefined
   jalrRsIsRd := fun _ _ => sigRI
+  -- BEGIN R6-3
+  linkSourceIs31 := fun _ _ => sigRI
+  -- END R6-3
   fprOddRead := fun _ _ => p.rd
   fprOddWrite := fun _ _ _ => sigRI
   cfc1Unpredictable := fun _ _ => p.cf
@@ -67,7 +70,8 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  -- R6-3: two more conjuncts (`linkSourceIs31`)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split

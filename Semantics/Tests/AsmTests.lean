@@ -217,7 +217,8 @@ def r6Words : List W32 :=
 #guard r6Words.all fun w => (decode w).map encode == some w
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
-  m == "rdpgpr" || m == "wrpgpr" || r6Lines.any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
+  m == "rdpgpr" || m == "wrpgpr" || compactBranchTable.any (·.1 == m) /- R6-3: `compactLines` -/ ||
+    r6Lines.any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
 #guard instrMnemonics.eraseDups.length = instrMnemonics.length
 -- RDPGPR/WRPGPR: COP0 010000 | 01010 / 01110 | rt | rd | 0 (MD00086 Vol II-A Rev 6.06, RDPGPR p.335,
 -- WRPGPR p.444)
@@ -710,3 +711,54 @@ def ktextSrc : String := srcLines
 #guard asmFails (srcLines [".set noat", "L: blt $t0, $t1, L"])
 #guard (assemble (srcLines [".set noat", ".set at", "L: blt $t0, $t1, L"])).isOk
 #guard (assemble (srcLines [".set noat", "L: beq $t0, $t1, L", "li $t0, 0x12345678"])).isOk
+
+-- BEGIN R6-3
+/-! ## The Release 6 compact branches and jumps
+
+Golden words: `llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -filetype=obj` (after `.set noreorder`),
+`ld.lld-21 -m elf32ltsmip -Ttext=0x400000`, `llvm-objcopy-21 -O binary`, little-endian words, as
+for `r6Words`. `beqc $5, $3` and `bovc $3, $5` are put in the order the shared opcode needs
+(`rs < rt` for BEQC, `rs >= rt` for BOVC; Table A.26, p.464), as LLVM does. -/
+
+private def compactLines : List String :=
+  ["L: bc L", "balc L", "beqc $5, $3, L", "bnec $3, $5, L", "bltc $3, $5, L", "bgec $5, $3, L",
+   "bltuc $3, $5, L", "bgeuc $5, $3, L", "blezc $3, L", "bgezc $3, L", "bgtzc $3, L", "bltzc $3, L",
+   "beqzc $3, L", "bnezc $3, L", "blezalc $3, L", "bgezalc $3, L", "bgtzalc $3, L", "bltzalc $3, L",
+   "beqzalc $3, L", "bnezalc $3, L", "bovc $3, $5, L", "bnvc $5, $3, L", "jic $3, 8",
+   "jialc $31, -8", "bc M", "M: nop"]
+
+private def compactWords : List W32 :=
+  [0xcbffffff#32, 0xebfffffe#32, 0x2065fffd#32, 0x6065fffc#32, 0x5c65fffb#32, 0x58a3fffa#32,
+   0x1c65fff9#32, 0x18a3fff8#32, 0x5803fff7#32, 0x5863fff6#32, 0x5c03fff5#32, 0x5c63fff4#32,
+   0xd87ffff3#32, 0xf87ffff2#32, 0x1803fff1#32, 0x1863fff0#32, 0x1c03ffef#32, 0x1c63ffee#32,
+   0x2003ffed#32, 0x6003ffec#32, 0x20a3ffeb#32, 0x60a3ffea#32, 0xd8030008#32, 0xf81ffff8#32,
+   0xc8000000#32, 0x00000000#32]
+
+#guard asmText (srcLines compactLines) = some compactWords
+-- every compact-branch mnemonic is exercised
+#guard compactBranchTable.all fun (m, _) =>
+  compactLines.any fun l => ((l.splitOn " ").filter (fun x => x != "L:" && x != "M:")).head? == some m
+-- each golden word decodes to the instruction the assembler built (round trip through `decode`)
+#guard compactWords.all fun w => (decode w).map encode == some w
+#guard decode 0x2065fffd#32 = some (.beqc 3#32 5#32 0xfffd#32)
+#guard decode 0x20a3ffeb#32 = some (.bovc 5#32 3#32 0xffeb#32)
+#guard decode 0xd87ffff3#32 = some (.beqzc 3#32 0x1ffff3#32)
+#guard decode 0xd8030008#32 = some (.jic 3#32 8#32)
+-- Forms whose registers would select another instruction of the shared opcode are errors
+-- (LLVM: "registers must be different", "invalid operand ($zero)").
+#guard asmFails "L: beqc $3, $3, L\n"
+#guard asmFails "L: beqc $0, $3, L\n"
+#guard asmFails "L: bnec $3, $0, L\n"
+#guard asmFails "L: bltc $0, $3, L\n"
+#guard asmFails "L: bgeuc $3, $3, L\n"
+#guard asmFails "L: blezc $0, L\n"
+#guard asmFails "L: beqzc $0, L\n"
+#guard asmFails "L: bnezalc $0, L\n"
+#guard asmFails "bc\n"
+-- offsets: 21-bit and 26-bit ranges (in words), numeric operands are the offset itself
+#guard asmText "beqzc $3, 1048575\nbeqzc $3, -1048576\n" = some [0xd86fffff#32, 0xd8700000#32]
+#guard asmFails "beqzc $3, 1048576\n"
+#guard asmText "bc 33554431\nbc -33554432\n" = some [0xc9ffffff#32, 0xca000000#32]
+#guard asmFails "bc 33554432\n"
+#guard asmFails "jic $3, 32768\n"
+-- END R6-3

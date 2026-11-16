@@ -39,17 +39,38 @@ follows the delay-slot instruction: a taken branch's target, and for a not-taken
 assigns nothing, and `NAL`) `branchPC + 8`, which is "PC + 4" of the delay slot at
 `branchPC + 4`. Both give the next `PC` the manual gives; `BranchDelay.isSome` is
 `InstructionInBranchDelaySlot`.
+
+-- BEGIN R6-3
+**Compact branches and forbidden slots** (Release 6). A compact branch or jump assigns `PC` at time
+`I` when taken (no delay slot). A conditional compact branch that is not taken leaves the next
+instruction in its forbidden slot (`Delay.forbiddenSlot`, set by the page's Operation, `Ops.
+ForbiddenSlot`); `Complete` records it in `BranchDelay` as `fallThrough` is, `branchPC + 8`. The
+manual gives the forbidden slot the delay slot's rules: "In Release 6, if a CTI is placed in a branch
+delay slot or a compact branch forbidden slot, implementations are required to signal a Reserved
+Instruction exception" (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62; "but only when the branch is not
+taken", B<cond>C p.84), and an exception there reports `EPC` = the branch with `BD` set (§5.3.2.2,
+p.62; DECISIONS D6). So point 4's CTI check and the general exception processing apply to it
+unchanged, through `BranchDelay.isSome`.
+-- END R6-3
 -/
 
 namespace Manual
 
 /-- **The control transfer instructions** that may not be placed in a delay slot (MD00086 Vol II-A
 Rev 6.06, BEQ, Restrictions, p.72: "CTIs include all branches and jumps, NAL, ERET, ERETNC, DERET,
-WAIT, and PAUSE"; `ERETNC`/`DERET` are not on this profile).
--- W3: the compact branches and jumps; W2: ERETNC. -/
+WAIT, and PAUSE"; `ERETNC`/`DERET` are not on this profile) or a forbidden slot (B<cond>C,
+Restrictions, p.84; MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62). "All branches and jumps" includes the
+Release 6 compact branches and jumps.
+-- W2: ERETNC. -/
 def IsCTI : Instruction → Bool
   | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .nal .. | .bal ..
   | .j .. | .jal .. | .jalr .. | .jalrHb .. | .eret | .wait .. | .pause => true
+  -- BEGIN R6-3
+  | .bc .. | .balc .. | .beqc .. | .bnec .. | .bltc .. | .bgec .. | .bltuc .. | .bgeuc ..
+  | .blezc .. | .bgezc .. | .bgtzc .. | .bltzc .. | .beqzc .. | .bnezc ..
+  | .blezalc .. | .bgezalc .. | .bgtzalc .. | .bltzalc .. | .beqzalc .. | .bnezalc ..
+  | .bovc .. | .bnvc .. | .jic .. | .jialc .. => true
+  -- END R6-3
   | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
@@ -69,7 +90,13 @@ def Complete (a : Arch) (f : Frame) : Arch :=
   | some d =>
     { f.arch with
         PC := a.PC + 4#32
-        BranchDelay := some (match d with | .jump t => t | .fallThrough => a.PC + 8#32) }
+        BranchDelay := some (match d with
+          | .jump t => t
+          | .fallThrough => a.PC + 8#32
+          -- BEGIN R6-3
+          | .forbiddenSlot => a.PC + 8#32
+          -- END R6-3
+          ) }
   | none =>
     match f.pcSet with
     | some p => { f.arch with PC := p, BranchDelay := none }
