@@ -30,6 +30,10 @@ theorem fieldAt_off9 (w : W32) : fieldAt w 15 7 = off9Of w := rfl
 theorem fieldAt_code20 (w : W32) : fieldAt w 25 6 = code20Of w := rfl
 theorem fieldAt_code10 (w : W32) : fieldAt w 15 6 = code10Of w := rfl
 theorem fieldAt_code19 (w : W32) : fieldAt w 24 6 = code19Of w := rfl
+-- BEGIN R6-4
+theorem fieldAt_sa2 (w : W32) : fieldAt w 7 6 = sa2Of w := rfl
+theorem fieldAt_imm19 (w : W32) : fieldAt w 18 0 = imm19Of w := rfl
+-- END R6-4
 
 /-- The `sel` field (bits 2..0) is the low three bits of the model's `funct` field. -/
 theorem fieldAt_sel (w : W32) : fieldAt w 2 0 = functOf w &&& 7#32 := by
@@ -85,8 +89,9 @@ theorem enc_eq_encode_gen (i : Instruction) (h : SelOK i) : enc i = some (encode
   case eretnc => decide
   -- END R6-2
   all_goals
-    simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, fld, field, maskLow,
-      mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, BitVec.or_assoc,
+    simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, sa2Format, pc19Format,
+      fld, field, maskLow,
+      mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, mkRT2, mkPc19, BitVec.or_assoc,
       mask1, mask2, mask3, mask4, mask5, mask6, mask9, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and,
       BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
 
@@ -126,9 +131,15 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   field_and1 field_and3 field_and7 field_and15 field_and31 field_and63 field_and511 field_and1023
   field_and65535
   field_and524287 field_and1048575 field_and67108863 and63_and7 and31_and7
+  -- BEGIN R6-4
+  opcodeOf_or_mkRT2 rsOf_or_mkRT2 rtOf_or_mkRT2 rdOf_or_mkRT2 sa3Of_or_mkRT2 sa2Of_or_mkRT2
+  functOf_or_mkRT2 opcodeOf_mkRT2 rsOf_mkRT2 rtOf_mkRT2 rdOf_mkRT2 sa3Of_mkRT2
+  sa2Of_mkRT2 functOf_mkRT2 opcodeOf_or_mkPc19 rsOf_or_mkPc19 pcrelOf_or_mkPc19 imm19Of_or_mkPc19
+  fieldAt_sa2 fieldAt_imm19
+  -- END R6-4
 
 set_option maxRecDepth 4000 in
-theorem length_candidates (w : W32) : (candidates w).length = 122 := by simp [candidates]
+theorem length_candidates (w : W32) : (candidates w).length = 139 := by simp [candidates]
 
 /-- The `k`-th candidate has the diagram of the instruction. -/
 local macro "cand " k:num : tactic => `(tactic| (
@@ -137,9 +148,9 @@ local macro "cand " k:num : tactic => `(tactic| (
   refine (enc_eq_encode_gen _ (by first | trivial | exact fieldAt_sel_lt _ | exact fieldAt_sel86_lt _)).trans (congrArg some ?_)
   simp only [encode]
   try simp
-  try simp [mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, and_7, *]))
+  try simp [mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, and_7, mkRT2, mkPc19, *]))  -- R6-4: mkRT2, mkPc19
 
--- 119 cases, each a field-extraction `simp`: more than the default budget for one declaration
+-- 139 cases, each a field-extraction `simp`: more than the default budget for one declaration
 set_option maxHeartbeats 4000000 in
 set_option linter.unusedSimpArgs false in
 /-- **The candidate of `i`'s constructor read from `encode i` has the diagram `encode i`.** -/
@@ -270,5 +281,24 @@ theorem enc_candidate (i : Instruction) (hs : SelOK i) :
   case sigrie => cand 120
   case cache => cand 121
   -- END R6-2
+  -- BEGIN R6-4
+  case mul => cand 122
+  case muh => cand 123
+  case mulu => cand 124
+  case muhu => cand 125
+  case div => cand 126
+  case mod => cand 127
+  case divu => cand 128
+  case modu => cand 129
+  case seleqz => cand 130
+  case selnez => cand 131
+  case lsa => cand 132
+  case align => cand 133
+  case bitswap => cand 134
+  case addiupc => cand 135
+  case lwpc => cand 136
+  case auipc => cand 137
+  case aluipc => cand 138
+  -- END R6-4
 
 end Refine

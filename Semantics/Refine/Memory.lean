@@ -213,7 +213,17 @@ theorem pref_refines (s : State) (hg : Good s) (base hint off w : W32)
     (hw : enc (.pref base hint off) = some w) :
     Execute modelCtx w (.pref base hint off) (abs s) = some (abs (execInstr s (.pref base hint off))) := by
   s2_open Ops.PREF (Ops.PREF base hint off)
-  exact congrArg some (complete_nop s)
+  exec_unfold
+  -- R6-4: hints 24..31 raise Reserved Instruction (PREF, Table 5.2, p.322-323)
+  have e : (low hint 5).toNat = (hint &&& 31#32).toNat := by
+    rw [low5, BitVec.toNat_and, show (31#32).toNat = 2 ^ 5 - 1 by rfl, Nat.and_two_pow_sub_one_eq_mod]
+  rw [e]
+  by_cases hc : 24 ≤ (hint &&& 31#32).toNat
+  · simp only [hc, ↓reduceIte, SignalException]
+    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
+      gep_take s .ReservedInstruction rfl excCodeRI (by decide)]
+  · simp only [hc, ↓reduceIte, pure]
+    exact congrArg some (complete_nop s)
 
 /-- **SYNC refines.** -/
 theorem sync_refines (s : State) (hg : Good s) (stype w : W32)

@@ -24,10 +24,10 @@ def instrMnemonics : List String := instrTable.map (·.1)
 
 /-- Pre-Release 6 mnemonics whose instructions Release 6 removed (MD00086 Vol II-A Rev 6.06,
 Table A.1, p.451: "6R"/"6Rm"); they are assembler errors with a specific message. Where Release 6
-reuses a mnemonic for a new instruction (`mul`, `div`, ... in their three-operand forms), that
-instruction is not modeled yet. -/
+reuses a mnemonic for a new instruction (`mul`, `div`, `divu` in their three-operand forms, R6-4),
+the mnemonic is that instruction's (`intTable`). -/
 def removedMnemonics : List String :=
-  ["movn", "movz", "mult", "multu", "div", "divu", "mfhi", "mflo", "mthi", "mtlo", "mul",
+  ["movn", "movz", "mult", "multu", "mfhi", "mflo", "mthi", "mtlo",  -- R6-4: div, divu, mul reused
    "madd", "maddu", "msub", "msubu", "addi", "lwl", "lwr", "swl", "swr",
    "beql", "bnel", "blezl", "bgtzl", "bltzl", "bgezl", "bltzall", "bgezall", "bltzal", "bgezal",
    "teqi", "tnei", "tgei", "tgeiu", "tlti", "tltiu",

@@ -366,6 +366,46 @@ theorem cf_ins (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ins rt rs
     Ops.INS rt rs pos size (ctxOf i o₁) { arch := a } = Ops.INS rt rs pos size (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.INS]; ofree
 
+-- BEGIN R6-4
+theorem cf_lwpc (rs off : W32) (a : Arch) (h : ConsultsOracle (.lwpc rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.LWPC rs off (ctxOf i o₁) { arch := a } = Ops.LWPC rs off (ctxOf i o₂) { arch := a } := by
+  cf_pre h; simp only [Ops.LWPC, bind, PC]; ofree
+
+/-- A zero divisor writes the oracle's value to `GPR[rd]`, which has no effect for `rd = 0`; otherwise
+the Operation reads no oracle field. -/
+theorem cf_divResult (j : Instruction) (rs rd : W32) (zero : Bool) (v : W32) (a : Arch)
+    (h : (zero && reg rd != 0) = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.divResult j rs rd zero v (ctxOf i o₁) { arch := a } =
+      Ops.divResult j rs rd zero v (ctxOf i o₂) { arch := a } := by
+  cases zero
+  · rfl
+  · have hrd : reg rd = 0 := by simpa using h
+    simp only [Ops.divResult, bind, GPR, Pseudo.get, Pseudo.oracle, setGPR, writeGPR, hrd, ↓reduceIte]
+
+theorem cf_div (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.div rs rt rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.DIV rs rt rd (ctxOf i o₁) { arch := a } = Ops.DIV rs rt rd (ctxOf i o₂) { arch := a } := by
+  simp only [ConsultsOracle, ← toInt_beq_zero] at h
+  simp only [Ops.DIV, bind, GPR]
+  exact cf_divResult _ rs rd _ _ a h i o₁ o₂
+
+theorem cf_mod (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.mod rs rt rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.MOD rs rt rd (ctxOf i o₁) { arch := a } = Ops.MOD rs rt rd (ctxOf i o₂) { arch := a } := by
+  simp only [ConsultsOracle, ← toInt_beq_zero] at h
+  simp only [Ops.MOD, bind, GPR]
+  exact cf_divResult _ rs rd _ _ a h i o₁ o₂
+
+theorem cf_divu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.divu rs rt rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.DIVU rs rt rd (ctxOf i o₁) { arch := a } = Ops.DIVU rs rt rd (ctxOf i o₂) { arch := a } := by
+  simp only [ConsultsOracle, ← toNat_eq_zero'] at h
+  simp only [Ops.DIVU, bind, GPR]
+  exact cf_divResult _ rs rd _ _ a h i o₁ o₂
+
+theorem cf_modu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.modu rs rt rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+    Ops.MODU rs rt rd (ctxOf i o₁) { arch := a } = Ops.MODU rs rt rd (ctxOf i o₂) { arch := a } := by
+  simp only [ConsultsOracle, ← toNat_eq_zero'] at h
+  simp only [Ops.MODU, bind, GPR]
+  exact cf_divResult _ rs rd _ _ a h i o₁ o₂
+-- END R6-4
 
 set_option maxHeartbeats 1000000 in
 set_option linter.unusedSimpArgs false in
@@ -419,6 +459,13 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case cvtSD fd fs => exact cf_cvtSD fd fs a h i o₁ o₂
   case ext rt rs pos size => exact cf_ext rt rs pos size a h i o₁ o₂
   case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
+  -- BEGIN R6-4
+  case lwpc rs off => exact cf_lwpc rs off a h i o₁ o₂
+  case div rs rt rd => exact cf_div rs rt rd a h i o₁ o₂
+  case mod rs rt rd => exact cf_mod rs rt rd a h i o₁ o₂
+  case divu rs rt rd => exact cf_divu rs rt rd a h i o₁ o₂
+  case modu rs rt rd => exact cf_modu rs rt rd a h i o₁ o₂
+  -- END R6-4
   case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; split <;> rfl)
@@ -441,9 +488,11 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
       Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
       Ops.XORI,
       -- BEGIN R6-2
-      Ops.ERETNC, Ops.SIGRIE, Ops.CACHE
+      Ops.ERETNC, Ops.SIGRIE, Ops.CACHE,
       -- END R6-2
-      ]
+      -- R6-4
+      Ops.MUL, Ops.MUH, Ops.MULU, Ops.MUHU, Ops.SELEQZ, Ops.SELNEZ, Ops.LSA, Ops.ALIGN, Ops.BITSWAP,
+      Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC]
        ofree)
 
 end Refine

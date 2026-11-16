@@ -16,8 +16,7 @@ find its bug" step: that program needs assembler macros, which
 `docs/spec/SPEC-NOTES.md` §9 puts explicitly out of scope, so it can't be
 assembled by `Asm.lean` at all. Instead, this harness validates the
 semantics against a small corpus we wrote ourselves: for several arithmetic
-operations, a "base" program (`addu` doublings, branch-free biased shifts, `subu`, …; Release 6
-removed MULT/DIV/MFHI/MFLO and its MUL/DIV/MOD are not modeled yet, W4) and a "variant" program
+operations, a "base" program (the Release 6 `mul`/`div`/`mod`, `subu`) and a "variant" program
 computing the same function with different bit-shifting/bitwise instructions — the kind of strength-reduction a
 compiler or a hand-optimizing assembly programmer would do. Two of the
 pairs are *deliberately wrong* (the classic "replace division/mod by a
@@ -62,32 +61,32 @@ def corpus : List EquivCase :=
     , basePath := "tests/equiv/mul_pow2_base.asm"
     , variantPath := "tests/equiv/mul_pow2_shift.asm"
     , expectEquivalent := true
-    , note := "x*8 via three wrapping doublings (addu) vs sll by 3" }
+    , note := "x*8 via the Release 6 mul vs sll by 3" }
   , { name := "mul_const5"
     , basePath := "tests/equiv/mul_const5_base.asm"
     , variantPath := "tests/equiv/mul_const5_shiftadd.asm"
     , expectEquivalent := true
-    , note := "x*5 via doublings + x (addu) vs (x<<2)+x (addu, non-trapping)" }
+    , note := "x*5 via the Release 6 mul vs (x<<2)+x (addu, non-trapping)" }
   , { name := "div_pow2_buggy"
     , basePath := "tests/equiv/div_pow2_base.asm"
     , variantPath := "tests/equiv/div_pow2_shift_buggy.asm"
     , expectEquivalent := false
-    , note := "x/4 via branch-free biased sra vs plain sra (WRONG: rounds toward -inf, not zero)" }
+    , note := "x/4 via the Release 6 div vs plain sra (WRONG: rounds toward -inf, not zero)" }
   , { name := "div_pow2_correct"
     , basePath := "tests/equiv/div_pow2_base.asm"
     , variantPath := "tests/equiv/div_pow2_shift_correct.asm"
     , expectEquivalent := true
-    , note := "x/4 via branch-free biased sra vs branching bias-corrected sra" }
+    , note := "x/4 via the Release 6 div vs branching bias-corrected sra" }
   , { name := "mod_pow2_buggy"
     , basePath := "tests/equiv/mod_pow2_base.asm"
     , variantPath := "tests/equiv/mod_pow2_mask_buggy.asm"
     , expectEquivalent := false
-    , note := "x%4 via branch-free ((x+b)&3)-b vs plain andi mask (WRONG: always non-negative)" }
+    , note := "x%4 via the Release 6 mod vs plain andi mask (WRONG: always non-negative)" }
   , { name := "mod_pow2_correct"
     , basePath := "tests/equiv/mod_pow2_base.asm"
     , variantPath := "tests/equiv/mod_pow2_mask_correct.asm"
     , expectEquivalent := true
-    , note := "x%4 via branch-free ((x+b)&3)-b vs a0 - (bias-corrected quotient)*4" }
+    , note := "x%4 via the Release 6 mod vs a0 - (bias-corrected quotient)*4" }
   , { name := "sub_twos_complement"
     , basePath := "tests/equiv/sub_base.asm"
     , variantPath := "tests/equiv/sub_twos_complement.asm"

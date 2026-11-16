@@ -172,6 +172,7 @@ def Oracle.Valid (o : Oracle) : Prop :=
   -- BEGIN R6-2
   NIValue o.badInstrNoWord ∧ NIValue o.badInstrP ∧
   -- END R6-2
+  (∀ i, NIValue (o.divByZero · i)) ∧  -- R6-4
   -- the UNDEFINED operations
   (∀ a v, UndefinedOutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
   -- the QNaN fields
@@ -212,8 +213,10 @@ def CTC1Unpredictable (fs temp : W32) : Bool :=
 result** (exact, provided the Operation does not signal before reaching it; an Operation that signals
 is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the oracle:
 
-* the loads (`Oracle.loadClearsLL`) and stores (`storeClearsLL`), while `LLbit = 1`: the choice is
-  whether `LLbit` becomes 0. Not `LL` and `SC`, which set `LLbit` themselves afterwards;
+* the loads (`Oracle.loadClearsLL`; `LWPC` included) and stores (`storeClearsLL`), while `LLbit = 1`:
+  the choice is whether `LLbit` becomes 0. Not `LL` and `SC`, which set `LLbit` themselves afterwards;
+* `DIV`/`MOD`/`DIVU`/`MODU` with a zero divisor (`divByZero`), unless `rd = 0` (the value is written
+  to `GPR[0]`, which has no effect);
 * an odd FPR read or written as a double (`fprOddRead`, `fprOddWrite`), on the path the Operation
   takes;
 * `CFC1` of a register that does not exist (`cfc1Unpredictable`), unless `rt = 0` (the value is
@@ -254,6 +257,11 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .cvtSD _ fs, a => OddFPR fs || Mips.Fp.isQNaN64 (FPRPair a fs)
   | .mfhc1 rt fs, _ => OddFPR fs && reg rt != 0
   | .mthc1 _ fs, _ => OddFPR fs
+  -- BEGIN R6-4
+  | .lwpc .., a => a.LLbit
+  | .div _ rt rd, a | .mod _ rt rd, a | .divu _ rt rd, a | .modu _ rt rd, a =>
+    readGPR a (reg rt) == 0#32 && reg rd != 0
+  -- END R6-4
   | _, _ => false
 
 /-- A context that differs from another in the oracle only. -/

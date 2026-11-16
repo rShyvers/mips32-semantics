@@ -12,7 +12,8 @@ import Semantics.Instruction
 /-- Field-range conditions under which `encode` is injective / `decode`
 inverts it: register numbers and shift amounts `< 32`, 16-bit immediates
 `< 2 ^ 16` (the 9-bit offsets of `ll`/`sc`/`pref`/`cache` `< 2 ^ 9`, the `sel` of `rdhwr`/`mfc0`/`mtc0`
-`< 8`), 26-bit jump targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
+`< 8`, the 19-bit immediates of `addiupc`/`lwpc` `< 2 ^ 19`, the 2-bit `sa`/`bp` of `lsa`/`align`
+`< 4`), 26-bit jump targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
 bitfield inside the word; `sll $0,$0,5` is
 not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317). -/
 def Instruction.WellFormed : Instruction → Prop
@@ -53,6 +54,16 @@ def Instruction.WellFormed : Instruction → Prop
   | .ori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .xori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .aui rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  -- BEGIN R6-4
+  | .mul rs rt rd | .muh rs rt rd | .mulu rs rt rd | .muhu rs rt rd
+  | .div rs rt rd | .mod rs rt rd | .divu rs rt rd | .modu rs rt rd
+  | .seleqz rs rt rd | .selnez rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
+  | .lsa rs rt rd sa => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32 ∧ sa.toNat < 4
+  | .align rs rt rd bp => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32 ∧ bp.toNat < 4
+  | .bitswap rd rt => rd.toNat < 32 ∧ rt.toNat < 32
+  | .addiupc rs imm | .lwpc rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 19
+  | .auipc rs imm | .aluipc rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  -- END R6-4
   | .lw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .lb rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16

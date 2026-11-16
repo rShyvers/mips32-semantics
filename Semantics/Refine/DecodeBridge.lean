@@ -119,10 +119,12 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w,
   have hsel := fieldAt_sel_lt w; have hsel86 := fieldAt_sel86_lt w
   have himm := immOf_lt w; have htg := targetOf_lt w; have hoff := off9Of_lt w
   have hc20 := code20Of_lt w; have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
+  have hsa2 := sa2Of_lt w; have hi19 := imm19Of_lt w  -- R6-4
   repeat' apply And.intro
   all_goals first
     | (left; simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa,
-        fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19];
+        fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19,
+        fieldAt_sa2, fieldAt_imm19];  -- R6-4: fieldAt_sa2, fieldAt_imm19
         omega)
     | (left; exact trivial)
     | (intro x hx; cases hx)

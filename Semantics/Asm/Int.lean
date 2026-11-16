@@ -3,7 +3,9 @@ import Semantics.Asm.Operands
 /-!
 # Asm.Int — integer arithmetic, logic, shifts, bit operations, immediates
 
-Release 6 forms only (MD00086 Vol II-A Rev 6.06; the encodings are `encode`'s). `lui rt, imm` is
+Release 6 forms only (MD00086 Vol II-A Rev 6.06; the encodings are `encode`'s). The Release 6
+`mul`/`div`/`divu` are the three-register forms (MUL p.300, DIV p.168); `lwpc` (a load) is here with
+the other PC-relative forms. `lui rt, imm` is
 the Release 6 idiom `aui rt, $0, imm` ("In Release 6, LUI is an assembly idiom for AUI with rs=0",
 AUI, p.47); it assembles to the same word as the pre-Release 6 LUI.
 -/
@@ -21,6 +23,36 @@ def luiOp : Enc := fun c ops =>
 
 /-- `rdhwr rt, rd[, sel]` (Release 6 adds `sel`, RDHWR p.332). -/
 def rdhwrOp : Enc := copSel "hardware" .rdhwr
+
+-- BEGIN R6-4
+/-- `rd, rs, rt, k` with `k` in `lo..hi`, encoded as the 2-bit field `k - lo` (`lsa`: shift 1..4, field
+`sa` = shift - 1, LSA p.232; `align`: `bp` 0..3, ALIGN p.39). -/
+def rdRsRtK (what : String) (lo : Int) (mk : (rs rt rd k : W32) → Instruction) : Enc := fun c ops =>
+  match ops with
+  | [d, s, t, k] => do
+      let v ← parseImmediate k c.line
+      checkRange s!"{c.name} {what}" lo (lo + 3) v c.line
+      pure (mk (← gpr c s) (← gpr c t) (← gpr c d) (immField 2 (v - lo)))
+  | _ => badShape c s!"rd, rs, rt, {what}"
+
+/-- `rs, offset` of `addiupc`/`lwpc` (ADDIUPC p.37, LWPC p.246): the byte offset from the
+instruction's address, a multiple of 4 in -2^20 .. 2^20 - 4 (as `llvm-mc` writes it), encoded as the
+19-bit field `offset >> 2`. -/
+def pcRel19 (mk : (rs imm : W32) → Instruction) : Enc := fun c ops =>
+  match ops with
+  | [s, o] => do
+      let v ← parseImmediate o c.line
+      checkRange s!"{c.name} offset" (-1048576) 1048572 v c.line
+      if v % 4 != 0 then throw (.badImmediate s!"{c.name} offset must be a multiple of 4" c.line)
+      pure (mk (← gpr c s) (immField 19 (v / 4)))
+  | _ => badShape c "rs, offset"
+
+/-- `rs, imm` of `auipc`/`aluipc` (p.48, p.43): a 16-bit pattern or its signed reading. -/
+def pcRel16 (mk : (rs imm : W32) → Instruction) : Enc := fun c ops =>
+  match ops with
+  | [s, i] => do pure (mk (← gpr c s) (← auiImm c i))
+  | _ => badShape c "rs, imm"
+-- END R6-4
 
 /-- Integer arithmetic, logic, shifts, bit operations and immediates. -/
 def intTable : EncTable :=
@@ -61,6 +93,25 @@ def intTable : EncTable :=
     ("ori",   rtRsImm uimm16 .ori),
     ("xori",  rtRsImm uimm16 .xori),
     ("aui",   rtRsImm auiImm .aui),
-    ("lui",   luiOp) ]
+    ("lui",   luiOp),
+    -- BEGIN R6-4: Release 6 multiply/divide, select, LSA, ALIGN, BITSWAP, PC-relative
+    ("mul",  rdRsRt fun rd rs rt => .mul rs rt rd),
+    ("muh",  rdRsRt fun rd rs rt => .muh rs rt rd),
+    ("mulu", rdRsRt fun rd rs rt => .mulu rs rt rd),
+    ("muhu", rdRsRt fun rd rs rt => .muhu rs rt rd),
+    ("div",  rdRsRt fun rd rs rt => .div rs rt rd),
+    ("mod",  rdRsRt fun rd rs rt => .mod rs rt rd),
+    ("divu", rdRsRt fun rd rs rt => .divu rs rt rd),
+    ("modu", rdRsRt fun rd rs rt => .modu rs rt rd),
+    ("seleqz", rdRsRt fun rd rs rt => .seleqz rs rt rd),
+    ("selnez", rdRsRt fun rd rs rt => .selnez rs rt rd),
+    ("lsa",   rdRsRtK "sa" 1 .lsa),
+    ("align", rdRsRtK "bp" 0 .align),
+    ("bitswap", gpr2 "rd, rt" .bitswap),
+    ("addiupc", pcRel19 .addiupc),
+    ("lwpc",    pcRel19 .lwpc),
+    ("auipc",   pcRel16 .auipc),
+    ("aluipc",  pcRel16 .aluipc) ]
+    -- END R6-4
 
 end Asm

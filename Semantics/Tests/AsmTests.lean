@@ -213,6 +213,42 @@ def r6Words : List W32 :=
 
 #guard r6Lines.length = r6Words.length
 #guard asmText (srcLines r6Lines) = some r6Words
+
+-- BEGIN R6-4
+/-- The Release 6 integer, select, scaled-address, byte-align, bit-swap and PC-relative forms (wave
+R6-4). No label is involved, so `r6Lines`' words are unchanged by them. -/
+def r6IntLines : List String :=
+  ["mul $t0, $t1, $t2", "muh $t0, $t1, $t2", "mulu $t0, $t1, $t2", "muhu $t0, $t1, $t2",
+   "div $t0, $t1, $t2", "mod $t0, $t1, $t2", "divu $t0, $t1, $t2", "modu $t0, $t1, $t2",
+   "seleqz $t0, $t1, $t2", "selnez $t0, $t1, $t2", "lsa $t0, $t1, $t2, 3", "align $t0, $t1, $t2, 2",
+   "bitswap $t0, $t1", "addiupc $t0, -8", "lwpc $t0, 1048572", "auipc $t0, 0x1234", "aluipc $t0, -1"]
+
+/-- LLVM's words for `r6IntLines` (`llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -show-encoding`, the
+encoding bytes read as a little-endian word; no relocation is involved). -/
+def r6IntWords : List W32 :=
+  [0x012a4098#32, 0x012a40d8#32, 0x012a4099#32, 0x012a40d9#32, 0x012a409a#32, 0x012a40da#32,
+   0x012a409b#32, 0x012a40db#32, 0x012a4035#32, 0x012a4037#32, 0x012a4085#32, 0x7d2a42a0#32,
+   0x7c094020#32, 0xed07fffe#32, 0xed0bffff#32, 0xed1e1234#32, 0xed1fffff#32]
+
+#guard r6IntLines.length = r6IntWords.length
+#guard asmText (srcLines r6IntLines) = some r6IntWords
+#guard r6IntWords.all fun w => (decode w).map encode == some w
+#guard asmText (srcLines r6IntLines) = some (r6IntWords.filterMap fun w => (decode w).map encode)
+#guard asmText "lsa $v0, $v1, $a0, 1\nlsa $v0, $v1, $a0, 4\nalign $v0, $v1, $a0, 0\n" =
+  some [encode (.lsa 3#32 4#32 2#32 0#32), encode (.lsa 3#32 4#32 2#32 3#32), encode (.align 3#32 4#32 2#32 0#32)]
+#guard asmText "addiupc $v0, 4\naddiupc $v0, -1048576\nlwpc $v0, 8\n" =
+  some [encode (.addiupc 2#32 1#32), encode (.addiupc 2#32 0x40000#32), encode (.lwpc 2#32 2#32)]
+#guard asmFails "lsa $t0, $t1, $t2, 0\n"
+#guard asmFails "lsa $t0, $t1, $t2, 5\n"
+#guard asmFails "align $t0, $t1, $t2, 4\n"
+#guard asmFails "addiupc $t0, 6\n"
+#guard asmFails "addiupc $t0, 1048576\n"
+#guard asmFails "lwpc $t0, -1048580\n"
+#guard asmFails "auipc $t0, 65536\n"
+-- the pre-Release 6 two-operand `div`/`divu`/`mul` forms are not accepted
+#guard asmFails "div $t0, $t1\n"
+#guard asmFails "divu $t0, $t1\n"
+-- END R6-4
 -- every golden word decodes, and re-encodes to itself (the model's decoder accepts exactly these)
 #guard r6Words.all fun w => (decode w).map encode == some w
 
@@ -243,8 +279,8 @@ def r62Words : List W32 :=
 
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
-  m == "rdpgpr" || m == "wrpgpr" ||
-    (r6Lines ++ r62Lines).any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
+  m == "rdpgpr" || m == "wrpgpr" ||  -- R6-4: r6IntLines
+    (r6Lines ++ r62Lines ++ r6IntLines).any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
 #guard instrMnemonics.eraseDups.length = instrMnemonics.length
 -- RDPGPR/WRPGPR: COP0 010000 | 01010 / 01110 | rt | rd | 0 (MD00086 Vol II-A Rev 6.06, RDPGPR p.335,
 -- WRPGPR p.444)
@@ -341,7 +377,9 @@ def dataProg : Program :=
   asmUnknown "beql $t0, $t1, 0\n" ∧ asmUnknown "bltzal $t0, 0\n" ∧ asmUnknown "bgezal $0, 0\n" ∧
   asmUnknown "teqi $t0, 1\n" ∧ asmUnknown "lwl $t0, 0($t1)\n" ∧ asmUnknown "c.eq.s $f0, $f2\n" ∧
   asmUnknown "bc1t 0\n" ∧ asmUnknown "madd.s $f0, $f2, $f4, $f6\n" ∧ asmUnknown "lwxc1 $f0, $t0($t1)\n" ∧
-  asmUnknown "movn $t0, $t1, $t2\n" ∧ asmUnknown "mul $t0, $t1, $t2\n"
+  asmUnknown "movn $t0, $t1, $t2\n" ∧ asmUnknown "madd $t0, $t1\n"
+-- R6-4: `mul rd, rs, rt` (expected unknown before) is the Release 6 MUL (MD00086 Vol II-A Rev 6.06, p.300)
+#guard asmText "mul $t0, $t1, $t2\n" = some [encode (.mul 9#32 10#32 8#32)]
 
 -- One error case per major `AsmError` kind.
 #guard asmFails "frobnicate $t0, $t1\n"

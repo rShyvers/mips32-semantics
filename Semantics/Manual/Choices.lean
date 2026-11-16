@@ -240,6 +240,14 @@ structure Oracle where
   in BadInstrP is UNPREDICTABLE" (MD00090 Vol III Rev 6.02 §9.26, p.181). -/
   badInstrP : Arch → W32
   -- END R6-2
+  -- BEGIN R6-4
+  /-- `DIV`/`MOD`/`DIVU`/`MODU` with a zero divisor: "If the divisor in GPR rt is zero, the result
+  value is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, DIV MOD DIVU MODU, Restrictions, p.168;
+  Exceptions, p.169: "No arithmetic exceptions occur. Division by zero produces an UNPREDICTABLE
+  result"). Arguments: the state, the instruction, and the dividend `s1` as the Operation reads it
+  (`GPR[rs]`). Gives the value written to `GPR[rd]`. -/
+  divByZero : Arch → Instruction → W32 → W32
+  -- END R6-4
 
 /-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only, no
 caches and none of the features `Config3` describes; an `Impl` describes such a processor when:
@@ -355,7 +363,9 @@ def modelImpl : Impl where
     let r := Mips.Fp.f64Div e 0x3FF0000000000000#64 q.1
     (r.1, q.2.or r.2)
 
-/-- **The model's choices** (SPEC-NOTES §9): every store clears `LLbit`
+/-- **The model's choices** (SPEC-NOTES §9): `DIV`/`DIVU` by zero give the dividend and `MOD`/`MODU`
+by zero give 0 (the result of dividing by 1; R6-4, the value QEMU `mips32r6-generic` produces); every
+store clears `LLbit`
 (the `LLbit` pin); `Cause.CE` is loaded with 0 for every exception other than Coprocessor Unusable;
 a Reset keeps every register whose reset state is undefined, except `Config.K23 = Config.KU = 2` and
 `LLbit = 0` (SPEC-NOTES, Reset pins); `BadInstr` without an instruction word and `BadInstrP` outside a
@@ -401,6 +411,12 @@ def modelOracle : Oracle where
   badInstrNoWord := fun _ => 0#32
   badInstrP := fun _ => 0#32
   -- END R6-2
+  -- BEGIN R6-4: a zero divisor acts as a divisor of 1: the quotient is the dividend, the remainder 0
+  divByZero := fun _ i s1 =>
+    match i with
+    | .div .. | .divu .. => s1
+    | _ => 0#32
+  -- END R6-4
 
 /-- `modelImpl` is an implementation of this profile. -/
 theorem modelImpl_WF : modelImpl.WF := by decide

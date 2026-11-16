@@ -75,7 +75,8 @@ matrix is `docs/TRACE.md`.
 | R-type SPECIAL3 BSHFL sign-extend | 3 | 3 | 0 | 3 | seb, seh, wsbh |
 | R-type SPECIAL3 bitfield extract/insert | 2 | 2 | 0 | 2 | ext, ins |
 | SPECIAL3 RDHWR | 8 | 8 | 7 | 8 | rdhwr, addiu, slti, sltiu, andi, ori, xori, aui |
-| I-type load/store | 10 | 10 | 9 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
+| BEGIN R6-4 | 17 | 17 | 0 | 17 | mul, muh, mulu, muhu, div, mod, divu, modu, seleqz, selnez, lsa, align, bitswap, addiupc, lwpc, auipc, aluipc |
+| END R6-4 | 10 | 10 | 9 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
 | I-type branch reg/reg | 2 | 2 | 2 | 2 | beq, bne |
 | I-type branch reg-only | 2 | 2 | 2 | 2 | blez, bgtz |
 | I-type REGIMM zero-comparison branches | 4 | 4 | 2 | 4 | bltz, bgez, nal, bal |
@@ -88,7 +89,7 @@ matrix is `docs/TRACE.md`.
 | Arithmetic, single | 18 | 18 | 16 | 18 | add.s, sub.s, mul.s, div.s, sqrt.s, abs.s, mov.s, neg.s, recip.s, rsqrt.s, round.w.s, trunc.w.s, ceil.w.s, floor.w.s, cvt.w.s, cvt.d.s, cvt.s.w, cvt.d.w |
 | Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
 | BEGIN R6-2 | 3 | 3 | 0 | 3 | eretnc, sigrie, cache |
-| **Total** | **122** | **122** | **83** | **122** | |
+| **Total** | **139** | **139** | **83** | **139** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->

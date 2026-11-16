@@ -141,4 +141,60 @@ def INS (rt rs pos size : W32) : Pseudo Unit := do
   if (lsb : Int) > msb then unpredictableOr ((← Pseudo.oracle).insLsbAboveMsb (← Pseudo.get)) body
   else body
 
+-- BEGIN R6-4
+/-- **ALIGN rd, rs, rt, bp** — MD00086 Vol II-A Rev 6.06, ALIGN, p.39 (an image-only page: diagram,
+Description and Operation read from the PDF).
+```
+tmp_rt_hi ← unsigned_word(GPR[rt]) << (8*bp)
+tmp_rs_lo ← unsigned_word(GPR[rs]) >> (8*(4-bp))
+tmp ← tmp_rt_hi or tmp_rt_lo
+GPR[rd] ← tmp
+```
+"The 32-bit word in GPR rt is left shifted as a 32-bit value by bp byte positions. The 32-bit word in
+register rs is right shifted as a 32-bit value by (4-bp) byte positions. These shifts are logical
+shifts, zero-filling" (Description, p.39): the shifts are on 32-bit values (`bp = 0` shifts `GPR[rs]`
+out entirely: "Executing ALIGN with shift count bp=0 acts like a register to register move", p.39).
+The Operation's `tmp_rt_lo` is a misprint of `tmp_rs_lo` (the only other name defined). -/
+def ALIGN (rs rt rd bp : W32) : Pseudo Unit := do
+  let b := (low bp 2).toNat
+  -- tmp_rt_hi ← unsigned_word(GPR[rt]) << (8*bp)
+  let tmp_rt_hi := (← GPR (reg rt)) <<< (8 * b)
+  -- tmp_rs_lo ← unsigned_word(GPR[rs]) >> (8*(4-bp))
+  let tmp_rs_lo := (← GPR (reg rs)) >>> (8 * (4 - b))
+  -- tmp ← tmp_rt_hi or tmp_rs_lo
+  let tmp := tmp_rt_hi ||| tmp_rs_lo
+  -- GPR[rd] ← tmp
+  setGPR (reg rd) tmp
+
+/-- `reverse_bits_in_byte(inbyte)` (BITSWAP, p.92):
+```
+outbyte7 ← inbyte0
+outbyte6 ← inbyte1
+...
+outbyte0 ← inbyte7
+return outbyte
+```
+written as the string `outbyte7 || ... || outbyte0`. -/
+def reverse_bits_in_byte (inbyte : BitVec 8) : BitVec 8 :=
+  BitVec.ofBool (bit inbyte 0) ++ BitVec.ofBool (bit inbyte 1) ++ BitVec.ofBool (bit inbyte 2) ++
+    BitVec.ofBool (bit inbyte 3) ++ BitVec.ofBool (bit inbyte 4) ++ BitVec.ofBool (bit inbyte 5) ++
+    BitVec.ofBool (bit inbyte 6) ++ BitVec.ofBool (bit inbyte 7)
+
+/-- **BITSWAP rd, rt** — MD00086 Vol II-A Rev 6.06, BITSWAP, p.92.
+```
+for i in 0 to 3 do      /* for all bytes in 32-bit GPR width */
+   tmp.byte(i) ← reverse_bits_in_byte( GPR[rt].byte(i) )
+endfor
+GPR[rd] ← tmp
+``` -/
+def BITSWAP (rd rt : W32) : Pseudo Unit := do
+  let x ← GPR (reg rt)
+  -- for i in 0 to 3 do tmp.byte(i) ← reverse_bits_in_byte( GPR[rt].byte(i) )
+  let tmp : W32 :=
+    reverse_bits_in_byte (x.extractLsb' 24 8) ++ reverse_bits_in_byte (x.extractLsb' 16 8) ++
+      reverse_bits_in_byte (x.extractLsb' 8 8) ++ reverse_bits_in_byte (x.extractLsb' 0 8)
+  -- GPR[rd] ← tmp
+  setGPR (reg rd) tmp
+-- END R6-4
+
 end Manual.Ops

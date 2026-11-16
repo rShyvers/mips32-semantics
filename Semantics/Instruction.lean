@@ -201,6 +201,55 @@ inductive Instruction where
   AUI, p.47: "GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)"). "In Release 6, LUI is an
   assembly idiom for AUI with rs=0" (p.47; LUI p.233): `lui rt, imm` is `aui rt, $0, imm`. -/
   | aui   (rs rt imm : W32)
+  -- BEGIN R6-4
+  -- Release 6 integer instructions (MD00086 Vol II-A Rev 6.06). Same-width multiply and divide
+  -- (SPECIAL, the `sa` field selects the low/high or quotient/remainder half; Table A.23, p.462).
+  /-- `MUL rd, rs, rt`: `$rd = ` the low word of the signed 64-bit product (SPECIAL, `sa` = 00010,
+  funct `011000` SOP30; MUL MUH MULU MUHU, p.300-301). -/
+  | mul  (rs rt rd : W32)
+  /-- `MUH rd, rs, rt`: `$rd = ` the high word of the signed product (`sa` = 00011, SOP30; p.300). -/
+  | muh  (rs rt rd : W32)
+  /-- `MULU rd, rs, rt`: the low word of the unsigned product (`sa` = 00010, SOP31 `011001`; p.300). -/
+  | mulu (rs rt rd : W32)
+  /-- `MUHU rd, rs, rt`: the high word of the unsigned product (`sa` = 00011, SOP31; p.300). -/
+  | muhu (rs rt rd : W32)
+  /-- `DIV rd, rs, rt`: the signed quotient, truncated toward zero (SPECIAL, `sa` = 00010, funct
+  `011010` SOP32; DIV MOD DIVU MODU, p.168-169). A zero divisor gives an UNPREDICTABLE result
+  (p.168), the oracle choice `Manual.Oracle.divByZero`. -/
+  | div  (rs rt rd : W32)
+  /-- `MOD rd, rs, rt`: the signed remainder, with the sign of the dividend (`sa` = 00011, SOP32;
+  p.168). -/
+  | mod  (rs rt rd : W32)
+  /-- `DIVU rd, rs, rt`: the unsigned quotient (`sa` = 00010, SOP33 `011011`; p.168). -/
+  | divu (rs rt rd : W32)
+  /-- `MODU rd, rs, rt`: the unsigned remainder (`sa` = 00011, SOP33; p.168). -/
+  | modu (rs rt rd : W32)
+  /-- `SELEQZ rd, rs, rt`: `$rd = ($rt = 0) ? $rs : 0` (SPECIAL, `sa` = 0, funct `110101`; SELEQZ
+  SELNEZ, p.369). -/
+  | seleqz (rs rt rd : W32)
+  /-- `SELNEZ rd, rs, rt`: `$rd = ($rt ≠ 0) ? $rs : 0` (funct `110111`; p.369). -/
+  | selnez (rs rt rd : W32)
+  /-- `LSA rd, rs, rt, sa+1`: `$rd = ($rs << (sa+1)) + $rt` (SPECIAL, bits 10..8 = 000, the 2-bit
+  `sa` in bits 7..6, funct `000101`; LSA, p.232). `sa` is the raw 2-bit field (shift 1..4). -/
+  | lsa (rs rt rd sa : W32)
+  /-- `ALIGN rd, rs, rt, bp`: `$rd = ($rt << 8·bp) | ($rs >> 8·(4-bp))` (SPECIAL3, bits 10..8 =
+  ALIGN `010`, the 2-bit `bp` in bits 7..6, BSHFL `100000`; ALIGN, p.39, an image page). -/
+  | align (rs rt rd bp : W32)
+  /-- `BITSWAP rd, rt`: the bits of each byte of `$rt` reversed (SPECIAL3, `rs` = 0, `sa` =
+  BITSWAP `00000`, BSHFL; BITSWAP, p.92). -/
+  | bitswap (rd rt : W32)
+  /-- `ADDIUPC rs, imm`: `$rs = PC + sign_extend(imm << 2)`, `PC` the address of the ADDIUPC
+  instruction (PCREL `111011`, bits 20..19 = 00, a 19-bit `imm` in bits 18..0; ADDIUPC, p.37). -/
+  | addiupc (rs imm : W32)
+  /-- `LWPC rs, offset`: `$rs = MEM32[PC + sign_extend(offset << 2)]` (PCREL, bits 20..19 = 01, a
+  19-bit `offset`; LWPC, p.246). -/
+  | lwpc (rs off : W32)
+  /-- `AUIPC rs, imm`: `$rs = PC + (imm << 16)` (PCREL, bits 20..16 = 11110; AUIPC, p.48). -/
+  | auipc (rs imm : W32)
+  /-- `ALUIPC rs, imm`: `$rs = ~0x0FFFF & (PC + sign_extend(imm << 16))` (PCREL, bits 20..16 =
+  11111; ALUIPC, p.43). -/
+  | aluipc (rs imm : W32)
+  -- END R6-4
   -- I-type load/store: rs = base, rt = dest/src, imm = raw offset field
   /-- `$rt = MEM32[$rs + offset]`, word-aligned (opcode 0x23). -/
   | lw  (rs rt imm : W32)
@@ -529,6 +578,30 @@ SPECIAL3 = 0x1f is or-ed in by `encode`): `base` 25..21, `rt` 20..16, `offset` 1
 def mkOff9 (base rt off funct : W32) : W32 :=
   field 5 21 base ||| field 5 16 rt ||| field 9 7 off ||| field 6 0 funct
 
+-- BEGIN R6-4
+/-- Extract bits 10..8 (the fixed sub-field of `LSA` and `ALIGN` above their 2-bit `sa`/`bp`). -/
+def sa3Of (w : W32) : W32 := (w.extractLsb 10 8).zeroExtend 32
+
+/-- Extract bits 7..6 (the 2-bit `sa` of `LSA`, `bp` of `ALIGN`). -/
+def sa2Of (w : W32) : W32 := (w.extractLsb 7 6).zeroExtend 32
+
+/-- Extract bits 20..19 (the PCREL minor opcode of `ADDIUPC`/`LWPC`, Table A.13, p.455). -/
+def pcrelOf (w : W32) : W32 := (w.extractLsb 20 19).zeroExtend 32
+
+/-- Extract the 19-bit immediate/offset of `ADDIUPC`/`LWPC` (bits 18..0), raw. -/
+def imm19Of (w : W32) : W32 := (w.extractLsb 18 0).zeroExtend 32
+
+/-- An R-format word whose `sa` field is split into a 3-bit sub-opcode (bits 10..8) and a 2-bit
+operand (bits 7..6): `LSA` (p.232) and `ALIGN` (p.39). The opcode is or-ed in by `encode`. -/
+def mkRT2 (rs rt rd hi lo funct : W32) : W32 :=
+  field 5 21 rs ||| field 5 16 rt ||| field 5 11 rd ||| field 3 8 hi ||| field 2 6 lo ||| field 6 0 funct
+
+/-- The fields of `ADDIUPC`/`LWPC` (p.37, p.246): `rs` 25..21, minor opcode 20..19, 19-bit
+immediate 18..0. The opcode PCREL = 0x3b is or-ed in by `encode`. -/
+def mkPc19 (rs sub imm : W32) : W32 :=
+  field 5 21 rs ||| field 2 19 sub ||| field 19 0 imm
+-- END R6-4
+
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
 otherwise. Used by the decoder tables to reject non-canonical encodings. -/
 def decodeIf (c : Bool) (i : Instruction) : Option Instruction :=
@@ -545,9 +618,9 @@ too: `ext` with `lsb + msbd > 31`, `ins` with `msb < lsb`. -/
 /-- **SPECIAL** (opcode 0), keyed by `funct` (Table A.3, p.452). Release 6 removed MOVCI (0x01),
 JR (0x08: JR is JALR with `rd = 0`, JR p.207), MOVZ/MOVN (0x0a/0x0b), MFHI/MTHI/MFLO/MTLO
 (0x10-0x13 with `sa = 0`) and MULT/MULTU/DIV/DIVU (0x18-0x1b with `sa = 0`); those words do not
-decode. Release 6 additions decoded by later waves (until then they do not decode):
--- W4: funct 0x05 LSA; 0x18-0x1b with `sa` = 2/3: MUL/MUH, MULU/MUHU, DIV/MOD, DIVU/MODU (Table
---     A.23, p.462); 0x35 SELEQZ, 0x37 SELNEZ.
+decode. Release 6 additions: funct 0x05 LSA (bits 10..8 zero, LSA p.232); 0x18-0x1b with `sa` =
+00010/00011: MUL/MUH, MULU/MUHU, DIV/MOD, DIVU/MODU (Table A.23, p.462; `sa` = 0 is the removed
+HI/LO form, other `sa` values are unassigned); 0x35 SELEQZ, 0x37 SELNEZ (p.369).
 SDBBP (funct 0x0e in Release 6, SDBBP p.361) belongs to EJTAG, which is absent (DECISIONS D5): "If
 EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out" (MD00082
 Vol I-A Rev 6.01 §2.4.1, p.31), so its word does not decode (Reserved Instruction, DECISIONS D7). -/
@@ -607,6 +680,17 @@ def decodeSpecial (w : W32) : Option Instruction :=
   | 0x30 => some (.tge rs rt (code10Of w))
   | 0x33 => some (.tltu rs rt (code10Of w))
   | 0x31 => some (.tgeu rs rt (code10Of w))
+  -- BEGIN R6-4
+  -- MUL/MUH, MULU/MUHU, DIV/MOD, DIVU/MODU: `sa` 00010 / 00011 selects (Table A.23, p.462).
+  | 0x18 => if shamt == 2#32 then some (.mul rs rt rd) else decodeIf (shamt == 3#32) (.muh rs rt rd)
+  | 0x19 => if shamt == 2#32 then some (.mulu rs rt rd) else decodeIf (shamt == 3#32) (.muhu rs rt rd)
+  | 0x1a => if shamt == 2#32 then some (.div rs rt rd) else decodeIf (shamt == 3#32) (.mod rs rt rd)
+  | 0x1b => if shamt == 2#32 then some (.divu rs rt rd) else decodeIf (shamt == 3#32) (.modu rs rt rd)
+  | 0x35 => decodeIf (z shamt) (.seleqz rs rt rd)
+  | 0x37 => decodeIf (z shamt) (.selnez rs rt rd)
+  -- LSA: bits 10..8 zero, the 2-bit `sa` in bits 7..6 (LSA p.232).
+  | 0x05 => decodeIf (z (sa3Of w)) (.lsa rs rt rd (sa2Of w))
+  -- END R6-4
   | _ => none
 
 /-- **REGIMM** (opcode 1), keyed by `rt` (Table A.4, p.452). Release 6 keeps BLTZ, BGEZ, SYNCI and
@@ -628,9 +712,9 @@ def decodeRegimm (w : W32) : Option Instruction :=
   | _ => none
 
 /-- **SPECIAL3** (opcode 0x1f), keyed by `funct` (Table A.6, p.453; BSHFL Table A.10, p.454).
-Release 6 moved `LL` (0x36), `SC` (0x26) and `PREF` (0x35) here, with a 9-bit offset.
-Release 6 recoded CACHE here (funct 0x25, 9-bit offset; CACHE p.114).
--- W4: BSHFL `sa` = 00000 BITSWAP, 010xx ALIGN. -/
+Release 6 moved `LL` (0x36), `SC` (0x26) and `PREF` (0x35) here, with a 9-bit offset. Release 6
+adds BSHFL `sa` = 00000 BITSWAP (p.92) and `sa` = 010 bp ALIGN (p.39).
+Release 6 recoded CACHE here (funct 0x25, 9-bit offset; CACHE p.114). -/
 def decodeSpecial3 (w : W32) : Option Instruction :=
   let rs := rsOf w
   let rt := rtOf w
@@ -639,10 +723,17 @@ def decodeSpecial3 (w : W32) : Option Instruction :=
   let z (x : W32) : Bool := x == 0#32
   match (functOf w).toNat with
   | 0x20 =>  -- BSHFL: `rs` must be zero; the `sa` sub-field selects
+    -- BEGIN R6-4
+    -- ALIGN: bits 10..8 = 010, `bp` in bits 7..6, any `rs` (ALIGN p.39).
+    if sa3Of w == 2#32 then some (.align rs rt rd (sa2Of w)) else
+    -- END R6-4
     match shamt.toNat with
     | 0x10 => decodeIf (z rs) (.seb rd rt)
     | 0x18 => decodeIf (z rs) (.seh rd rt)
     | 0x02 => decodeIf (z rs) (.wsbh rd rt)
+    -- BEGIN R6-4
+    | 0x00 => decodeIf (z rs) (.bitswap rd rt)  -- BITSWAP (p.92)
+    -- END R6-4
     | _ => none
   -- `ext`: the `rd` field holds `msbd = size - 1`, `shamt` holds `lsb = pos`;
   -- `lsb + msbd > 31` is UNPREDICTABLE and rejected.
@@ -794,7 +885,9 @@ SWL/SWR (0x22, 0x26, 0x2a, 0x2e), CACHE (0x2f), LL (0x30), LWC2/LDC2/SWC2/SDC2 (
 0x3e), PREF (0x33), SC (0x38). LUI is AUI with `rs = 0` (0x0f).
 -- W3: 0x06/0x07 with `rt ≠ 0` (POP06/POP07: BLEZALC, BGEZALC, BGEUC, BGTZALC, BLTZALC, BLTUC),
 --     0x08 POP10, 0x16 POP26, 0x17 POP27, 0x18 POP30, 0x32 BC, 0x36 POP66, 0x3a BALC, 0x3e POP76.
--- W4: 0x3b PCREL (ADDIUPC, AUIPC, ALUIPC, LWPC). -/
+Release 6 adds 0x3b PCREL (Table A.13, p.455; Table A.24, p.462): bits 20..19 = 00 ADDIUPC (p.37),
+01 LWPC (p.246); bits 20..16 = 11110 AUIPC (p.48), 11111 ALUIPC (p.43); the others (LWUPC, LDPC and
+the reserved 11xxx values) are MIPS64-only or reserved and do not decode. -/
 def decodePrimary (w : W32) : Option Instruction :=
   let rs := rsOf w
   let rt := rtOf w
@@ -831,6 +924,14 @@ def decodePrimary (w : W32) : Option Instruction :=
   | 0x35 => some (.ldc1 rs rt imm)
   | 0x39 => some (.swc1 rs rt imm)
   | 0x3d => some (.sdc1 rs rt imm)
+  -- BEGIN R6-4
+  | 0x3b =>  -- PCREL
+    match (pcrelOf w).toNat with
+    | 0 => some (.addiupc rs (imm19Of w))
+    | 1 => some (.lwpc rs (imm19Of w))
+    | _ => if rt == 0x1e#32 then some (.auipc rs imm)
+           else decodeIf (rt == 0x1f#32) (.aluipc rs imm)
+  -- END R6-4
   | _ => none
 
 /-- **The decoder table of each release.** An instruction is available in a release exactly when
@@ -892,6 +993,25 @@ def encode (i : Instruction) : W32 :=
   | .ori   rs rt imm => mkIT 0x0d#32 rs rt imm
   | .xori  rs rt imm => mkIT 0x0e#32 rs rt imm
   | .aui   rs rt imm => mkIT 0x0f#32 rs rt imm
+  -- BEGIN R6-4
+  | .mul  rs rt rd => mkRT rs rt rd 2#32 0x18#32
+  | .muh  rs rt rd => mkRT rs rt rd 3#32 0x18#32
+  | .mulu rs rt rd => mkRT rs rt rd 2#32 0x19#32
+  | .muhu rs rt rd => mkRT rs rt rd 3#32 0x19#32
+  | .div  rs rt rd => mkRT rs rt rd 2#32 0x1a#32
+  | .mod  rs rt rd => mkRT rs rt rd 3#32 0x1a#32
+  | .divu rs rt rd => mkRT rs rt rd 2#32 0x1b#32
+  | .modu rs rt rd => mkRT rs rt rd 3#32 0x1b#32
+  | .seleqz rs rt rd => mkRT rs rt rd 0#32 0x35#32
+  | .selnez rs rt rd => mkRT rs rt rd 0#32 0x37#32
+  | .lsa rs rt rd sa => mkRT2 rs rt rd 0#32 sa 0x05#32
+  | .align rs rt rd bp => (0x1f#32 <<< 26) ||| mkRT2 rs rt rd 2#32 bp 0x20#32
+  | .bitswap rd rt => (0x1f#32 <<< 26) ||| mkRT 0#32 rt rd 0#32 0x20#32
+  | .addiupc rs imm => (0x3b#32 <<< 26) ||| mkPc19 rs 0#32 imm
+  | .lwpc rs off => (0x3b#32 <<< 26) ||| mkPc19 rs 1#32 off
+  | .auipc rs imm => mkIT 0x3b#32 rs 0x1e#32 imm
+  | .aluipc rs imm => mkIT 0x3b#32 rs 0x1f#32 imm
+  -- END R6-4
   | .lw rs rt imm => mkIT 0x23#32 rs rt imm
   | .sw rs rt imm => mkIT 0x2b#32 rs rt imm
   | .lb rs rt imm => mkIT 0x20#32 rs rt imm

@@ -1,11 +1,9 @@
-# div_pow2_base.asm — $t9 = $a0 / 4, signed, truncating toward zero, branch-free: add the bias 3
-# only for a negative dividend (the sign mask shifted right logically by 30), then sra by 2.
-# Release 6 removed DIV/MFLO; the Release 6 DIV is not modeled yet (W4).
+# div_pow2_base.asm — $t9 = $a0 / 4, signed, truncating toward zero, with the Release 6 DIV
+# (MD00086 Vol II-A Rev 6.06, DIV MOD DIVU MODU, p.168-169: "(A div B)*B + (A mod B) = A, where
+# (A mod B) has same sign as the dividend A").
 .text
 main:
-    sra  $t1, $a0, 31        # 0 or -1
-    srl  $t1, $t1, 30        # 0 or 3
-    addu $t1, $a0, $t1
-    sra  $t9, $t1, 2
+    li   $t1, 4
+    div  $t9, $a0, $t1
     li   $v0, 10
     syscall

@@ -40,7 +40,7 @@ pre-Release 6 encodings Release 6 removed or moved ("6R"/"6Rm" in the opcode tab
 instructions signal a Reserved Instruction exception when executed by a Release 6 implementation. If the
 encoding has been used for a new instruction or coprocessor, the unusable exception takes priority",
 MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the Release 6 instructions of later waves
-(-- W3: the compact branches; -- W4: the new integer instructions; -- W6: the new FP instructions),
+(-- W3: the compact branches; -- W6: the new FP instructions),
 which decode as `.reserved` until transcribed; the TLB instructions, which under the Fixed Mapping MMU
 "are no longer required and must cause a Reserved Instruction Exception" (MD00090 Vol III Rev 6.02
 §A.1.3, p.317; TLBINV/TLBINVF with `Config4.IE = 0`, DECISIONS D4); the EJTAG instructions
@@ -75,7 +75,8 @@ inductive DecodeResult where
 of the profile. The positions: `rs`/`base`/`fmt` bits 25..21, `rt`/`ft`/`hint` 20..16, `rd`/`fs`
 15..11, `sa`/`fd`/`stype`/`lsb` 10..6, `immediate`/`offset` 15..0, the 9-bit `offset` of the Release
 6 `LL`/`SC`/`PREF` 15..7, `instr_index` 25..0, `sel` 2..0 (MFC0/MTC0) or 8..6 (RDHWR), the `code` of
-SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6. `EXT` reads `msbd` (15..11) as
+SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6, the 2-bit `sa` of `LSA` and `bp` of
+`ALIGN` 7..6 (LSA p.232, ALIGN p.39), the 19-bit immediate of `ADDIUPC`/`LWPC` 18..0 (p.37, p.246). `EXT` reads `msbd` (15..11) as
 `size - 1` and `INS` reads `msb` (15..11) as `pos + size - 1`, inverting the arithmetic `enc` writes
 (EXT p.183, INS p.192). `PAUSE` comes first: its diagram (`SPECIAL 0 0 0 5 SLL`, PAUSE p.317) is the
 `SLL` diagram (p.376) with every field fixed, and the more specific diagram names the instruction
@@ -204,8 +205,27 @@ def candidates (w : W32) : List Instruction :=
     -- BEGIN R6-2
     .eretnc,
     .sigrie (f 15 0),
-    .cache (f 25 21) (f 20 16) (f 15 7)
+    .cache (f 25 21) (f 20 16) (f 15 7),
     -- END R6-2
+    -- BEGIN R6-4
+    .mul (f 25 21) (f 20 16) (f 15 11),
+    .muh (f 25 21) (f 20 16) (f 15 11),
+    .mulu (f 25 21) (f 20 16) (f 15 11),
+    .muhu (f 25 21) (f 20 16) (f 15 11),
+    .div (f 25 21) (f 20 16) (f 15 11),
+    .mod (f 25 21) (f 20 16) (f 15 11),
+    .divu (f 25 21) (f 20 16) (f 15 11),
+    .modu (f 25 21) (f 20 16) (f 15 11),
+    .seleqz (f 25 21) (f 20 16) (f 15 11),
+    .selnez (f 25 21) (f 20 16) (f 15 11),
+    .lsa (f 25 21) (f 20 16) (f 15 11) (f 7 6),
+    .align (f 25 21) (f 20 16) (f 15 11) (f 7 6),
+    .bitswap (f 15 11) (f 20 16),
+    .addiupc (f 25 21) (f 18 0),
+    .lwpc (f 25 21) (f 18 0),
+    .auipc (f 25 21) (f 15 0),
+    .aluipc (f 25 21) (f 15 0)
+    -- END R6-4
     ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an

@@ -59,8 +59,11 @@ def execMemory (s : State) : Instruction → Option State
   | .sync _ => some <| mkNext s s
   -- `pref`: "Any action, including doing nothing, is permitted … PREF does
   -- not cause addressing-related exceptions" (MD00086 Vol II-A Rev 6.06,
-  -- PREF, p.321). A no-op; in particular it does not touch `llBit`.
-  | .pref _ _ _ => some <| mkNext s s
+  -- PREF, p.321). A no-op; in particular it does not touch `llBit`. Hints 24..31 "are not
+  -- implemented in the Release 6 architecture and generate a Reserved Instruction exception (RI)"
+  -- (Table 5.2, p.322-323).
+  | .pref _ hint _ => some <|
+    if 24 ≤ (hint &&& 31#32).toNat then takeException s excCodeRI else mkNext s s
   -- `synci` (MD00086 Vol II-A Rev 6.06, SYNCI, p.412-413): Operation
   -- `vaddr ← GPR[base] + sign_extend(offset); SynchronizeCacheLines(vaddr)`.
   -- The model has no caches (`Config1.IL = DL = 0`, `config1Value`) and

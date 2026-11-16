@@ -5,19 +5,23 @@ import Semantics.Specs.Invariants
 /-!
 # Arith — R-type arithmetic, logic and compare
 
-Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu`.
+Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu`; Release 6 (R6-4): `mul` `muh`
+`mulu` `muhu` `div` `mod` `divu` `modu` `seleqz` `selnez` `lsa`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   ADD p.33; ADDU p.38-39; SUB p.388; SUBU p.390; AND p.44; OR p.314; XOR p.446; NOR p.313;
-  SLT p.378; SLTU p.381.
+  SLT p.378; SLTU p.381; MUL MUH MULU MUHU p.300-301; DIV MOD DIVU MODU p.168-169; SELEQZ SELNEZ p.369;
+  LSA p.232.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "R-type arithmetic / logic"; "MIPS32 / MIPS32r2 additions (beyond the MARS-matched v1 baseline)".
 
-## Theorems in this file (14)
+## Theorems in this file (25)
 
   `add_spec_raw` `step_add_preserves_zero_register` `sub_spec_raw` `add_overflow_raises_ov`
   `sub_overflow_raises_ov` `add_overflow_not_wrapped` `addu_spec_raw` `subu_spec_raw`
   `and_spec_raw` `or_spec_raw` `xor_spec_raw` `nor_spec_raw` `slt_spec_raw` `sltu_spec_raw`
+  `mul_spec_raw` `muh_spec_raw` `mulu_spec_raw` `muhu_spec_raw` `div_spec_raw` `mod_spec_raw`
+  `divu_spec_raw` `modu_spec_raw` `seleqz_spec_raw` `selnez_spec_raw` `lsa_spec_raw`
 -/
 
 set_option maxRecDepth 4000
@@ -289,3 +293,128 @@ theorem sltu_spec_raw (s : State) (w rs rt rd : W32)
 #guard (let s := stepIn (prog1Spec (.sltu 8#32 9#32 10#32))
           (setRegsSpec (initialState textBase) [(8, 0xffffffff#32), (9, 1#32)])
         readReg s 10 == 0#32) = true
+
+-- BEGIN R6-4
+/-! ## Release 6: MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA -/
+
+/-- **`mul` writes the low word of the product** (MD00086 Vol II-A Rev 6.06, MUL MUH MULU MUHU, p.300-301;
+no exception, no HI/LO). -/
+theorem mul_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mul rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`muh` writes the high word of the signed 64-bit product** (p.300-301). -/
+theorem muh_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.muh rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := ((readReg s (regIdxSpec rs)).signExtend 64 * (readReg s (regIdxSpec rt)).signExtend 64).extractLsb' 32 32
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`mulu` writes the low word of the product** (the same as `mul`; p.301: "The low half of the integer
+multiplication result is identical for signed and unsigned"). -/
+theorem mulu_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mulu rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := readReg s (regIdxSpec rs) * readReg s (regIdxSpec rt)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`muhu` writes the high word of the unsigned 64-bit product** (p.300-301). -/
+theorem muhu_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.muhu rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := ((readReg s (regIdxSpec rs)).zeroExtend 64 * (readReg s (regIdxSpec rt)).zeroExtend 64).extractLsb' 32 32
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`div` writes the signed quotient, truncated toward zero** (DIV MOD DIVU MODU, p.168-169; `sdiv`
+wraps `-2^31 / -1` to `-2^31`). A zero divisor gives an UNPREDICTABLE result (p.168); the model's pin
+is the dividend (`Manual.modelOracle.divByZero`). -/
+theorem div_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then readReg s (regIdxSpec rs) else (readReg s (regIdxSpec rs)).sdiv (readReg s (regIdxSpec rt))
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`mod` writes the signed remainder, with the sign of the dividend** (p.168-169); 0 for a zero divisor
+(the pin). -/
+theorem mod_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mod rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then 0#32 else (readReg s (regIdxSpec rs)).srem (readReg s (regIdxSpec rt))
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`divu` writes the unsigned quotient** (p.168-169); the dividend for a zero divisor (the pin). -/
+theorem divu_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.divu rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then readReg s (regIdxSpec rs) else readReg s (regIdxSpec rs) / readReg s (regIdxSpec rt)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`modu` writes the unsigned remainder** (p.168-169); 0 for a zero divisor (the pin). -/
+theorem modu_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.modu rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then 0#32 else readReg s (regIdxSpec rs) % readReg s (regIdxSpec rt)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`seleqz` selects `$rs` when `$rt` is zero, else 0** (SELEQZ SELNEZ, p.369). -/
+theorem seleqz_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seleqz rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then readReg s (regIdxSpec rs) else 0#32
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`selnez` selects `$rs` when `$rt` is nonzero, else 0** (p.369). -/
+theorem selnez_spec_raw (s : State) (w rs rt rd : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.selnez rs rt rd))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := if readReg s (regIdxSpec rt) = 0#32 then 0#32 else readReg s (regIdxSpec rs)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`lsa` writes `($rs << (sa+1)) + $rt`**, `sa` the 2-bit field (LSA, p.232). -/
+theorem lsa_spec_raw (s : State) (w rs rt rd sa : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lsa rs rt rd sa))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := (readReg s (regIdxSpec rs) <<< ((sa &&& 3#32).toNat + 1)) + readReg s (regIdxSpec rt)
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+-- R6-4 examples: `-2^31 / -1`, a zero divisor (the pin), `muh` of two negative numbers, `lsa`.
+#guard (let s := stepIn (prog1Spec (.div 8#32 9#32 10#32))
+          (setRegsSpec (initialState textBase) [(8, 0x80000000#32), (9, 0xffffffff#32)])
+        readReg s 10 == 0x80000000#32) = true
+#guard (let s := stepIn (prog1Spec (.mod 8#32 9#32 10#32))
+          (setRegsSpec (initialState textBase) [(8, 0xfffffff9#32), (9, 2#32)])
+        readReg s 10 == 0xffffffff#32) = true
+#guard (let s := stepIn (prog1Spec (.divu 8#32 0#32 10#32))
+          (setRegsSpec (initialState textBase) [(8, 1234#32)])
+        readReg s 10 == 1234#32) = true
+#guard (let s := stepIn (prog1Spec (.muh 8#32 9#32 10#32))
+          (setRegsSpec (initialState textBase) [(8, 0x80000000#32), (9, 0x80000000#32)])
+        readReg s 10 == 0x40000000#32) = true
+#guard (let s := stepIn (prog1Spec (.lsa 8#32 9#32 10#32 3#32))
+          (setRegsSpec (initialState textBase) [(8, 1#32), (9, 2#32)])
+        readReg s 10 == 18#32) = true
+-- END R6-4

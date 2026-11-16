@@ -5,17 +5,18 @@ import Semantics.Specs.Fixtures
 /-!
 # BitOps — bit counting, sign extension, byte swap, bit-field extract/insert
 
-Constructors: `clo` `clz` `seb` `seh` `wsbh` `ext` `ins`.
+Constructors: `clo` `clz` `seb` `seh` `wsbh` `ext` `ins`; Release 6 (R6-4): `align` `bitswap`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  CLO p.134; CLZ p.135; SEB p.365; SEH p.366-367; WSBH p.445; EXT p.183-184; INS p.192-193.
+  CLO p.134; CLZ p.135; SEB p.365; SEH p.366-367; WSBH p.445; EXT p.183-184; INS p.192-193; ALIGN p.39;
+  BITSWAP p.92.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "MIPS32 / MIPS32r2 additions (beyond the MARS-matched v1 baseline)"; "MIPS32r2 rotate and bitfield extract/insert (v1.x addition)".
 
-## Theorems in this file (9)
+## Theorems in this file (11)
 
   `clo_spec_raw` `clz_spec_raw` `seb_spec_raw` `seh_spec_raw` `wsbh_spec_raw` `ext_spec_raw`
-  `ins_spec_raw` `ins_mask_absorb` `ins_outside_field_unchanged`
+  `ins_spec_raw` `ins_mask_absorb` `ins_outside_field_unchanged` `align_spec_raw` `bitswap_spec_raw`
 -/
 
 set_option maxRecDepth 4000
@@ -287,3 +288,34 @@ theorem ins_outside_field_unchanged (s s' : State) (w rt rs pos size : W32)
 #guard (let s := stepIn (prog1Spec (.ins 10#32 8#32 6#32 10#32))
           (setRegsSpec (initialState textBase) [(8, 0x159#32), (10, 0x12345678#32)])
         (readReg s 10 &&& ~~~(0x3ff#32 <<< 6)) == (0x12345678#32 &&& ~~~(0x3ff#32 <<< 6))) = true
+
+-- BEGIN R6-4
+/-! ## Release 6: ALIGN, BITSWAP -/
+
+/-- **`align` writes `($rt << 8·bp) | ($rs >> 8·(4-bp))`**, logical 32-bit shifts (ALIGN, p.39, an image
+page). -/
+theorem align_spec_raw (s : State) (w rs rt rd bp : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.align rs rt rd bp))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := (readReg s (regIdxSpec rt) <<< (8 * (bp &&& 3#32).toNat)) ||| (readReg s (regIdxSpec rs) >>> (8 * (4 - (bp &&& 3#32).toNat)))
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+/-- **`bitswap` reverses the bits of each byte** (BITSWAP, p.92; `bitswapWord`, equal to the manual's
+`reverse_bits_in_byte` of each byte, `Refine.bitswap_eq`). -/
+theorem bitswap_spec_raw (s : State) (w rd rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bitswap rd rt))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      let v := bitswapWord (readReg s (regIdxSpec rt))
+      { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
+  step_spec
+
+#guard (let s := stepIn (prog1Spec (.align 8#32 9#32 10#32 1#32))
+          (setRegsSpec (initialState textBase) [(8, 0x89abcdef#32), (9, 0x12345678#32)])
+        readReg s 10 == 0x34567889#32) = true
+#guard (let s := stepIn (prog1Spec (.bitswap 10#32 9#32))
+          (setRegsSpec (initialState textBase) [(9, 0x01020380#32)])
+        readReg s 10 == 0x8040c001#32) = true
+-- END R6-4

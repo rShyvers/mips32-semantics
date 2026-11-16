@@ -356,7 +356,7 @@ step_equivharness() {
 }
 
 # QEMU/LLVM differential oracle (scripts/oracle.py): behaviour suite (+ tests/asm), encodings vs llvm-mc, harness selftest.
-# Missing qemu-system-mips / LLVM tools is a FAIL, never a skip. Declared QEMU deviations and known model bugs do not fail the
+# Missing qemu-system-mipsel / LLVM tools is a FAIL, never a skip. Declared QEMU deviations and known model bugs do not fail the
 # step (they are counted and printed); any undeclared mismatch, stale declaration or harness error does.
 step_oracle() {
   local log=$1 rc st sm

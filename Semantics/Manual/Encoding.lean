@@ -39,6 +39,18 @@ def codeFormat (code fn : W32) : W32 := fld 6 26 0#32 ||| fld 20 6 code ||| fld 
 def off9Format (base rt off fn : W32) : W32 :=
   fld 6 26 0x1F#32 ||| fld 5 21 base ||| fld 5 16 rt ||| fld 9 7 off ||| fld 6 0 fn
 
+-- BEGIN R6-4
+/-- `opcode | rs | rt | rd | sub (3 bits) | operand (2 bits) | function`: the Release 6 diagrams whose
+`sa` position holds a 3-bit sub-function and a 2-bit operand, LSA p.232 (`000 sa`) and ALIGN p.39
+(`010 bp`). -/
+def sa2Format (op rs rt rd sub x fn : W32) : W32 :=
+  fld 6 26 op ||| fld 5 21 rs ||| fld 5 16 rt ||| fld 5 11 rd ||| fld 3 8 sub ||| fld 2 6 x ||| fld 6 0 fn
+
+/-- `PCREL | rs | minor (2 bits) | immediate (19 bits)`: ADDIUPC p.37 (`00`), LWPC p.246 (`01`). -/
+def pc19Format (rs minor imm : W32) : W32 :=
+  fld 6 26 0x3B#32 ||| fld 5 21 rs ||| fld 2 19 minor ||| fld 19 0 imm
+-- END R6-4
+
 /-- **The format diagram of each transcribed instruction** (MD00086 Vol II-A Rev 6.06, the Release 6
 diagram of each page, printed page of the diagram):
 
@@ -62,7 +74,13 @@ diagram of each page, printed page of the diagram):
 * SPECIAL3 `011111`: SEB p.365, SEH p.366, WSBH p.445 (BSHFL `100000` with sub-function `10000`,
   `11000`, `00010`), EXT p.183 (`000000`, `msbd = size-1`, `lsb = pos`), INS p.192 (`000100`, `msb =
   pos+size-1`, `lsb = pos`), RDHWR p.332 (`00000 rt rd 00 sel 111011`), and the 9-bit-offset diagrams
-  (`off9Format`) LL p.223 (`110110`), SC p.347 (`100110`), PREF p.321 (`110101`).
+  (`off9Format`) LL p.223 (`110110`), SC p.347 (`100110`), PREF p.321 (`110101`); BITSWAP p.92 (BSHFL
+  sub-function `00000`), ALIGN p.39 (`sa2Format`: BSHFL, bits 10..8 `010`, `bp`).
+* Release 6 SPECIAL: MUL/MUH p.300 (SOP30 `011000`, `sa` `00010`/`00011`), MULU/MUHU (SOP31 `011001`),
+  DIV/MOD p.168 (SOP32 `011010`), DIVU/MODU (SOP33 `011011`); SELEQZ p.369 (`110101`), SELNEZ
+  (`110111`); LSA p.232 (`sa2Format`: bits 10..8 `000`, `sa`, `000101`).
+* PCREL `111011` (Table A.13, p.455): ADDIUPC p.37 and LWPC p.246 (`pc19Format`, bits 20..19 `00`/`01`,
+  19-bit immediate), AUIPC p.48 and ALUIPC p.43 (bits 20..16 `11110`/`11111`, 16-bit immediate).
 * COP0 `010000`: MFC0 p.266 (MF `00000` | rt | rd | `0^8` | sel), MTC0 p.290 (MT `00100`), DI p.164
   and EI p.176 (MFMC0 `01011` | rt | `01100` | 0 | sc | `00` | `000`), ERET p.177 (CO 1 | `0^19` |
   `011000`), WAIT p.442 (CO 1 | code | `100000`), RDPGPR p.335 (`01010`), WRPGPR p.444 (`01110`).
@@ -212,6 +230,25 @@ def enc : Instruction → Option W32
   -- CACHE p.114, Release 6 diagram (SPECIAL3 | base | op | offset (9) | 0 | CACHE `100101`)
   | .cache base op off => some (off9Format base op off 0x25#32)
   -- END R6-2
+  -- BEGIN R6-4: the diagram of each Release 6 page (printed page in parentheses)
+  | .mul rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x18#32)     -- MUL `00010` SOP30 (p.300)
+  | .muh rs rt rd => some (rFormat 0#32 rs rt rd 3#32 0x18#32)     -- MUH `00011` SOP30 (p.300)
+  | .mulu rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x19#32)    -- MULU `00010` SOP31 (p.300)
+  | .muhu rs rt rd => some (rFormat 0#32 rs rt rd 3#32 0x19#32)    -- MUHU `00011` SOP31 (p.300)
+  | .div rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x1A#32)     -- DIV `00010` SOP32 (p.168)
+  | .mod rs rt rd => some (rFormat 0#32 rs rt rd 3#32 0x1A#32)     -- MOD `00011` SOP32 (p.168)
+  | .divu rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x1B#32)    -- DIVU `00010` SOP33 (p.168)
+  | .modu rs rt rd => some (rFormat 0#32 rs rt rd 3#32 0x1B#32)    -- MODU `00011` SOP33 (p.168)
+  | .seleqz rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x35#32)  -- SELEQZ `110101` (p.369)
+  | .selnez rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x37#32)  -- SELNEZ `110111` (p.369)
+  | .lsa rs rt rd sa => some (sa2Format 0#32 rs rt rd 0#32 sa 0x05#32)       -- LSA `000101` (p.232)
+  | .align rs rt rd bp => some (sa2Format 0x1F#32 rs rt rd 2#32 bp 0x20#32)  -- SPECIAL3 ALIGN `010` BSHFL (p.39)
+  | .bitswap rd rt => some (rFormat 0x1F#32 0#32 rt rd 0#32 0x20#32)         -- SPECIAL3 BITSWAP `00000` BSHFL (p.92)
+  | .addiupc rs imm => some (pc19Format rs 0#32 imm)                -- PCREL ADDIUPC `00` (p.37)
+  | .lwpc rs off => some (pc19Format rs 1#32 off)                   -- PCREL LWPC `01` (p.246)
+  | .auipc rs imm => some (iFormat 0x3B#32 rs 0x1E#32 imm)          -- PCREL AUIPC `11110` (p.48)
+  | .aluipc rs imm => some (iFormat 0x3B#32 rs 0x1F#32 imm)         -- PCREL ALUIPC `11111` (p.43)
+  -- END R6-4
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26
@@ -259,10 +296,10 @@ page of each diagram):
   are required to be zero ... If such fields are set to non-zero values, the operation of the
   processor is UNPREDICTABLE", §2.1.1, p.12): bits 10..6 of the SPECIAL three-register ALU functions
   ADD p.33, ADDU p.38, SUB p.388, SUBU p.390, AND p.44, OR p.314, XOR p.446, NOR p.313, SLT p.378,
-  SLTU p.381, SLLV p.377, SRAV p.384; bits 10..7 of SRLV/ROTRV (p.386, p.340); bits 25..21 of SLL
+  SLTU p.381, SLLV p.377, SRAV p.384, SELEQZ/SELNEZ p.369; bits 10..8 of LSA p.232; bits 10..7 of SRLV/ROTRV (p.386, p.340); bits 25..21 of SLL
   p.376 and SRA p.383; bits 25..22 of SRL/ROTR (p.385, p.339); bits 20..16 of JALR p.196; bits 25..11
   of SYNC p.407; bits 20..16 of CLZ p.135 and CLO p.134 (their `sa = 00001`); bits 25..21 of SEB p.365,
-  SEH p.366, WSBH p.445; bits 25..21 and 10..9 of RDHWR p.332; bit 6 of LL p.223, SC p.347, PREF p.321;
+  SEH p.366, WSBH p.445, BITSWAP p.92; bits 25..21 and 10..9 of RDHWR p.332; bit 6 of LL p.223, SC p.347, PREF p.321;
   bits 24..7 of ERET p.177 and ERETNC p.179 (bit 6 tells them apart); bit 6 of CACHE p.114; bits
   25..21 of SIGRIE p.375 (REGIMM `rt = 10111`); bits 10..3 of MFC0 p.266,
   MTC0 p.290; bits 10..6 and 4..0 of DI p.164, EI p.176; bits 10..0 of RDPGPR p.335, WRPGPR p.444;
@@ -289,8 +326,10 @@ def UnpredictableEncoding (w : W32) : Bool :=
   let nz (hi lo : Nat) : Bool := fldOf w hi lo != 0
   match op with
   | 0x00 =>  -- SPECIAL
-    if [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2A, 0x2B, 0x04, 0x07].contains fn
+    if [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2A, 0x2B, 0x04, 0x07,
+        0x35, 0x37].contains fn   -- R6-4: SELEQZ, SELNEZ
     then nz 10 6
+    else if fn == 0x05 then nz 10 8   -- R6-4: LSA
     else if fn == 0x06 then nz 10 7
     else if fn == 0x00 || fn == 0x03 then nz 25 21
     else if fn == 0x02 then nz 25 22
@@ -299,7 +338,7 @@ def UnpredictableEncoding (w : W32) : Bool :=
     else if fn == 0x10 || fn == 0x11 then sa == 1 && nz 20 16   -- CLZ, CLO
     else false
   | 0x1F =>  -- SPECIAL3
-    if fn == 0x20 && [0x10, 0x18, 0x02].contains sa then nz 25 21
+    if fn == 0x20 && [0x10, 0x18, 0x02, 0x00].contains sa then nz 25 21   -- R6-4: BITSWAP `00000`
     else if fn == 0x00 then sa + rd > 31          -- EXT: lsb + msbd > 31
     else if fn == 0x04 then sa > rd               -- INS: lsb > msb
     else if fn == 0x3B then nz 25 21 || nz 10 9   -- RDHWR

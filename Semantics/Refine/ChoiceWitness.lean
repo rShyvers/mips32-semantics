@@ -45,6 +45,7 @@ structure WP where
   bnw : W32 := 0#32
   bip : W32 := 0#32
   -- END R6-2
+  dz : W32 := 0#32  -- R6-4: `divByZero`
 
 /-- UNPREDICTABLE / UNDEFINED operations resolved as Reserved Instruction. -/
 def sigRI : Outcome := .signal .ReservedInstruction
@@ -71,10 +72,11 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   badInstrNoWord := fun _ => p.bnw
   badInstrP := fun _ => p.bip
   -- END R6-2
+  divByZero := fun _ _ _ => p.dz  -- R6-4
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split

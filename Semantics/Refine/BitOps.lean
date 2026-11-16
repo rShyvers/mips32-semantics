@@ -1,4 +1,7 @@
 import Semantics.Refine.BridgeIntAlu
+-- BEGIN R6-4
+import Semantics.Refine.IntArith
+-- END R6-4
 
 /-!
 # Refine.BitOps — count leading bits, sign extension, byte swap against `execInstr` (sub-wave 7C S1)
@@ -182,5 +185,42 @@ theorem ins_refines (s : State) (hg : Good s) (rt rs pos size w : W32)
     alu_run [Ops.INS, readGPR_abs s hg.2.2, hr', decide_false,
       ins_eq (readReg s (regIdx rs)) (readReg s (regIdx rt)) (low pos 5).toNat
         (low (pos + size - 1#32) 5).toNat (by omega) (low5_lt _)]
+
+-- BEGIN R6-4
+/-! ## Release 6: ALIGN, BITSWAP -/
+
+/-- **ALIGN refines** (MD00086 Vol II-A Rev 6.06, ALIGN, p.39): both sides shift by the 2-bit `bp`. -/
+theorem align_refines (s : State) (hg : Good s) (rs rt rd bp w : W32)
+    (hw : enc (.align rs rt rd bp) = some w) :
+    Execute modelCtx w (.align rs rt rd bp) (abs s) = some (abs (execInstr s (.align rs rt rd bp))) := by
+  obtain rfl : sa2Format 0x1F#32 rs rt rd 2#32 bp 0x20#32 = w := Option.some.inj hw
+  refine refine_gpr s hg _ _ (Ops.ALIGN rs rt rd bp) rd
+    ((readReg s (regIdx rt) <<< (8 * (bp &&& 3#32).toNat)) |||
+      (readReg s (regIdx rs) >>> (8 * (4 - (bp &&& 3#32).toNat))))
+    (fun h => nomatch h) ?_ ?_ rfl ?_ (execInstr_body s _ rfl rfl rfl)
+  · rw [InCop1Space, opcode_sa2Format]; rfl
+  · rw [InCop0Space, opcode_sa2Format, funct_sa2Format]; rfl
+  · alu_run [Ops.ALIGN, readGPR_abs s hg.2.2, low2_and3]
+
+/-- `BITSWAP`'s `reverse_bits_in_byte` of each byte (p.92) is the model's `bitswapWord`. -/
+theorem bitswap_eq (x : W32) :
+    (Ops.reverse_bits_in_byte (x.extractLsb' 24 8) ++ Ops.reverse_bits_in_byte (x.extractLsb' 16 8) ++
+      Ops.reverse_bits_in_byte (x.extractLsb' 8 8) ++ Ops.reverse_bits_in_byte (x.extractLsb' 0 8)) =
+      bitswapWord x := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [Ops.reverse_bits_in_byte, bitswapWord, bit, BitVec.getLsbD_append, BitVec.getLsbD_or,
+    BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_extractLsb',
+    BitVec.getLsbD_ofBool]
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
+
+/-- **BITSWAP refines.** -/
+theorem bitswap_refines (s : State) (hg : Good s) (rd rt w : W32)
+    (hw : enc (.bitswap rd rt) = some w) :
+    Execute modelCtx w (.bitswap rd rt) (abs s) = some (abs (execInstr s (.bitswap rd rt))) := by
+  obtain rfl : rFormat 0x1F#32 0#32 rt rd 0#32 0x20#32 = w := Option.some.inj hw
+  refine refine_gpr s hg _ _ (Ops.BITSWAP rd rt) rd (bitswapWord (readReg s (regIdx rt)))
+    (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ (execInstr_body s _ rfl rfl rfl)
+  alu_run [Ops.BITSWAP, readGPR_abs s hg.2.2, bitswap_eq]
+-- END R6-4
 
 end Refine

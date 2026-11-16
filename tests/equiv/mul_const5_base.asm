@@ -1,9 +1,8 @@
-# mul_const5_base.asm — $t9 = $a0 * 5 (mod 2^32), as 4*x + x with wrapping doublings (addu).
-# Release 6 removed MULT/MFLO; the Release 6 MUL is not modeled yet (W4).
+# mul_const5_base.asm — $t9 = $a0 * 5 (mod 2^32), with the Release 6 MUL (low word of the product;
+# MD00086 Vol II-A Rev 6.06, MUL MUH MULU MUHU, p.300-301).
 .text
 main:
-    addu $t1, $a0, $a0
-    addu $t1, $t1, $t1
-    addu $t9, $t1, $a0
+    li   $t1, 5
+    mul  $t9, $a0, $t1
     li   $v0, 10
     syscall

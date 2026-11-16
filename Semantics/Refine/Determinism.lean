@@ -57,11 +57,11 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
   all_goals (first | omega | decide)
 
 /-- The model's `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`
-outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are constants; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
+outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are constants; its `divByZero` value does not name the state; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
 change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
   · intro a r v
@@ -92,6 +92,7 @@ theorem modelOracle_valid : modelOracle.Valid := by
   -- BadInstr / BadInstrP: constants
   · intro _ _ _ _ _; rfl
   · intro _ _ _ _ _; rfl
+  · intro _ _ _ _ _ _; rfl  -- R6-4: divByZero
   -- UNDEFINED
   · intros; trivial
   -- QNaN

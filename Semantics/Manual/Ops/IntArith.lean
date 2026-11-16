@@ -136,4 +136,170 @@ def SLTU (rs rt rd : W32) : Pseudo Unit := do
   -- else GPR[rd] ← 0^GPRLEN
   else setGPR (reg rd) 0#32
 
+-- BEGIN R6-4
+/-! ## Release 6: same-width multiply and divide, select, scaled address
+
+`signed_word(x)` / `unsigned_word(x)` (p.301, p.169; not defined further by the manual) read the 32-bit
+`x` as a signed / unsigned integer (`BitVec.toInt` / `BitVec.toNat`). "product is twice the width of
+sources" (p.301): the integer product is taken as a 64-bit string (it fits: `|s1·s2| ≤ 2^62` signed,
+`< 2^64` unsigned), `lo_word`/`hi_word` its bits 31..0 / 63..32. `div` / `mod` are "2's complement
+integer division" / "2's complement modulo" (Table 1.1, p.5), defined on p.168: "(A div B)*B + (A mod
+B) = A, where (A mod B) has same sign as the dividend A, and abs(A mod B) < abs(B)": truncated
+division (`Int.tdiv`, `Int.tmod`; `Nat` `/`, `%` unsigned). `GPR[rd] ← quotient` keeps the low 32 bits
+(GPRLEN = 32; `-2^31 div -1 = 2^31` keeps `0x8000_0000`). -/
+
+/-- The 64-bit product string of two integers (`product ← s1 × s2`, MUL MUH MULU MUHU p.301). -/
+def product64 (z : Int) : BitVec 64 := BitVec.ofInt 64 z
+
+/-- `lo_word(product)` (p.301): bits 31..0. -/
+def lo_word (p : BitVec 64) : W32 := p.extractLsb' 0 32
+
+/-- `hi_word(product)` (p.301): bits 63..32. -/
+def hi_word (p : BitVec 64) : W32 := p.extractLsb' 32 32
+
+/-- **MUL rd, rs, rt** — MD00086 Vol II-A Rev 6.06, MUL MUH MULU MUHU, p.300 (diagram), p.301
+(Operation).
+```
+s1 ← signed_word(GPR[rs])
+s2 ← signed_word(GPR[rt])
+product ← s1 × s2      /* product is twice the width of sources */
+GPR[rd] ← lo_word( product )
+``` -/
+def MUL (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← signed_word(GPR[rs]); s2 ← signed_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toInt
+  let s2 := (← GPR (reg rt)).toInt
+  -- product ← s1 × s2
+  let product := product64 (s1 * s2)
+  -- GPR[rd] ← lo_word( product )
+  setGPR (reg rd) (lo_word product)
+
+/-- **MUH rd, rs, rt** — MUL MUH MULU MUHU, p.301: as `MUL`, `GPR[rd] ← hi_word( product )`. -/
+def MUH (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← signed_word(GPR[rs]); s2 ← signed_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toInt
+  let s2 := (← GPR (reg rt)).toInt
+  -- product ← s1 × s2
+  let product := product64 (s1 * s2)
+  -- GPR[rd] ← hi_word( product )
+  setGPR (reg rd) (hi_word product)
+
+/-- **MULU rd, rs, rt** — MUL MUH MULU MUHU, p.301.
+```
+s1 ← unsigned_word(GPR[rs])
+s2 ← unsigned_word(GPR[rt])
+product ← s1 × s2
+GPR[rd] ← lo_word( product )
+``` -/
+def MULU (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← unsigned_word(GPR[rs]); s2 ← unsigned_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toNat
+  let s2 := (← GPR (reg rt)).toNat
+  -- product ← s1 × s2
+  let product := product64 ((s1 * s2 : Nat) : Int)
+  -- GPR[rd] ← lo_word( product )
+  setGPR (reg rd) (lo_word product)
+
+/-- **MUHU rd, rs, rt** — MUL MUH MULU MUHU, p.301: as `MULU`, `GPR[rd] ← hi_word( product )`. -/
+def MUHU (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← unsigned_word(GPR[rs]); s2 ← unsigned_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toNat
+  let s2 := (← GPR (reg rt)).toNat
+  -- product ← s1 × s2
+  let product := product64 ((s1 * s2 : Nat) : Int)
+  -- GPR[rd] ← hi_word( product )
+  setGPR (reg rd) (hi_word product)
+
+/-- The Restriction of DIV MOD DIVU MODU (p.168): "If the divisor in GPR rt is zero, the result value
+is UNPREDICTABLE" (`Oracle.divByZero`, given the instruction `i` and the dividend `GPR[rs]`); otherwise
+the value `v` the Operation computes is written: `GPR[rd] ← v`. -/
+def divResult (i : Instruction) (rs rd : W32) (zero : Bool) (v : W32) : Pseudo Unit := do
+  if zero then
+    -- Restrictions (p.168): the divisor is zero, the result value is UNPREDICTABLE
+    let o ← Pseudo.oracle
+    let a ← Pseudo.get
+    setGPR (reg rd) (o.divByZero a i (← GPR (reg rs)))
+  else setGPR (reg rd) v
+
+/-- **DIV rd, rs, rt** — MD00086 Vol II-A Rev 6.06, DIV MOD DIVU MODU, p.168 (diagram, Restrictions),
+p.169 (Operation).
+```
+s1 ← signed_word(GPR[rs])
+s2 ← signed_word(GPR[rt])
+quotient ← s1 div s2
+GPR[rd] ← quotient
+``` -/
+def DIV (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← signed_word(GPR[rs]); s2 ← signed_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toInt
+  let s2 := (← GPR (reg rt)).toInt
+  -- quotient ← s1 div s2; GPR[rd] ← quotient
+  divResult (.div rs rt rd) rs rd (s2 == 0) (BitVec.ofInt 32 (s1.tdiv s2))
+
+/-- **MOD rd, rs, rt** — DIV MOD DIVU MODU, p.169: `remainder ← s1 mod s2`, `GPR[rd] ← remainder`
+(signed). -/
+def MOD (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← signed_word(GPR[rs]); s2 ← signed_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toInt
+  let s2 := (← GPR (reg rt)).toInt
+  -- remainder ← s1 mod s2; GPR[rd] ← remainder
+  divResult (.mod rs rt rd) rs rd (s2 == 0) (BitVec.ofInt 32 (s1.tmod s2))
+
+/-- **DIVU rd, rs, rt** — DIV MOD DIVU MODU, p.169: `s1 ← unsigned_word(GPR[rs])`, `s2 ←
+unsigned_word(GPR[rt])`, `quotient ← s1 div s2`, `GPR[rd] ← quotient`. -/
+def DIVU (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← unsigned_word(GPR[rs]); s2 ← unsigned_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toNat
+  let s2 := (← GPR (reg rt)).toNat
+  -- quotient ← s1 div s2; GPR[rd] ← quotient
+  divResult (.divu rs rt rd) rs rd (s2 == 0) (BitVec.ofNat 32 (s1 / s2))
+
+/-- **MODU rd, rs, rt** — DIV MOD DIVU MODU, p.169: `remainder ← s1 mod s2` (unsigned), `GPR[rd] ←
+remainder`. -/
+def MODU (rs rt rd : W32) : Pseudo Unit := do
+  -- s1 ← unsigned_word(GPR[rs]); s2 ← unsigned_word(GPR[rt])
+  let s1 := (← GPR (reg rs)).toNat
+  let s2 := (← GPR (reg rt)).toNat
+  -- remainder ← s1 mod s2; GPR[rd] ← remainder
+  divResult (.modu rs rt rd) rs rd (s2 == 0) (BitVec.ofNat 32 (s1 % s2))
+
+/-- **SELEQZ rd, rs, rt** — MD00086 Vol II-A Rev 6.06, SELEQZ SELNEZ, p.369.
+```
+SELEQZ: cond ← GPR[rt] = 0
+if cond then
+   tmp ← GPR[rs]
+else
+   tmp ← 0
+endif
+GPR[rd] ← tmp
+``` -/
+def SELEQZ (rs rt rd : W32) : Pseudo Unit := do
+  -- cond ← GPR[rt] = 0
+  let cond := (← GPR (reg rt)) == 0#32
+  -- if cond then tmp ← GPR[rs] else tmp ← 0
+  let tmp ← if cond then GPR (reg rs) else pure 0#32
+  -- GPR[rd] ← tmp
+  setGPR (reg rd) tmp
+
+/-- **SELNEZ rd, rs, rt** — SELEQZ SELNEZ, p.369: `SELNEZ: cond ← GPR[rt] ≠ 0`, then as `SELEQZ`. -/
+def SELNEZ (rs rt rd : W32) : Pseudo Unit := do
+  -- cond ← GPR[rt] ≠ 0
+  let cond := (← GPR (reg rt)) != 0#32
+  -- if cond then tmp ← GPR[rs] else tmp ← 0
+  let tmp ← if cond then GPR (reg rs) else pure 0#32
+  -- GPR[rd] ← tmp
+  setGPR (reg rd) tmp
+
+/-- **LSA rd, rs, rt, sa** — MD00086 Vol II-A Rev 6.06, LSA, p.232.
+```
+GPR[rd] ← sign_extend.32( GPR[rs] << (sa+1) + GPR[rt] )
+```
+"The scaling shift is formed by adding 1 to the 2-bit sa field, which is interpreted as unsigned"
+(Description, p.232); the shift binds tighter than the sum (Description: `(GPR[rs] << (sa+1)) +
+GPR[rt]`). On a 32-bit CPU `sign_extend.32` of the 32-bit sum is the sum. -/
+def LSA (rs rt rd sa : W32) : Pseudo Unit := do
+  -- GPR[rd] ← sign_extend.32( GPR[rs] << (sa+1) + GPR[rt] )
+  setGPR (reg rd) (sign_extend (((← GPR (reg rs)) <<< ((low sa 2).toNat + 1)) + (← GPR (reg rt))))
+-- END R6-4
+
 end Manual.Ops

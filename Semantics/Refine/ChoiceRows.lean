@@ -128,6 +128,56 @@ theorem rw_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a =
 
 end
 
+-- BEGIN R6-4
+/-! ## Release 6: `LWPC` while `LLbit = 1`; `DIV`/`MOD`/`DIVU`/`MODU` by zero with `rd ≠ 0`
+
+`LWPC` is a load (`loadClearsLL`). A zero divisor writes `divByZero` to `GPR[rd]`: the witness
+oracles give 0 and 1. -/
+
+section
+set_option linter.unusedSimpArgs false
+
+theorem rw_lwpc (rs off : W32) (a : Arch) (h : ConsultsOracle (.lwpc rs off) a = true) :
+    RowWitness (.lwpc rs off) a := by
+  have hl : a.LLbit = true := h
+  exact row_load rfl fun _ _ => by simp only [Ops.LWPC, bind, PC]; runp
+
+/-- A division row: the two witness values of `divByZero` reach `GPR[rd]`. -/
+theorem row_div {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation ins = some O)
+    (rd : W32)
+    (h : ∀ ce dz, RunP a (fun x => x.GPR (reg rd) = dz) (O (ctxOf modelImpl (wo { dz := dz } ce)) { arch := a })) :
+    RowWitness ins a :=
+  row_of hO { dz := 0#32 } { dz := 1#32 } _ _ (fun x y => obs_GPR _ _ _ (by decide) x y)
+    (fun ce => h ce 0#32) (fun ce => h ce 1#32)
+
+theorem rw_div (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.div rs rt rd) a = true) :
+    RowWitness (.div rs rt rd) a := by
+  simp only [ConsultsOracle, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h
+  obtain ⟨hz, hrd⟩ := h
+  have hw := fun (x : Arch) (v : W32) => writeGPR_GPR x (reg rd) v hrd
+  exact row_div rfl rd fun _ _ => by simp only [Ops.DIV, Ops.divResult]; runp
+theorem rw_mod (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.mod rs rt rd) a = true) :
+    RowWitness (.mod rs rt rd) a := by
+  simp only [ConsultsOracle, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h
+  obtain ⟨hz, hrd⟩ := h
+  have hw := fun (x : Arch) (v : W32) => writeGPR_GPR x (reg rd) v hrd
+  exact row_div rfl rd fun _ _ => by simp only [Ops.MOD, Ops.divResult]; runp
+theorem rw_divu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.divu rs rt rd) a = true) :
+    RowWitness (.divu rs rt rd) a := by
+  simp only [ConsultsOracle, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h
+  obtain ⟨hz, hrd⟩ := h
+  have hw := fun (x : Arch) (v : W32) => writeGPR_GPR x (reg rd) v hrd
+  exact row_div rfl rd fun _ _ => by simp only [Ops.DIVU, Ops.divResult]; runp
+theorem rw_modu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.modu rs rt rd) a = true) :
+    RowWitness (.modu rs rt rd) a := by
+  simp only [ConsultsOracle, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h
+  obtain ⟨hz, hrd⟩ := h
+  have hw := fun (x : Arch) (v : W32) => writeGPR_GPR x (reg rd) v hrd
+  exact row_div rfl rd fun _ _ => by simp only [Ops.MODU, Ops.divResult]; runp
+
+end
+-- END R6-4
+
 /-! ## Operations the witness oracle resolves as an exception -/
 
 section
