@@ -1,4 +1,4 @@
-# semantic-mips — `documentation` branch
+# mips32-semantics — `documentation` branch
 
 This is an orphan branch that holds only the project's prose documentation. The code branch holds the semantics: the
 Lean sources, proofs, tests and the gate. Mount this branch at `docs/` inside a checkout of the code branch. Repo-relative

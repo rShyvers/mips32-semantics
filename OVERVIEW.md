@@ -1,4 +1,4 @@
-# Semantic MIPS — full overview
+# MIPS32 Semantics — full overview
 
 This is the long-form overview that was the code branch's README up to commit fa69c20; the code branch now carries a short README. Paths are relative to the code checkout with this branch mounted at `docs/`.
 
@@ -6,7 +6,7 @@ A small-step operational semantics of a pre-Release-6 MIPS32 processor, written 
 assembler, a specification and proofs, two differential oracles (MARS 4.5; `qemu-system-mips` with
 `llvm-mc`), and a gate script that runs all of them.
 
-Extracted from [VibeCheck](https://github.com/rShyvers/VibeCheck) (a
+Extracted from [mips32-semantics-demo](https://github.com/rShyvers/mips32-semantics-demo) (formerly VibeCheck) (a
 hackathon project that builds a consumer product on top of this semantics)
 so the semantics can be read, built, and reviewed on their own, with no
 dependency on anything else in that project.

@@ -458,13 +458,13 @@ harness in the EquivHarness step) done in 7A; 5 (README) done in 7D part 2.
 5. README marks `_spec_raw` as restatements and `step_eq_manual` as the independent correctness result. A list of the `modelOracle`/`modelImpl` pins is in SPEC-NOTES.
 
 ### Critical Files for Implementation
-- /home/barracuda/Desktop/semantic-mips/Semantics/Step.lean
-- /home/barracuda/Desktop/semantic-mips/Semantics/State.lean
-- /home/barracuda/Desktop/semantic-mips/Semantics/Types.lean
-- /home/barracuda/Desktop/semantic-mips/Semantics/FpOps.lean
-- /home/barracuda/Desktop/semantic-mips/Semantics/Statements.lean
-- /home/barracuda/Desktop/semantic-mips/scripts/trace.py
-- /home/barracuda/Desktop/semantic-mips/Semantics/Specs/DecodeSpec.lean
+- Semantics/Step.lean
+- Semantics/State.lean
+- Semantics/Types.lean
+- Semantics/FpOps.lean
+- Semantics/Statements.lean
+- scripts/trace.py
+- Semantics/Specs/DecodeSpec.lean
 
 ## I.6 Wave 8: exact choice points, the third UNPREDICTABLE restriction, RECIP accuracy
 
