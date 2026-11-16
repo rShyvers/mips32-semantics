@@ -5,7 +5,7 @@ import Semantics.FpOpsCorrectIEEE
 
 The Release 6 operations `CMP.condn.fmt`, `MAX/MIN/MAXA/MINA.fmt`, `CLASS.fmt` and `RINT.fmt` of
 `Semantics/FpOps.lean` (§10, §11) meet their reference definitions of `Semantics/FpOpsSpec.lean`
-(block R6-6C) on **all** operands and every FCSR environment:
+on **all** operands and every FCSR environment:
 
 | model | reference | manual (MD00086 Vol II-A Rev 6.06) |
 |---|---|---|

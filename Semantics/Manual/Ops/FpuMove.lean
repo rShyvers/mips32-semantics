@@ -1,7 +1,7 @@
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuMove — FP moves (MD00086 Vol II-A Rev 6.06), 7B S4
+# Manual.Ops.FpuMove — FP moves (MD00086 Vol II-A Rev 6.06)
 
 `MFC1`, `MTC1`, `MFHC1`, `MTHC1`, `MOV.fmt` (Release 6 removed `MOVF.fmt`, `MOVT.fmt`, `MOVN.fmt`,
 `MOVZ.fmt`, `MOVF`, `MOVT`). "The move is non-arithmetic; it causes no IEEE 754 exceptions, and the FCSR Cause and FCSR

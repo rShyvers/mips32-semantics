@@ -8,7 +8,7 @@ import Semantics.Step
 import Semantics.Env
 
 /-!
-# DiffHarness — differential testing executable (Wave 3, docs/DESIGN.md §2/§6)
+# DiffHarness — differential testing executable (docs/DESIGN.md §2/§6)
 
 Runs every `.asm` program in `Semantics/tests/corpus/` through both our `Step`
 simulator and a real MARS 4.5 process, and compares their observable output

@@ -5,7 +5,7 @@ import Semantics.Specs.Invariants
 /-!
 # Arith — R-type arithmetic, logic and compare
 
-Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu`; Release 6 (R6-4): `mul` `muh`
+Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu`; Release 6: `mul` `muh`
 `mulu` `muhu` `div` `mod` `divu` `modu` `seleqz` `selnez` `lsa`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
@@ -400,7 +400,7 @@ theorem lsa_spec_raw (s : State) (w rs rt rd sa : W32)
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
   step_spec
 
--- R6-4 examples: `-2^31 / -1`, a zero divisor (the pin), `muh` of two negative numbers, `lsa`.
+-- Release 6 examples: `-2^31 / -1`, a zero divisor (the pin), `muh` of two negative numbers, `lsa`.
 #guard (let s := stepIn (prog1Spec (.div 8#32 9#32 10#32))
           (setRegsSpec (initialState textBase) [(8, 0x80000000#32), (9, 0xffffffff#32)])
         readReg s 10 == 0x80000000#32) = true

@@ -1,7 +1,7 @@
 import Semantics.Refine.ChoiceRows
 
 /-!
-# Refine.ChoiceRowsFp — the FP rows of `ConsultsOracle` are real choices (wave 9; R6-5)
+# Refine.ChoiceRowsFp — the FP rows of `ConsultsOracle` are real choices
 
 * every Operation that stores a 32-bit result into a 64-bit FPR (`StoreFPR(fpr, S/W, ...)`): the upper
   half of the FPR is UNPREDICTABLE (MD00082 Vol I-A Rev 6.01 §6.6.2, p.98; `Oracle.fprUpper`); the
@@ -9,7 +9,7 @@ import Semantics.Refine.ChoiceRows
   in `consults_row`);
 * `CVT.D.S` of a quiet NaN: two quiet NaNs (`Oracle.cvtQNaNToD`).
 
-(R6-5: the 64-bit FPU of Release 6 removed the odd-register rows of the 32-bit FPU, and
+(the 64-bit FPU of Release 6 removed the odd-register rows of the 32-bit FPU, and
 `FCSR.ABS2008 = 1` the `ABS`/`NEG` QNaN reading; the former rows `ADD/SUB/MUL/DIV/SQRT/RECIP/RSQRT/
 MOV/ABS/NEG.D`, `CVT.D.W` are no rows any more (`consults_row` closes them from the hypothesis). The helpers of the removed rows — `PairV`, `obs_pairV`, `obs_pair`, `row_AB`, `row_AA'S`,
 `row_AA'D`, `row_dist`, `row_b16`, `dl_*`/`dr_*`/`db_*` — were removed with them. Release 6 also removed

@@ -1,11 +1,11 @@
 import Semantics.Refine.Abs
 
 /-!
-# Refine.BridgeBits — the smallest bridge facts (wave R6-2)
+# Refine.BridgeBits — the smallest bridge facts
 
 Single-bit tests, the sign bit, the operating mode and the model's context: what `Refine/Fetch.lean`
 needs, split out of `Refine/Bridge.lean` so that the general exception processing there can use the
-instruction-fetch facts (`BadInstr`, wave R6-2).
+instruction-fetch facts (`BadInstr`).
 -/
 
 namespace Refine

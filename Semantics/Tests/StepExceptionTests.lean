@@ -148,7 +148,7 @@ private def vectorHandlerProg : Program :=
         | some s' => s'.cp0BadVAddr == 0x77#32 && s'.pc == textBase + 4#32
         | none => false)
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 8#32 0#32)) { regs0 with cp0BadVAddr := 0x10010001#32 }) 8 0x10010001#32
--- Timer (wave 5, F12): Count (9) and Compare (11) are R/W; Count advances once per step unless
+-- Timer (F12): Count (9) and Compare (11) are R/W; Count advances once per step unless
 -- Cause.DC = 1; a write to Compare clears Cause.TI; Count = Compare sets TI, read in Cause bit 30
 -- and (IPTI = 7 pin) IP7 (bit 15).
 #guard (match stepState (prog1 (.mtc0 8#32 9#32 0#32)) (setRegs regs0 [(8, 1000#32)]) with
@@ -510,7 +510,7 @@ private def cp0Unusable (s : State) : Bool :=
 #guard cp0Unusable (step1 (.cache 0#32 0x14#32 0#32) userSt)
 #guard cp0Unusable (step1 (.mfc0 8#32 0#32 0#32) userSt)   -- an unimplemented register too
 -- Undecodable COP0 words (rs = 3 reserved; TLBP; rs = 0x0d reserved) and CACHE: CpU in User Mode, RI in
--- Kernel Mode. (RDPGPR, 0x41400000, decodes since wave 6: `rdpgpr $0, $0`.)
+-- Kernel Mode. (RDPGPR, 0x41400000, decodes: `rdpgpr $0, $0`.)
 #guard (let w := 0x40600000#32
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
@@ -644,7 +644,7 @@ private def swIntSt : State := { regs0 with cp0Status := 0x20000101#32, cp0Cause
 #guard readReg (step1 (.wrpgpr 8#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 8 == 0x5678#32
 #guard readReg (step1 (.wrpgpr 0#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 0 == 0#32
 
--- ### Release 6 CP0 registers and instructions (Wave R6-2)
+-- ### Release 6 CP0 registers and instructions
 
 -- UserLocal (4,2) and KScratch1..6 (31,2..7): what mtc0 writes, mfc0 reads back
 -- (MD00090 Vol III Rev 6.02 Table 9.19, p.143; Table 9.84, p.311).

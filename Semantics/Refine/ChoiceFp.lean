@@ -1,14 +1,14 @@
 import Semantics.Refine.Step
 
 /-!
-# Refine.ChoiceFp — facts about the FP core and `FPResult` used by the choice-point proofs (wave 9)
+# Refine.ChoiceFp — facts about the FP core and `FPResult` used by the choice-point proofs
 
 * `FPResult_eq`: one FP operation's FCSR side as an `if` on the trap condition `trapC` (`fpc` writes
   `Cause`, `fpf` also the `Flags`; MD00082 Vol I-A Rev 6.01 §6.7.1, p.99).
 * `trapC_inv`, `trapC_fpf`, `fpf_fpf`: FCSR algebra of two consecutive FP operations (written for the
   pre-Release 6 `MADD.D`/`MSUB.D` rows, which Release 6 removed; kept as general facts).
 * Two quiet NaNs (`QA64`/`QB64`, `QA32`/`QB32`) for the QNaN fields of the witness oracles.
-(R6-5: the NaN branch of the binary `D` operations and the concrete facts of the witness values
+(the NaN branch of the binary `D` operations and the concrete facts of the witness values
 `SN64`, `One64`, `Four64` served the odd-register rows of the 32-bit FPU, which the 64-bit FPU of
 Release 6 removed; they were removed with them.)
 -/

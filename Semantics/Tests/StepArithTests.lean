@@ -91,7 +91,7 @@ example : raisesAddr (hstep (∅ : Program) misalignedState) excCodeAdEL (textBa
 -- (Release 6 removed MOVN/MOVZ, MULT/MULTU/DIV/DIVU/MFHI/MFLO/MTHI/MTLO, MUL (SPECIAL2) and
 -- MADD/MADDU/MSUB/MSUBU, and the HI/LO registers; their tests are gone.)
 
--- ### clo/clz/seb/seh (MIPS32/MIPS32r2 additions; see
+-- ### clo/clz/seb/seh (MIPS32 additions; see
 -- docs/spec/INSTRUCTION-REF.md)
 
 -- clo: all-ones -> 32; a mixed pattern; all-zero -> 0 leading ones
@@ -137,7 +137,7 @@ example : raisesAddr (hstep (∅ : Program) misalignedState) excCodeAdEL (textBa
 #guard nextRegEq (hstep (prog1 (.srav 10#32 8#32 9#32)) (setRegs regs0 [(8, 0x80000000#32), (9, 1#32)]))
   10 0xc0000000#32
 
--- ### rotr/rotrv/ext/ins/wsbh (MIPS32r2 additions; docs/spec/MIPS-COVERAGE-GAPS.md
+-- ### rotr/rotrv/ext/ins/wsbh (additions beyond MIPS32; docs/spec/MIPS-COVERAGE-GAPS.md
 -- §3.4)
 
 -- rotr: wrap-around is the whole point -- contrast directly with `srl` on

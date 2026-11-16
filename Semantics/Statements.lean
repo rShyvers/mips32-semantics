@@ -2,7 +2,7 @@ import Semantics.Specs.Defs
 import Semantics.Refine.Defs
 import Semantics.FpOpsSpec
 import Semantics.Manual.Accuracy
-import Semantics.Manual.Decode  -- 12b
+import Semantics.Manual.Decode
 
 /-!
 # Statements — the trusted surface, statements only
@@ -1729,7 +1729,7 @@ manual's diagrams do not have. -/
 theorem decoderSound_decode : Manual.DecoderSound decode := by
   sorry
 
--- 12b: the specification's own decoder (`Semantics/Manual/Decode.lean`) and the model's against it
+-- The specification's own decoder (`Semantics/Manual/Decode.lean`) and the model's against it
 /-- **The specification's decoder is sound for the diagrams**: an instruction `Manual.Decode`
 returns for `w` has the format diagram `w` (`Manual.enc`). -/
 theorem decode_diagram_sound (w : W32) (i : Instruction) (h : Manual.Decode w = .instr i) :
@@ -1760,7 +1760,6 @@ theorem decode_none_manual (w : W32) (h : decode w = none) (i : Instruction)
 /-- **`Manual.decodeDiagram` is sound** in the sense of `Manual.DecoderSound`. -/
 theorem decoderSound_decodeDiagram : Manual.DecoderSound Manual.decodeDiagram := by
   sorry
--- end 12b
 
 /-- **The model's Reset exception is the manual's** (`Manual.ResetException`, MD00090 Vol III
 Rev 6.02 §6.2.5, p.89-90) under the model's choice of the undefined registers, from every state whose

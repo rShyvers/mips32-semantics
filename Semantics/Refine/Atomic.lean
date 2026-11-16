@@ -1,7 +1,7 @@
 import Semantics.Refine.Memory
 
 /-!
-# Refine.Atomic — LL and SC against `execInstr` (7C S2)
+# Refine.Atomic — LL and SC against `execInstr`
 
 `LL` (MD00086 Vol II-A Rev 6.06, LL, p.223-224) loads like `LW` and starts the RMW sequence
 (`LLbit ← 1`, `LLAddr ← vAddr`); the model's `ll` the same. Under the model's oracle a load does not
@@ -9,9 +9,9 @@ clear `LLbit` (`Oracle.loadClearsLL`, `loadMemory_model`) and a store does (`Ora
 
 `SC` (SC, p.347-349) stores if `atomic_update`, which the transcription reads as `LLbit` and the
 aligned addresses `vAddr31..2 = LLAddr31..2` (p.347: "An SC will fail if the aligned address of the
-SC does not match that of the preceding LL"); since 7D part 1 the model compares the same bits,
-`s.llAddr >>> 2 == addr >>> 2`, so `sc_refines` holds for every state (7C S2 had a hypothesis
-`s.llAddr.toNat % 4 = 0` while the model compared the whole addresses; dropped in 7D part 2).
+SC does not match that of the preceding LL"); the model compares the same bits,
+`s.llAddr >>> 2 == addr >>> 2`, so `sc_refines` holds for every state (no hypothesis
+`s.llAddr.toNat % 4 = 0` is needed).
 -/
 
 namespace Refine

@@ -227,7 +227,7 @@ example : decode 0xa1090001#32 = some (.sb 8#32 9#32 1#32) := by decide
 nothing, is permitted … PREF does not cause addressing-related exceptions" (MD00086 Vol II-A Rev
 6.06, PREF, p.321): for hints 0..23 only `pc` changes, whatever the address. Hints 24..31 "are not
 implemented in the Release 6 architecture and generate a Reserved Instruction exception (RI)"
-(Table 5.2, p.322-323). (R6-4: the Reserved Instruction case is new; the statement before covered
+(Table 5.2, p.322-323). (The Reserved Instruction case is new; the statement before covered
 every hint as a no-op.) -/
 theorem pref_spec_raw (s : State) (w rs hint imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.pref rs hint imm))

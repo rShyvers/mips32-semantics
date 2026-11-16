@@ -74,8 +74,8 @@ def IsCTI : Instruction → Bool
   | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
-(`enc`; every constructor has a diagram since 7B). The model's `decode` satisfies it since 7R (the
-`JR`/`JALR` hint field is no longer ignored); proved in 7D (`Refine.decoderSound_decode`,
+(`enc`; every constructor has a diagram). The model's `decode` satisfies it (the
+`JR`/`JALR` hint field is not ignored); proved as (`Refine.decoderSound_decode`,
 `Semantics/Refine/Decode.lean`; on the trusted surface), and also checked by `#guard`s
 (`Semantics/Tests/ManualTests.lean`). Completeness on the model's well-formed instructions
 (`decode` returns `i` for the diagram of `i`) is `Refine.decode_of_enc`; it is not part of this
@@ -101,7 +101,7 @@ def Complete (a : Arch) (f : Frame) : Arch :=
     | none => { f.arch with PC := a.BranchDelay.getD (a.PC + 4#32), BranchDelay := none }
 
 /-- **Execute instruction `i`, fetched as `w`** (points 4-5). `none` only if `Operation i = none`,
-which no constructor has since 7B. -/
+which no constructor has. -/
 def Execute (c : Ctx) (w : W32) (i : Instruction) (a : Arch) : Option Arch :=
   if IsCTI i && a.BranchDelay.isSome then
     -- Release 6: a CTI in a delay slot signals Reserved Instruction (BEQ, Restrictions, p.72)
@@ -159,7 +159,7 @@ def FetchExecute (c : Ctx) (dec : W32 → Option Instruction) (a : Arch) : Optio
     | some i => Execute c w i a
 
 /-- **One instruction time** (points 1-6). `none` only if the instruction fetched had no
-transcribed Operation, which no constructor has since 7B (the `Option` is kept from 7A). -/
+transcribed Operation, which no constructor has (the `Option` is kept for the transcription's partiality). -/
 def InstructionTime (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) (a : Arch) :
     Option Arch :=
   let c : Ctx := { impl := i, oracle := o }

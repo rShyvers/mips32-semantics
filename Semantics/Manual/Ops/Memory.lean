@@ -3,7 +3,7 @@ import Semantics.Manual.Memory
 /-!
 # Manual.Ops.Memory — aligned loads and stores (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7A transcribes the pilots `LW` and `SW`. The alignment rule is in each page's Restrictions
+The alignment rule is in each page's Restrictions
 section (the Release 6 Operation leaves it out: "The pseudocode is not completely adapted for Release 6
 misalignment support"); it is transcribed as the first statement: this profile takes an Address Error
 for every misaligned access ("Release 6 allows hardware to provide address misalignment support in lieu
@@ -73,7 +73,7 @@ def SW (base rt offset : W32) : Pseudo Unit := do
     -- StoreMemory (CCA, WORD, dataword, pAddr, vAddr, DATA)
     StoreMemory CCA WORD dataword pAddr vAddr
 
-/-! ## 7B S2: the remaining byte, halfword and cache-hint pages -/
+/-! ## The remaining byte, halfword and cache-hint pages -/
 
 /-- **LB rt, offset(base)** — MD00086 Vol II-A Rev 6.06, LB, p.211.
 ```

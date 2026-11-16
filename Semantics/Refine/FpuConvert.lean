@@ -1,9 +1,9 @@
 import Semantics.Refine.BridgeFpu
 
 /-!
-# Refine.FpuConvert — FP conversions against `execInstr` (7C S4a)
+# Refine.FpuConvert — FP conversions against `execInstr`
 
-`ROUND/TRUNC/CEIL/FLOOR/CVT.W.fmt`, `CVT.D.S`, `CVT.D.W`, `CVT.S.D`, `CVT.S.W`, and (R6-5)
+`ROUND/TRUNC/CEIL/FLOOR/CVT.W.fmt`, `CVT.D.S`, `CVT.D.W`, `CVT.S.D`, `CVT.S.W`, and
 `ROUND/TRUNC/CEIL/FLOOR/CVT.L.fmt`, `CVT.S.L`, `CVT.D.L`. Every operand is flushed per `FCSR.FS`
 (`fcsrFS_abs`). The fixed rounding
 modes of `ROUND/TRUNC/CEIL/FLOOR` (MD00086 Vol II-A Rev 6.06, p.342, p.441, p.128, p.186: rounding mode
@@ -19,7 +19,7 @@ theorem roundingMode_round : IEEE.roundingMode 0#2 = .RN := rfl
 theorem roundingMode_trunc : IEEE.roundingMode 1#2 = .RZ := rfl
 theorem roundingMode_ceil : IEEE.roundingMode 2#2 = .RP := rfl
 theorem roundingMode_floor : IEEE.roundingMode 3#2 = .RM := rfl
--- R6-5: the rounding mode and `FCSR.FS` of the manual's state are the model's `fpEnv`.
+-- the rounding mode and `FCSR.FS` of the manual's state are the model's `fpEnv`.
 theorem roundingMode_env (s : State) : IEEE.roundingMode (FCSR_RM (abs s)) = (fpEnv s).rm := rfl
 theorem fcsrFS_abs (s : State) : FCSR_FS (abs s) = (fpEnv s).flush := rfl
 

@@ -68,7 +68,7 @@ def specExc (s : State) : Option W32 := (specTime s).map fun (a : Arch) => (a.Ca
 -- MTC0 to Compare clears the timer interrupt.
 #guard agree (loadImage (prog1 (.mtc0 8#32 11#32 0#32)) { setRegs regs0 [(8, 77#32)] with cp0TimerInt := true })
 
-/-! ## 7R review regressions (the reproducers of the independent review) -/
+/-! ## Regressions (the reproducers of the independent review) -/
 
 /-- An FP state for the spec: `FPR`s, `FCSR`; `Status.CU1` as in `regs0`. -/
 def fpState (instr : Instruction) (fprs : List (Fin 32 × W32)) (fcsr : W32 := 0#32) : State :=
@@ -113,8 +113,8 @@ def soundAt (w : W32) : Bool :=
   soundAt (BitVec.ofNat 32 (op * 2^26 + fn)) && soundAt (BitVec.ofNat 32 (op * 2^26 + 0x03FFFFC0 + fn)) &&
     soundAt (BitVec.ofNat 32 (op * 2^26 + 0x00000400 + fn))
 
--- 7C S3: a `j`/`jal` built by hand with `target` bits above the 26-bit `instr_index` (MD00086 Vol II-A
--- Rev 6.06, J p.194, JAL p.195): spec and model use only its low 26 bits (model fix in 7C S3).
+-- a `j`/`jal` built by hand with `target` bits above the 26-bit `instr_index` (MD00086 Vol II-A
+-- Rev 6.06, J p.194, JAL p.195): spec and model use only its low 26 bits.
 #guard (match Execute { impl := modelImpl, oracle := modelOracle } 0#32 (.j 0xFFFFFFFF#32) (abs regs0) with
         | some a => a.BranchDelay == (execInstr regs0 (.j 0xFFFFFFFF#32)).pendingBranch &&
             a.BranchDelay == some (((regs0.pc + 4#32) &&& 0xF0000000#32) ||| 0x0FFFFFFC#32)
@@ -123,8 +123,7 @@ def soundAt (w : W32) : Bool :=
         | some a => a.BranchDelay == (execInstr regs0 (.jal 0x0C000001#32)).pendingBranch &&
             a.BranchDelay == some (((regs0.pc + 4#32) &&& 0xF0000000#32) ||| 0x4#32)
         | none => false)
--- end 7C S3
--- 7C S4b: begin
+-- begin
 /-- The spec's `Execute` of the instruction `i` (fetched as its own diagram) against the model's
 `execInstr`, on the compared fields. -/
 def execAgree (i : Instruction) (s : State) : Bool :=
@@ -136,16 +135,16 @@ def execAgree (i : Instruction) (s : State) : Bool :=
   | none => false
 
 -- CTC1 to `UFR` (`fs = 1`): Release 6 traps with Reserved Instruction (ExcCode 10), FCSR unchanged
--- (MD00086 Vol II-A Rev 6.06, CTC1 p.149-150: "Release 6 traps"; 7C S4b had the pre-Release 6
--- `CheckFPException()` after the UNPREDICTABLE arm).
+-- (MD00086 Vol II-A Rev 6.06, CTC1 p.149-150: "Release 6 traps"; the pre-Release 6
+-- manual ran `CheckFPException()` after the UNPREDICTABLE arm).
 #guard agree (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)
 #guard (match specTime (fpState (.ctc1 8#32 1#32) [] 0x00010800#32) with
         | some a => (a.Cause >>> 2) &&& 0x1F#32 == 10#32 && a.EPC == textBase && a.FCSR == 0x00010800#32
         | none => false)
 #guard ((step (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)).cp0Cause >>> 2) &&& 0x1F#32 == 10#32
--- 7C S4b: end
+-- end
 
-/-! ## Wave R6-1: the Release 6 instructions and encodings, little-endian memory -/
+/-! ## The Release 6 instructions and encodings, little-endian memory -/
 
 -- AUI (p.47): `GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)`; LUI is AUI with `rs = 0`.
 #guard agree (loadImage (prog1 (.aui 8#32 9#32 0x1234#32)) (setRegs regs0 [(8, 0x00005678#32)]))

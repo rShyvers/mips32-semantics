@@ -3,7 +3,7 @@ import Semantics.Tests.StepFixtures
 /-!
 # `step` tests: coprocessor 1 (FPU)
 
-Originally moved out of `Semantics/Step.lean` (reviewability restructuring); updated for the Release 6 FPU (wave R6-5).
+Originally moved out of `Semantics/Step.lean` (reviewability restructuring); updated for the Release 6 FPU.
 Every check that calls `step`/`run` is a `#guard` (see `StepFixtures.lean` for why).
 -/
 
@@ -269,7 +269,7 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 
 -- (Release 6 removed MADD/MSUB/NMADD/NMSUB.fmt, C.cond.fmt, BC1F/BC1T/BC1FL/BC1TL and the
 -- conditional moves MOVF/MOVT/MOVN/MOVZ(.fmt); their tests are gone. Their Release 6 replacements
--- CMP.condn.fmt, BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt are tested below, R6-6B.)
+-- CMP.condn.fmt, BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt are tested below.)
 
 -- #### Control registers: cfc1 / ctc1 (MD00086 Vol II-A Rev 6.06, CFC1 p.129-130, CTC1 p.149-151)
 -- FIR (0) is the constant 0x00f30000 (S, D, W, L, F64, Has2008)

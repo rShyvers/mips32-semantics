@@ -184,11 +184,11 @@ def r6Lines : List String :=
    "jr.hb $t1",
    "nop",
    "ehb",
-   -- R6-5 (C): longword conversions
+   -- longword conversions
    "cvt.l.s $f0, $f2", "cvt.l.d $f0, $f2", "round.l.s $f0, $f2", "round.l.d $f0, $f2",
    "trunc.l.s $f0, $f2", "trunc.l.d $f0, $f2", "ceil.l.s $f0, $f2", "ceil.l.d $f0, $f2",
    "floor.l.s $f0, $f2", "floor.l.d $f0, $f2", "cvt.s.l $f0, $f2", "cvt.d.l $f0, $f2",
-   -- DVP p.172, EVP p.181 (Wave R6-7)
+   -- DVP p.172, EVP p.181
    "dvp $t0", "evp"]
 
 /-- LLVM's words for `r6Lines` (see the module docstring). -/
@@ -215,7 +215,7 @@ def r6Words : List W32 :=
    0x46201006#32, 0x46201007#32, 0x46201015#32, 0x46201016#32, 0x4620100c#32, 0x4620100d#32,
    0x4620100e#32, 0x4620100f#32, 0x46201024#32, 0x46201020#32, 0x01200009#32, 0x01200409#32,
    0x00000000#32, 0x000000c0#32,
-   -- R6-5 (C): `llvm-mc-21 -triple=mips -mcpu=mips32r6 -show-encoding`
+   -- `llvm-mc-21 -triple=mips -mcpu=mips32r6 -show-encoding`
    0x46001025#32, 0x46201025#32, 0x46001008#32, 0x46201008#32, 0x46001009#32, 0x46201009#32,
    0x4600100a#32, 0x4620100a#32, 0x4600100b#32, 0x4620100b#32, 0x46a01020#32, 0x46a01021#32,
    0x41680024#32, 0x41600004#32]
@@ -223,8 +223,7 @@ def r6Words : List W32 :=
 #guard r6Lines.length = r6Words.length
 #guard asmText (srcLines r6Lines) = some r6Words
 
-/-- The Release 6 integer, select, scaled-address, byte-align, bit-swap and PC-relative forms (wave
-R6-4). No label is involved, so `r6Lines`' words are unchanged by them. -/
+/-- The Release 6 integer, select, scaled-address, byte-align, bit-swap and PC-relative forms. No label is involved, so `r6Lines`' words are unchanged by them. -/
 def r6IntLines : List String :=
   ["mul $t0, $t1, $t2", "muh $t0, $t1, $t2", "mulu $t0, $t1, $t2", "muhu $t0, $t1, $t2",
    "div $t0, $t1, $t2", "mod $t0, $t1, $t2", "divu $t0, $t1, $t2", "modu $t0, $t1, $t2",
@@ -256,7 +255,7 @@ def r6IntWords : List W32 :=
 -- the pre-Release 6 two-operand `div`/`divu`/`mul` forms are not accepted
 #guard asmFails "div $t0, $t1\n"
 #guard asmFails "divu $t0, $t1\n"
-/-- The Release 6 FP forms (wave R6-6): CMP.condn.fmt for every `condn` of Table A.17 (MD00086 Vol
+/-- The Release 6 FP forms: CMP.condn.fmt for every `condn` of Table A.17 (MD00086 Vol
 II-A Rev 6.06, p.457), SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT (.s, .d). -/
 def r6FpLines : List String :=
   ["cmp.af.s $f1, $f2, $f3", "cmp.af.d $f1, $f2, $f3", "cmp.un.s $f1, $f2, $f3",
@@ -316,7 +315,7 @@ def r6FpWords : List W32 :=
 -- every golden word decodes, and re-encodes to itself (the model's decoder accepts exactly these)
 #guard r6Words.all fun w => (decode w).map encode == some w
 
-/-- Wave R6-2 mnemonics (ERETNC, SIGRIE, CACHE), with the words of
+/-- Release 6 privileged mnemonics (ERETNC, SIGRIE, CACHE), with the words of
 `llvm-mc -triple=mipsel -mcpu=mips32r6 -show-encoding` (llvm-mc 21). -/
 def r62Lines : List String :=
   ["eretnc", "sigrie 5", "sigrie 0", "sigrie 65535", "cache 20, -8($9)", "cache 1, 255($4)",
@@ -341,8 +340,8 @@ def r62Words : List W32 :=
 
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
-  m == "rdpgpr" || m == "wrpgpr" || compactBranchTable.any (·.1 == m) /- R6-3: `compactLines` -/ ||
-    (r6Lines ++ r62Lines ++ r6IntLines ++ r6FpLines ++ ["bc1eqz", "bc1nez"] /- R6-6B -/).any fun l =>
+  m == "rdpgpr" || m == "wrpgpr" || compactBranchTable.any (·.1 == m) /- `compactLines` -/ ||
+    (r6Lines ++ r62Lines ++ r6IntLines ++ r6FpLines ++ ["bc1eqz", "bc1nez"]).any fun l =>
       ((l.splitOn " ").filter (· != "L:")).head? == some m
 #guard instrMnemonics.eraseDups.length = instrMnemonics.length
 -- RDPGPR/WRPGPR: COP0 010000 | 01010 / 01110 | rt | rd | 0 (MD00086 Vol II-A Rev 6.06, RDPGPR p.335,
@@ -441,7 +440,7 @@ def dataProg : Program :=
   asmUnknown "teqi $t0, 1\n" ∧ asmUnknown "lwl $t0, 0($t1)\n" ∧ asmUnknown "c.eq.s $f0, $f2\n" ∧
   asmUnknown "bc1t 0\n" ∧ asmUnknown "madd.s $f0, $f2, $f4, $f6\n" ∧ asmUnknown "lwxc1 $f0, $t0($t1)\n" ∧
   asmUnknown "movn $t0, $t1, $t2\n" ∧ asmUnknown "madd $t0, $t1\n"
--- R6-4: `mul rd, rs, rt` (expected unknown before) is the Release 6 MUL (MD00086 Vol II-A Rev 6.06, p.300)
+-- `mul rd, rs, rt` (expected unknown before) is the Release 6 MUL (MD00086 Vol II-A Rev 6.06, p.300)
 #guard asmText "mul $t0, $t1, $t2\n" = some [encode (.mul 9#32 10#32 8#32)]
 
 -- One error case per major `AsmError` kind.

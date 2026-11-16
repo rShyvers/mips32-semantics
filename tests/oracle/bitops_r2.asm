@@ -1,4 +1,4 @@
-# MIPS32r2 rotate/byte ops: rotr rotrv seb seh wsbh; clz clo.
+# Rotate/byte ops: rotr rotrv seb seh wsbh; clz clo.
 # MD00086 Vol II-A Rev 6.06: ROTR p.339, ROTRV p.340, SEB p.365, SEH p.366-367, WSBH p.445, CLZ p.135, CLO p.134.
 # oracle: expect gpr:s0=0x81234567 gpr:s1=0x78123456 gpr:s2=0xffffff80 gpr:s3=0x00007fff gpr:s4=0x34127856
 li $t0, 0x12345678

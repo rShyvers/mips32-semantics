@@ -110,7 +110,7 @@ theorem srav_spec_raw (s : State) (w rd rt rs : W32)
   step_spec
 
 /-- **`rotr` rotates `$rt` right by the fixed `sa` field, wrapping bits
-shifted off the bottom around to the top** (MIPS32r2; INSTRUCTION-REF "rotr",
+shifted off the bottom around to the top** (INSTRUCTION-REF "rotr",
 docs/spec/MIPS-COVERAGE-GAPS.md §3.4) — unlike `srl`'s zero-fill on the same
 input. `BitVec.rotateRight` is the exact operation `step` itself uses. -/
 theorem rotr_spec_raw (s : State) (w rd rt sa : W32)
@@ -126,7 +126,7 @@ theorem rotr_spec_raw (s : State) (w rd rt sa : W32)
   step_spec
 
 /-- **`rotrv` rotates `$rt` right by `$rs`'s low 5 bits, wrapping around**
-(MIPS32r2; INSTRUCTION-REF "rotrv"). Same masking as `sllv`/`srlv`/`srav`,
+(INSTRUCTION-REF "rotrv"). Same masking as `sllv`/`srlv`/`srav`,
 same wrap-around as `rotr`. -/
 theorem rotrv_spec_raw (s : State) (w rd rt rs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rotrv rd rt rs))

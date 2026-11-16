@@ -1,7 +1,7 @@
 import Semantics.Refine.ChoiceRowsFp
 
 /-!
-# Refine.ChoiceExact — `ChoiceFree` is exact (wave 9)
+# Refine.ChoiceExact — `ChoiceFree` is exact
 
 `choiceFree_exact`: at every state where `Manual.ChoiceFree modelImpl dec a` is `false`, two valid
 oracles give different instruction times. With `manual_step_deterministic` (the other direction,
@@ -24,7 +24,7 @@ namespace Refine
 
 open Manual
 
-/-- Every constructor has an Operation (7B). -/
+/-- Every constructor has an Operation. -/
 theorem operation_some (ins : Instruction) : ∃ op, Operation ins = some op := by
   cases ins <;> exact ⟨_, rfl⟩
 
@@ -135,7 +135,7 @@ theorem sep_run (a : Arch) (p₁ p₂ : WP) (P₁ P₂ : Arch → Prop) (hobs : 
   · exact sep_gep a p₁ p₂ _ _ _ _ h₁ h₂
 
 set_option maxHeartbeats 1000000 in
-/-- **`ChoiceFree` is exact** (wave 9): at every state where it is `false`, two valid resolutions of
+/-- **`ChoiceFree` is exact**: at every state where it is `false`, two valid resolutions of
 the manual's choices give different instruction times. -/
 theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
     (h : ChoiceFree modelImpl dec a = false) :

@@ -15,15 +15,15 @@ p.93-94). FCSR fields: MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8 (p.92-95). Ex
 **Shared dependency.** The IEEE 754 arithmetic itself (the exact result, the one correctly rounded
 pack under the rounding mode, the five IEEE flags) is the rounding core of `Semantics/FpOps.lean`
 (`Mips.Fp.f32Add`, `f32Sub`, `f32Mul`, `f32Div`, `f32Sqrt`, the conversions, and their 64-bit
-forms), wrapped below as `Manual.IEEE.*`. Since wave 10 the core's rounding and `ADD`/`SUB`/`MUL`/
+forms), wrapped below as `Manual.IEEE.*`. The core's rounding and `ADD`/`SUB`/`MUL`/
 `DIV`/`SQRT` are proved correct against the IEEE definition of `Semantics/FpOpsSpec.lean`
-(`Semantics/FpOpsCorrect*.lean`; docs/MANUAL-SPEC.md I.8), and since wave 11 every function used here
+(`Semantics/FpOpsCorrect*.lean`; docs/MANUAL-SPEC.md I.8), and every function used here
 on every operand (special operands, the NaN rule, conversions, compares; MANUAL-SPEC I.9); what stays
 trusted is the reference of `Semantics/FpOpsSpec.lean` and the pins it names. The FCSR bookkeeping around it (Cause, Enables, Flags,
 the trap) is transcribed here again from the manual; `Mips.Fp.fpUpdate`, `Mips.Fp.envOf` and the
 FCSR masks of `FpOps.lean` are not used.
 
-**What the core fixes that the manual leaves to the implementation** (7R). The model's choices are
+**What the core fixes that the manual leaves to the implementation**. The model's choices are
 kept out of the core where they are cheap to lift:
 
 * `ABS.fmt`/`NEG.fmt` (non-arithmetic with `FCSR.ABS2008 = 1`): transcribed here (`absS` …), the
@@ -60,7 +60,7 @@ def FCSR_Enables (a : Arch) : BitVec 5 := a.FCSR.extractLsb' 7 5
 /-- `FCSR.FS` (bit 24), flush to zero. -/
 def FCSR_FS (a : Arch) : Bool := bit a.FCSR 24
 
-/-! ## The IEEE core (shared, `Semantics/FpOps.lean`; proved correct in wave 10) -/
+/-! ## The IEEE core (shared, `Semantics/FpOps.lean`; proved correct) -/
 
 namespace IEEE
 
@@ -135,7 +135,7 @@ def FPResult {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
   Pseudo.modify fun a => { a with FCSR := a.FCSR ||| (fl <<< 2) }
   pure r.1
 
-/-! ## 7B S4 FPU: the rest of the FP vocabulary -/
+/-! ## FPU: the rest of the FP vocabulary -/
 
 namespace IEEE
 

@@ -221,7 +221,7 @@ On every state of the hosted run of every program in `tests/corpus` and `tests/o
 independent spec's instruction time `Manual.InstructionTime modelImpl modelOracle decode (abs s)` is
 compared with `abs (step s)`, field by field (memory: the bytes the model wrote in this step and the
 aligned word around the effective address of a load or store). Every constructor has a transcribed
-Operation since 7B, so `Manual.InstructionTime` is never `none` (and `Refine.step_eq_manual` proves the
+Operation, so `Manual.InstructionTime` is never `none` (and `Refine.step_eq_manual` proves the
 equality on every state of the invariant); a state where it would be `none` is still counted as
 skipped, and the count is expected to be 0. Every mismatch is a FAIL. -/
 
@@ -262,7 +262,7 @@ def memCheckAddrs (s s' : State) : List PAddr :=
   let ea : List PAddr :=
     match readMemWord s s.pc |>.bind decode with
     | some (.lw b _ o) | some (.sw b _ o)
-    -- 7B S2: every other load/store of the memory family
+    -- every other load/store of the memory family
     | some (.lb b _ o) | some (.lbu b _ o) | some (.lh b _ o) | some (.lhu b _ o) | some (.sb b _ o)
     | some (.sh b _ o) =>
       let va := readReg s (regIdx b) + signExt16 o
@@ -273,7 +273,7 @@ def memCheckAddrs (s s' : State) : List PAddr :=
       let va := readReg s (regIdx b) + signExt9 o
       let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
       [pa, pa + 1#32, pa + 2#32, pa + 3#32]
-    -- 7B S4 FPU: the bytes an FP store may write (aligned word, or the doubleword)
+    -- FPU: the bytes an FP store may write (aligned word, or the doubleword)
     | some (.swc1 b _ o) | some (.sdc1 b _ o) =>
       let va := readReg s (regIdx b) + signExt16 o
       let pa := fixedMappingPA (erlSet s) va &&& ~~~7#32

@@ -2,7 +2,7 @@
 # timer interrupt restarts it and is taken "between the WAIT instruction and the following instruction (EPC for the interrupt points at
 # the instruction following the WAIT instruction)"; after eret execution continues there. The instruction after `wait` runs once.
 # MD00086 Vol II-A Rev 6.06 WAIT p.442-443; MD00090 Vol III Rev 6.02 sec 9.30 p.187, Table 6.2 p.73, sec 6.2.26 p.102.
-# Robust to host load (wave 9; the race irq_timer had, which a `wait` cannot poll for):
+# Robust to host load (the race irq_timer had, which a `wait` cannot poll for):
 # - Compare is armed with IE = 0 and Count is read again: if Count is already at or past Compare (signed Count - Compare >= 0), the
 #   match "When the value of the Count register equals the value of the Compare register" (sec 9.30 p.187) was missed and would
 #   happen only after Count wraps, so Compare is re-armed. Once the check passes the match is still ahead, and the timer request

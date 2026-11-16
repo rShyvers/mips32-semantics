@@ -3,14 +3,14 @@ import Semantics.Manual.Decode
 import Semantics.Tests.ManualTests
 
 /-!
-# DecodeDiagramTests — the specification's own decoder `Manual.Decode` (wave 12b)
+# DecodeDiagramTests — the specification's own decoder `Manual.Decode`
 
 Concrete words through `Manual.Decode`, and the regression of audit finding D1: `MFC0` of a register
 coprocessor 0 does not contain (`rd = 0`, `sel = 0`, `Index`, absent under the Fixed Mapping MMU) is
 a word of the MFC0 diagram (MD00086 Vol II-A Rev 6.06, MFC0, p.266). Before Release 6 its result was
 UNDEFINED and the model's `decode` rejected it; in Release 6 "Reading a reserved register or a
 register that is not implemented for the current core configuration returns 0" (p.266), so both
-decoders accept it and both the model and the specification read 0 (wave R6-2).
+decoders accept it and both the model and the specification read 0.
 -/
 
 open Manual Refine ManualTest
@@ -41,7 +41,7 @@ def sIndex : State := loadImage (prog1 (.mfc0 9#32 0#32 0#32)) (setRegs regs0 [(
         | some a => a.GPR 9 == 0#32
         | none => false)
 
-/-! ## Wave R6-1: the Release 6 diagrams -/
+/-! ## The Release 6 diagrams -/
 
 -- PAUSE (`SLL r0, r0, 5`, p.317) is decoded as PAUSE, not as SLL; SLL r0, r0, 3 (EHB) stays SLL.
 #guard Decode 0x00000140#32 == .instr .pause

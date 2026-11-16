@@ -42,7 +42,7 @@ inductive Exception where
 /-- What the processor does for one UNPREDICTABLE or UNDEFINED operation that the oracle resolves:
 signal an exception, execute the instruction as if the condition did not hold, or produce some
 other architectural state. The limits on that state (MD00086 Vol II-A Rev 6.06 §1.2, p.3-4) are
-`Manual.UnpredictableLimits` (7D). -/
+`Manual.UnpredictableLimits`. -/
 inductive Outcome where
   | signal (e : Exception)
   | proceed
@@ -87,18 +87,17 @@ structure Impl where
   CCRes : W32
   /-- `RDHWR` register 1, `SYNCI_Step` (RDHWR, Table 5.4, p.332). -/
   SYNCIStep : W32
-  -- 7B S2
   /-- `SYNCI` from User Mode with an effective address in kernel address space signals Address Error
   (AdEL): "An Address Error Exception (with cause code equal AdEL) may occur if the effective address
   references a portion of the kernel address space which would normally result in such an exception.
   It is implementation dependent whether such an exception does occur" (MD00086 Vol II-A Rev 6.06,
   SYNCI, p.412). -/
   SynciAddressError : Bool
-  -- 7B S4 FPU
+  -- FPU
   /-- `FIR`, the FP Implementation Register (`CFC1` with `fs = 0`; MD00082 Vol I-A Rev 6.01 §6.5.1,
   p.87, Table 6.5 p.88-90), read-only and implementation-dependent. -/
   FIR : W32
-  -- 7R: the reciprocal approximations (not part of the IEEE core)
+  -- the reciprocal approximations (not part of the IEEE core)
   /-- `RECIP.S`: the approximation of `1.0 / fs` under the FCSR environment, with the IEEE exceptions
   it raises. "The numeric accuracy of this operation is implementation dependent. It does not meet
   the accuracy specified by the IEEE 754 Floating Point standard. The computed result differs from
@@ -121,7 +120,7 @@ structure Impl where
   rsqrtD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
 
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
-need it (later sub-waves add fields as they transcribe more pages). -/
+need it (fields are added as more pages are transcribed). -/
 structure Oracle where
   /-- A store executed between `LL` and `SC` (by this processor): "A coherent store is executed
   between an LL and SC sequence on the same processor to the block of synchronizable physical memory
@@ -142,7 +141,7 @@ structure Oracle where
   following registers have defined state" (MD00090 Vol III Rev 6.02 §6.2.5, p.89). The oracle gives
   the state before the listed assignments of the Operation are made (p.89-90). -/
   resetUndefined : Arch → Arch
-  -- 7B S3 control + system
+  -- control + system
   /-- `JALR` with `rs = rd`: "Register specifiers rs and rd must not be equal, because such an
   instruction does not have the same effect when re-executed. The result of executing such an
   instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, JALR, p.196). -/
@@ -153,8 +152,7 @@ structure Oracle where
   executing such an instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06,
   B{LE,GE,GT,LT,EQ,NE}ZALC, Restrictions, p.78). -/
   linkSourceIs31 : Arch → Instruction → Outcome
-  -- end 7B S3
-  -- 7B S4 FPU
+  -- FPU
   /-- **The upper 32 bits of a 64-bit FPR after a 32-bit result is stored in it** (`StoreFPR(fpr,
   S/W/UNINTERPRETED_WORD, value)`): "Any FPU instruction that writes a 32-bit result (S or W format)
   to the low 32-bits of a 64-bit FPR leaves the upper bits of the FPR UNPREDICTABLE. This includes
@@ -168,15 +166,14 @@ structure Oracle where
   `.signal e`: an exception (§1.2.1, p.3); `.arbitrary a'`: the state the write leaves (before the
   `CheckFPException()` that follows); `.proceed`: nothing is written. -/
   ctc1Unpredictable : Arch → W32 → W32 → Outcome
-  -- 7B S1 integer ALU: begin
+  -- integer ALU
   /-- `EXT` with `lsb + msbd > 31`: "The operation is UNPREDICTABLE if lsb+msbd > 31" (EXT,
   Restrictions and Operation, p.183). The model: Reserved Instruction (as `decode` for such words). -/
   extOutOfRange : Arch → Outcome
   /-- `INS` with `lsb > msb`: "The operation is UNPREDICTABLE if lsb > msb" (INS, Restrictions,
   p.193). The model: Reserved Instruction. -/
   insLsbAboveMsb : Arch → Outcome
-  -- 7B S1 integer ALU: end
-  -- 7R review fixes
+  -- review fixes
   /-- **A word that matches a format diagram but has an UNPREDICTABLE field value**
   (`Manual.UnpredictableEncoding`): a nonzero unnamed field ("Fields that contain zeros but are not
   named are unused fields that are required to be zero ... If such fields are set to non-zero
@@ -298,7 +295,7 @@ representation, which is the IEEE core's correctly rounded `1.0 / fs` under the 
 (`Mips.Fp.f32Div`/`f64Div`, shared with the model): wherever that is a finite value, the
 implementation's result is finite and at most 1 ULP from it. The bound against the exact result and
 the 2-ULP bound of `RSQRT.fmt` (p.343) are `Impl.RecipExact` and `Impl.RsqrtAccurate`
-(`Manual/Accuracy.lean`; wave 10). -/
+(`Manual/Accuracy.lean`). -/
 def Impl.RecipAccurate (i : Impl) : Prop :=
   (∀ e x, Mips.Fp.binary32.isFinite (Mips.Fp.f32Div e 0x3F800000#32 x).1.toNat = true →
     Mips.Fp.binary32.isFinite (i.recipS e x).1.toNat = true ∧
@@ -329,10 +326,10 @@ def modelImpl : Impl where
   SRSCtl := 0#32
   CCRes := 1#32
   SYNCIStep := 0#32
-  SynciAddressError := false   -- 7B S2: SPEC-NOTES §11
-  -- 7B S4 FPU
+  SynciAddressError := false   -- SPEC-NOTES §11
+  -- FPU
   FIR := 0x00F30000#32
-  -- 7R: `RECIP` is `DIV.fmt` of `1.0` and `RSQRT` is `SQRT.fmt` then `DIV.fmt` (Flags ORed), under the
+  -- `RECIP` is `DIV.fmt` of `1.0` and `RSQRT` is `SQRT.fmt` then `DIV.fmt` (Flags ORed), under the
   -- current FCSR environment, over the IEEE core (`Mips.Fp`); SPEC-NOTES §11
   recipS := fun e x => Mips.Fp.f32Div e 0x3F800000#32 x
   recipD := fun e x => Mips.Fp.f64Div e 0x3FF0000000000000#64 x
@@ -346,7 +343,7 @@ def modelImpl : Impl where
     (r.1, q.2.or r.2)
 
 /-- **The model's choices** (SPEC-NOTES §9): `DIV`/`DIVU` by zero give the dividend and `MOD`/`MODU`
-by zero give 0 (the result of dividing by 1; R6-4, the value QEMU `mips32r6-generic` produces); every
+by zero give 0 (the result of dividing by 1; the value QEMU `mips32r6-generic` produces); every
 store clears `LLbit`
 (the `LLbit` pin); `Cause.CE` is loaded with 0 for every exception other than Coprocessor Unusable;
 a Reset keeps every register whose reset state is undefined, except `Config.K23 = Config.KU = 2` and
@@ -356,15 +353,14 @@ def modelOracle : Oracle where
   storeClearsLL := fun _ => true
   causeCE := fun _ _ => 0#2
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
-  -- 7B S3 control + system
+  -- control + system
   jalrRsIsRd := fun _ _ => .proceed
   -- the Operation as written: the link is written, then `GPR[rt]` (= the link) is compared
   linkSourceIs31 := fun _ _ => .proceed
-  -- end 7B S3
-  -- 7B S4 FPU
+  -- FPU
   -- The upper half of a 32-bit FPR write is unchanged (what QEMU does)
   fprUpper := fun a fpr => (a.FPR fpr).extractLsb' 32 32
-  -- R6-5: `FRE`/`NFRE` (5, 6) signal Reserved Instruction (the exception "Release 6 implementations
+  -- `FRE`/`NFRE` (5, 6) signal Reserved Instruction (the exception "Release 6 implementations
   -- and later are required to produce" for these aliases, CTC1 p.149); a value with reserved bits set
   -- is written with those bits ignored (`FCSRWrite`)
   ctc1Unpredictable := fun a fs temp =>
@@ -377,11 +373,10 @@ def modelOracle : Oracle where
         temp.extractLsb' 7 5 ++ a.FCSR.extractLsb' 2 5 ++ temp.extractLsb' 0 2 : BitVec 32) }
     else if fs == 31#32 then .arbitrary { a with FCSR := FCSRWrite temp }
     else .signal .ReservedInstruction
-  -- 7B S1 integer ALU: begin (SPEC-NOTES §11 rows)
+  -- integer ALU (SPEC-NOTES §11 rows)
   extOutOfRange := fun _ => .signal .ReservedInstruction
   insLsbAboveMsb := fun _ => .signal .ReservedInstruction
-  -- 7B S1 integer ALU: end
-  -- 7R review fixes (SPEC-NOTES §11 rows)
+  -- review fixes (SPEC-NOTES §11 rows)
   unpredictableEncoding := fun _ _ => .signal .ReservedInstruction
   ebaseWriteBEV0 := fun _ _ => .proceed
   loadClearsLL := fun _ => false

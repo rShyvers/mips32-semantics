@@ -107,7 +107,7 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | `ll` / `sc` | `Atomic.lean` | when `sc` succeeds; `LLbit` |
 | Branches | `Branch.lean` | taken / not-taken corollaries; the link register of `nal`/`bal` |
 | Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd`; the compact jumps `jic`/`jialc` |
-| Compact branches (R6-3) | `CompactBranch.lean` | no delay slot; the forbidden slot (`compact_not_taken_forbidden_slot`, `forbidden_slot_cti_reserved`) |
+| Compact branches | `CompactBranch.lean` | no delay slot; the forbidden slot (`compact_not_taken_forbidden_slot`, `forbidden_slot_cti_reserved`) |
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
 | `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
 | Hosted run (environment, not architecture) | `Hosted.lean` | `hostStep_eq_step`, `runHosted_agrees_with_run` (where the hosted run differs from `step`); `hostStep_syscall_spec`, `hosted_print_int`, `hosted_exit` (the MARS-style services) |
@@ -121,16 +121,16 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | FPU loads / stores | `FpuMemory.lean` | alignment; `ldc1`/`sdc1` move one whole 64-bit FPR, `lwc1` keeps the upper half |
 | FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies; `abs`/`neg` non-arithmetic (FCSR untouched) |
 | FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses, the FCSR.FS flush flag; the longword (L) conversions |
-| FPU, Release 6 (R6-6) | `FpuR6.lean` | `cmp.condn.fmt` (mask, `condn` table), `bc1eqz`/`bc1nez` (delay-slot branches on bit 0), `sel`/`seleqz`/`selnez` (FCSR untouched), `maddf`/`msubf`, `max`/`min`/`maxa`/`mina`, `class` (FCSR untouched), `rint` |
+| FPU, Release 6 | `FpuR6.lean` | `cmp.condn.fmt` (mask, `condn` table), `bc1eqz`/`bc1nez` (delay-slot branches on bit 0), `sel`/`seleqz`/`selnez` (FCSR untouched), `maddf`/`msubf`, `max`/`min`/`maxa`/`mina`, `class` (FCSR untouched), `rint` |
 
-Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,
+Release 6 privileged architecture: the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,
 `cp0WriteAt_eq`, `mfc0_unimplemented_reads_zero`, `mtc0_unimplemented_ignored`, `mfc0_config3/4/5`,
 `mfc0_llAddr`, `mtc0_llAddr*`, `cp0_scratch_round_trip`, `cp0Usable_iff_kernelMode`); `eretnc` and
 `cache` (`Cp0.lean`: `eretnc_spec_raw`, `eretnc_keeps_llBit`, `cache_spec_raw`, `cache_noop`);
 `sigrie` (`Trap.lean`: `sigrie_spec_raw`); `BadInstr`/`BadInstrP` (`Exception.lean`:
 `exceptionEntry_badInstr`, `takeInterrupt_badInstr_unchanged`); `rdhwr` 5 and 29 (`Timer.lean`:
 `hwrValue_xnp`, `hwrValue_ulr`); reset (`Reset.lean`: `resetException_r6`, `resetState_r6`).
-Release 6 virtual processors (Wave R6-7): `dvp`/`evp` are no-ops with `Config5.VP = 0` (`Cp0.lean`:
+Release 6 virtual processors: `dvp`/`evp` are no-ops with `Config5.VP = 0` (`Cp0.lean`:
 `dvp_spec_raw`, `evp_spec_raw`; outside Kernel Mode `cp0_instruction_user_mode_unusable`).
 
 The partition follows the constructor groups of `Instruction` (`Semantics/Instruction.lean`) and

@@ -505,7 +505,7 @@ example : allTrue [
 #guard decode (mkRT 0#32 0#32 0#32 0#32 0x0d#32) = some (.break 0#32)
 
 -- funct 0x35 sits between teq (0x34) and tne (0x36); Release 6 assigns it to SELEQZ (MD00086 Vol
--- II-A Rev 6.06, SELEQZ SELNEZ, p.369; R6-4: this test expected `none` before). With `sa ≠ 0` it does
+-- II-A Rev 6.06, SELEQZ SELNEZ, p.369). With `sa ≠ 0` it does
 -- not decode (an UNPREDICTABLE nonzero unnamed field).
 #guard decode (mkRT 0#32 0#32 0#32 0#32 0x35#32) = some (.seleqz 0#32 0#32 0#32)
 #guard decode (mkRT 0#32 0#32 0#32 1#32 0x35#32) = none
@@ -587,7 +587,7 @@ example : allTrue [
     -- $t0,$12,3` = SRSMap, reads 0 and ignores writes, MFC0 p.266, MTC0 p.290); nonzero bits 10..3 do not.
     decode 0x40086003#32 == some (.mfc0 8#32 12#32 3#32),  -- mfc0 $t0,$12,3
     decode 0x40886003#32 == some (.mtc0 8#32 12#32 3#32),  -- mtc0 $t0,$12,3
-    -- IntCtl (12,1) and SRSCtl (12,2) are modeled since wave 6 (F13, F16).
+    -- IntCtl (12,1) and SRSCtl (12,2) are modeled (F13, F16).
     decode 0x40086001#32 == some (.mfc0 8#32 12#32 1#32),  -- mfc0 $t0,$12,1
     decode 0x40886002#32 == some (.mtc0 8#32 12#32 2#32),  -- mtc0 $t0,$12,2
     -- `rdpgpr $t0, $t1` / `wrpgpr $t0, $t1` (MD00086 Vol II-A Rev 6.06, RDPGPR p.335, WRPGPR p.444).
@@ -600,7 +600,7 @@ example : allTrue [
     decode 0x40086008#32 == none,  -- bit 3 set
     decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 1#32 0#32 0#32) == some (.mfc0 8#32 1#32 0#32),  -- Random (1): reads 0
     decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 10#32 0#32 0#32) == some (.mfc0 8#32 10#32 0#32),  -- EntryHi (10): reads 0
-    -- Count (9,0), Compare (11,0) and HWREna (7,0) are modeled since wave 5 (F12, F15).
+    -- Count (9,0), Compare (11,0) and HWREna (7,0) are modeled (F12, F15).
     decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 9#32 0#32 0#32) == some (.mfc0 8#32 9#32 0#32),  -- Count
     decode (encode (.mtc0 8#32 11#32 0#32)) == some (.mtc0 8#32 11#32 0#32),  -- Compare
     decode (encode (.mtc0 8#32 7#32 0#32)) == some (.mtc0 8#32 7#32 0#32),  -- HWREna
@@ -649,7 +649,7 @@ example : allTrue [
 
 -- ## Tests: FCSR-era additions (cc fields, signaling compares, new instructions)
 
--- `C.cond.fmt` is removed in Release 6 (replaced by CMP.condn.fmt, R6-6): its words decode to `none`
+-- `C.cond.fmt` is removed in Release 6 (replaced by CMP.condn.fmt): its words decode to `none`
 example : allTrue [
     decode 0x46062832#32 == none,  -- removed in R6 (was `cCondS`)
     decode 0x46262f3a#32 == none,  -- removed in R6 (was `cCondD`)
@@ -724,7 +724,7 @@ example : allTrue [
     encode (.cvtDL 2#32 4#32) == 0x46a020a1#32,
     decode (encode (.cvtDL 31#32 17#32)) == some (.cvtDL 31#32 17#32),
     -- the L format is not defined for the arithmetic operations or for CVT.W/CVT.L: reserved
-    -- R6-6B: fmt L function 0 is CMP.AF.D (Table A.17, p.457), no longer a reserved `add.l`
+    -- fmt L function 0 is CMP.AF.D (Table A.17, p.457), no longer a reserved `add.l`
     decode 0x46a02080#32 == some (.cmpD 0#32 2#32 4#32 0#32),  -- cmp.af.d $f2,$f4,$f0
     decode 0x46a020a4#32 == none,  -- cvt.w.l
     decode 0x46a020a5#32 == none,  -- cvt.l.l
@@ -964,7 +964,7 @@ example : allTrue [
     decode 0x41680824#32 == none,  -- dvp, rd ≠ 0
     decode 0x41680064#32 == none,  -- dvp, bits 10..6 ≠ 0
     decode 0x4168002c#32 == none,  -- dvp, bits 4..3 ≠ 0
-    -- Coverage audit (Wave R6-7): encodings of pages outside the profile do not decode (Reserved
+    -- Coverage audit: encodings of pages outside the profile do not decode (Reserved
     -- Instruction, or Coprocessor Unusable by encoding space; words from llvm-mc-21 / the page diagrams).
     decode 0x42000008#32 == none,  -- tlbp     (Fixed Mapping MMU, TLBP p.427)
     decode 0x42000001#32 == none,  -- tlbr     (TLBR p.428)
@@ -1012,7 +1012,7 @@ example : allTrue [
     decode (encode (.recipD 2#32 4#32)) == some (.recipD 2#32 4#32),
     decode (encode (.rsqrtS 2#32 4#32)) == some (.rsqrtS 2#32 4#32),
     decode (encode (.floorWD 2#32 4#32)) == some (.floorWD 2#32 4#32),
-    -- L-format conversions (fmt = L = 0x15, and cvt.l/round.l… functs) are modeled since R6-5
+    -- L-format conversions (fmt = L = 0x15, and cvt.l/round.l… functs) are modeled (64-bit FPU)
     decode 0x46a02020#32 == some (.cvtSL 0#32 4#32),  -- cvt.s.l $f0,$f4
     decode 0x46002025#32 == some (.cvtLS 0#32 4#32),  -- cvt.l.s $f0,$f4
     decode 0x46002008#32 == some (.roundLS 0#32 4#32),  -- round.l.s $f0,$f4

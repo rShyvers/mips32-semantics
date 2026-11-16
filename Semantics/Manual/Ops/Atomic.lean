@@ -3,7 +3,7 @@ import Semantics.Manual.Memory
 /-!
 # Manual.Ops.Atomic — LL and SC (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7B S2; Release 6 diagrams (wave R6-1): SPECIAL3 with a 9-bit offset in bits 15..7 (`LL`
+Release 6 diagrams: SPECIAL3 with a 9-bit offset in bits 15..7 (`LL`
 function `110110`, p.223; `SC` function `100110`, p.347). "Release 6 implements a 9-bit offset" (LL,
 Programming Notes, p.224): `sign_extend(offset)` extends the 9-bit field (`imm9`).
 -/

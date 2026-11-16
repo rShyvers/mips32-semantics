@@ -22,7 +22,7 @@ import Semantics.Refine.CompactBranch
 import Semantics.Refine.FpuR6
 
 /-!
-# Refine.Instr — the per-instruction refinement of every constructor (7D)
+# Refine.Instr — the per-instruction refinement of every constructor
 
 `InstrRefines i` is the shape of the per-instruction theorems `Refine.<ctor>_refines`
 (`docs/MANUAL-SPEC.md` I.2 item 9), quantified over the states the cycle executes an instruction

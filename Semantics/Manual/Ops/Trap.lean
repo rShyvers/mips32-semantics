@@ -3,7 +3,7 @@ import Semantics.Manual.Pseudocode
 /-!
 # Manual.Ops.Trap — conditional traps, BREAK and SIGRIE (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7B S2. The `code` field of the register forms is not used by the Operation ("the code field
+The `code` field of the register forms is not used by the Operation ("the code field
 is available for use as software parameters", e.g. TEQ, p.416).
 -/
 

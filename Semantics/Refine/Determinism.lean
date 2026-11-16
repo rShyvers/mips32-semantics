@@ -112,7 +112,7 @@ theorem modelOracle_valid : modelOracle.Valid := by
   -- Reset
   · intro a; exact ⟨rfl, rfl⟩
 
--- 12b: with the spec's decoder `Manual.decodeDiagram`
+-- With the spec's decoder `Manual.decodeDiagram`
 /-- **`step` is an instruction time the manual allows** (`Manual.Step`, with the model's
 implementation constants and the spec's decoder), from every state of the invariant. -/
 theorem step_refines_manual (s : State) (hg : Inv s) :
@@ -276,7 +276,7 @@ theorem manual_step_deterministic (i : Impl) (dec : W32 → Option Instruction) 
 /-- **At a choice-free state, `step` is the only instruction time the manual allows.** -/
 theorem step_unique_of_choiceFree (s : State) (hg : Inv s)
     (h : ChoiceFree modelImpl decodeDiagram (abs s) = true) (a' : Arch)
-    (h' : Manual.Step modelImpl decodeDiagram (abs s) a') : a' = abs (step s) :=  -- 12b
+    (h' : Manual.Step modelImpl decodeDiagram (abs s) a') : a' = abs (step s) :=
   manual_step_deterministic _ _ _ _ _ h h' (step_refines_manual s hg)
 
 /-! ## The other direction: choices that matter -/

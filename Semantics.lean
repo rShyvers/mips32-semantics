@@ -10,7 +10,7 @@ import Semantics.Asm
 import Semantics.FpOps
 import Semantics.FpOpsFacts
 import Semantics.FpCompareFacts
--- Wave 10: the IEEE rounding core proved against the IEEE 754 definition (FpOpsSpec).
+-- The IEEE rounding core proved against the IEEE 754 definition (FpOpsSpec).
 import Semantics.FpOpsSpec
 import Semantics.FpOpsCorrectNat
 import Semantics.FpOpsCorrectGrid
@@ -28,7 +28,7 @@ import Semantics.FpOpsCorrectAcc
 import Semantics.FpOpsCorrectRecip
 import Semantics.FpOpsCorrectRsqrtAux
 import Semantics.FpOpsCorrectRsqrt
--- Wave 11: every FP operand, conversions, compares and the FCSR proved against FpOpsSpec.
+-- Every FP operand, conversions, compares and the FCSR proved against FpOpsSpec.
 import Semantics.FpOpsCorrectSpecial
 import Semantics.FpOpsCorrectEnv
 import Semantics.FpOpsCorrectArith
@@ -61,12 +61,11 @@ import Semantics.Manual.Reset
 import Semantics.Manual.Encoding
 import Semantics.Manual.Operation
 import Semantics.Manual.Cycle
--- 12b: the specification's own decoder and its bridge to `decode`
+-- The specification's own decoder and its bridge to `decode`
 import Semantics.Manual.Decode
 import Semantics.Refine.DecodeDiagram
 import Semantics.Refine.DecodeBridge
 import Semantics.Tests.DecodeDiagramTests
--- end 12b
 import Semantics.Refine.Abs
 import Semantics.Refine.Bridge
 import Semantics.Refine.Fetch
@@ -75,34 +74,29 @@ import Semantics.Refine.IntArith
 import Semantics.Refine.Memory
 import Semantics.Refine.Branch
 import Semantics.Refine.FpuArith
--- 7C S4a
 import Semantics.Refine.BridgeFpu
 import Semantics.Refine.FpuConvert
 import Semantics.Refine.Cp0
--- 7C S3 control + system
+-- control + system
 import Semantics.Refine.BridgeControl
 import Semantics.Refine.Jump
 import Semantics.Refine.System
--- end 7C S3
--- 7C S1 integer ALU
+-- integer ALU
 import Semantics.Refine.BridgeIntAlu
 import Semantics.Refine.Shift
 import Semantics.Refine.BitOps
 import Semantics.Refine.Immediate
--- end 7C S1
--- 7C S2 memory/atomic/trap/syscall
+-- memory/atomic/trap/syscall
 import Semantics.Refine.BridgeMem
 import Semantics.Refine.Atomic
 import Semantics.Refine.Trap
 import Semantics.Refine.Syscall
--- end 7C S2
--- 7C S4b FPU memory/move/control/branch
+-- FPU memory/move/control/branch
 import Semantics.Refine.BridgeFpuMove
 import Semantics.Refine.FpuMemory
 import Semantics.Refine.FpuMove
 import Semantics.Refine.FpuControl
--- end 7C S4b
--- 7D cycle refinement and top theorems
+-- cycle refinement and top theorems
 import Semantics.Manual.Relation
 import Semantics.Refine.Cycle
 import Semantics.Refine.Decode
@@ -111,7 +105,6 @@ import Semantics.Refine.Instr
 import Semantics.Refine.Step
 import Semantics.Refine.Determinism
 import Semantics.Refine.ChoiceExact
--- end 7D
 -- Tests (moved out of the definition files; they run in every build and under `lake check`).
 import Semantics.Tests.WordTests
 import Semantics.Tests.TypesTests
@@ -127,5 +120,5 @@ import Semantics.Tests.StepExceptionTests
 import Semantics.Tests.StepFpTests
 import Semantics.Tests.EnvTests
 import Semantics.Tests.ManualTests
--- Wave 10: `Manual.modelImpl_valid` (RECIP/RSQRT accuracy from the proved core)
+-- `Manual.modelImpl_valid` (RECIP/RSQRT accuracy from the proved core)
 import Semantics.Refine.ImplValid

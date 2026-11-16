@@ -4,7 +4,7 @@ import Semantics.Refine.Jump
 import Semantics.Refine.DecodeDiagram
 
 /-!
-# Refine.CompactBranch — the Release 6 compact branches against `execInstr` (wave R6-3)
+# Refine.CompactBranch — the Release 6 compact branches against `execInstr`
 
 `<ctor>_refines` for BC, BALC, the twelve B<cond>C, the six B*ZALC, BOVC and BNVC (JIC/JIALC are in
 `Refine/Jump.lean`). Each proof has the shape of `branch_refine` (`Refine/BridgeControl.lean`): in a

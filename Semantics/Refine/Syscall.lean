@@ -1,7 +1,7 @@
 import Semantics.Refine.Trap
 
 /-!
-# Refine.Syscall — SYSCALL against `execInstr` (7C S2)
+# Refine.Syscall — SYSCALL against `execInstr`
 
 The architecture's `SYSCALL` is `SignalException(SystemCall)` (MD00086 Vol II-A Rev 6.06, SYSCALL,
 p.415); the hosted services of `Env.lean` are the environment and are not part of `execInstr`.

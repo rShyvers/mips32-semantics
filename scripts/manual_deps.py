@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""manual_deps.py -- environment-level independence check of the manual spec (wave 12b).
+"""manual_deps.py -- environment-level independence check of the manual spec.
 
 Builds every module under Semantics/Manual/ (so its .olean exists), then runs
 scripts/ManualIndependence.lean with `lake env lean`, preceded by an `import` of each of those

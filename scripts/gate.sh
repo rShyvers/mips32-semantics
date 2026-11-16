@@ -267,7 +267,7 @@ step_forbidden() {
   # The independence rule of the manual spec (docs/MANUAL-SPEC.md): Semantics/Manual/* imports only
   # Word/Types/Instruction/FpOps and names nothing of the model (Step/State, decode, masks, FCSR helpers).
   python3 -I scripts/manual_independence.py || rc=1
-  # 12b: the same rule on the elaborated environment (transitive constant dependencies of every
+  # The same rule on the elaborated environment (transitive constant dependencies of every
   # Manual.* constant against an allow-list; closes `open ... in` / qualified-name bypasses).
   python3 -I scripts/manual_deps.py || rc=1
   NOTE="${#files[@]} files scanned; manual spec independence checked (tokens + environment)"

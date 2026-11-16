@@ -4,11 +4,11 @@ import Semantics.Refine.BridgeIntAlu
 /-!
 # Refine.Jump — jumps with a delay slot against `execInstr`
 
-7C S3 proves `j` and `jal`. The target is the J format's 26-bit `instr_index` (MD00086 Vol II-A
+`j` and `jal`. The target is the J format's 26-bit `instr_index` (MD00086 Vol II-A
 Rev 6.06, J p.194, JAL p.195), the low 26 bits of the constructor's `target` on both sides
-(`jump_target`). The 7C merge adds `jr`, `jalr` and the hazard-barrier forms `jrHb`, `jalrHb`
+(`jump_target`). Also `jr`, `jalr` and the hazard-barrier forms `jrHb`, `jalrHb`
 (JR p.206, JALR p.196, JR.HB p.208, JALR.HB p.198; hint 0 and hint `10000` are separate
-constructors since 7R).
+constructors).
 -/
 
 namespace Refine

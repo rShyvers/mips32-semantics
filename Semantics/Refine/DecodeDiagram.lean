@@ -2,7 +2,7 @@ import Semantics.Refine.Decode
 import Semantics.Manual.Decode
 
 /-!
-# Refine.DecodeDiagram — the spec's decoder `Manual.Decode` (wave 12b)
+# Refine.DecodeDiagram — the spec's decoder `Manual.Decode`
 
 * `decode_diagram_sound`, `decode_diagram_complete`: `Manual.Decode` decodes a word to an
   instruction exactly when the word is the diagram (`Manual.enc`) of some instruction.

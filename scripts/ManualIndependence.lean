@@ -1,5 +1,5 @@
 /-
-ManualIndependence.lean -- the environment-level independence check of the manual spec (wave 12b).
+ManualIndependence.lean -- the environment-level independence check of the manual spec.
 
 Not a module of the build: `scripts/manual_deps.py` prepends `import` lines for every module under
 `Semantics/Manual/` and runs the result with `lake env lean`. The check walks the constants the
@@ -49,9 +49,9 @@ def SHARED_FPOPS : List Name := [
   `Mips.Fp.f32Relation, `Mips.Fp.f64Relation,
   `Mips.Fp.f32ToF64, `Mips.Fp.f64ToF32, `Mips.Fp.f32ToW32, `Mips.Fp.f64ToW32,
   `Mips.Fp.w32ToF32, `Mips.Fp.w32ToF64F,
-  -- R6-5: the longword (L) conversions of the 64-bit FPU
+  -- the longword (L) conversions of the 64-bit FPU
   `Mips.Fp.f32ToW64, `Mips.Fp.f64ToW64, `Mips.Fp.w64ToF32, `Mips.Fp.w64ToF64,
-  -- R6-6B: the Release 6 FP operations (fused multiply-add, maxNum/minNum/maxNumMag/minNumMag,
+  -- the Release 6 FP operations (fused multiply-add, maxNum/minNum/maxNumMag/minNumMag,
   -- class, roundToIntegralExact); CMP.condn.fmt is transcribed on `f32Relation`/`f64Relation`
   `Mips.Fp.f32Fma, `Mips.Fp.f64Fma, `Mips.Fp.f32MinMax, `Mips.Fp.f64MinMax,
   `Mips.Fp.Format.MinMaxOp, `Mips.Fp.Format.MinMaxOp.max, `Mips.Fp.Format.MinMaxOp.min,

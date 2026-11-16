@@ -1,10 +1,10 @@
 import Semantics.Refine.BridgeFpuMove
 
 /-!
-# Refine.FpuMove — FP moves against `execInstr` (7C S4b)
+# Refine.FpuMove — FP moves against `execInstr`
 
 `MFC1`, `MTC1`, `MFHC1`, `MTHC1`, `MOV.fmt` (S, D; Release 6 removed the conditional moves). With the
-64-bit FPRs (`Status.FR = 1`, R6-5) the double forms read and write one FPR (`valueFPR64_model`,
+64-bit FPRs (`Status.FR = 1`) the double forms read and write one FPR (`valueFPR64_model`,
 `storeFPR64_model`); a 32-bit store keeps the upper half (`Oracle.fprUpper` of the model,
 `fprUpper_model`).
 -/

@@ -5,7 +5,7 @@ import Semantics.Manual.Memory
 /-!
 # Manual.Ops.System — exception return, standby, hardware registers (MD00086 Vol II-A Rev 6.06)
 
-7B S3, wave R6-2. `ERET`, `ERETNC`, `WAIT` and `CACHE` are in the COP0 encoding space: the
+`ERET`, `ERETNC`, `WAIT` and `CACHE` are in the COP0 encoding space: the
 Coprocessor Unusable check ("If access to Coprocessor 0 is not enabled, a Coprocessor Unusable
 Exception is signaled", ERET Exceptions p.178, ERETNC p.180, WAIT Restrictions p.443, CACHE p.119) is
 made for the whole space before the Operation runs (`Manual.Cycle`). `RDHWR` is a SPECIAL3

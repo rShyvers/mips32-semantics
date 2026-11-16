@@ -31,7 +31,7 @@ def memOf (m : Std.HashMap PAddr UInt8) : PAddr → UInt8 := fun pa => (m.get? p
 def abs (s : State) : Arch where
   PC := s.pc
   GPR := fun i => readReg s i
-  FPR := fun i => readFpReg64 s i  -- R6-5: the 64-bit FPRs
+  FPR := fun i => readFpReg64 s i  -- the 64-bit FPRs
   FCSR := s.fcsr
   Mem := memOf s.physMem
   LLbit := s.llBit

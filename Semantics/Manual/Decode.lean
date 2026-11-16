@@ -1,7 +1,7 @@
 import Semantics.Manual.Encoding
 
 /-!
-# Manual.Decode — the specification's own decoder, from the format diagrams (wave 12b)
+# Manual.Decode — the specification's own decoder, from the format diagrams
 
 The manual decodes an instruction word by its format diagrams: a word is the instruction whose
 diagram it matches. `Manual.Decode w` is that reading, built from the diagrams `Manual.enc`
@@ -81,7 +81,7 @@ SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6, the 2-bit `sa` 
 (Release 6 makes PAUSE a CTI with its own Operation, PAUSE p.317). The Release 6 compact branches
 read the 26-bit `offset` of BC/BALC at 25..0 and the 21-bit `offset` of BEQZC/BNEZC at 20..0; the
 compact branches sharing an opcode are separated by the constraints of their diagrams (`encIf`), so
-at most one of them has the diagram `w`. R6-6B: `CMP.condn.fmt` reads `condn` at 4..0 (p.136); its
+at most one of them has the diagram `w`. `CMP.condn.fmt` reads `condn` at 4..0 (p.136); its
 diagram holds only for the `condn` values of Table A.17 (`CmpCondnOK`). -/
 def candidates (w : W32) : List Instruction :=
   let f := fieldAt w

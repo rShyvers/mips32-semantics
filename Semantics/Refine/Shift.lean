@@ -1,13 +1,13 @@
 import Semantics.Refine.BridgeIntAlu
 
 /-!
-# Refine.Shift — the shifts and rotates against `execInstr` (sub-wave 7C S1)
+# Refine.Shift — the shifts and rotates against `execInstr`
 
 `Refine.<ctor>_refines` for `SLL`, `SRL`, `SRA`, `SLLV`, `SRLV`, `SRAV`, `ROTR`, `ROTRV`.
 
 No side condition: the manual's `s ← sa` reads the 5-bit `sa` field (MD00086 Vol II-A Rev 6.06,
-SLL p.376, SRL p.385, SRA p.383, ROTR p.339), and since Wave 7R the model shifts by `shamt mod 32`
-too, so the refinements hold for every constructor value (the 7C S1 branch had `shamt.toNat < 32`).
+SLL p.376, SRL p.385, SRA p.383, ROTR p.339), and the model also shifts by `shamt mod 32`
+too, so the refinements hold for every constructor value (no `shamt.toNat < 32` hypothesis).
 -/
 
 namespace Refine

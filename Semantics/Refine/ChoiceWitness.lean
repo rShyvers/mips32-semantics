@@ -1,7 +1,7 @@
 import Semantics.Refine.Determinism
 
 /-!
-# Refine.ChoiceWitness — witness oracles for the exactness of `ChoiceFree` (wave 9)
+# Refine.ChoiceWitness — witness oracles for the exactness of `ChoiceFree`
 
 The other direction of `ChoiceFree` (`Refine.choiceFree_exact`, `Refine/ChoiceExact.lean`) exhibits,
 at every state where `ChoiceFree` is `false`, two valid oracles whose instruction times differ. The
@@ -36,12 +36,12 @@ open Manual
 structure WP where
   lc : Bool := false
   sc : Bool := true
-  up : W32 := 0#32  -- R6-5: `fprUpper`
+  up : W32 := 0#32  -- `fprUpper`
   qd : Bool := true
   qs : Bool := true
   bnw : W32 := 0#32
   bip : W32 := 0#32
-  dz : W32 := 0#32  -- R6-4: `divByZero`
+  dz : W32 := 0#32  -- `divByZero`
 
 /-- UNPREDICTABLE / UNDEFINED operations resolved as Reserved Instruction. -/
 def sigRI : Outcome := .signal .ReservedInstruction
@@ -53,7 +53,7 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   resetUndefined := modelOracle.resetUndefined
   jalrRsIsRd := fun _ _ => sigRI
   linkSourceIs31 := fun _ _ => sigRI
-  fprUpper := fun _ _ => p.up  -- R6-5
+  fprUpper := fun _ _ => p.up
   ctc1Unpredictable := fun _ _ _ => sigRI
   extOutOfRange := fun _ => sigRI
   insLsbAboveMsb := fun _ => sigRI
@@ -64,11 +64,11 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   cvtQNaNToS := fun _ => if p.qs then QA32 else QB32
   badInstrNoWord := fun _ => p.bnw
   badInstrP := fun _ => p.bip
-  divByZero := fun _ _ _ => p.dz  -- R6-4
+  divByZero := fun _ _ _ => p.dz
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  -- R6-3: two more conjuncts (`linkSourceIs31`); R6-5: `fprOddWrite` (two) out, `fprUpper` in
+  -- conjuncts `linkSourceIs31`; `fprOddWrite` (two) out, `fprUpper` in
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)

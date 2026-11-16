@@ -3,7 +3,7 @@ import Semantics.Refine.BridgeControl
 /-!
 # Refine.Branch — branches with a delay slot against `execInstr`
 
-Sub-wave 7A proves the pilot `beq`; wave R6-1 the Release 6 `NAL` and `BAL` (Release 6 removed the
+`beq`, and the Release 6 `NAL` and `BAL` (Release 6 removed the
 other forms of `BLTZAL`/`BGEZAL`).
 -/
 
@@ -38,7 +38,7 @@ theorem beq_refines (s : State) (hg : Good s) (rs rt off w : W32)
     cases readReg s (regIdx rs) == readReg s (regIdx rt) <;>
       simp [I1, Complete, abs, readReg, readFpReg64]
 
--- 7C S3 control + system
+-- control + system
 
 /-- **BNE refines.** -/
 theorem bne_refines (s : State) (hg : Good s) (rs rt off w : W32)

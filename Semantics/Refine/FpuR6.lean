@@ -3,7 +3,7 @@ import Semantics.Refine.BridgeControl
 import Semantics.Refine.Decode
 
 /-!
-# Refine.FpuR6 — the Release 6 FP instructions against `execInstr` (wave R6-6)
+# Refine.FpuR6 — the Release 6 FP instructions against `execInstr`
 
 `Refine.<ctor>_refines` for `CMP.condn.fmt`, `BC1EQZ`/`BC1NEZ`, `SEL.fmt`, `SELEQZ.fmt`/`SELNEZ.fmt`,
 `MADDF.fmt`/`MSUBF.fmt`, `MAX`/`MIN`/`MAXA`/`MINA.fmt`, `CLASS.fmt`, `RINT.fmt` (fmt = S, D;

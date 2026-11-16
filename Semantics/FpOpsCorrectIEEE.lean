@@ -2,7 +2,7 @@ import Semantics.FpOpsCorrectCompare
 import Semantics.FpOpsCorrectFcsr
 
 /-!
-# FpOpsCorrectIEEE — the headline theorems on `BitVec` (Wave 11)
+# FpOpsCorrectIEEE — the headline theorems on `BitVec`
 
 Every FP operation of the model that `step` uses, on **all** operands and every FCSR environment,
 meets its reference definition of `Semantics/FpOpsSpec.lean`:

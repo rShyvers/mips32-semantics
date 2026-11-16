@@ -1,7 +1,7 @@
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuConvert — FP conversions (MD00086 Vol II-A Rev 6.06), 7B S4, Release 6 (R6-5)
+# Manual.Ops.FpuConvert — FP conversions (MD00086 Vol II-A Rev 6.06), Release 6
 
 `ROUND.fmt`, `TRUNC.fmt`, `CEIL.fmt`, `FLOOR.fmt`, `CVT.W.fmt`, `CVT.L.fmt`, `CVT.S.fmt`, `CVT.D.fmt`
 for the formats of this profile (S, D, W, L: "Release 6 on a 64-bit FPU requires S, D, W, and L data
@@ -163,7 +163,6 @@ def CVT_W_D (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
--- R6-5
 /-- **ROUND.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, ROUND.L.fmt, p.341 (fmt = S).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -178,7 +177,6 @@ def ROUND_L_S (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **ROUND.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, ROUND.L.fmt, p.341 (fmt = D).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -193,7 +191,6 @@ def ROUND_L_D (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **TRUNC.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, TRUNC.L.fmt, p.440 (fmt = S).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -208,7 +205,6 @@ def TRUNC_L_S (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **TRUNC.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, TRUNC.L.fmt, p.440 (fmt = D).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -223,7 +219,6 @@ def TRUNC_L_D (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **CEIL.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, CEIL.L.fmt, p.127 (fmt = S).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -238,7 +233,6 @@ def CEIL_L_S (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **CEIL.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, CEIL.L.fmt, p.127 (fmt = D).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -253,7 +247,6 @@ def CEIL_L_D (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **FLOOR.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, FLOOR.L.fmt, p.185 (fmt = S).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -268,7 +261,6 @@ def FLOOR_L_S (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **FLOOR.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, FLOOR.L.fmt, p.185 (fmt = D).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -283,7 +275,6 @@ def FLOOR_L_D (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **CVT.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154 (fmt = S).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -298,7 +289,6 @@ def CVT_L_S (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, L, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **CVT.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154 (fmt = D).
 ```
 StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
@@ -340,7 +330,6 @@ def CVT_D_W (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR (fd, D, ...)
   StoreFPR64 (reg fd) r
 
--- R6-5
 /-- **CVT.D.L fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.D.fmt, p.153 (fmt = L).
 ```
 StoreFPR (fd, D, ConvertFmt(ValueFPR(fs, fmt), fmt, D))
@@ -384,7 +373,6 @@ def CVT_S_W (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR(fd, S, ...)
   StoreFPR32 (reg fd) r
 
--- R6-5
 /-- **CVT.S.L fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.S.fmt, p.159 (fmt = L).
 ```
 StoreFPR(fd, S, ConvertFmt(ValueFPR(fs, fmt), fmt, S))

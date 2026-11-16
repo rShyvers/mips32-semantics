@@ -33,7 +33,7 @@ def execShift (s : State) : Instruction → Option State
   | .srav rd rt rs => some <|
     let amt := ((readReg s (regIdx rs)).extractLsb 4 0).toNat
     mkNext s (writeReg s (regIdx rd) ((readReg s (regIdx rt)).sshiftRight amt))
-  -- R-type rotate (MIPS32r2): bits shifted off the bottom wrap around to the
+  -- R-type rotate: bits shifted off the bottom wrap around to the
   -- top, unlike `srl`/`srlv`'s zero-fill on the same input
   -- (docs/spec/MIPS-COVERAGE-GAPS.md section 3.4). `BitVec.rotateRight` already
   -- reduces its shift amount mod the bitvector width, matching the real

@@ -1,7 +1,7 @@
 import Semantics.Refine.Bridge
 
 /-!
-# Refine.Cycle — the non-instruction paths of one instruction time (7D)
+# Refine.Cycle — the non-instruction paths of one instruction time
 
 `Manual.InstructionTime` against `step`, path by path, for every path that is not the Operation of a
 decoded instruction:

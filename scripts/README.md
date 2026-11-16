@@ -1,6 +1,6 @@
 # scripts/ -- the gated flow
 
-Rule: every wave ends with a full gate run; only a fully green gate is committed, locally. One deterministic script enforces it.
+Rule: every change ends with a full gate run; only a fully green gate is committed, locally. One deterministic script enforces it.
 
 | Script | What it does |
 |---|---|
@@ -32,7 +32,7 @@ The stamp is written only if the tree id is unchanged between the start and the 
 ## Typical flow
 ```
 scripts/gate.sh --quick                 # while iterating: seconds, not a green gate
-scripts/gate.sh --fix                   # end of wave: full gate (minutes), regenerates the README coverage table
+scripts/gate.sh --fix                   # before commit: full gate (minutes), regenerates the README coverage table
 scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, locally
 # or both at once: scripts/gate-commit.sh --run "Subject line"
 ```
@@ -49,7 +49,7 @@ scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, loc
    derived from copyrighted PDFs: no cache path covers them and they are never uploaded.
 6. `scripts/gate.sh` (full run, all ten steps).
 7. Skip guard (`if: always()`): reads `.gate/last-run.json` and fails unless `full_run` is true, the verdict is `GREEN` and every one of the
-   ten steps is `PASS`. Kept as defence in depth (since the housekeeping wave, `gate.sh` itself turns any SKIP in a full run into RED).
+   ten steps is `PASS`. Kept as defence in depth (`gate.sh` itself turns any SKIP in a full run into RED).
 8. Upload (`if: always()`): only `.gate/last-run.json` (step names, statuses, counts) as artifact `gate-summary`; the step logs are not
    uploaded, since they can quote the manuals.
 Missing java / qemu / LLVM already FAIL inside `gate.sh`. The `.gate/green` stamp written in CI is irrelevant; the job result is the verdict.
@@ -72,7 +72,7 @@ A second oracle next to MARS. It runs **the same machine code at the same addres
 little-endian MIPS32 Release 6: Status.FR = 1, FCSR.NAN2008 = ABS2008 = 1, hardware misaligned loads/stores) and on the Lean model, then compares the
 final architectural state. Unlike MARS it handles the Release 6 encodings (AUI, NAL/BAL, PAUSE, SPECIAL3 LL/SC/PREF, RDHWR sel, CLO/CLZ),
 rotr/rotrv/seb/seh/wsbh/ext/ins, sync/synci, cfc1/ctc1 and delay-slot/exception semantics. The model's FPU is the Release 6 one
-(wave R6-5: 64-bit FPRs, FCSR.NAN2008 = ABS2008 = 1, 2008 NaN/conversion results, the L format, Release 6 CFC1/CTC1), so FP programs compare directly. Known QEMU differences
+(64-bit FPRs, FCSR.NAN2008 = ABS2008 = 1, 2008 NaN/conversion results, the L format, Release 6 CFC1/CTC1), so FP programs compare directly. Known QEMU differences
 are declared as `expect-deviation` (e.g. FIR bit 29 FREP, CFC1/CTC1 of a register that does not exist, FS = 1 flushing, Underflow traps).
 
 ```
@@ -172,7 +172,7 @@ It prints `N tests: P pass, D declared QEMU deviations, K known model bugs, S sk
 ### Model-bug triage (`known-model-bug`)
 `# oracle: known-model-bug <field> <manual citation> <one-line description>` marks a mismatch where the MODEL is wrong per the manual and is not fixed yet (the gate cannot be red for it, but it must stay visible).
 It is reported in its own section (`KNOWN-MODEL-BUG`), counted separately in the SUMMARY, does not fail the run, and FAILs if the mismatch stops occurring (so the directive must be deleted when the bug is fixed).
-After the Release 6 retarget the declarations marked the waves still to come; all of them are fixed (privileged architecture in wave R6-2, the FPU in wave R6-5), so none is currently declared. `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
+After the Release 6 retarget the declarations marked the parts still to come; all of them are fixed (privileged architecture, the FPU), so none is currently declared. `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
 
 ### Programs of `tests/asm`
 `--asm` also runs the `tests/asm/*.asm` programs (names `asm/NAME`), using sidecar directives kept in `oracle.py` (`ASM_DIRECTIVES`; the programs are not edited because EquivHarness reads them).

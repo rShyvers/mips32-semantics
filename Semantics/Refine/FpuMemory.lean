@@ -1,7 +1,7 @@
 import Semantics.Refine.BridgeFpuMove
 
 /-!
-# Refine.FpuMemory — FP loads and stores against `execInstr` (7C S4b)
+# Refine.FpuMemory — FP loads and stores against `execInstr`
 
 `LWC1`, `SWC1`, `LDC1`, `SDC1` (Release 6 removed the indexed forms and `PREFX`). The alignment
 check (word: `vAddr1..0`, doubleword: `vAddr2..0`; an Address Error with `BadVAddr = vAddr`), the

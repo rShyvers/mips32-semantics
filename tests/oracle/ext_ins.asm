@@ -1,4 +1,4 @@
-# ext/ins (MIPS32r2): edge positions/sizes. MD00086 Vol II-A Rev 6.06: EXT p.183-184, INS p.192-193.
+# ext/ins: edge positions/sizes. MD00086 Vol II-A Rev 6.06: EXT p.183-184, INS p.192-193.
 # ext rt,rs,pos,size: rt = zero-extended rs[pos+size-1..pos]. ins rt,rs,pos,size: rt[pos+size-1..pos] = rs[size-1..0], rest kept.
 # t0 = 0x12345678.  ext(3,1)=1  ext(24,8)=0x12  ext(0,32)=0x12345678  ext(28,4)=1  ext(31,1)=0  ext(4,12)=0x567
 # oracle: expect gpr:s0=1 gpr:s1=0x12 gpr:s2=0x12345678 gpr:s3=1 gpr:s4=0 gpr:s5=0x567

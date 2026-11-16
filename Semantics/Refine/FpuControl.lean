@@ -1,14 +1,14 @@
 import Semantics.Refine.BridgeFpuMove
 
 /-!
-# Refine.FpuControl — FP control register moves against `execInstr` (7C S4b)
+# Refine.FpuControl — FP control register moves against `execInstr`
 
 `CFC1` and `CTC1`: the FCCR/FEXR/FENR/FCSR views of the manual's Operation (MD00086 Vol II-A Rev 6.06,
 CFC1 p.129-130, CTC1 p.149-150) against `Mips.Fp.readControl`/`writeControl`, the UNPREDICTABLE arms
 under `modelOracle` (`ctc1Unpredictable` writes the page's value with the reserved bits ignored,
 Reserved Instruction for `FRE`/`NFRE`; `CFC1` of `FRE` signals Reserved Instruction on both sides, W7), and `CTC1`'s `CheckFPException()`
 after the write ("The register is written before the exception occurs", p.149) against
-`Mips.Fp.fcsrTrapPending`. Release 6 (R6-5): `UFR`/`UNFR` and every register that does not exist
+`Mips.Fp.fcsrTrapPending`. Release 6: `UFR`/`UNFR` and every register that does not exist
 raise Reserved Instruction on both sides ("Release 6 traps"; the manual transcribes the Release 6 arms).
 
 `ctc1_refines` assumes `FcsrReservedZero s` (the stored FCSR holds only its R/W fields): the manual
@@ -58,7 +58,7 @@ theorem cfc1_run (s : State) (rt fs : W32) :
   simp only [beq_iff_eq, h0, h1, h4, h5, h25, h26, h28, h31, ↓reduceIte, hn]
   rfl
 
-/-- **CFC1 refines** (for the states of `Inv`; `FcsrReservedZero` is not used since R6-5). -/
+/-- **CFC1 refines** (for the states of `Inv`; `FcsrReservedZero` is not used in Release 6). -/
 theorem cfc1_refines (s : State) (hg : Good s) (_hres : FcsrReservedZero s) (rt fs w : W32)
     (hw : enc (.cfc1 rt fs) = some w) :
     Execute modelCtx w (.cfc1 rt fs) (abs s) = some (abs (execInstr s (.cfc1 rt fs))) := by
@@ -144,7 +144,7 @@ theorem ctc1_run (s : State) (h0 : readReg s 0 = 0#32) (hres : FcsrReservedZero 
   rfl
 
 /-- **CTC1 refines**: the write, then `CheckFPException()` on the written FCSR; Reserved Instruction
-for a register that is not writable in Release 6. R6-5: assumes `FcsrReservedZero s` (part of `Inv`). -/
+for a register that is not writable in Release 6. Assumes `FcsrReservedZero s` (part of `Inv`). -/
 theorem ctc1_refines (s : State) (hg : Good s) (hres : FcsrReservedZero s) (rt fs w : W32)
     (hw : enc (.ctc1 rt fs) = some w) :
     Execute modelCtx w (.ctc1 rt fs) (abs s) = some (abs (execInstr s (.ctc1 rt fs))) := by

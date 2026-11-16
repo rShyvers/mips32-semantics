@@ -5,7 +5,7 @@ import Semantics.Specs.Fixtures
 /-!
 # BitOps — bit counting, sign extension, byte swap, bit-field extract/insert
 
-Constructors: `clo` `clz` `seb` `seh` `wsbh` `ext` `ins`; Release 6 (R6-4): `align` `bitswap`.
+Constructors: `clo` `clz` `seb` `seh` `wsbh` `ext` `ins`; Release 6: `align` `bitswap`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   CLO p.134; CLZ p.135; SEB p.365; SEH p.366-367; WSBH p.445; EXT p.183-184; INS p.192-193; ALIGN p.39;
@@ -23,7 +23,7 @@ set_option maxRecDepth 4000
 
 /-! ## `clo`, `clz`, `seb`, `seh`, `wsbh`, `ext`, `ins`
 
-MIPS32 / MIPS32r2 additions (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4/§3.5). The statements use
+MIPS32 additions (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4/§3.5). The statements use
 `countLeadingZerosSpec`, `countLeadingOnesSpec`, `signExtLowByteSpec` and `lowBitsMaskSpec`
 (`Defs.lean`). -/
 

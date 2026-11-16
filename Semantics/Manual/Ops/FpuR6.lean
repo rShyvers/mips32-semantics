@@ -1,7 +1,7 @@
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuR6 — the Release 6 FP instructions (MD00086 Vol II-A Rev 6.06), wave R6-6
+# Manual.Ops.FpuR6 — the Release 6 FP instructions (MD00086 Vol II-A Rev 6.06)
 
 `CMP.condn.fmt` (p.136-140), `BC1EQZ`/`BC1NEZ` (p.54-55), `SEL.fmt` (p.368), `SELEQZ.fmt`/`SELNEZ.fmt`
 (p.371-372), `MADDF.fmt`/`MSUBF.fmt` (p.259-260), `MAX.fmt`/`MIN.fmt`/`MAXA.fmt`/`MINA.fmt`

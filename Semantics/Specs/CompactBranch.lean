@@ -3,7 +3,7 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DelaySlot
 
 /-!
-# CompactBranch — the Release 6 compact branches (wave R6-3)
+# CompactBranch — the Release 6 compact branches
 
 Constructors: `bc` `balc` `beqc` `bnec` `bltc` `bgec` `bltuc` `bgeuc` `blezc` `bgezc` `bgtzc`
 `bltzc` `beqzc` `bnezc` `blezalc` `bgezalc` `bgtzalc` `bltzalc` `beqzalc` `bnezalc` `bovc` `bnvc`

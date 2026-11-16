@@ -18,7 +18,7 @@ bitfield inside the word; `sll $0,$0,5` is
 not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317); a compact branch needs the
 `rs`/`rt` relation that selects it within its shared opcode (21-bit offsets of `beqzc`/`bnezc`
 `< 2 ^ 21`, 26-bit offsets of `bc`/`balc` `< 2 ^ 26`; Table A.26, p.464); a `cmp.condn.fmt` needs a
-`condn` of Table A.17 (p.457; R6-6B). -/
+`condn` of Table A.17 (p.457). -/
 def Instruction.WellFormed : Instruction → Prop
   | .add rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .addu rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32

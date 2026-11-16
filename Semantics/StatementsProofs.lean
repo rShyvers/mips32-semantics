@@ -4,7 +4,7 @@ import Semantics.Refine.ChoiceExact
 import Semantics.Refine.ImplValid
 import Semantics.FpOpsCorrectApi
 import Semantics.FpOpsCorrectIEEE
-import Semantics.FpOpsCorrectFma  -- R6-6A
+import Semantics.FpOpsCorrectFma
 import Semantics.FpOpsCorrectR6
 
 /-!
@@ -915,7 +915,7 @@ theorem runHosted_preserves_zero_register (env : HostEnv) (n : Nat) (h : Hosted)
     readReg (runHosted env n h).final.machine 0 = readReg h.machine 0 :=
   _root_.runHosted_preserves_zero_register env n h
 
-/-! ## Interrupts, standby, IntCtl and SRSCtl (wave 6) -/
+/-! ## Interrupts, standby, IntCtl and SRSCtl -/
 
 theorem step_interrupt (s : State) (h : interruptTaken s = true) :
     step s = timerTick (takeInterrupt s) :=
@@ -1049,7 +1049,7 @@ theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) :=
   _root_.wrpgpr_spec_raw s w rd rt hfetch hdecode hpb hcp0 hexec
 
-/-! ## The refinement of the manual specification (Wave 7D) -/
+/-! ## The refinement of the manual specification -/
 
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
     Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
@@ -1096,7 +1096,6 @@ theorem modelImpl_valid : Manual.modelImpl.Valid :=
 theorem decoderSound_decode : Manual.DecoderSound decode :=
   _root_.Refine.decoderSound_decode
 
--- 12b
 theorem decode_diagram_sound (w : W32) (i : Instruction) (h : Manual.Decode w = .instr i) :
     Manual.enc i = some w :=
   _root_.Refine.decode_diagram_sound w i h
@@ -1115,7 +1114,6 @@ theorem decode_none_manual (w : W32) (h : decode w = none) (i : Instruction)
 
 theorem decoderSound_decodeDiagram : Manual.DecoderSound Manual.decodeDiagram :=
   _root_.Refine.decoderSound_decodeDiagram
--- end 12b
 
 theorem resetException_refines_manual (s : State) (h : Refine.StatusImplemented s) :
     Refine.abs (resetException s) = Manual.ResetException Manual.modelOracle (Refine.abs s) :=
@@ -1137,7 +1135,7 @@ theorem inv_hostedStart : Refine.Inv hostedStart :=
 theorem inv_load (p : Program) : Refine.Inv (load p) :=
   _root_.Refine.inv_load p
 
-/-! ## Wave 10: the IEEE rounding core is proved correct
+/-! ## The IEEE rounding core is proved correct
 
 `Mips.Fp.Format.RoundSpec` (`Semantics/FpOpsSpec.lean`) is the IEEE 754 definition the manual
 references, written from the manual and not from the core: the values of the encodings
@@ -1233,7 +1231,7 @@ theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64}
       Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) :=
   _root_.Mips.Fp.f64Sqrt_correct e he ha hx
 
-/-! ## Wave 11: every FP operand, the conversions, the compares, the FCSR
+/-! ## Every FP operand, the conversions, the compares, the FCSR
 
 The reference definitions extend `Semantics/FpOpsSpec.lean` (definitions only, written from MD00082
 Vol I-A Rev 6.01 ch.6 with `FIR.Has2008 = 0` and the MD00086 Vol II-A Rev 6.06 instruction pages):

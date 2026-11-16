@@ -1,7 +1,7 @@
 import Semantics.FpOpsCorrectIEEE
 
 /-!
-# FpOpsCorrectFma — `MADDF.fmt` / `MSUBF.fmt` on every operand (Wave R6-6)
+# FpOpsCorrectFma — `MADDF.fmt` / `MSUBF.fmt` on every operand
 
 `Format.fma` (the fused multiply-add of `FpOps.lean` §12) meets `Format.FmaSpec` of
 `Semantics/FpOpsSpec.lean` for **all** `width`-bit operands (NaN, ±∞, ±0, finite) and every FCSR

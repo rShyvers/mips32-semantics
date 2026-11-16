@@ -1,7 +1,7 @@
 import Semantics.Refine.ChoiceWitness
 
 /-!
-# Refine.ChoiceRows — the rows of `ConsultsOracle` are real choices (integer, memory, control; wave 9)
+# Refine.ChoiceRows — the rows of `ConsultsOracle` are real choices (integer, memory, control)
 
 For each row, two witness oracles (`wo`) and two properties of the completed state, and the proof
 that the Operation run under each oracle signals an exception other than Coprocessor Unusable or
@@ -15,7 +15,7 @@ collects them.
 * the UNPREDICTABLE / UNDEFINED operations (`CTC1`, `MFC0`/`MTC0`, `EXT`/`INS`, `JALR` with
   `rs = rd`): the witness oracle
   signals Reserved Instruction, so both runs signal and the two `Cause.CE` values tell them apart.
-(R6-5: the odd-register rows of `MFHC1`/`MTHC1`/`LDC1`/`SDC1` went with the 32-bit FPU; `LDC1`/`SDC1`
+(the odd-register rows of `MFHC1`/`MTHC1`/`LDC1`/`SDC1` went with the 32-bit FPU; `LDC1`/`SDC1`
 are `LLbit` rows, `MFHC1`/`MTHC1`/`MFC0`/`CFC1` no rows (`consults_row` closes them from the
 hypothesis); `LWC1` is a row of the 32-bit FPR results, `Refine/ChoiceRowsFp.lean`. The compact
 branch-and-link rows share one arm of `consults_row`.)

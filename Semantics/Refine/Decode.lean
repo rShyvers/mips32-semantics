@@ -249,8 +249,8 @@ local macro "word_goal" : tactic =>
     | (apply ext_trap <;> field_goal)
     | (apply ext_wait <;> field_goal)
     | (apply ext_off9 <;> field_goal)
-    | (apply ext_rt2 <;> field_goal)    -- R6-4
-    | (apply ext_pc19 <;> field_goal))  -- R6-4
+    | (apply ext_rt2 <;> field_goal)
+    | (apply ext_pc19 <;> field_goal))
 
 /-! ### The compact branches: the three shapes of a shared opcode (`decodeZeroEqTwo`,
 `decodeLtGe`, `decodeJumpOrZ`) re-encode to the word they decoded -/

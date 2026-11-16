@@ -3,7 +3,7 @@ import Semantics.Manual.Pseudocode
 /-!
 # Manual.Ops.Branch — branches with a delay slot (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7A transcribes the pilot `BEQ`. `I+1:` statements are scheduled with `I1` and happen in
+`I+1:` statements are scheduled with `I1` and happen in
 the next instruction time, whose `PC` is the delay slot's address, `PC + 4` (MD00086 Vol II-A Rev 6.06
 §1.3, Table 1.1, p.6).
 -/
@@ -31,7 +31,7 @@ def BEQ (rs rt offset : W32) : Pseudo Unit := do
   -- I+1: if condition then PC ← PC + target_offset endif
   if condition then I1 (.jump ((pc + 4#32) + target_offset)) else I1 .fallThrough
 
--- 7B S3 control + system
+-- control + system
 
 /-- **BNE rs, rt, offset** — MD00086 Vol II-A Rev 6.06, BNE, p.103.
 ```

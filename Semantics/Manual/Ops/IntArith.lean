@@ -2,8 +2,6 @@ import Semantics.Manual.Pseudocode
 
 /-!
 # Manual.Ops.IntArith — integer arithmetic (MD00086 Vol II-A Rev 6.06)
-
-Sub-wave 7A transcribes the pilot `ADD`; 7B adds the rest of the family.
 -/
 
 namespace Manual.Ops

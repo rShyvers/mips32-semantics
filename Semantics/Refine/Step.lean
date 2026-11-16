@@ -1,7 +1,7 @@
 import Semantics.Refine.Instr
 import Semantics.Manual.Relation
 import Semantics.Refine.Decode
-import Semantics.Refine.DecodeBridge  -- 12b
+import Semantics.Refine.DecodeBridge
 import Semantics.Specs.RegFileSize
 import Semantics.Specs.Invariants
 import Semantics.Env
@@ -96,7 +96,7 @@ theorem stepCore_abs (s : State) (hg : Inv s) :
 
 /-! ## The top theorems -/
 
--- 12b: the top theorems take the spec's own decoder `Manual.decodeDiagram` (`Manual/Decode.lean`);
+-- The top theorems take the spec's own decoder `Manual.decodeDiagram` (`Manual/Decode.lean`);
 -- the `_decode` versions, with the model's `decode`, are the step to them.
 /-- `step` is one instruction time of the manual with the model's `decode` as the decoder. -/
 theorem step_eq_manual_decode (s : State) (hg : Inv s) :
@@ -125,7 +125,6 @@ theorem run_refines_manual (s : State) (hg : Inv s) (n : Nat) :
   | succ n ih =>
     simp only [InstructionTimes, step_eq_manual_decode s hg, Option.bind_some]
     exact ih (step s) (step_preserves_inv s hg)
--- end 12b
 
 /-! ## Reset -/
 

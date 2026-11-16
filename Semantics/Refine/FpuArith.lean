@@ -4,8 +4,7 @@ import Semantics.Refine.BridgeFpu
 # Refine.FpuArith — FP arithmetic Operations against `execInstr`
 
 `Refine.<ctor>_refines` for `ADD/SUB/MUL/DIV/SQRT/ABS/NEG/RECIP/RSQRT.fmt`, fmt = S, D (Release 6
-removed `MADD/MSUB/NMADD/NMSUB.fmt`; Sub-wave 7A proved the pilot `add.s`; 7C S4a the rest and
-re-proved the pilot through `Refine.BridgeFpu`). The FCSR bookkeeping (`Manual.FPResult`: Cause,
+removed `MADD/MSUB/NMADD/NMSUB.fmt`; all through `Refine.BridgeFpu`). The FCSR bookkeeping (`Manual.FPResult`: Cause,
 `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99) against the model's
 `fpFinishS`/`fpFinishD`/`fpThen` (`Mips.Fp.fpUpdate`) is `runAbs_FPResult`, proved once. The model's
 choices enter as: `Impl.recipS/D`, `Impl.rsqrtS/D` (definitionally the core's `f32Recip` …) and

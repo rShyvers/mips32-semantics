@@ -2,7 +2,7 @@ import Semantics.Refine.DecodeDiagram
 import Semantics.Refine.Cycle
 
 /-!
-# Refine.DecodeBridge — `Manual.Decode` against the model's `decode` (wave 12b)
+# Refine.DecodeBridge — `Manual.Decode` against the model's `decode`
 
 * `decode_diagram_sound` / `decode_diagram_complete`: `Manual.Decode w = .instr i` gives a
   diagram of `w`, and every word that is a diagram is decoded to an instruction.
@@ -136,7 +136,7 @@ local macro "cmp_wf" : tactic => `(tactic| (
 set_option maxRecDepth 4000 in
 set_option maxHeartbeats 1000000 in
 /-- **Every candidate whose diagram is `w` is well-formed or `Rejected`**, or it is `SLL r0, r0, 5`,
-whose word is the diagram of `PAUSE` (`decode_ne_sll_pause`). (Wave R6-3 added the hypothesis
+whose word is the diagram of `PAUSE` (`decode_ne_sll_pause`). (Release 6 added the hypothesis
 `enc j = some w`: a compact-branch candidate read from an arbitrary `w` need not meet the `rs`/`rt`
 constraint of its diagram, and is then no diagram of `w`.) -/
 theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
@@ -146,20 +146,20 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
   have hsel := fieldAt_sel_lt w; have hsel86 := fieldAt_sel86_lt w
   have himm := immOf_lt w; have htg := targetOf_lt w; have hoff := off9Of_lt w
   have hc20 := code20Of_lt w; have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
-  have hsa2 := sa2Of_lt w; have hi19 := imm19Of_lt w  -- R6-4
+  have hsa2 := sa2Of_lt w; have hi19 := imm19Of_lt w
   have hoff21 := off21Of_lt w
   repeat' apply And.intro
   all_goals first
     | (intro x hx; cases hx)
     | intro _
   all_goals first
-    | cmp_wf  -- R6-6B
+    | cmp_wf
     | cb_wf
     | skip
   all_goals first
     | (left; simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa,
         fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19,
-        fieldAt_sa2, fieldAt_imm19];  -- R6-4: fieldAt_sa2, fieldAt_imm19
+        fieldAt_sa2, fieldAt_imm19];  -- fieldAt_sa2, fieldAt_imm19
         omega)
     | (left; exact trivial)
     | (intro x hx; cases hx)

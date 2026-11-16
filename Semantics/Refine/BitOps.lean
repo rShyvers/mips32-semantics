@@ -2,13 +2,13 @@ import Semantics.Refine.BridgeIntAlu
 import Semantics.Refine.IntArith
 
 /-!
-# Refine.BitOps — count leading bits, sign extension, byte swap against `execInstr` (sub-wave 7C S1)
+# Refine.BitOps — count leading bits, sign extension, byte swap against `execInstr`
 
 `Refine.<ctor>_refines` for `CLO`, `CLZ`, `SEB`, `SEH`, `WSBH`, `EXT`, `INS`. The manual's `for i in 31 .. 0 …
 break` loop of `CLO`/`CLZ` (`manualCount`) is the model's `countLeadingOnes`/`countLeadingZeros`
 (`clo_eq`, `clz_eq`).
 
-`EXT` and `INS` (7C merge): both sides read the 5-bit fields of the diagram (MD00086 Vol II-A Rev 6.06,
+`EXT` and `INS`: both sides read the 5-bit fields of the diagram (MD00086 Vol II-A Rev 6.06,
 EXT p.183, INS p.192) and raise Reserved Instruction in the UNPREDICTABLE ranges; no side condition.
 -/
 

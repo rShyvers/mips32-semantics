@@ -3,7 +3,7 @@ import Semantics.Manual.Pseudocode
 /-!
 # Manual.Ops.Syscall — SYSCALL (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7B S2. The hosted system-call services of `Env.lean` are the environment, not the
+The hosted system-call services of `Env.lean` are the environment, not the
 architecture: the architecture's SYSCALL is the System Call exception.
 -/
 

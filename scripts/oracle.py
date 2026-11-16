@@ -39,7 +39,7 @@ BYTEORDER = "little"
 # Comparison masks.  Bits the model implements (Semantics/Types.lean statusWriteMask / causeWriteMask
 # plus the exception-entry fields).  Everything else in Status/Cause is hardware state the model
 # does not have (Status.SR/NMI/RP/TS/R0/..., Cause.TI/PCI/WP/IP7..IP2 timer+device interrupts).
-STATUS_MASK = 0x3440FF17   # CU1(29) RW(28) FR(26, read-only 1, R6-5) BEV(22) IM7..0(15:8) UM(4) ERL(2) EXL(1) IE(0)
+STATUS_MASK = 0x3440FF17   # CU1(29) RW(28) FR(26, read-only 1) BEV(22) IM7..0(15:8) UM(4) ERL(2) EXL(1) IE(0)
 CAUSE_MASK = 0xB880037C    # BD(31) CE(29:28) DC(27) IV(23) IP1..0(9:8) ExcCode(6:2)
 CU1 = 0x20000000
 TEXT_LO, TEXT_HI = 0x00400000, 0x10000000

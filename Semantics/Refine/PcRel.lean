@@ -2,7 +2,7 @@ import Semantics.Refine.BridgeMem
 import Semantics.Refine.Immediate
 
 /-!
-# Refine.PcRel — the Release 6 PC-relative instructions against `execInstr` (R6-4)
+# Refine.PcRel — the Release 6 PC-relative instructions against `execInstr`
 
 `ADDIUPC`, `AUIPC`, `ALUIPC`, `LWPC` (MD00086 Vol II-A Rev 6.06, p.37, p.48, p.43, p.246). The
 manual's `PC` is the address of the instruction (`abs s` has `PC = s.pc`); the 19-bit immediate of

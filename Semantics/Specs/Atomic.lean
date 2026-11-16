@@ -86,7 +86,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
             llBit := true, llAddr := 0x10010004#32 }
         readReg s 9 == 0#32 && s.llBit == false && readMemWord s 0x10010000#32 == some 0#32) = true
 
--- `sc_spec_raw`, regression (Wave 7D model fix): the addresses are compared in bits 31..2 only
+-- `sc_spec_raw`, regression: the addresses are compared in bits 31..2 only
 -- ("An SC will fail if the aligned address of the SC does not match that of the preceding LL",
 -- MD00086 Vol II-A Rev 6.06, SC, p.347), so an `llAddr` of `0x8000_1001` and an `sc` to
 -- `0x8000_1000` (the same aligned word) succeed. Before the fix the whole addresses were compared

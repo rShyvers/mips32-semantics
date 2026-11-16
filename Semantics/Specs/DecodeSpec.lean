@@ -372,7 +372,7 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   have h4 := shamtOf_lt w; have h5 := immOf_lt w; have h6 := targetOf_lt w
   have h7 := off9Of_lt w
   have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
-  have h13 := sa2Of_lt w; have h14 := imm19Of_lt w  -- R6-4
+  have h13 := sa2Of_lt w; have h14 := imm19Of_lt w
   have h15 := off21Of_lt w
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
     decodeCop0, decodeCop1, decodeCop1Fmt, decodeFmtS, decodeFmtD, Option.bind_some, Option.bind_none,
@@ -386,7 +386,7 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
   all_goals first
-    | exact hc  -- R6-6B: CMP.condn.fmt, the `condn` test is `WellFormed`'s
+    | exact hc  -- CMP.condn.fmt, the `condn` test is `WellFormed`'s
     | (simp only [decide_eq_true_eq] at hc; bv_omega)
     | (simp only [Bool.and_eq_true] at hc; exact hc.2)
     | (simp only [Bool.and_eq_true, decide_eq_true_eq] at hc; exact hc.2)

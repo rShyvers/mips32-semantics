@@ -22,12 +22,12 @@ def execBitOps (s : State) : Instruction → Option State
     mkNext s (writeReg s (regIdx rd) (BitVec.ofNat 32 (countLeadingOnes (readReg s (regIdx rs)))))
   | .clz rs rd => some <|
     mkNext s (writeReg s (regIdx rd) (BitVec.ofNat 32 (countLeadingZeros (readReg s (regIdx rs)))))
-  -- SPECIAL3 BSHFL sign-extend (MIPS32r2)
+  -- SPECIAL3 BSHFL sign-extend
   | .seb rd rt => some <|
     mkNext s (writeReg s (regIdx rd) (signExtLowByte (readReg s (regIdx rt))))
   | .seh rd rt => some <|
     mkNext s (writeReg s (regIdx rd) (signExt16 (readReg s (regIdx rt))))
-  -- SPECIAL3 BSHFL word-swap-bytes-within-halfwords (MIPS32r2): swap the
+  -- SPECIAL3 BSHFL word-swap-bytes-within-halfwords: swap the
   -- two bytes of each 16-bit half of `$rt` independently; the halfwords
   -- themselves stay in their original word positions (not a full 32-bit
   -- byte-reverse -- that's `wsbh` + `rotr 16`, not modeled as a single op).
@@ -39,7 +39,7 @@ def execBitOps (s : State) : Instruction → Option State
     let b3 := (v >>> 24) &&& 0xff#32
     let result := (b2 <<< 24) ||| (b3 <<< 16) ||| (b0 <<< 8) ||| b1
     mkNext s (writeReg s (regIdx rd) result)
-  -- SPECIAL3 bitfield extract/insert (MIPS32r2; MD00086 Vol II-A Rev 6.06,
+  -- SPECIAL3 bitfield extract/insert (MD00086 Vol II-A Rev 6.06,
   -- EXT p.183, INS p.192-193). The constructor's `pos`/`size` are mapped to
   -- the diagram's 5-bit fields as `encode` writes them: EXT `lsb = pos`,
   -- `msbd = size - 1`; INS `lsb = pos`, `msb = pos + size - 1` (each mod 32).

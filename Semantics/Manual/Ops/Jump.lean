@@ -3,7 +3,7 @@ import Semantics.Manual.Pseudocode
 /-!
 # Manual.Ops.Jump — jumps with a delay slot, and the compact jumps (MD00086 Vol II-A Rev 6.06)
 
-7B S3. `I+1:` statements are scheduled with `I1` and happen in the next instruction time, whose `PC`
+`I+1:` statements are scheduled with `I1` and happen in the next instruction time, whose `PC`
 is the delay slot's address, `PC + 4` (§1.3, Table 1.1, p.6).
 
 Release 6 has no separate JR/JR.HB: "Release 6: JR is defined to be JALR with the destination register

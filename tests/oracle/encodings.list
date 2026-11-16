@@ -240,7 +240,7 @@ cvt.d.w $f4,$f6
 cvt.w.d $f0,$f2
 cvt.w.d $f30,$f30
 cvt.w.d $f4,$f6
-# --- Release 6 FPU, L (64-bit fixed point) format (R6-5) ---
+# --- Release 6 FPU, L (64-bit fixed point) format ---
 cvt.l.s $f0,$f2
 cvt.l.s $f31,$f30
 cvt.l.s $f5,$f6
@@ -555,7 +555,7 @@ jic $t0,-32768
 jic $zero,32767
 jialc $ra,8
 jialc $t0,-4
-# --- Release 6 FPU instructions (R6-6): CMP.condn.fmt (cmp.or/une/ne/sor/sune/sne: ENC_MANUAL), BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT ---
+# --- Release 6 FPU instructions: CMP.condn.fmt (cmp.or/une/ne/sor/sune/sne: ENC_MANUAL), BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT ---
 cmp.af.s $f0,$f2,$f4
 cmp.af.s $f31,$f30,$f29
 cmp.af.d $f0,$f2,$f4
@@ -692,7 +692,7 @@ rint.s $f0,$f2
 rint.s $f31,$f30
 rint.d $f0,$f2
 rint.d $f31,$f30
-# --- DVP/EVP (Wave R6-7; DVP p.172, EVP p.181: no-ops with Config5.VP = 0) ---
+# --- DVP/EVP (DVP p.172, EVP p.181: no-ops with Config5.VP = 0) ---
 dvp
 dvp $t0
 evp

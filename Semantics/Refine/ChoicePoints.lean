@@ -1,7 +1,7 @@
 import Semantics.Refine.ChoiceFp
 
 /-!
-# Refine.ChoicePoints — the Operations are oracle-free where `ConsultsOracle` says so (wave 8)
+# Refine.ChoicePoints — the Operations are oracle-free where `ConsultsOracle` says so
 
 `operation_choiceFree`: when `Manual.ConsultsOracle ins a = false`, the Operation of `ins` run from `a`
 gives the same result (value, exception and state) under any two oracles. For the constructors

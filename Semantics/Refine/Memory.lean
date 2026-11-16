@@ -3,7 +3,7 @@ import Semantics.Refine.BridgeMem
 /-!
 # Refine.Memory — aligned loads and stores against `execInstr`
 
-Sub-wave 7A proves the pilots `lw` and `sw`: the pre-Release-6 alignment check, the address check and
+The pilots `lw` and `sw`: the pre-Release-6 alignment check, the address check and
 Fixed Mapping translation (`Refine/Fetch.lean`), and the memory element read or written.
 -/
 
@@ -114,7 +114,7 @@ theorem sw_refines (s : State) (hg : Good s) (base rt off w : W32)
     simp only [hm, ↓reduceIte, SignalException, hr]
     rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_ades]
 
-/-! ## 7C S2: the byte and halfword loads and stores, PREF, SYNC, SYNCI -/
+/-! ## The byte and halfword loads and stores, PREF, SYNC, SYNCI -/
 
 /-- **LB refines.** -/
 theorem lb_refines (s : State) (hg : Good s) (base rt off w : W32)
@@ -214,7 +214,7 @@ theorem pref_refines (s : State) (hg : Good s) (base hint off w : W32)
     Execute modelCtx w (.pref base hint off) (abs s) = some (abs (execInstr s (.pref base hint off))) := by
   s2_open Ops.PREF (Ops.PREF base hint off)
   exec_unfold
-  -- R6-4: hints 24..31 raise Reserved Instruction (PREF, Table 5.2, p.322-323)
+  -- hints 24..31 raise Reserved Instruction (PREF, Table 5.2, p.322-323)
   have e : (low hint 5).toNat = (hint &&& 31#32).toNat := by
     rw [low5, BitVec.toNat_and, show (31#32).toNat = 2 ^ 5 - 1 by rfl, Nat.and_two_pow_sub_one_eq_mod]
   rw [e]

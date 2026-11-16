@@ -52,7 +52,7 @@ def MTC0 (rt rd sel : W32) : Pseudo Unit := do
   -- else (ArchitectureRevision() ≥ 6): nop
   else pure ()
 
--- 7B S3 control + system
+-- control + system
 
 /-- `SRSCtl_{PSS}` (bits 9..6; MD00090 Vol III Rev 6.02, SRSCtl, Table 9.49, p.204): the previous
 shadow set number, as `SRSCtl` reads under `impl`. -/
@@ -102,7 +102,7 @@ StatusIE ← 0
 `Manual.Ops.Cp0`). -/
 def DI (rt : W32) : Pseudo Unit := do
   let a ← Pseudo.get
-  -- data ← Status (as read: `StatusRead`, `FR` reads 1; R6-5)
+  -- data ← Status (as read: `StatusRead`, `FR` reads 1)
   let data := StatusRead a
   -- GPR[rt] ← data
   setGPR (reg rt) data
@@ -119,7 +119,7 @@ StatusIE ← 1
 (`sc = 1` of the page's general Operation.) -/
 def EI (rt : W32) : Pseudo Unit := do
   let a ← Pseudo.get
-  -- data ← Status (as read: `StatusRead`, `FR` reads 1; R6-5)
+  -- data ← Status (as read: `StatusRead`, `FR` reads 1)
   let data := StatusRead a
   -- GPR[rt] ← data
   setGPR (reg rt) data

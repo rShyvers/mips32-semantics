@@ -2,7 +2,6 @@ import Semantics.Refine.BridgeIntAlu
 
 /-!
 # Refine.Immediate — arithmetic and logical with a 16-bit immediate against `execInstr`
-(sub-wave 7C S1)
 
 `Refine.<ctor>_refines` for `ADDIU`, `SLTI`, `SLTIU`, `ANDI`, `ORI`, `XORI`, `AUI` (Release 6
 removed `ADDI`; LUI is AUI with `rs = 0`). `sign_extend(immediate)` is the model's `signExt16`

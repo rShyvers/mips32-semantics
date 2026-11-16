@@ -1,7 +1,7 @@
 import Semantics.Manual.Cycle
 
 /-!
-# Manual.Relation — the manual's relation, the limits on its choices, and its choice points (7D, 8)
+# Manual.Relation — the manual's relation, the limits on its choices, and its choice points
 
 `InstructionTime impl oracle dec` is deterministic once an oracle is given. The manual itself allows
 every outcome some *valid* oracle gives.
@@ -166,9 +166,9 @@ def Oracle.Valid (o : Oracle) : Prop :=
   NIOutcome o.extOutOfRange ∧
   NIOutcome o.insLsbAboveMsb ∧
   (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
-  (∀ r, NIValue (o.fprUpper · r)) ∧  -- R6-5
+  (∀ r, NIValue (o.fprUpper · r)) ∧
   NIValue o.badInstrNoWord ∧ NIValue o.badInstrP ∧
-  (∀ i, NIValue (o.divByZero · i)) ∧  -- R6-4
+  (∀ i, NIValue (o.divByZero · i)) ∧
   -- the UNDEFINED operations
   (∀ a v, UndefinedOutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
   -- the QNaN fields
@@ -182,7 +182,7 @@ def Step (i : Impl) (dec : W32 → Option Instruction) (a a' : Arch) : Prop :=
   ∃ o : Oracle, o.Valid ∧ InstructionTime i o dec a = some a'
 
 /-- **`n` instruction times** under one resolution of the choices (`none` only if an instruction
-time is `none`, which no constructor causes since 7B). -/
+time is `none`, which no constructor causes). -/
 def InstructionTimes (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) : Nat → Arch → Option Arch
   | 0, a => some a
   | n + 1, a => (InstructionTime i o dec a).bind (InstructionTimes i o dec n)

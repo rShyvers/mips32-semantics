@@ -8,7 +8,7 @@ of the `Instruction` constructor (MD00086 Vol II-A Rev 6.06, the diagram at the 
 The spec decodes a fetched word as the instruction whose diagram it matches
 (`Manual.DecoderSound`, `Manual/Cycle.lean`); the model's `decode`/`encode` are not used here.
 
-Since 7B every `Instruction` constructor has a diagram line (`docs/MANUAL-SPEC.md`). The encoding spaces of the coprocessors, which decide the exception for a
+Every `Instruction` constructor has a diagram line (`docs/MANUAL-SPEC.md`). The encoding spaces of the coprocessors, which decide the exception for a
 word that matches no diagram, are at the end.
 -/
 
@@ -26,15 +26,15 @@ def rFormat (op rs rt rd sa fn : W32) : W32 :=
 def iFormat (op rs rt imm : W32) : W32 :=
   fld 6 26 op ||| fld 5 21 rs ||| fld 5 16 rt ||| fld 16 0 imm
 
-/-- 7B S2: `SPECIAL | rs | rt | code (10 bits) | function` (the trap-on-condition pages, e.g. TEQ
+/-- `SPECIAL | rs | rt | code (10 bits) | function` (the trap-on-condition pages, e.g. TEQ
 p.416: `000000 | rs | rt | code | 110100`). -/
 def trapFormat (rs rt code fn : W32) : W32 :=
   fld 6 26 0#32 ||| fld 5 21 rs ||| fld 5 16 rt ||| fld 10 6 code ||| fld 6 0 fn
 
-/-- 7B S2: `SPECIAL | code (20 bits) | function` (SYSCALL p.415, BREAK p.109). -/
+/-- `SPECIAL | code (20 bits) | function` (SYSCALL p.415, BREAK p.109). -/
 def codeFormat (code fn : W32) : W32 := fld 6 26 0#32 ||| fld 20 6 code ||| fld 6 0 fn
 
-/-- 7B S2 / R6-1: `SPECIAL3 | base | rt | offset (9 bits) | 0 | function`, the Release 6 diagrams of
+/-- `SPECIAL3 | base | rt | offset (9 bits) | 0 | function`, the Release 6 diagrams of
 `LL` (p.223), `SC` (p.347) and `PREF` (p.321): offset in bits 15..7, bit 6 zero. -/
 def off9Format (base rt off fn : W32) : W32 :=
   fld 6 26 0x1F#32 ||| fld 5 21 base ||| fld 5 16 rt ||| fld 9 7 off ||| fld 6 0 fn
@@ -103,7 +103,7 @@ diagram of each page, printed page of the diagram):
   arithmetic pages with fmt S = `10000`, D = `10001`, W = `10100` (Table A.22, p.459): ADD p.34, SUB
   p.387, MUL p.300, DIV p.170, SQRT p.382, ABS p.32, MOV p.275, NEG p.307, RECIP p.336, RSQRT p.343,
   ROUND.W p.342, TRUNC.W p.441, CEIL.W p.128, FLOOR.W p.186, CVT.W p.160, CVT.D p.153, CVT.S p.159.
-  The longword conversions (R6-5), fmt S, D and L = `10101`: ROUND.L p.341, TRUNC.L p.440, CEIL.L
+  The longword conversions, fmt S, D and L = `10101`: ROUND.L p.341, TRUNC.L p.440, CEIL.L
   p.127, FLOOR.L p.185, CVT.L p.154 (fmt S/D), CVT.S.L p.159, CVT.D.L p.153 (fmt L).
   The Release 6 FP pages: CMP.condn.fmt p.136 (`COP1 | 10100 (S) / 10101 (D) | ft | fs | fd | 0 |
   condn`, the `condn` values of Table A.17, p.457, `CmpCondnOK`); BC1EQZ `01001` and BC1NEZ `01101`
@@ -119,7 +119,7 @@ def enc : Instruction → Option W32
   | .addS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0#32)
   | .mtc0 rt rd sel => some (fld 6 26 0x10#32 ||| fld 5 21 0x04#32 ||| fld 5 16 rt ||| fld 5 11 rd |||
       fld 3 0 sel)
-  -- 7B S3 control + system
+  -- control + system
   | .bne rs rt off => some (iFormat 0x05#32 rs rt off)
   | .blez rs off => some (iFormat 0x06#32 rs 0#32 off)
   | .bgtz rs off => some (iFormat 0x07#32 rs 0#32 off)
@@ -141,8 +141,7 @@ def enc : Instruction → Option W32
   | .wrpgpr rd rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0E#32 ||| fld 5 16 rt ||| fld 5 11 rd)
   | .rdhwr rt rd sel => some (fld 6 26 0x1F#32 ||| fld 5 16 rt ||| fld 5 11 rd ||| fld 3 6 sel |||
       fld 6 0 0x3B#32)
-  -- end 7B S3
-  -- 7B S2 memory/atomic/trap/syscall: the diagram of each page (printed page in parentheses)
+  -- memory/atomic/trap/syscall: the diagram of each page (printed page in parentheses)
   | .lb base rt off => some (iFormat 0x20#32 base rt off)            -- LB `100000` (p.211)
   | .lbu base rt off => some (iFormat 0x24#32 base rt off)           -- LBU `100100` (p.213)
   | .lh base rt off => some (iFormat 0x21#32 base rt off)            -- LH `100001` (p.219)
@@ -162,7 +161,7 @@ def enc : Instruction → Option W32
   | .tgeu rs rt code => some (trapFormat rs rt code 0x31#32)         -- TGEU `110001` (p.421)
   | .syscall code => some (codeFormat code 0x0C#32)                  -- SYSCALL `001100` (p.415)
   | .break code => some (codeFormat code 0x0D#32)                    -- BREAK `001101` (p.109)
-  -- 7B S4 FPU
+  -- FPU
   | .mfc1 rt fs => some (rFormat 0x11#32 0x00#32 rt fs 0#32 0#32)
   | .mtc1 rt fs => some (rFormat 0x11#32 0x04#32 rt fs 0#32 0#32)
   | .mfhc1 rt fs => some (rFormat 0x11#32 0x03#32 rt fs 0#32 0#32)
@@ -206,7 +205,7 @@ def enc : Instruction → Option W32
   | .cvtSW fd fs => some (rFormat 0x11#32 0x14#32 0#32 fs fd 0x20#32)
   | .cvtDW fd fs => some (rFormat 0x11#32 0x14#32 0#32 fs fd 0x21#32)
   | .cvtSD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x20#32)
-  -- 7B S1 integer ALU: begin
+  -- integer ALU
   | .addu rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x21#32)
   | .sub rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x22#32)
   | .subu rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x23#32)
@@ -237,8 +236,7 @@ def enc : Instruction → Option W32
   | .andi rs rt imm => some (iFormat 0x0C#32 rs rt imm)
   | .ori rs rt imm => some (iFormat 0x0D#32 rs rt imm)
   | .xori rs rt imm => some (iFormat 0x0E#32 rs rt imm)
-  -- 7B S1 integer ALU: end
-  -- Release 6 (wave R6-1)
+  -- Release 6
   | .aui rs rt imm => some (iFormat 0x0F#32 rs rt imm)
   | .nal off => some (iFormat 0x01#32 0#32 0x10#32 off)
   | .bal off => some (iFormat 0x01#32 0#32 0x11#32 off)
@@ -376,7 +374,7 @@ COP2 `010010`. Release 6 moved LWC2/SWC2/LDC2/SDC2 under COP2 ("6Rm" at their ol
 `111010`, `110110`, `111110`, which Release 6 reuses for BC, BALC, POP66, POP76; Table A.2, p.451). -/
 def InCop2Space (w : W32) : Bool := opcode w == 0x12#32
 
-/-! ## Words with an UNPREDICTABLE field value (7R) -/
+/-! ## Words with an UNPREDICTABLE field value -/
 
 /-- Bits `hi..lo` of an instruction word, as a number. -/
 def fldOf (w : W32) (hi lo : Nat) : Nat := (w.extractLsb' lo (hi + 1 - lo)).toNat
@@ -388,7 +386,7 @@ for it; it is not "a word that matches no format diagram" either. The exceptions
 `lsb + msbd > 31` and `INS` with `lsb > msb`: their fields `lsb`, `msbd`/`msb` are the instruction's
 own operands, so such a word is an `enc` image of an `ext`/`ins` with out-of-range operands, and the
 spec's decoder `Manual.Decode` returns that instruction (the Operation then reaches
-`Oracle.extOutOfRange`/`insLsbAboveMsb`, wave 12b). Its outcome is `Oracle.unpredictableEncoding`
+`Oracle.extOutOfRange`/`insLsbAboveMsb`). Its outcome is `Oracle.unpredictableEncoding`
 (`Manual.FetchExecute`). The cases, on the Release 6 diagrams (MD00086 Vol II-A Rev 6.06, printed
 page of each diagram):
 
@@ -407,7 +405,7 @@ page of each diagram):
   bits 10..0 of MFC1 p.267, MTC1 p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16
   of the one-operand COP1 functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W
   p.441, CEIL.W p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160;
-  R6-5: ROUND.L p.341, TRUNC.L p.440, CEIL.L p.127, FLOOR.L p.185, CVT.L p.154; R6-6B: RINT p.337,
+  Longword conversions: ROUND.L p.341, TRUNC.L p.440, CEIL.L p.127, FLOOR.L p.185, CVT.L p.154; Release 6 FP: RINT p.337,
   CLASS p.132).
 * **`EXT` with `lsb + msbd > 31`** (p.183) and **`INS` with `lsb > msb`** (p.193).
 * **A `JALR` hint other than `00000` and `10000`**: "In release 1 of the architecture, the only
@@ -430,9 +428,9 @@ def UnpredictableEncoding (w : W32) : Bool :=
   match op with
   | 0x00 =>  -- SPECIAL
     if [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2A, 0x2B, 0x04, 0x07,
-        0x35, 0x37].contains fn   -- R6-4: SELEQZ, SELNEZ
+        0x35, 0x37].contains fn   -- SELEQZ, SELNEZ
     then nz 10 6
-    else if fn == 0x05 then nz 10 8   -- R6-4: LSA
+    else if fn == 0x05 then nz 10 8   -- LSA
     else if fn == 0x06 then nz 10 7
     else if fn == 0x00 || fn == 0x03 then nz 25 21
     else if fn == 0x02 then nz 25 22
@@ -441,7 +439,7 @@ def UnpredictableEncoding (w : W32) : Bool :=
     else if fn == 0x10 || fn == 0x11 then sa == 1 && nz 20 16   -- CLZ, CLO
     else false
   | 0x1F =>  -- SPECIAL3
-    if fn == 0x20 && [0x10, 0x18, 0x02, 0x00].contains sa then nz 25 21   -- R6-4: BITSWAP `00000`
+    if fn == 0x20 && [0x10, 0x18, 0x02, 0x00].contains sa then nz 25 21   -- BITSWAP `00000`
     else if fn == 0x00 then sa + rd > 31          -- EXT: lsb + msbd > 31
     else if fn == 0x04 then sa > rd               -- INS: lsb > msb
     else if fn == 0x3B then nz 25 21 || nz 10 9   -- RDHWR
@@ -460,8 +458,8 @@ def UnpredictableEncoding (w : W32) : Bool :=
     if [0x00, 0x04, 0x03, 0x07, 0x02, 0x06].contains rs then nz 10 0
     else if rs == 0x10 || rs == 0x11 then
       if [0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x15, 0x16, 0x24,
-          0x08, 0x09, 0x0A, 0x0B, 0x25,     -- R6-5: ROUND/TRUNC/CEIL/FLOOR.L, CVT.L
-          0x1A, 0x1B].contains fn then      -- R6-6B: RINT, CLASS
+          0x08, 0x09, 0x0A, 0x0B, 0x25,     -- ROUND/TRUNC/CEIL/FLOOR.L, CVT.L
+          0x1A, 0x1B].contains fn then      -- RINT, CLASS
         nz 20 16
       else if (rs == 0x10 && fn == 0x21) || (rs == 0x11 && fn == 0x20) then nz 20 16  -- CVT.D.S, CVT.S.D
       else false

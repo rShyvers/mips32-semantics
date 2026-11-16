@@ -1,7 +1,7 @@
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuControl — FP control register moves (MD00086 Vol II-A Rev 6.06), 7B S4, Release 6 (R6-5)
+# Manual.Ops.FpuControl — FP control register moves (MD00086 Vol II-A Rev 6.06), Release 6
 
 `CFC1` and `CTC1` as the Rev 6.06 pages give them; only the Release 6 arms are transcribed (as for
 MTC0, `Manual.Ops.MTC0`): this spec is the Release 6 profile, whose `ConfigAR` is 2 ("2 Release 6",

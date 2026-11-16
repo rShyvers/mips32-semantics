@@ -5,7 +5,7 @@ import Semantics.FpOpsFacts
 # Refine.BridgeFpu — the FPU Operations' building blocks against the model's
 
 Proved once and reused by `Refine/FpuArith.lean`, `Refine/FpuConvert.lean`,
-`Refine/FpuCompare.lean` (7C S4a):
+`Refine/FpuCompare.lean`:
 
 * `execute_cop1`: `Execute` of a COP1 instruction (not a CTI) is the Coprocessor Unusable
   exception when `Status.CU1 = 0` and the Operation otherwise, against the model's `execInstr`.
@@ -14,8 +14,8 @@ Proved once and reused by `Refine/FpuArith.lean`, `Refine/FpuConvert.lean`,
   §6.7.1, p.98-99) against the model's `Mips.Fp.fpUpdate`: `runAbs_FPResult` (one operation
   followed by the rest of the Operation, the model's `fpThen`), and its instances `runAbs_finS`
   (`fpFinishS`), `runAbs_finD` (`fpFinishD`); `runAbs_FPCheck` (`FPCheck`, one operation of a
-  multiply-add: Cause and trap check only, the model's `fpStep`; Wave 12a).
-* `ValueFPR`/`StoreFPR` (R6-5: 64-bit FPRs, `Status.FR = 1`): a double is one FPR (`readFpD`/`writeFpD`);
+  multiply-add: Cause and trap check only, the model's `fpStep`).
+* `ValueFPR`/`StoreFPR` (64-bit FPRs, `Status.FR = 1`): a double is one FPR (`readFpD`/`writeFpD`);
   a 32-bit store keeps the upper half (the model oracle's `fprUpper`, as `writeFpReg`).
 -/
 
@@ -72,7 +72,7 @@ theorem runAbs_congr (op op' : Pseudo Unit) (s : State)
 
 theorem modelCtx_oracle : modelCtx.oracle = modelOracle := rfl
 theorem modelCtx_impl : modelCtx.impl = modelImpl := rfl
--- R6-5: the model's upper half of a 32-bit FPR write is the old one.
+-- the model's upper half of a 32-bit FPR write is the old one.
 theorem fprUpper_model (a : Arch) (fpr : Fin 32) :
     modelCtx.oracle.fprUpper a fpr = (a.FPR fpr).extractLsb' 32 32 := rfl
 theorem modelImpl_recipS : modelImpl.recipS = Mips.Fp.f32Recip := rfl

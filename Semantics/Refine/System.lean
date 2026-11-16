@@ -4,9 +4,9 @@ import Semantics.Refine.Cycle
 /-!
 # Refine.System — standby and hardware registers against `execInstr`
 
-7C S3 proves `wait` (COP0 encoding space, a CTI: Reserved Instruction in a delay slot on both
-sides, then the Coprocessor Unusable check), wave R6-1 `pause` (a CTI outside the COP0 space) and `rdhwr` (SPECIAL3, its own access check, MD00086
-Vol II-A Rev 6.06, RDHWR, Restrictions, p.333). The 7C merge adds `eret` (ERET p.177-178: COP0
+`wait` (COP0 encoding space, a CTI: Reserved Instruction in a delay slot on both
+sides, then the Coprocessor Unusable check), `pause` (a CTI outside the COP0 space) and `rdhwr` (SPECIAL3, its own access check, MD00086
+Vol II-A Rev 6.06, RDHWR, Restrictions, p.333). Also `eret` (ERET p.177-178: COP0
 space, a CTI, no delay slot: `PC ← temp` at time `I`).
 -/
 

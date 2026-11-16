@@ -8,7 +8,7 @@ BGEZAL/BLTZAL; BAL p.50, NAL p.306), J/JAL and JALR/JALR.HB, all with a delay sl
 are idioms for `jalr $0, rs`/`jalr.hb $0, rs` (JR p.207, JR.HB p.208; `Asm/Pseudo.lean`). A numeric
 branch operand is the word offset itself; a label operand is a target address.
 
-**The Release 6 compact branches and jumps** (wave R6-3; MD00086 Vol II-A Rev 6.06, BC p.53, BALC
+**The Release 6 compact branches and jumps** (MD00086 Vol II-A Rev 6.06, BC p.53, BALC
 p.52, B<cond>C p.82-85, B{LE,GE,GT,LT,EQ,NE}ZALC p.77-79, BOVC/BNVC p.107, JIC p.205, JIALC p.203)
 share primary opcodes and are told apart by the `rs`/`rt` fields (Table A.26, p.464), so a form whose
 registers would select another instruction is an error: `beqc`/`bnec` need two different nonzero

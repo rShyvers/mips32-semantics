@@ -2,7 +2,7 @@ import Semantics.Manual.Memory
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuMemory — FP loads and stores (MD00086 Vol II-A Rev 6.06), 7B S4
+# Manual.Ops.FpuMemory — FP loads and stores (MD00086 Vol II-A Rev 6.06)
 
 `LWC1`, `SWC1`, `LDC1`, `SDC1` (Release 6 removed `LWXC1`, `SWXC1`, `LDXC1`, `SDXC1`, `PREFX`). The
 alignment rule is in each page's Restrictions ("An Address Error exception occurs if

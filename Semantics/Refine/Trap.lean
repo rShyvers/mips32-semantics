@@ -1,7 +1,7 @@
 import Semantics.Refine.BridgeMem
 
 /-!
-# Refine.Trap — the conditional traps and BREAK against `execInstr` (7C S2)
+# Refine.Trap — the conditional traps and BREAK against `execInstr`
 
 Each conditional trap is `if <comparison> then SignalException(Trap)` (MD00086 Vol II-A Rev 6.06,
 TEQ p.416 ... TNEI p.439); the model's is `if <comparison> then takeException s excCodeTr else

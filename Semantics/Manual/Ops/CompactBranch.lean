@@ -3,7 +3,7 @@ import Semantics.Manual.Pseudocode
 /-!
 # Manual.Ops.CompactBranch — the Release 6 compact branches (MD00086 Vol II-A Rev 6.06)
 
-Wave R6-3. The compact branches have no delay slot: a taken branch assigns `PC` at time `I`
+The compact branches have no delay slot: a taken branch assigns `PC` at time `I`
 (`setPC`). The conditional ones have a **forbidden slot** instead: "Release 6 introduces conditional
 compact branches and compact jumps that do not have a delay slot; they have instead a forbidden slot.
 Release 6 unconditional compact branches have neither a delay slot nor a forbidden slot" (MD00082 Vol
