@@ -7,7 +7,7 @@ import Semantics.Specs.Invariants
 import Semantics.Env
 
 /-!
-# Refine.Step — `step` refines the manual's instruction time (7D)
+# Refine.Step — `step` refines the manual's instruction time
 
 The assembly of the independent correctness theorem:
 

@@ -210,7 +210,7 @@ def RoundSpec (f : Format) (rm : RoundingMode) (c : Cut) (R : Rounded) : Prop :=
 
 end Format
 
-/-! ## Wave 11: every operand, the conversions, the compares, the FCSR
+/-! ## Every operand, the conversions, the compares, the FCSR
 
 The definitions below extend the rounding reference to the whole of each operation: special operands
 (NaN, ±∞, ±0), the conversions, `C.cond.fmt`, `ABS`/`NEG`, and the FCSR bookkeeping. They are written
@@ -808,12 +808,6 @@ with the FCSR `fcsr` and the value `v`. -/
 inductive FpOutcome (α : Type) where
   | trap (fcsr : BitVec 32)
   | done (fcsr : BitVec 32) (v : α)
-
-/-- **One FP operation as a separate instruction**: some result `r` allowed by the operation's spec
-`Op`, the FCSR updated per `FcsrSpec`, trapping or completing with `r.1`. -/
-def OpStep {α : Type} (Op : α × Flags → Prop) (fcsr : BitVec 32) (o : FpOutcome α) : Prop :=
-  ∃ r : α × Flags, Op r ∧ ∃ new trap, FcsrSpec fcsr r.2 new trap ∧
-    (trap = true → o = .trap new) ∧ (trap = false → o = .done new r.1)
 
 /-! ### `MADDF.fmt`, `MSUBF.fmt`: fused multiply-add (MD00086 Vol II-A Rev 6.06, p.259-260) -/
 

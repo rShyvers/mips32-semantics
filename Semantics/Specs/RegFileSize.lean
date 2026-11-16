@@ -201,7 +201,7 @@ macro "sk_simp_next" : tactic => `(tactic|
     writeFpReg_fpRegs_size, writeFpD_regs', writeFpD_fpRegs_size, writeMemByte_getD_regs',
     writeMemByte_getD_fpRegs, and_self, *])
 
--- ~120 constructors through one generic tactic loop
+-- all 203 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **No instruction changes the size of `regs` or `fpRegs`**, in any state (including one with
 a pending delay-slot transfer). Proved structurally, not by a per-instruction case list. -/

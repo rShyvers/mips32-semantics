@@ -95,7 +95,7 @@ def cp0Read (s : State) : Cp0Reg → W32
   | .badInstrP => s.cp0BadInstrP
   | .count => s.cp0Count
   | .compare => s.cp0Compare
-  | .status => statusValue s  -- R6-5: `FR` reads 1 (`statusFrMask`)
+  | .status => statusValue s  -- `FR` reads 1 (`statusFrMask`)
   | .intCtl => intCtlValue
   | .srsCtl => srsCtlValue
   | .cause => causeValue s

@@ -21,7 +21,7 @@ model is these definitions.
 | §5 | float → word / longword (`f32ToW32`, `f64ToW32`, `f32ToW64`, `f64ToW64`) | MD00086 `CVT.W.fmt`, `CVT.L.fmt`, `ROUND/TRUNC/CEIL/FLOOR.W.fmt` and `.L.fmt` |
 | §6 | format conversions (`f32ToF64`, `f64ToF32`, `w32ToF32`, `w32ToF64`, `w64ToF32`, `w64ToF64`) | MD00086 `CVT.D.fmt`, `CVT.S.fmt` |
 | §7 | NaN policy, `abs`/`neg` (non-arithmetic, `FCSR.ABS2008 = 1`) | MD00086 `ABS.fmt`, `NEG.fmt`; MD00082 default QNaN |
-| §8 | comparison | MD00086 `C.cond.fmt` |
+| §8 | comparison: the IEEE relation, the `cond3..0` predicate core | MD00086 `CMP.condn.fmt` (Table 3.9) |
 | §9 | FCSR and the `CFC1`/`CTC1` control-register views | MD00086 `CFC1`, `CTC1`; MD00082 Vol I FCSR/FIR/FCCR/FEXR/FENR |
 | §9a | arithmetic: `add`/`sub`/`mul`/`div`/`sqrt`, `recip`/`rsqrt` (exact result, one rounding; NaN rules; input flushing) | MD00082 Vol I §6.3, §6.7; MD00086 `ADD.fmt` … `RSQRT.fmt` |
 
@@ -654,7 +654,13 @@ def f64Abs (x : BitVec 64) : BitVec 64 := x &&& 0x7FFFFFFFFFFFFFFF#64
 /-- `NEG.D`: as `f32Neg`, for doubles. -/
 def f64Neg (x : BitVec 64) : BitVec 64 := x ^^^ 0x8000000000000000#64
 
-/-! ## §8  Comparison (MD00086 `C.cond.fmt`) -/
+/-! ## §8  Comparison: the IEEE relation and the predicate core
+
+The relation of two operands (unordered, less, equal) and the predicate on it selected by the low
+four `condn` bits, `cond3..0`. Release 6 has only `CMP.condn.fmt` (§10 adds `cond4`); its predicates
+are listed against the pre-Release 6 `C.cond.fmt` ones in MD00086 Vol II-A Rev 6.06, Table 3.9
+"Comparing CMP.condn.fmt, IEEE 754-2008, C.cond.fmt, and MSA FP compares", p.138-139, which is why the
+`C.cond` names below remain: they name the same predicates. -/
 
 /-- The IEEE relation between two operands: exactly one of `unordered`,
 `less`, `equal` is set, or none of them (meaning "greater"). -/
@@ -678,25 +684,24 @@ def f32Relation (a b : BitVec 32) : FpRel := binary32.relation a.toNat b.toNat
 /-- Relation between two doubles, from their bit patterns. -/
 def f64Relation (a b : BitVec 64) : FpRel := binary64.relation a.toNat b.toNat
 
-/-- The `C.cond.fmt` predicate table: with `cond` the instruction's 4-bit
-condition field,
+/-- The predicate table of the low four `condn` bits (`cond3..0`; the `C.cond.fmt` codes, Table 3.9),
 `result = (cond₀ ∧ unordered) ∨ (cond₁ ∧ equal) ∨ (cond₂ ∧ less)`. -/
 def fpCompare (cond : BitVec 4) (unordered less equal : Bool) : Bool :=
   (cond.getLsbD 0 && unordered) || (cond.getLsbD 1 && equal) || (cond.getLsbD 2 && less)
 
-/-- Whether `C.cond.fmt` raises Invalid Operation: always when an operand is
+/-- Whether a compare with `cond3..0 = cond` raises Invalid Operation: always when an operand is
 a signaling NaN; for the signaling predicates (`cond₃ = 1`, codes 8..15) also
 whenever the operands are unordered (i.e. on a quiet NaN too). -/
 def fpCompareInvalid (cond : BitVec 4) (unordered anySNaN : Bool) : Bool :=
   anySNaN || (cond.getLsbD 3 && unordered)
 
-/-- `C.cond.S`: the condition-code value to store, and the flags raised. -/
+/-- The 4-bit predicate `cond` on two singles, and the flags raised (`CMP.condn.S` is `f32Cmp`, §10). -/
 def f32Compare (cond : BitVec 4) (a b : BitVec 32) : Bool × Flags :=
   let r := f32Relation a b
   (fpCompare cond r.unordered r.less r.equal,
     { invalid := fpCompareInvalid cond r.unordered (isSNaN32 a || isSNaN32 b) })
 
-/-- `C.cond.D`: the condition-code value to store, and the flags raised. -/
+/-- The 4-bit predicate `cond` on two doubles, and the flags raised (`CMP.condn.D` is `f64Cmp`, §10). -/
 def f64Compare (cond : BitVec 4) (a b : BitVec 64) : Bool × Flags :=
   let r := f64Relation a b
   (fpCompare cond r.unordered r.less r.equal,
@@ -745,8 +750,8 @@ def F64Eq (a b : BitVec 64) : Prop :=
   isNaN64 a = false ∧ isNaN64 b = false ∧ (a = b ∨ (isZero64 a = true ∧ isZero64 b = true))
 
 /-! The sixteen named `C.cond.fmt` predicates as their 4-bit `cond` codes
-(MD00086, `C.cond.fmt`, tables "FPU Comparisons Without/With Special Operand
-Exceptions"). -/
+(MD00086 Vol II-A Rev 6.06, C.cond.fmt, Table 3.1 "FPU Comparisons Without Special Operand
+Exceptions", p.111, and Table 3.2 "... With Special Operand Exceptions for QNaNs", p.112). -/
 namespace Cond
 /-- `C.F` — always false. -/
 def f : BitVec 4 := 0#4
@@ -811,9 +816,6 @@ def fcsrFlagsMask : BitVec 32 := 0x0000007C#32
 def fcsrEnablesMask : BitVec 32 := 0x00000F80#32
 /-- FCSR.Cause field mask (bits 17..12, including E = bit 17). -/
 def fcsrCauseMask : BitVec 32 := 0x0003F000#32
-/-- The FCSR bits that are not writable on this profile: 31..25, 23 (the Release 6 reserved FCC
-bits), 22..18 (`Impl`, bit 20, `ABS2008`, `NAN2008`). -/
-def fcsrReservedMask : BitVec 32 := 0xFEFC0000#32
 /-- FCSR.FS (flush to zero), bit 24. -/
 def fcsrFSMask : BitVec 32 := 0x01000000#32
 /-- Every writable FCSR bit: `FS`, `Cause`, `Enables`, `Flags`, `RM`. -/
@@ -880,13 +882,6 @@ that trap do not update the Flag bits", MD00082 Vol I-A Rev 6.01 §6.7.1, p.99).
 It is the FCSR `fpUpdate` gives when it traps. -/
 def setCause (fcsr : BitVec 32) (f : Flags) : BitVec 32 :=
   (fcsr &&& ~~~fcsrCauseMask) ||| ((f.toBits.zeroExtend 32 : BitVec 32) <<< 12)
-
-/-- The result of one operation of a multi-operation instruction with its
-exceptions joined to those `acc` of the operations before it: FCSR.Cause
-reports the conditions that arose "during the execution of an instruction"
-(MD00082 Vol I-A Rev 6.01, Table 6.8 `Cause`, p.94), so after the operations
-`o₁ … oₙ` it is the union of their exceptions. -/
-def accFlags {α : Type} (acc : Flags) (r : α × Flags) : α × Flags := (r.1, acc.or r.2)
 
 /-- After a `CTC1` write: a Floating-Point exception is taken if any Cause bit
 is set whose Enable bit is also set, or if Cause.E (always enabled) is set

@@ -37,9 +37,6 @@ theorem impl_eq_layout (r q : Nat) :
     | rfl
     | (unfold cp0Layout; split <;> simp_all)
 
-theorem cprRead_userlocal (s : State) : CPRRead modelImpl 4 2 (abs s) = s.cp0UserLocal := rfl
-theorem cprRead_config4 (s : State) : CPRRead modelImpl 16 4 (abs s) = config4Value := rfl
-
 /-- `Config5` (16, 5): the fixed fields with `SBRI`. -/
 theorem cprRead_config5 (s : State) : CPRRead modelImpl 16 5 (abs s) = config5Value s := by
   show Config5Read modelImpl (abs s) = config5Value s
@@ -127,8 +124,6 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
       rw [abs_advance _ _ (by cases c <;> rfl)]
       cases c <;> rfl
 
--- 7C S3 control + system
-
 /-- **MFC0 refines** (Release 6): a register the spec does not implement reads 0 on both sides; an
 implemented one reads `CPRRead`, the model's `cp0Read` (`cprRead_layout`). -/
 theorem mfc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
@@ -172,7 +167,7 @@ theorem writeGPR_status (a : Arch) (i : Fin 32) (v x : W32) :
 theorem abs_status (s : State) (x : W32) : abs { s with cp0Status := x } = { abs s with Status := x } :=
   rfl
 
--- R6-5: `Status` as read has `FR = 1` (`StatusRead`, the model's `statusValue`).
+/-- `Status` as read has `FR = 1` (`StatusRead`, the model's `statusValue`). -/
 theorem statusRead_abs (s : State) : StatusRead (abs s) = statusValue s := by
   simp only [StatusRead, StatusFR, statusValue, statusFrMask, ite_true]; rfl
 
@@ -221,10 +216,6 @@ theorem ei_refines (s : State) (hg : Good s) (rt w : W32) (hw : enc (.ei rt) = s
       unfold writeGPR; split <;> rfl
     rw [this, writeGPR_status, ie_mask, ← abs_status]
     exact complete_writeReg' s { s with cp0Status := s.cp0Status ||| statusIeMask } hsz rfl rfl _ _
-
-/-- The model's `SRSCtl.PSS` is 0: the previous shadow set is the normal GPRs (MD00090 Vol III Rev
-6.02, Chapter 7, p.103). -/
-theorem pss_model : (Ops.SRSCtlPSS modelImpl == 0#4) = true := by decide
 
 /-- **RDPGPR refines.** -/
 theorem rdpgpr_refines (s : State) (hg : Good s) (rd rt w : W32) (hw : enc (.rdpgpr rd rt) = some w) :

@@ -2,9 +2,10 @@
 # Pattern: seed the "taken" marker (1), then the branch target skips an
 # "overwrite to 0" instruction iff the branch is actually taken.
 #
-# Real MIPS32 branches always execute the instruction in their delay slot
-# (the one immediately following the branch) before transferring control —
-# see docs/spec/SPEC-NOTES.md §9 item 1. Each branch below is therefore
+# These are the Release 6 branches that keep a delay slot (not the compact
+# ones): the instruction immediately following the branch executes before
+# control transfers (MD00086 Vol II-A Rev 6.06, BEQ, p.72; see
+# docs/spec/SPEC-NOTES.md §9 item 1). Each branch below is therefore
 # followed by a genuine no-op (`sll $zero, $zero, 0`, i.e. $zero <<= 0, into
 # $zero) as its delay-slot instruction, so the "overwrite to 0" instruction
 # stays the first instruction *after* the delay slot, exactly as this

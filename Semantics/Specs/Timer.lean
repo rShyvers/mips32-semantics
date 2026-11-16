@@ -222,7 +222,7 @@ theorem cp0Layout_timer (n m : Nat) (r : Cp0Reg) (h : cp0Layout .r6 n m = some r
   unfold cp0Layout at h
   split at h <;> (try simp only [Option.some.injEq] at h) <;> (try subst h) <;> simp_all
 
--- 119 constructors through one generic tactic loop
+-- all 203 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **No instruction other than `mtc0` to `Count`, `Compare` or `Cause` changes `Count`, `Compare`,
 `Cause.TI` or `Cause.DC`**, in any state (in or out of a delay slot, with or without an

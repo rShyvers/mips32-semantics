@@ -34,12 +34,6 @@ abbrev subOverflowsSpec := subOverflows
 /-- Spec-side name for `Step.lean`'s `isBranchLike` — the same definition, not a copy. -/
 abbrev isBranchLikeSpec := isBranchLike
 
-/-- Spec-side name for `Step.lean`'s `zeroExtByte` — the same definition, not a copy. -/
-abbrev zeroExtByteSpec := zeroExtByte
-
-
-/-- Spec-side name for `Step.lean`'s `countLeadingZerosFrom` — the same definition, not a copy. -/
-abbrev countLeadingZerosFromSpec := countLeadingZerosFrom
 
 /-- Spec-side name for `Step.lean`'s `countLeadingZeros` — the same definition, not a copy. -/
 abbrev countLeadingZerosSpec := countLeadingZeros
@@ -101,7 +95,7 @@ def fpCompletesS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : State
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
     { s with fpRegs := s.fpRegs.set! (regIdx fd).val
-                 ((s.fpRegs.getD (regIdx fd).val 0#64).extractLsb' 32 32 ++ r.1),  -- R6-5
+                 ((s.fpRegs.getD (regIdx fd).val 0#64).extractLsb' 32 32 ++ r.1),  -- `Status.FR = 1`: keep the upper half
                fcsr := Mips.Fp.raiseFlags s.fcsr r.2, pc := s.pc + 4#32 }
 
 /-- As `fpCompletesS`, for a 64-bit result (a double or a longword): the whole 64-bit `FPR[fd]`
@@ -111,6 +105,6 @@ def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
     { s with
-          fpRegs := s.fpRegs.set! (regIdx fd).val r.1  -- R6-5
+          fpRegs := s.fpRegs.set! (regIdx fd).val r.1
           fcsr := Mips.Fp.raiseFlags s.fcsr r.2
           pc := s.pc + 4#32 }

@@ -5,7 +5,7 @@ import Semantics.Env
 import Semantics.Refine.Defs
 
 /-!
-# Refine.Invariant — two more invariants of the reachable states (7D)
+# Refine.Invariant — two more invariants of the reachable states
 
 * `FcsrReservedZero s`: the stored FCSR bits 31..25, 23..18 are 0 (`Refine/Defs.lean`: the Release 6
   reserved FCC bits, `Impl`, bit 20, and the read-only `ABS2008`/`NAN2008`, which `Mips.Fp.readFCSR`
@@ -21,9 +21,6 @@ a `Kept` predicate, its lemmas for each result shape of `execInstr`, one `split`
 -/
 
 namespace Refine
-
-/-- The FCSR bits that are not R/W on this profile: 31..25, 23..18 (`FcsrReservedZero`). -/
-def fcsrReservedBits : W32 := 0xFEFC0000#32
 
 /-- The FCSR property on a word. -/
 def RZ (x : W32) : Prop := x &&& 0xFEFC0000#32 = 0#32
@@ -270,18 +267,6 @@ theorem step_preserves_fcsrReservedZero (s : State) (h : FcsrReservedZero s) :
 theorem step_preserves_statusImplemented (s : State) (h : StatusImplemented s) :
     StatusImplemented (step s) :=
   (stepCore_kept s).2 h
-
-theorem run_preserves_fcsrReservedZero (s : State) (n : Nat) (h : FcsrReservedZero s) :
-    FcsrReservedZero (run s n) := by
-  induction n generalizing s with
-  | zero => exact h
-  | succ n ih => exact ih _ (step_preserves_fcsrReservedZero s h)
-
-theorem run_preserves_statusImplemented (s : State) (n : Nat) (h : StatusImplemented s) :
-    StatusImplemented (run s n) := by
-  induction n generalizing s with
-  | zero => exact h
-  | succ n ih => exact ih _ (step_preserves_statusImplemented s h)
 
 /-! ## Reset and the loader -/
 
