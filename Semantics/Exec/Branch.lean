@@ -22,7 +22,6 @@ p.87, tests only `InstructionInBranchDelaySlot`). Under that pin a forbidden slo
 the delay slot of a not-taken branch, so it is represented as one and needs no state of its own.
 -/
 
--- BEGIN R6-3
 /-- Sign-extend the low 21 bits of a word (the `offset` of `BEQZC`/`BNEZC`). -/
 def signExt21 (w : W32) : W32 := (w.extractLsb 20 0).signExtend 32
 
@@ -43,7 +42,6 @@ local macro "compactBranch% " s:term:max p:term:max c:term:max o:term:max : term
 branch: "The return link is the address of the instruction immediately following the branch", BALC
 p.52, B{LE,GE,GT,LT,EQ,NE}ZALC p.77). A local macro, as `compactBranch%`. -/
 local macro "compactLink% " s:term:max : term => `(writeReg $s 31 (($s).pc + 4#32))
--- END R6-3
 
 /-- The effect of the conditional branches with a delay slot, NAL and BAL; `none` for every other instruction. -/
 def execBranch (s : State) : Instruction → Option State
@@ -111,7 +109,6 @@ def execBranch (s : State) : Instruction → Option State
     let pcNext := s.pc + 4#32
     let s' := writeReg s 31 (pcNext + 4#32)
     { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
-  -- BEGIN R6-3
   -- Compact branches: the condition of each page's Operation, then `compactBranch`. Comparisons are
   -- signed (`asSigned`) except BLTUC/BGEUC (`BitVec.ult`). BOVC/BNVC: signed 32-bit overflow of
   -- `GPR[rs] + GPR[rt]` (`addOverflows`, as `add`). The B*ZALC write the link first, then read
@@ -168,5 +165,4 @@ def execBranch (s : State) : Instruction → Option State
     let a := readReg s (regIdx rs)
     let b := readReg s (regIdx rt)
     compactBranch% s s.pc (!addOverflows (asSigned a) (asSigned b) (asSigned (a + b))) (signExt16 off <<< 2)
-  -- END R6-3
   | _ => none

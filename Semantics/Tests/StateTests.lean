@@ -56,7 +56,7 @@ example :
 -- writing one FP register leaves others untouched
 example : readFpReg (writeFpReg (initialState textBase) 8 0x12345678#32) 9 = 0#32 := by decide
 #guard readFpReg (writeFpReg (initialState textBase) 0 0x3f800000#32) 0 = 0x3f800000#32
--- BEGIN R6-5 (C): 64-bit FPRs (`Status.FR = 1`)
+-- 64-bit FPRs (`Status.FR = 1`)
 -- a 64-bit write reads back whole; `readFpReg` is its low word
 example : readFpReg64 (writeFpReg64 (initialState textBase) 5 0x0123456789abcdef#64) 5 =
     0x0123456789abcdef#64 := by decide
@@ -74,7 +74,6 @@ example : readFpReg64 (writeFpReg64 (initialState textBase) 4 0x0123456789abcdef
 -- `Status` as read: the stored bits with the read-only `FR` (bit 26) set
 example : statusValue (initialState textBase) = 0x24000000#32 := by decide
 example : statusValue { initialState textBase with cp0Status := 0#32 } = statusFrMask := by decide
--- END R6-5 (C)
 
 -- Instruction fetch is `readMemWord s s.pc`: alignment failure, a loaded word, unloaded memory
 -- (reads as 0). The word is placed little-endian (`profile`) with `writeMemWord`.

@@ -1,6 +1,6 @@
 # FCSR.FS = 1: tiny non-zero results are flushed to zero of the same sign with Underflow+Inexact; subnormal inputs are replaced by zero (Release 5+, implementation-dependent before).
 # MD00082 Vol I-A Rev 6.01 sec 6.7.2.4 p.101-102 ('Every tiny non-zero result is replaced with zero of the same sign ... Flushing of tiny non-zero results causes Inexact and Underflow').
-# oracle: expect-deviation gpr:t1 MD00082 Vol I-A Rev 6.01 6.7.2.4 p.102: flushing a tiny result raises Underflow and Inexact; QEMU mips32r6-generic leaves the flags clear
+# oracle: expect-deviation gpr:t1 MD00082 Vol I-A Rev 6.01 sec 6.7.2.4 p.102 ("Flushing of tiny non-zero results causes Inexact and Underflow exceptions to be signaled"; FCSR.FS Table 6.8 p.93): QEMU mips32r6-generic leaves the flags clear
 # oracle: expect-deviation fcsr same
 # oracle: expect-deviation mem:0x10010004 same
 # oracle: expect-deviation mem:0x1001000c same

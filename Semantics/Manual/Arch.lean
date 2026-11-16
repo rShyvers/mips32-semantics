@@ -45,7 +45,6 @@ inductive Delay where
   branch, with a delay slot", NAL p.306): the following instruction is still in the branch's delay
   slot, and `PC` is "automatically incremented by ... 4" after it (Table 1.1, p.6). -/
   | fallThrough
-  -- BEGIN R6-3
   /-- A conditional compact branch was not taken: the following instruction is in its **forbidden
   slot** (Release 6; MD00082 Vol I-A Rev 6.01 §5.3.2, p.62: conditional compact branches "do not
   have a delay slot; they have instead a forbidden slot"; B<cond>C, Restrictions, p.84). It is not
@@ -58,7 +57,6 @@ inductive Delay where
   DECISIONS D6, a pin: MD00090 Vol III Rev 6.02 §6.2.3, p.87, tests only
   `InstructionInBranchDelaySlot`). So it is recorded in `BranchDelay` as `fallThrough` is. -/
   | forbiddenSlot
-  -- END R6-3
   deriving DecidableEq, Repr
 
 /-- **The architectural state between two instruction times.** -/
@@ -68,7 +66,6 @@ structure Arch where
   /-- `GPR[x]` (Table 1.1, p.5). `GPR[0]` is read through `Manual.readGPR`, which returns 0 (Vol I-A
   §2.8.4: "r0 is hard-wired to a value of zero"); the stored value at index 0 is never read. -/
   GPR : Fin 32 → W32
-  -- BEGIN R6-5
   /-- `FPR[x]`, the 32 64-bit floating-point registers of the 64-bit FPU (`Status.FR = 1`, so
   `FP32RegistersMode` is 1: `Manual.FP32RegistersMode`; MD00082 Vol I-A Rev 6.01 §6.4.1, p.84). -/
   FPR : Fin 32 → BitVec 64
@@ -76,7 +73,6 @@ structure Arch where
   (`FCSRWritable`); the other bits are 0 here, and `FCSRRead` adds the read-only `ABS2008` and
   `NAN2008`, which read 1 in Release 6. -/
   FCSR : W32
-  -- END R6-5
   /-- Physical memory, one byte per physical address (`pAddr`). -/
   Mem : PAddr → UInt8
   /-- `LLbit` (Table 1.1, p.6). -/
@@ -124,13 +120,10 @@ structure Arch where
   at `branchPC + 4`, and "If no value is assigned to PC during an instruction time ... it is
   automatically incremented by ... 4", Table 1.1, p.6). `isSome` is exactly "the instruction at
   `PC` is in a branch delay slot" (`InstructionInBranchDelaySlot`, Vol III §6.2.3, p.87).
-  -- BEGIN R6-3
   It is also `some (branchPC + 8)` in the forbidden slot of a not-taken conditional compact branch
   (`Delay.forbiddenSlot`), which the manual treats as a delay slot (DECISIONS D6).
-  -- END R6-3
   -/
   BranchDelay : Option W32
-  -- BEGIN R6-2
   /-- CP0 `UserLocal` (4, 2; Vol III §9.11, Table 9.19, p.143). -/
   UserLocal : W32
   /-- CP0 `BadInstr` (8, 1; Vol III §9.25, Table 9.42, p.179). -/
@@ -143,9 +136,7 @@ structure Arch where
   /-- `Config5.SBRI` (16, 5, bit 6; Vol III §9.50, Table 9.69, p.263), the only R/W field of
   `Config5` on this profile. -/
   Config5SBRI : Bool
-  -- END R6-2
 
--- BEGIN R6-5
 /-- **The R/W fields of FCSR** on this profile (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-94): `FS`
 (24), `Cause` (17..12), `Enables` (11..7), `Flags` (6..2), `RM` (1..0). The FCC bits 31..25, 23 are "R0
 ... Reserved (Release 6)" (p.92); `Impl` (22..21) is not implemented ("If these bits are not
@@ -159,6 +150,5 @@ def FCSRWrite (v : W32) : W32 := v &&& FCSRWritable
 /-- **FCSR as read**: the R/W fields, and `ABS2008` = `NAN2008` = 1 ("1 (Release 6)", Table 6.8,
 p.93-94). -/
 def FCSRRead (a : Arch) : W32 := (a.FCSR &&& FCSRWritable) ||| 0x000C0000#32
--- END R6-5
 
 end Manual

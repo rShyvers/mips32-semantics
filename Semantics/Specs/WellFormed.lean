@@ -57,7 +57,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .ori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .xori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .aui rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  -- BEGIN R6-4
   | .mul rs rt rd | .muh rs rt rd | .mulu rs rt rd | .muhu rs rt rd
   | .div rs rt rd | .mod rs rt rd | .divu rs rt rd | .modu rs rt rd
   | .seleqz rs rt rd | .selnez rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
@@ -66,7 +65,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .bitswap rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .addiupc rs imm | .lwpc rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 19
   | .auipc rs imm | .aluipc rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  -- END R6-4
   | .lw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .lb rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
@@ -150,12 +148,9 @@ def Instruction.WellFormed : Instruction → Prop
   | .truncWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .ceilWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .floorWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  -- BEGIN R6-2
   | .eretnc => True
   | .sigrie code => code.toNat < 2 ^ 16
   | .cache base op off => base.toNat < 32 ∧ op.toNat < 32 ∧ off.toNat < 2 ^ 9
-  -- END R6-2
-  -- BEGIN R6-3
   -- Compact branches: the field ranges and the `rs`/`rt` constraint that selects the instruction
   -- within its shared opcode (MD00086 Vol II-A Rev 6.06 Table A.26, p.464).
   | .bc off => off.toNat < 2 ^ 26
@@ -186,8 +181,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .bnvc rs rt off => rt.toNat ≤ rs.toNat ∧ rs.toNat < 32 ∧ off.toNat < 2 ^ 16
   | .jic rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
   | .jialc rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
-  -- END R6-3
-  -- BEGIN R6-5
   | .cvtLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .roundLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
@@ -200,8 +193,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .floorLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtSL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtDL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  -- END R6-5
-  -- BEGIN R6-6B
   -- CMP.condn.fmt: a `condn` of Table A.17 (p.457; `cmpCondnOK`, which also bounds it below 32).
   | .cmpS cond fd fs ft => cmpCondnOK cond = true ∧ fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
   | .cmpD cond fd fs ft => cmpCondnOK cond = true ∧ fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
@@ -229,4 +220,4 @@ def Instruction.WellFormed : Instruction → Prop
   | .classD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .rintS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .rintD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  -- END R6-6B
+  | .dvp rt | .evp rt => rt.toNat < 32

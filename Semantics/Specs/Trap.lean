@@ -44,7 +44,6 @@ theorem break_spec_raw (s : State) (w code : W32)
   rw [hdecode]
   rfl
 
--- BEGIN R6-2
 /-- **`sigrie` unconditionally raises the Reserved Instruction exception** (ExcCode 10), in any
 state, in or out of a delay slot (MD00086 Vol II-A Rev 6.06, SIGRIE, p.375: "SignalException(
 ReservedInstruction)"; "Implementations should use exactly the same mechanisms as they use for
@@ -60,7 +59,6 @@ theorem sigrie_spec_raw (s : State) (w code : W32)
   dsimp only
   rw [hdecode]
   rfl
--- END R6-2
 
 -- `break_spec_raw`: a concrete `break` lands exactly on the exception
 -- vector with the `Bp` exception code packed into `Cause`.

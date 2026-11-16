@@ -164,8 +164,8 @@ def cp0WriteAt (s : State) (rd sel v : W32) : State :=
   | some r => cp0Write s v r
   | none => s
 
-/-- The effect of the coprocessor 0 moves (MFC0, MTC0, DI, EI, RDPGPR, WRPGPR); `none` for every
-other instruction. Outside Kernel Mode they raise Coprocessor Unusable before reaching this arm
+/-- The effect of the coprocessor 0 moves (MFC0, MTC0, DI, EI, RDPGPR, WRPGPR) and of DVP/EVP; `none`
+for every other instruction. Outside Kernel Mode they raise Coprocessor Unusable before reaching this arm
 (`execInstr`, `usesCop0`). -/
 def execCp0 (s : State) : Instruction → Option State
   -- `mfc0 rt, rd, sel` (MFC0 p.266): `GPR[rt] ← CPR[0, rd, sel]`, or 0 (Release 6) for a register
@@ -191,4 +191,8 @@ def execCp0 (s : State) : Instruction → Option State
   -- (`srsCtlValue`), so `SGPR[0, r]` is `GPR[r]` and both are a register move.
   | .rdpgpr rd rt => some <| mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt)))
   | .wrpgpr rd rt => some <| mkNext s (writeReg s (regIdx rd) (readReg s (regIdx rt)))
+  -- `dvp rt` / `evp rt` (MD00086 Vol II-A Rev 6.06, DVP p.172, EVP p.181): "For implementations that
+  -- do not support multi-threading (Config5VP=0), this instruction must be treated as a NOP
+  -- instruction"; `Config5.VP = 0` here (`config5Value`), so neither writes `GPR[rt]`.
+  | .dvp _ | .evp _ => some (mkNext s s)
   | _ => none

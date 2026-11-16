@@ -179,7 +179,6 @@ theorem cvtSD_spec_raw (s : State) (w fd fs : W32)
       fpCompletesS s fd (Mips.Fp.f64ToF32 (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
 
--- BEGIN R6-5 (C)
 /-! ## Conversions to and from the 64-bit longword format L
 
 Release 6 requires L on a 64-bit FPU (MD00082 Vol I-A Rev 6.01 Table 6.4 note 3, p.85). A longword
@@ -313,4 +312,3 @@ theorem cvtDL_spec_raw (s : State) (w fd fs : W32)
     step s = timerTick (
       fpCompletesD s fd (Mips.Fp.w64ToF64 (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
--- END R6-5 (C)

@@ -22,7 +22,6 @@ register.
 
 namespace Asm
 
--- BEGIN R6-3
 /-- A compact branch offset of `bits` bits (in words, relative to `pc + 4`), as the raw field: a
 numeric operand is the offset itself, a `label`/`label±const` an address (`branchOff`'s rules). -/
 def branchOffBits (c : Ctx) (bits : Nat) (tgt : String) : Except AsmError W32 := do
@@ -97,9 +96,7 @@ def cbJump (mk : (rt off : W32) → Instruction) : Enc := fun c ops =>
   match ops with
   | [t, o] => do pure (mk (← gpr c t) (← simm16 c o))
   | _ => badShape c "rt, offset"
--- END R6-3
 
--- BEGIN R6-3
 /-- The Release 6 compact branches and jumps (module doc). -/
 def compactBranchTable : EncTable :=
   [ ("bc",      cbTarget .bc),
@@ -126,7 +123,6 @@ def compactBranchTable : EncTable :=
     ("bnvc",    cbOvf .bnvc),
     ("jic",     cbJump .jic),
     ("jialc",   cbJump .jialc) ]
--- END R6-3
 
 /-- Branches and jumps. -/
 def branchTable : EncTable :=
@@ -142,8 +138,6 @@ def branchTable : EncTable :=
     ("jal",  jumpOp .jal),
     ("jalr",    jalrOp .jalr),
     ("jalr.hb", jalrOp .jalrHb) ] ++
-  -- BEGIN R6-3
   compactBranchTable
-  -- END R6-3
 
 end Asm

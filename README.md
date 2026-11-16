@@ -1,6 +1,6 @@
 # MIPS32 Semantics
 
-A small-step operational semantics of a pre-Release-6 MIPS32 processor in Lean 4. The repository also has an
+A small-step operational semantics of a MIPS32 Release 6 processor in Lean 4. The repository also has an
 assembler, machine-checked proofs that the semantics refines an independent transcription of the architecture
 manuals, two differential oracles (MARS 4.5; `qemu-system-mips` with `llvm-mc`), and one gate script that runs
 everything.
@@ -15,30 +15,31 @@ git worktree add docs documentation
 
 ## Target profile
 
-The target is pre-Release-6 MIPS32 with the Release 2 feature set:
+The target is MIPS32 **Release 6** (the final MIPS32); the Release 2 model is kept only at the tag `mips32r2-final`:
 
-- big-endian, one branch delay slot, branch-likely, `HI`/`LO`;
-- a 32-bit FPU (`Status.FR = 0`) with legacy FP (`FIR.Has2008 = 0`);
+- little-endian, delay-slot branches plus compact branches (forbidden slots), no `HI`/`LO`, no branch-likely;
+- a 64-bit FPU (`Status.FR = 1`) with IEEE 754-2008 NaNs (`FIR.Has2008 = 1`, `FCSR.NAN2008 = ABS2008 = 1`);
 - Coprocessor 0 with the Vol III exception model, interrupt compatibility mode, Count/Compare;
-- the Fixed Mapping MMU.
+- the Fixed Mapping MMU; misaligned loads and stores raise Address Error;
+- no optional modules (MSA, microMIPS, VZ, MT, DSP, EVA, XPA, MCU, CRC, GINV, VP, EJTAG).
 
 The normative manuals are **MD00086 Vol II-A Rev 6.06**, **MD00090 Vol III Rev 6.02** and **MD00082 Vol I-A Rev
-6.01**, read for their pre-Release-6 wording. They are not committed because they are copyrighted:
+6.01**. They are not committed because they are copyrighted:
 `manuals/fetch.sh` downloads them and `manuals/mipsdoc.py` looks things up (see `manuals/AGENTS.md`). Where the manual
-and an emulator disagree, the manual wins; MARS and QEMU are test oracles only. Release 6, MIPS64, DSP, MSA,
-microMIPS and MIPS16e are out of scope.
+and an emulator disagree, the manual wins; MARS (which cannot run Release 6) and QEMU/LLVM are test oracles only.
+MIPS64, the optional modules and MIPS16e are out of scope; earlier releases are to be added later as profiles.
 
 ## What is proved
 
 - `Semantics/Step.lean` defines `step : State → State`, one instruction time. It handles an interrupt, else a WAIT
-  standby, else a nullified branch-likely slot, else fetch through the MMU, strict decode, execute and commit. The
+  standby, else fetch through the MMU, strict decode, execute and commit. The
   timer then advances. Every exception is a state transition. `run` iterates `step`.
 - `Semantics/Manual/` transcribes the manuals' pseudocode independently: each instruction page's Operation, plus
   exception, interrupt, timer and reset processing, and the spec's own decoder built from the format diagrams. Gate
   step 1 checks the independence: the transcription names no definition of the model beyond an allow-list.
 - **`step_eq_manual`** (`Semantics/Refine/Step.lean`): for every state satisfying `Refine.Inv`, one `step` is exactly
   one manual instruction time, seen through `Refine.abs`. The manual's UNDEFINED/UNPREDICTABLE choices are resolved
-  by the model's pins, which are proved valid (`modelOracle_valid`, `modelImpl_valid`). The theorem covers all 183
+  by the model's pins, which are proved valid (`modelOracle_valid`, `modelImpl_valid`). The theorem covers all 201
   instructions and every non-instruction path, and the trusted surface also has these relatives:
   - `step_refines_manual` and `run_refines_manual`;
   - determinism exactly where the manual makes no choice: `manual_step_deterministic`, `choiceFree_exact`;
@@ -48,7 +49,7 @@ microMIPS and MIPS16e are out of scope.
 - The FPU (`Semantics/FpOps.lean`, bit patterns, no host floats) is proved against an IEEE 754 reference written from
   MD00082 ch. 6 (`Semantics/FpOpsSpec.lean`). That covers the rounding core, arithmetic, conversions, compares, the
   FCSR update, the multiply-add family, and the RECIP/RSQRT error bounds.
-- The trusted surface is `Semantics/Statements.lean`: 216 statements with proofs elided. `lake comparator` checks
+- The trusted surface is `Semantics/Statements.lean`: 221 statements with proofs elided. `lake comparator` checks
   them against `Semantics/StatementsProofs.lean`. Trust rests on those statements plus the definitions they mention:
   - the model files;
   - `Semantics/Manual/*` and `Semantics/Refine/Defs.lean`;
@@ -75,8 +76,8 @@ matrix is `docs/TRACE.md`.
 | R-type SPECIAL3 BSHFL sign-extend | 3 | 3 | 0 | 3 | seb, seh, wsbh |
 | R-type SPECIAL3 bitfield extract/insert | 2 | 2 | 0 | 2 | ext, ins |
 | SPECIAL3 RDHWR | 8 | 8 | 7 | 8 | rdhwr, addiu, slti, sltiu, andi, ori, xori, aui |
-| BEGIN R6-4 | 17 | 17 | 0 | 17 | mul, muh, mulu, muhu, div, mod, divu, modu, seleqz, selnez, lsa, align, bitswap, addiupc, lwpc, auipc, aluipc |
-| END R6-4 | 10 | 10 | 9 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
+| Release 6 integer instructions | 17 | 17 | 0 | 17 | mul, muh, mulu, muhu, div, mod, divu, modu, seleqz, selnez, lsa, align, bitswap, addiupc, lwpc, auipc, aluipc |
+| I-type load/store | 10 | 10 | 9 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
 | I-type branch reg/reg | 2 | 2 | 2 | 2 | beq, bne |
 | I-type branch reg-only | 2 | 2 | 2 | 2 | blez, bgtz |
 | I-type REGIMM zero-comparison branches | 4 | 4 | 2 | 4 | bltz, bgez, nal, bal |
@@ -87,12 +88,12 @@ matrix is `docs/TRACE.md`.
 | Coprocessor 0 | 8 | 8 | 0 | 8 | mfc0, mtc0, di, ei, eret, wait, rdpgpr, wrpgpr |
 | Coprocessor 1 | 10 | 10 | 6 | 10 | mfc1, mtc1, mfhc1, mthc1, cfc1, ctc1, lwc1, swc1, ldc1, sdc1 |
 | Arithmetic, single | 18 | 18 | 16 | 18 | add.s, sub.s, mul.s, div.s, sqrt.s, abs.s, mov.s, neg.s, recip.s, rsqrt.s, round.w.s, trunc.w.s, ceil.w.s, floor.w.s, cvt.w.s, cvt.d.s, cvt.s.w, cvt.d.w |
-| Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
-| BEGIN R6-2 | 3 | 3 | 0 | 3 | eretnc, sigrie, cache |
-| END R6-2 | 24 | 24 | 0 | 24 | bc, balc, beqc, bnec, bltc, bgec, bltuc, bgeuc, blezc, bgezc, bgtzc, bltzc, beqzc, bnezc, blezalc, bgezalc, bgtzalc, bltzalc, beqzalc, bnezalc, bovc, bnvc, jic, jialc |
-| END R6-3 | 12 | 12 | 0 | 12 | cvt.l.s, cvt.l.d, round.l.s, round.l.d, trunc.l.s, trunc.l.d, ceil.l.s, ceil.l.d, floor.l.s, floor.l.d, cvt.s.l, cvt.d.l |
-| END R6-5 | 26 | 26 | 0 | 26 | cmp.af.s, cmp.af.d, bc1eqz, bc1nez, sel.s, sel.d, seleqz.s, seleqz.d, selnez.s, selnez.d, maddf.s, maddf.d, msubf.s, msubf.d, max.s, max.d, min.s, min.d, maxa.s, maxa.d, mina.s, mina.d, class.s, class.d, rint.s, rint.d |
-| **Total** | **201** | **201** | **83** | **201** | |
+| Arithmetic, double | 19 | 19 | 10 | 19 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d, eretnc, sigrie, cache |
+| Release 6 compact branches and jumps | 24 | 24 | 0 | 24 | bc, balc, beqc, bnec, bltc, bgec, bltuc, bgeuc, blezc, bgezc, bgtzc, bltzc, beqzc, bnezc, blezalc, bgezalc, bgtzalc, bltzalc, beqzalc, bnezalc, bovc, bnvc, jic, jialc |
+| The longword | 12 | 12 | 0 | 12 | cvt.l.s, cvt.l.d, round.l.s, round.l.d, trunc.l.s, trunc.l.d, ceil.l.s, ceil.l.d, floor.l.s, floor.l.d, cvt.s.l, cvt.d.l |
+| The Release 6 FP instructions | 26 | 26 | 0 | 26 | cmp.af.s, cmp.af.d, bc1eqz, bc1nez, sel.s, sel.d, seleqz.s, seleqz.d, selnez.s, selnez.d, maddf.s, maddf.d, msubf.s, msubf.d, max.s, max.d, min.s, min.d, maxa.s, maxa.d, mina.s, mina.d, class.s, class.d, rint.s, rint.d |
+| Virtual processors | 2 | 2 | 0 | 2 | dvp, evp |
+| **Total** | **203** | **203** | **83** | **203** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->
@@ -102,7 +103,7 @@ Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_
 ```sh
 lake exe cache get      # mathlib build cache
 scripts/gate.sh         # the full gate (about 6 minutes); --quick while iterating (not green)
-lake exe MipsRun prog.asm   # assemble and run one program, JSON out (--bare, --reset, --max-steps N)
+lake exe MipsRun prog.asm   # assemble and run one program, JSON out (--bare, --reset, --coverage, --max-steps N)
 ```
 
 The gate (`scripts/README.md`) runs these steps:
@@ -113,7 +114,7 @@ The gate (`scripts/README.md`) runs these steps:
 4. `lake comparator`;
 5. DiffHarness vs MARS;
 6. EquivHarness, including `Manual.InstructionTime` vs `step`;
-7. the QEMU/LLVM oracle;
+7. the QEMU/LLVM oracle (behaviour, encodings, and a check that every `Instruction` constructor is executed by an oracle program);
 8. traceability;
 9. the manuals tool selftest;
 10. hygiene.

@@ -60,11 +60,9 @@ theorem exists_candidate (i : Instruction) (w : W32) (h : enc i = some w) :
   case mtc0 rt rd sel => exact key (.mtc0 rt rd (sel &&& 7#32)) (by rw [← enc_mtc0_sel]; exact h) (and7_lt sel)
   case rdhwr rt rd sel =>
     exact key (.rdhwr rt rd (sel &&& 7#32)) (by rw [← enc_rdhwr_sel]; exact h) (and7_lt sel)
-  -- BEGIN R6-3
   all_goals first
     | exact key _ h trivial
     | exact key _ h (encIf_some h).1
-  -- END R6-3
 
 /-- **Completeness**: a word that is the diagram of an instruction is decoded to an instruction with
 that diagram. -/
@@ -112,7 +110,6 @@ attribute [local simp] fieldAt_rs fieldAt_rt fieldAt_rd fieldAt_sa fieldAt_imm f
   functOf_or_mkRT opcodeOf_mkRT rsOf_mkRT rtOf_mkRT rdOf_mkRT shamtOf_mkRT functOf_mkRT
   coOf_or_mkRT and_31 and_7 and_63
 
--- BEGIN R6-3
 set_option hygiene false in
 /-- A compact-branch candidate whose diagram is `w` is well-formed: its constraint holds (`hje`). -/
 local macro "cb_wf" : tactic => `(tactic| (
@@ -125,9 +122,7 @@ local macro "cb_wf" : tactic => `(tactic| (
   simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_imm, fieldAt_off21, ne_eq,
     ← BitVec.toNat_inj] at hcb ⊢
   omega))
--- END R6-3
 
--- BEGIN R6-6B
 set_option hygiene false in
 /-- A CMP.condn.fmt candidate whose diagram is `w` is well-formed: its `condn` is of Table A.17. -/
 local macro "cmp_wf" : tactic => `(tactic| (
@@ -137,7 +132,6 @@ local macro "cmp_wf" : tactic => `(tactic| (
   have hcc := (encIf_some hje).1
   refine ⟨(cmpCondnOK_eq _).trans hcc, ?_, ?_, ?_⟩ <;>
     simp only [fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa] <;> omega))
--- END R6-6B
 
 set_option maxRecDepth 4000 in
 set_option maxHeartbeats 1000000 in
@@ -153,11 +147,8 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
   have himm := immOf_lt w; have htg := targetOf_lt w; have hoff := off9Of_lt w
   have hc20 := code20Of_lt w; have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
   have hsa2 := sa2Of_lt w; have hi19 := imm19Of_lt w  -- R6-4
-  -- BEGIN R6-3
   have hoff21 := off21Of_lt w
-  -- END R6-3
   repeat' apply And.intro
-  -- BEGIN R6-3
   all_goals first
     | (intro x hx; cases hx)
     | intro _
@@ -165,7 +156,6 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
     | cmp_wf  -- R6-6B
     | cb_wf
     | skip
-  -- END R6-3
   all_goals first
     | (left; simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa,
         fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19,

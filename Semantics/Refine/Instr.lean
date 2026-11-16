@@ -17,15 +17,9 @@ import Semantics.Refine.FpuConvert
 import Semantics.Refine.FpuMemory
 import Semantics.Refine.FpuMove
 import Semantics.Refine.FpuControl
--- BEGIN R6-4
 import Semantics.Refine.PcRel
--- END R6-4
--- BEGIN R6-3
 import Semantics.Refine.CompactBranch
--- END R6-3
--- BEGIN R6-6B
 import Semantics.Refine.FpuR6
--- END R6-6B
 
 /-!
 # Refine.Instr — the per-instruction refinement of every constructor (7D)
@@ -36,7 +30,7 @@ in: the invariant `Inv s` (`Refine/Defs.lean`), and `w` is a fetched word
 that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
 `instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
-`Instruction` (201, generated in constructor order; the 12 Release 6 `L`-format conversions of R6-5 and the 26 Release 6 FP instructions of R6-6 in their own blocks), and `allInstrRefines` collects them by
+`Instruction` (203, generated in constructor order; the 12 Release 6 `L`-format conversions of R6-5 and the 26 Release 6 FP instructions of R6-6 in their own blocks), and `allInstrRefines` collects them by
 `cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
 constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
 and the build fails.
@@ -292,16 +286,17 @@ theorem instrRefines_cvtWD (fd fs : W32) : InstrRefines (.cvtWD fd fs) :=
   fun s w hg _ hw => cvtWD_refines s hg.1 fd fs w hw
 theorem instrRefines_cvtSD (fd fs : W32) : InstrRefines (.cvtSD fd fs) :=
   fun s w hg _ hw => cvtSD_refines s hg.1 fd fs w hw
--- BEGIN R6-2
 theorem instrRefines_eretnc : InstrRefines .eretnc :=
   fun s w _ _ hw => eretnc_refines s w hw
 theorem instrRefines_sigrie (code : W32) : InstrRefines (.sigrie code) :=
   fun s w hg _ hw => sigrie_refines s hg.1 code w hw
 theorem instrRefines_cache (base op off : W32) : InstrRefines (.cache base op off) :=
   fun s w hg _ hw => cache_refines s hg.1 base op off w hw
--- END R6-2
+theorem instrRefines_dvp (rt : W32) : InstrRefines (.dvp rt) :=
+  fun s w _ _ hw => dvp_refines s rt w hw
+theorem instrRefines_evp (rt : W32) : InstrRefines (.evp rt) :=
+  fun s w _ _ hw => evp_refines s rt w hw
 
--- BEGIN R6-4
 theorem instrRefines_mul (rs rt rd : W32) : InstrRefines (.mul rs rt rd) :=
   fun s w hg _ hw => mul_refines s hg.1 rs rt rd w hw
 theorem instrRefines_muh (rs rt rd : W32) : InstrRefines (.muh rs rt rd) :=
@@ -336,8 +331,6 @@ theorem instrRefines_auipc (rs imm : W32) : InstrRefines (.auipc rs imm) :=
   fun s w hg _ hw => auipc_refines s hg.1 rs imm w hw
 theorem instrRefines_aluipc (rs imm : W32) : InstrRefines (.aluipc rs imm) :=
   fun s w hg _ hw => aluipc_refines s hg.1 rs imm w hw
--- END R6-4
--- BEGIN R6-5
 theorem instrRefines_cvtLS (fd fs : W32) : InstrRefines (.cvtLS fd fs) :=
   fun s w hg _ hw => cvtLS_refines s hg.1 fd fs w hw
 theorem instrRefines_cvtLD (fd fs : W32) : InstrRefines (.cvtLD fd fs) :=
@@ -362,8 +355,6 @@ theorem instrRefines_cvtSL (fd fs : W32) : InstrRefines (.cvtSL fd fs) :=
   fun s w hg _ hw => cvtSL_refines s hg.1 fd fs w hw
 theorem instrRefines_cvtDL (fd fs : W32) : InstrRefines (.cvtDL fd fs) :=
   fun s w hg _ hw => cvtDL_refines s hg.1 fd fs w hw
--- END R6-5
--- BEGIN R6-6B
 theorem instrRefines_cmpS (cond fd fs ft : W32) : InstrRefines (.cmpS cond fd fs ft) :=
   fun s w hg _ hw => cmpS_refines s hg.1 cond fd fs ft w hw
 theorem instrRefines_cmpD (cond fd fs ft : W32) : InstrRefines (.cmpD cond fd fs ft) :=
@@ -416,9 +407,7 @@ theorem instrRefines_rintS (fd fs : W32) : InstrRefines (.rintS fd fs) :=
   fun s w hg _ hw => rintS_refines s hg.1 fd fs w hw
 theorem instrRefines_rintD (fd fs : W32) : InstrRefines (.rintD fd fs) :=
   fun s w hg _ hw => rintD_refines s hg.1 fd fs w hw
--- END R6-6B
 
--- BEGIN R6-3
 theorem instrRefines_bc (off : W32) : InstrRefines (.bc off) :=
   fun s w hg _ hw => bc_refines s hg.1 off w hw
 theorem instrRefines_balc (off : W32) : InstrRefines (.balc off) :=
@@ -467,11 +456,9 @@ theorem instrRefines_jic (rt off : W32) : InstrRefines (.jic rt off) :=
   fun s w hg _ hw => jic_refines s hg.1 rt off w hw
 theorem instrRefines_jialc (rt off : W32) : InstrRefines (.jialc rt off) :=
   fun s w hg _ hw => jialc_refines s hg.1 rt off w hw
--- END R6-3
 
 theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   cases i
-  -- BEGIN R6-4
   case mul rs rt rd => exact instrRefines_mul rs rt rd
   case muh rs rt rd => exact instrRefines_muh rs rt rd
   case mulu rs rt rd => exact instrRefines_mulu rs rt rd
@@ -489,7 +476,6 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case lwpc rs off => exact instrRefines_lwpc rs off
   case auipc rs imm => exact instrRefines_auipc rs imm
   case aluipc rs imm => exact instrRefines_aluipc rs imm
-  -- END R6-4
   case add rs rt rd => exact instrRefines_add rs rt rd
   case addu rs rt rd => exact instrRefines_addu rs rt rd
   case sub rs rt rd => exact instrRefines_sub rs rt rd
@@ -609,12 +595,9 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case floorWD fd fs => exact instrRefines_floorWD fd fs
   case cvtWD fd fs => exact instrRefines_cvtWD fd fs
   case cvtSD fd fs => exact instrRefines_cvtSD fd fs
-  -- BEGIN R6-2
   case eretnc => exact instrRefines_eretnc
   case sigrie code => exact instrRefines_sigrie code
   case cache base op off => exact instrRefines_cache base op off
-  -- END R6-2
-  -- BEGIN R6-3
   case bc off => exact instrRefines_bc off
   case balc off => exact instrRefines_balc off
   case beqc rs rt off => exact instrRefines_beqc rs rt off
@@ -639,8 +622,6 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case bnvc rs rt off => exact instrRefines_bnvc rs rt off
   case jic rt off => exact instrRefines_jic rt off
   case jialc rt off => exact instrRefines_jialc rt off
-  -- END R6-3
-  -- BEGIN R6-5
   case cvtLS fd fs => exact instrRefines_cvtLS fd fs
   case cvtLD fd fs => exact instrRefines_cvtLD fd fs
   case roundLS fd fs => exact instrRefines_roundLS fd fs
@@ -653,8 +634,6 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case floorLD fd fs => exact instrRefines_floorLD fd fs
   case cvtSL fd fs => exact instrRefines_cvtSL fd fs
   case cvtDL fd fs => exact instrRefines_cvtDL fd fs
-  -- END R6-5
-  -- BEGIN R6-6B
   case cmpS cond fd fs ft => exact instrRefines_cmpS cond fd fs ft
   case cmpD cond fd fs ft => exact instrRefines_cmpD cond fd fs ft
   case bc1eqz ft off => exact instrRefines_bc1eqz ft off
@@ -681,6 +660,7 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case classD fd fs => exact instrRefines_classD fd fs
   case rintS fd fs => exact instrRefines_rintS fd fs
   case rintD fd fs => exact instrRefines_rintD fd fs
-  -- END R6-6B
+  case dvp rt => exact instrRefines_dvp rt
+  case evp rt => exact instrRefines_evp rt
 
 end Refine

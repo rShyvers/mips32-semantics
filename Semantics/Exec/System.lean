@@ -21,7 +21,6 @@ def execSystem (s : State) : Instruction → Option State
       { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask, llBit := false }
     else
       { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }
-  -- BEGIN R6-2
   -- `eretnc` (MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180): the Operation of ERET without
   -- `LLbit ← 0` ("ERETNC is identical to ERET except that an ERETNC will not clear the LLbit").
   -- No delay slot; in a delay slot `execInstr` raises Reserved Instruction (p.179).
@@ -42,7 +41,6 @@ def execSystem (s : State) : Instruction → Option State
     match translate s va with
     | none => takeAddressException s excCodeAdEL va
     | some _ => mkNext s s
-  -- END R6-2
   -- `wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442-443): "The WAIT instruction
   -- is implemented by stalling the pipeline at the completion of the
   -- instruction and entering a lower power mode. The pipeline is restarted when

@@ -183,12 +183,13 @@ def r6Lines : List String :=
    "jr $t1",
    "jr.hb $t1",
    "nop",
-   "ssnop",
    "ehb",
    -- R6-5 (C): longword conversions
    "cvt.l.s $f0, $f2", "cvt.l.d $f0, $f2", "round.l.s $f0, $f2", "round.l.d $f0, $f2",
    "trunc.l.s $f0, $f2", "trunc.l.d $f0, $f2", "ceil.l.s $f0, $f2", "ceil.l.d $f0, $f2",
-   "floor.l.s $f0, $f2", "floor.l.d $f0, $f2", "cvt.s.l $f0, $f2", "cvt.d.l $f0, $f2"]
+   "floor.l.s $f0, $f2", "floor.l.d $f0, $f2", "cvt.s.l $f0, $f2", "cvt.d.l $f0, $f2",
+   -- DVP p.172, EVP p.181 (Wave R6-7)
+   "dvp $t0", "evp"]
 
 /-- LLVM's words for `r6Lines` (see the module docstring). -/
 def r6Words : List W32 :=
@@ -213,15 +214,15 @@ def r6Words : List W32 :=
    0x46241000#32, 0x46241001#32, 0x46241002#32, 0x46241003#32, 0x46201004#32, 0x46201005#32,
    0x46201006#32, 0x46201007#32, 0x46201015#32, 0x46201016#32, 0x4620100c#32, 0x4620100d#32,
    0x4620100e#32, 0x4620100f#32, 0x46201024#32, 0x46201020#32, 0x01200009#32, 0x01200409#32,
-   0x00000000#32, 0x00000040#32, 0x000000c0#32,
+   0x00000000#32, 0x000000c0#32,
    -- R6-5 (C): `llvm-mc-21 -triple=mips -mcpu=mips32r6 -show-encoding`
    0x46001025#32, 0x46201025#32, 0x46001008#32, 0x46201008#32, 0x46001009#32, 0x46201009#32,
-   0x4600100a#32, 0x4620100a#32, 0x4600100b#32, 0x4620100b#32, 0x46a01020#32, 0x46a01021#32]
+   0x4600100a#32, 0x4620100a#32, 0x4600100b#32, 0x4620100b#32, 0x46a01020#32, 0x46a01021#32,
+   0x41680024#32, 0x41600004#32]
 
 #guard r6Lines.length = r6Words.length
 #guard asmText (srcLines r6Lines) = some r6Words
 
--- BEGIN R6-4
 /-- The Release 6 integer, select, scaled-address, byte-align, bit-swap and PC-relative forms (wave
 R6-4). No label is involved, so `r6Lines`' words are unchanged by them. -/
 def r6IntLines : List String :=
@@ -255,8 +256,6 @@ def r6IntWords : List W32 :=
 -- the pre-Release 6 two-operand `div`/`divu`/`mul` forms are not accepted
 #guard asmFails "div $t0, $t1\n"
 #guard asmFails "divu $t0, $t1\n"
--- END R6-4
--- BEGIN R6-6B
 /-- The Release 6 FP forms (wave R6-6): CMP.condn.fmt for every `condn` of Table A.17 (MD00086 Vol
 II-A Rev 6.06, p.457), SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT (.s, .d). -/
 def r6FpLines : List String :=
@@ -314,11 +313,9 @@ def r6FpWords : List W32 :=
 #guard (decode 0x4683105c#32) = none  -- condn 28
 -- RINT/CLASS need `ft = 0`
 #guard (decode 0x4603105a#32) = none
--- END R6-6B
 -- every golden word decodes, and re-encodes to itself (the model's decoder accepts exactly these)
 #guard r6Words.all fun w => (decode w).map encode == some w
 
--- BEGIN R6-2
 /-- Wave R6-2 mnemonics (ERETNC, SIGRIE, CACHE), with the words of
 `llvm-mc -triple=mipsel -mcpu=mips32r6 -show-encoding` (llvm-mc 21). -/
 def r62Lines : List String :=
@@ -341,7 +338,6 @@ def r62Words : List W32 :=
 #guard asmText "cache 32, 0($4)\n" = none
 #guard asmText "cache 1, 256($4)\n" = none
 #guard asmText "cache 1, -257($4)\n" = none
--- END R6-2
 
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
@@ -784,7 +780,13 @@ def ktextSrc : String := srcLines
 #guard asmFails "blt $t0, $t1\n"
 #guard asmFails "b\n"
 #guard asmFails "neg\n"
-#guard asmText "ssnop\nehb\n" = some [0x00000040#32, 0x000000c0#32]
+-- SSNOP: "Assemblers targeting specifically Release 6 should reject the SSNOP instruction with an error"
+-- (SSNOP p.387); its word `sll $0, $0, 1` still decodes (and executes as a no-op `sll`).
+#guard asmText "ehb\n" = some [0x000000c0#32]
+#guard asmUnknown "ssnop\n" && !isKnownMnemonic "ssnop"
+#guard (match assemble "nop\nssnop\n" with
+  | .error (.unknownMnemonic msg 2) => (msg.splitOn "p.387").length == 2
+  | _ => false)
 #guard decode 0x00000040#32 = some (.sll 0#32 0#32 1#32) ∧ decode 0x000000c0#32 = some (.sll 0#32 0#32 3#32)
 -- jr.hb rs = jalr.hb $0, rs (JR.HB p.208); jalr.hb: hint bit 10 set (JALR.HB p.198)
 #guard asmText "jr.hb $ra\njalr.hb $t9\njalr.hb $t0, $t9\njr $ra\n"
@@ -829,7 +831,7 @@ def ktextSrc : String := srcLines
   = some [encode (.recipS 2#32 4#32), encode (.recipD 2#32 4#32), encode (.rsqrtS 2#32 4#32),
           encode (.rsqrtD 2#32 4#32), encode (.roundWD 2#32 4#32), encode (.truncWD 2#32 4#32),
           encode (.ceilWD 2#32 4#32), encode (.floorWD 2#32 4#32)]
--- BEGIN R6-5 (C): longword conversions (COP1 rFormat; fmt S = 0x10, D = 0x11, L = 0x15; functs
+-- Longword conversions (COP1 rFormat; fmt S = 0x10, D = 0x11, L = 0x15; functs
 -- ROUND.L 0x08, TRUNC.L 0x09, CEIL.L 0x0a, FLOOR.L 0x0b, CVT.L 0x25, CVT.S 0x20, CVT.D 0x21). The
 -- literal words are what `llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -show-encoding` prints.
 #guard asmText "cvt.l.s $f2, $f4\n" = some [0x460020a5#32]
@@ -852,11 +854,14 @@ def ktextSrc : String := srcLines
           encode (.roundLD 2#32 4#32), encode (.truncLS 2#32 4#32), encode (.truncLD 2#32 4#32),
           encode (.ceilLS 2#32 4#32), encode (.ceilLD 2#32 4#32), encode (.floorLS 2#32 4#32),
           encode (.floorLD 2#32 4#32), encode (.cvtSL 2#32 4#32), encode (.cvtDL 2#32 4#32)]
--- END R6-5 (C)
 -- di / ei
 #guard asmText "di\ndi $t1\nei\nei $t0\n"
   = some [encode (.di 0#32), encode (.di 9#32), encode (.ei 0#32), encode (.ei 8#32)]
 #guard asmText "di\nei $t0\n" = some [0x41606000#32, 0x41686020#32]
+-- dvp / evp (DVP p.172, EVP p.181; llvm-mc -mcpu=mips32r6: `dvp $t0` = 0x41680024, `evp $zero` = 0x41600004)
+#guard asmText "dvp\ndvp $t0\nevp\nevp $t1\n"
+  = some [encode (.dvp 0#32), encode (.dvp 8#32), encode (.evp 0#32), encode (.evp 9#32)]
+#guard asmText "dvp $t0\nevp\n" = some [0x41680024#32, 0x41600004#32]
 -- `.set`: noreorder / noat / at accepted, reorder and anything else rejected
 #guard asmText ".set noreorder\n.set noat\nnop\n.set at\nnop\n" = some [0#32, 0#32]
 #guard asmFails ".set reorder\nnop\n"
@@ -867,7 +872,6 @@ def ktextSrc : String := srcLines
 #guard (assemble (srcLines [".set noat", ".set at", "L: blt $t0, $t1, L"])).isOk
 #guard (assemble (srcLines [".set noat", "L: beq $t0, $t1, L", "li $t0, 0x12345678"])).isOk
 
--- BEGIN R6-3
 /-! ## The Release 6 compact branches and jumps
 
 Golden words: `llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -filetype=obj` (after `.set noreorder`),
@@ -910,10 +914,23 @@ private def compactWords : List W32 :=
 #guard asmFails "L: beqzc $0, L\n"
 #guard asmFails "L: bnezalc $0, L\n"
 #guard asmFails "bc\n"
+-- The reversed-operand idioms (B<cond>C p.83): `bgtc rt, rs` = `bltc rs, rt` (`rt > rs`), `blec rt, rs`
+-- = `bgec rs, rt`, `bgtuc`/`bleuc` likewise unsigned. llvm-mc 21 rejects these mnemonics, so the
+-- check is against the instruction each stands for.
+#guard asmText "L: bgtc $5, $3, L\nblec $5, $3, L\nbgtuc $5, $3, L\nbleuc $5, $3, L\n"
+  = some [encode (.bltc 3#32 5#32 0xffff#32), encode (.bgec 3#32 5#32 0xfffe#32),
+          encode (.bltuc 3#32 5#32 0xfffd#32), encode (.bgeuc 3#32 5#32 0xfffc#32)]
+#guard asmText "L: bgtc $5, $3, L\n" = some [0x5c65ffff#32]
+#guard asmText "L: bgtc $5, $3, L\n" = asmText "L: bltc $3, $5, L\n"
+#guard asmText "L: bleuc $t1, $t0, L\n" = asmText "L: bgeuc $t0, $t1, L\n"
+#guard reversedCompactIdioms.all fun (m, _) => isKnownMnemonic m
+-- the constraints of the instruction apply: two different nonzero registers
+#guard asmFails "L: bgtc $0, $3, L\n"
+#guard asmFails "L: blec $3, $3, L\n"
+#guard asmFails "L: bgtuc $3, L\n"
 -- offsets: 21-bit and 26-bit ranges (in words), numeric operands are the offset itself
 #guard asmText "beqzc $3, 1048575\nbeqzc $3, -1048576\n" = some [0xd86fffff#32, 0xd8700000#32]
 #guard asmFails "beqzc $3, 1048576\n"
 #guard asmText "bc 33554431\nbc -33554432\n" = some [0xc9ffffff#32, 0xca000000#32]
 #guard asmFails "bc 33554432\n"
 #guard asmFails "jic $3, 32768\n"
--- END R6-3

@@ -219,7 +219,6 @@ def isSNaND (x : BitVec 64) : Bool := Mips.Fp.isSNaN64 x
 /-- `QNaN(x)`, double. -/
 def isQNaND (x : BitVec 64) : Bool := Mips.Fp.isQNaN64 x
 
--- BEGIN R6-6B
 /-- An operand of a comparison as compared, single: with `FCSR.FS = 1` "every input subnormal value
 is replaced with zero of the same sign" (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102), and "For
 floating-point comparisons, the Inexact exception is not signaled when subnormal input operands are
@@ -278,7 +277,6 @@ signaled if the result does not have the same numerical value as the input opera
 def rintS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Rint (env a) x
 /-- As `rintS`, double. -/
 def rintD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Rint (env a) x
--- END R6-6B
 end IEEE
 
 /-! ### `ValueFPR` / `StoreFPR` for the 64-bit formats (Figures 2.22, 2.23, p.22-23) -/

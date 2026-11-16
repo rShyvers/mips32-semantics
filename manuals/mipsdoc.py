@@ -379,6 +379,14 @@ def norm_mnemonic(q):
     return cands
 
 
+# `B<cond>C` is one page for all compact compare-and-branch instructions (pdf: POP10/POP26/POP27/POP30 etc.,
+# incl. the zero-compare forms and the operand-swapped assembler spellings BLEC/BGTC/BLEUC/BGTUC).
+COND_BRANCH_C = ("BEQC", "BNEC", "BLTC", "BGEC", "BLTUC", "BGEUC", "BLEC", "BGTC", "BLEUC", "BGTUC",
+                 "BEQZC", "BNEZC", "BLEZC", "BGEZC", "BGTZC", "BLTZC")
+# Name spellings in the manual's index that differ from the mnemonic (typo in the index: "SELNEQZ").
+INDEX_SPELLING = {"SELNEQZ": "SELNEZ"}
+
+
 def lookup_names(order):
     """lower-case name -> index key, for each full key and each mnemonic inside
     a merged key such as 'MUL MUH MULU MUHU' or 'B{LE,GE}ZALC'. Full keys win."""
@@ -389,7 +397,14 @@ def lookup_names(order):
         for part in re.split(r"\s+", k):
             for name in _expand_braces(part):
                 for n in name.split(","):
-                    names.setdefault(n.strip().lower(), k)
+                    n = n.strip()
+                    names.setdefault(n.lower(), k)
+                    head, dot, fmt = n.partition(".")      # SELNEQZ.fmt -> selnez.fmt
+                    if head.upper() in INDEX_SPELLING:
+                        names.setdefault(INDEX_SPELLING[head.upper()].lower() + dot + fmt.lower(), k)
+                    if "<cond>" in n.lower():
+                        for c in COND_BRANCH_C:
+                            names.setdefault(c.lower(), k)
     return names
 
 
@@ -701,6 +716,17 @@ def cmd_selftest(a):
         ("CACHE", "2.50", list(range(90, 97)), "CACHE"), ("SYNCI", "2.50", [282, 283, 284], "SYNCI"),
         ("JALR", "2.50", [140, 141], "JALR"), ("jr.hb", "2.50", [147, 148, 149], "JR.HB"),
         ("cvt.d.s", "2.50", [109], "CVT.D.fmt"), ("round.w.s", "2.50", [238, 239], "ROUND.W.fmt"),
+        ("beqc", "6.06", [82, 83, 84, 85], "BEQC"), ("bnec", "6.06", [82, 83, 84, 85], "BNEC"),
+        ("bltc", "6.06", [82, 83, 84, 85], "BLTC"), ("bgec", "6.06", [82, 83, 84, 85], "BGEC"),
+        ("bltuc", "6.06", [82, 83, 84, 85], "BLTUC"), ("bgeuc", "6.06", [82, 83, 84, 85], "BGEUC"),
+        ("blezc", "6.06", [82, 83, 84, 85], "BLEZC"), ("bgezc", "6.06", [82, 83, 84, 85], "BGEZC"),
+        ("bgtzc", "6.06", [82, 83, 84, 85], "BGTZC"), ("bltzc", "6.06", [82, 83, 84, 85], "BLTZC"),
+        ("beqzc", "6.06", [82, 83, 84, 85], "BEQZC"), ("bnezc", "6.06", [82, 83, 84, 85], "BNEZC"),
+        ("bgtc", "6.06", [82, 83, 84, 85], "BGTC"), ("bovc", "6.06", [107, 108], "BOVC"),
+        ("bnvc", "6.06", [107, 108], "BNVC"), ("beqzalc", "6.06", [77, 78, 79], "BEQZALC"),
+        ("bnezalc", "6.06", [77, 78, 79], "BNEZALC"), ("bgtzalc", "6.06", [77, 78, 79], "BGTZALC"),
+        ("selnez", "6.06", [369, 370], "SELNEZ"), ("seleqz", "6.06", [369, 370], "SELEQZ"),
+        ("selnez.s", "6.06", [371, 372], "SELNEZ.fmt"), ("seleqz.d", "6.06", [371, 372], "SELEQZ.fmt"),
         ("movf.s", "2.50", [185, 186], "MOVF.fmt"), ("bc1tl", "2.50", [52, 53], "BC1TL"), ("ldc1", "2.50", None, "LDC1"),
     ]
     for name, rev, pages, phrase in insn:

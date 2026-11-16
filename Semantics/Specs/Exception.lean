@@ -70,7 +70,6 @@ theorem exception_keeps_llBit (s s' : State) (code addr : W32)
     s'.llBit = s.llBit := by
   rcases h with h | h <;> (have h := h; rw [← h]; rfl)
 
--- BEGIN R6-2
 /-- **A synchronous exception records the faulting instruction in `BadInstr` and, in a delay slot,
 the branch in `BadInstrP`** (MD00090 Vol III Rev 6.02 §9.25, p.179: BadInstr is "Faulting
 instruction word", "only set by exceptions which are synchronous to an instruction"; §9.26, p.181:
@@ -101,7 +100,6 @@ theorem takeInterrupt_badInstr_unchanged (s : State) :
     (takeInterrupt s).cp0BadInstr = s.cp0BadInstr ∧
       (takeInterrupt s).cp0BadInstrP = s.cp0BadInstrP :=
   ⟨rfl, rfl⟩
--- END R6-2
 
 /-- **`EXL = 0`, not in a delay slot**: `EPC ← PC` (the faulting
 instruction), `Cause.BD ← 0`, `Cause.ExcCode ← code`, `Cause.CE ← ce`. -/

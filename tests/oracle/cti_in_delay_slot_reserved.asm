@@ -1,18 +1,13 @@
-# A branch in the delay slot of a branch. Pre-Release 6 this is UNPREDICTABLE: "Processor operation
-# is UNPREDICTABLE if a control transfer instruction (CTI) is placed in the delay slot of a branch
-# or jump" (MD00086 Vol II-A Rev 6.06, BEQ p.72; MD00082 Vol I-A Rev 6.01 sec 5.3.2.1 p.62), and
-# "UNPREDICTABLE operations may cause arbitrary exceptions" but "must not halt or hang the
-# processor" (MD00086 sec 1.2.1 p.3-4). The model pins Reserved Instruction taken in the delay slot
-# (Cause.ExcCode = 10, Cause.BD = 1, EPC = the first branch), which is also what Release 6 requires
-# (MD00082 sec 5.3.2.1 p.62). QEMU's behaviour is not authoritative here: every observable that
-# depends on the CTI pair is not compared; the model's pinned values are checked with `expect`.
-# (Observed 2026-11-13: QEMU 24Kf also raises Reserved Instruction here and agrees on every field.)
-# oracle: unpredictable gpr MD00086 Vol II-A Rev 6.06 BEQ p.72: CTI in a delay slot is UNPREDICTABLE (model pins Reserved Instruction)
-# oracle: unpredictable cause same
-# oracle: unpredictable epc same
-# oracle: unpredictable status same
-# oracle: unpredictable pc same
-# oracle: unpredictable term same
+# A branch in the delay slot of a branch. Release 6 requires a Reserved Instruction exception: "In
+# Release 6, if a CTI is placed in a branch delay slot or a compact branch forbidden slot,
+# implementations are required to signal a Reserved Instruction exception" (MD00082 Vol I-A Rev 6.01
+# sec 5.3.2.1 p.62; MD00086 Vol II-A Rev 6.06 BEQ Restrictions p.72: "Release 6: If a control
+# transfer instruction (CTI) is executed in the delay slot of a branch or jump, Release 6
+# implementations are required to signal a Reserved Instruction exception"; only pre-Release 6 is it
+# UNPREDICTABLE). The exception is for the instruction in the delay slot: EPC = the first branch with
+# Cause.BD = 1 (MD00082 Vol I-A Rev 6.01 sec 5.3.2.2 p.62; MD00090 Vol III Rev 6.02 sec 9.38 p.217),
+# ExcCode 10. Every field is compared with QEMU mips32r6-generic (no `unpredictable` directive: the
+# behaviour is mandated), and the pinned values are also checked with `expect`.
 # oracle: expect gpr:s7=1 gpr:s4=0x80000028 gpr:s3=0x00400000 gpr:s0=1 gpr:s1=2
 .ktext
     mfc0  $k0, $13

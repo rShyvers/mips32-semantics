@@ -215,14 +215,12 @@ macro "tk_simp" : tactic => `(tactic|
     writeReg_proj_cp0Cause, writeFpReg_timer, writeFpD_timer, writeMemByte_getD_timer,
     fpFinishS, fpFinishD, and_self, *])
 
--- BEGIN R6-2
 /-- The timer registers `Count`, `Compare`, `Cause` sit at `(9, 0)`, `(11, 0)`, `(13, 0)` of the CP0
 layout and nowhere else (proof device for `execInstr_timerKept`). -/
 theorem cp0Layout_timer (n m : Nat) (r : Cp0Reg) (h : cp0Layout .r6 n m = some r)
     (hr : r = .count ∨ r = .compare ∨ r = .cause) : m = 0 ∧ (n = 9 ∨ n = 11 ∨ n = 13) := by
   unfold cp0Layout at h
   split at h <;> (try simp only [Option.some.injEq] at h) <;> (try subst h) <;> simp_all
--- END R6-2
 
 -- 119 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
@@ -408,7 +406,6 @@ theorem hwrValue_cc (s : State) : hwrValue s 2#32 = some s.cp0Count := rfl
 /-- `CCRes` (`rdhwr` register 3) is 1: `Count` advances once per step. -/
 theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 := rfl
 
--- BEGIN R6-2
 /-- `XNP` (`rdhwr` register 5) is `Config5.XNP` = 1: the paired LL/SC (LLX/SCX) family is not
 implemented (MD00086 Vol II-A Rev 6.06, RDHWR, p.333: "5: temp ← Config5XNP // Release 6"; MD00090
 Vol III Rev 6.02 Table 9.40, p.176, "Required (Release 6)"). -/
@@ -418,7 +415,6 @@ theorem hwrValue_xnp (s : State) : hwrValue s 5#32 = some 1#32 := rfl
 p.333: "29: temp ← UserLocal"; MD00090 Vol III Rev 6.02 Table 9.40, p.176: "In Release 6, the
 UserLocal register is required"). -/
 theorem hwrValue_ulr (s : State) : hwrValue s 29#32 = some s.cp0UserLocal := rfl
--- END R6-2
 
 /-- Registers 4, 6..28, 30 and 31 are not implemented: 4 `PerfCtr` ("Required if any PerfCnt
 register is implemented", none: `Config1.PC = 0`), 6..28 reserved ("Access results in a Reserved

@@ -151,6 +151,11 @@ def esc(s):
 
 # ------------------------------------------------------- 1. the constructors
 
+# Marker comments of the wave flow (a BEGIN/END line naming a wave, a wave-number note).
+# They are not section headers and must never become a family title.
+WAVE_MARKER = re.compile(r"^(?:(?:BEGIN|END)\b.*|W\d+[A-Za-z]?\b.*|R6-\d+[A-Za-z]?\b.*)$")
+
+
 def parse_instruction_inductive():
     """Parse `inductive Instruction`: for each constructor its name, field
     string, docstring (whole text and first line), line, and family.
@@ -181,6 +186,8 @@ def parse_instruction_inductive():
             in_doc = not s.endswith("-/")
             continue
         if s.startswith("--"):
+            if WAVE_MARKER.match(s[2:].strip()):
+                continue                            # wave bookkeeping, never a family
             if not prev_comment:
                 family = re.sub(r"\s*[(:.].*$", "", s[2:].strip()) or family
             prev_comment = True

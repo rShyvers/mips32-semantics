@@ -16,8 +16,9 @@ from the correctness of the IEEE rounding core (`Semantics/FpOpsCorrect*.lean`).
 `RSQRT` of a positive finite operand: the square root is neither a NaN nor a zero, with or without
 `FCSR.FS = 1` (`sqrt_not_tiny`: a square root is never below the normal range, so it is not flushed;
 `sqrt_pos_class` then takes the class from `rsqrt_error`). The model's operations flush their input
-operands under `FCSR.FS` (`Format.flushIn`): a flushed subnormal operand is excepted by the
-Invalid/Division-by-Zero clauses (`RecipFlags4`, `flagsOK_of_flushed`), and the square root is never
+operands under `FCSR.FS` (`Format.flushIn`): a flushed subnormal operand is excepted by the first
+four clauses (`RecipFlags4`, `flagsOK_of_flushed`) and is a zero of the same sign, so Division by
+Zero and not Invalid Operation (`recip_flushed_dz`, `rsqrt_flushed_dz`); the square root is never
 subnormal (`sqrt_not_subnormal`), so `RSQRT`'s second operation does not flush it
 (`rsqrt_flagsOK_flush`). The flush's Inexact (`Format.withFlush`) gives the last clause of
 `RecipFlagsOK` and leaves the others alone (`recipFlagsOK_of_or`).
@@ -98,11 +99,12 @@ def RecipFlags4 (f : Format) (sq : Bool) (e : Env) (n : Nat) (fl : Flags) : Prop
   (f.isNaN n = false → f.isZero n = false → (e.flush = false ∨ f.isSubnormal n = false) →
     fl.divZero = false ∧ fl.invalid = (sq && f.signBit n))
 
-/-- `RecipFlagsOK` of a `Format`'s field widths, in the model's classifiers: `RecipFlags4` and the
-Inexact of a flushed operand. -/
+/-- `RecipFlagsOK` of a `Format`'s field widths, in the model's classifiers: `RecipFlags4`, the
+Division by Zero (and no Invalid Operation) of a flushed operand, and its Inexact. -/
 theorem recipFlagsOK_iff (f : Format) (sq : Bool) (e : Env) (n : Nat) (fl : Flags) :
     RecipFlagsOK f.expBits f.fracBits sq e n fl ↔
       (RecipFlags4 f sq e n fl ∧
+       (e.flush = true → f.isSubnormal n = true → fl.divZero = true ∧ fl.invalid = false) ∧
        (e.flush = true → f.isSubnormal n = true → fl.inexact = true)) := by
   unfold RecipFlagsOK RecipFlags4
   simp only [FPIsQNaN_eq, FPIsSNaN_eq, FPIsNaN_eq, FPIsZero_eq, FPIsSubnormal_eq, FPSign_eq, and_assoc]
@@ -520,12 +522,60 @@ theorem rsqrt_flagsOK_flush (hf : f.WF) (hb : f.fracBits + 2 ≤ f.bias) (hb4 : 
     rw [flushIn_of_not f e _ hns]
     exact rsqrt_flagsOK f hf hb hb4 hM hInf hDQ hQ h1 hq1 hn1 hz1 hi1 hs1 M hW e n hlt
 
+/-- A subnormal operand flushed under `FCSR.FS = 1` is the zero of its sign (`Format.flushIn`). -/
+theorem flushIn_flushed (e : Env) (n : Nat) (hfl : e.flush = true) (hsub : f.isSubnormal n = true) :
+    f.flushIn e.flush n = f.zero (f.signBit n) := by
+  unfold Format.flushIn; simp [hfl, hsub]
+
+/-- `RECIP` of a subnormal operand flushed under `FCSR.FS = 1`: `1.0 / ±0`, Division by Zero and no
+Invalid Operation. -/
+theorem recip_flushed_dz (hM : f.expMax ≠ 0) (e : Env) {one : Nat} (hn : f.isNaN one = false)
+    (hz : f.isZero one = false) (hi : f.isInf one = false) (hs : f.isSNaN one = false)
+    (hone : f.flushIn e.flush one = one)
+    (hZ : ∀ s, f.isNaN (f.zero s) = false ∧ f.isZero (f.zero s) = true) (n : Nat) :
+    e.flush = true → f.isSubnormal n = true →
+      (f.div e (f.flushIn e.flush one) (f.flushIn e.flush n)).2.divZero = true ∧
+      (f.div e (f.flushIn e.flush one) (f.flushIn e.flush n)).2.invalid = false := by
+  intro hfl hsub
+  rw [hone, flushIn_flushed f e n hfl hsub]
+  obtain ⟨a, b⟩ := hZ (f.signBit n)
+  rw [(div_one_flags f hM e hn hz hi hs).2.1 a b]
+  exact ⟨rfl, rfl⟩
+
+/-- `RSQRT` of a subnormal operand flushed under `FCSR.FS = 1`: `√±0 = ±0` with no condition, then
+`1.0 / ±0`: Division by Zero and no Invalid Operation. -/
+theorem rsqrt_flushed_dz (hM : f.expMax ≠ 0) (e : Env) {one : Nat} (hn : f.isNaN one = false)
+    (hz : f.isZero one = false) (hi : f.isInf one = false) (hs : f.isSNaN one = false)
+    (hone : f.flushIn e.flush one = one)
+    (hZ : ∀ s, f.isNaN (f.zero s) = false ∧ f.isZero (f.zero s) = true ∧
+      f.isSubnormal (f.zero s) = false)
+    (M : Nat) (hM' : ∀ s, f.zero s < M) (n : Nat) :
+    e.flush = true → f.isSubnormal n = true →
+      ((f.sqrt e (f.flushIn e.flush n)).2.or
+        (f.div e (f.flushIn e.flush one)
+          (f.flushIn e.flush ((f.sqrt e (f.flushIn e.flush n)).1 % M))).2).divZero = true ∧
+      ((f.sqrt e (f.flushIn e.flush n)).2.or
+        (f.div e (f.flushIn e.flush one)
+          (f.flushIn e.flush ((f.sqrt e (f.flushIn e.flush n)).1 % M))).2).invalid = false := by
+  intro hfl hsub
+  rw [hone, flushIn_flushed f e n hfl hsub]
+  obtain ⟨a, b, c⟩ := hZ (f.signBit n)
+  have hsq : f.sqrt e (f.zero (f.signBit n)) = (f.zero (f.signBit n), Flags.none) := by
+    simp [Format.sqrt, a, b]
+  have hnf : f.flushIn e.flush (f.zero (f.signBit n)) = f.zero (f.signBit n) := by
+    unfold Format.flushIn; simp [c]
+  rw [hsq]
+  simp only [Nat.mod_eq_of_lt (hM' (f.signBit n)), hnf]
+  rw [(div_one_flags f hM e hn hz hi hs).2.1 a b]
+  exact ⟨rfl, rfl⟩
+
 /-- The Invalid Operation / Division-by-Zero flags of `g` with the flush flags of the operands `ops`
 ORed in (`Format.withFlush`) are those of `g`; Inexact is added when `n ∈ ops` is flushed; and when no
 operand of `ops` other than `n` is subnormal, `RecipFlags4` of `g` gives `RecipFlagsOK`. -/
 theorem recipFlagsOK_of_or (hM : f.expMax ≠ 0) (sq : Bool) (e : Env) (n : Nat) (g : Flags) (ops : List Nat)
     (hn : n ∈ ops) (hops : ∀ m ∈ ops, m ≠ n → f.isSubnormal m = false)
-    (h : RecipFlags4 f sq e n g) :
+    (h : RecipFlags4 f sq e n g)
+    (hz : e.flush = true → f.isSubnormal n = true → g.divZero = true ∧ g.invalid = false) :
     RecipFlagsOK f.expBits f.fracBits sq e n (g.or (f.flushFlags e.flush ops)) := by
   rw [recipFlagsOK_iff]
   obtain ⟨c1, c2, c3, c4⟩ := h
@@ -533,7 +583,8 @@ theorem recipFlagsOK_of_or (hM : f.expMax ≠ 0) (sq : Bool) (e : Env) (n : Nat)
     simp [Flags.or, Format.flushFlags]
   have hdz : (g.or (f.flushFlags e.flush ops)).divZero = g.divZero := by
     simp [Flags.or, Format.flushFlags]
-  refine ⟨⟨fun hq => ?_, fun hs => ?_, fun h1 h2 => ?_, fun h1 h2 h3 => ?_⟩, fun hfl hsub => ?_⟩
+  refine ⟨⟨fun hq => ?_, fun hs => ?_, fun h1 h2 => ?_, fun h1 h2 h3 => ?_⟩,
+    fun hfl hsub => by rw [hinv, hdz]; exact hz hfl hsub, fun hfl hsub => ?_⟩
   · -- a quiet NaN is not subnormal, so nothing is flushed
     have hns : f.isSubnormal n = false := by
       have h1 := (qnan_split f hq).1
@@ -588,6 +639,8 @@ theorem modelImpl_recipFlags : modelImpl.RecipFlags := by
     refine recipFlagsOK_of_or binary32 (by decide) false e x.toNat _ _ (by simp) ?_
       (recip_flagsOK_flush binary32 (by decide) e (by decide) (by decide) (by decide) (by decide)
         (one32 _) x.toNat)
+      (recip_flushed_dz binary32 (by decide) e (by decide) (by decide) (by decide) (by decide)
+        (one32 _) (fun s => by cases s <;> decide) x.toNat)
     intro m hm hmn
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
     rcases hm with rfl | rfl
@@ -601,6 +654,8 @@ theorem modelImpl_recipFlags : modelImpl.RecipFlags := by
     refine recipFlagsOK_of_or binary64 (by decide) false e x.toNat _ _ (by simp) ?_
       (recip_flagsOK_flush binary64 (by decide) e (by decide) (by decide) (by decide) (by decide)
         (one64 _) x.toNat)
+      (recip_flushed_dz binary64 (by decide) e (by decide) (by decide) (by decide) (by decide)
+        (one64 _) (fun s => by cases s <;> decide) x.toNat)
     intro m hm hmn
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
     rcases hm with rfl | rfl
@@ -623,6 +678,8 @@ theorem modelImpl_recipFlags : modelImpl.RecipFlags := by
       (rsqrt_flagsOK_flush binary32 binary32_wf (by decide) (by decide) (by decide)
         (fun s => by cases s <;> decide) (by decide) (by decide) value_one32 (by decide) (by decide)
         (by decide) (by decide) (by decide) (2 ^ 32) (Nat.le_refl _) e (one32 _) x.toNat x.isLt)
+      (rsqrt_flushed_dz binary32 (by decide) e (by decide) (by decide) (by decide) (by decide)
+        (one32 _) (fun s => by cases s <;> decide) (2 ^ 32) (fun s => by cases s <;> decide) x.toNat)
     intro m hm hmn
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
     exact absurd hm hmn
@@ -644,6 +701,8 @@ theorem modelImpl_recipFlags : modelImpl.RecipFlags := by
       (rsqrt_flagsOK_flush binary64 binary64_wf (by decide) (by decide) (by decide)
         (fun s => by cases s <;> decide) (by decide) (by decide) value_one64 (by decide) (by decide)
         (by decide) (by decide) (by decide) (2 ^ 64) (Nat.le_refl _) e (one64 _) x.toNat x.isLt)
+      (rsqrt_flushed_dz binary64 (by decide) e (by decide) (by decide) (by decide) (by decide)
+        (one64 _) (fun s => by cases s <;> decide) (2 ^ 64) (fun s => by cases s <;> decide) x.toNat)
     intro m hm hmn
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
     exact absurd hm hmn

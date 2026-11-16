@@ -297,7 +297,7 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 -- … and so does Cause.E (bit 17), which has no enable
 #guard fpTraps (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0x00020000#32)]) 0 0#32 0x00020000#32
 -- Release 6 traps: FIR is not writable, UFR/UNFR (1, 4) and every control register that does not
--- exist raise Reserved Instruction; FRE (5) reads 0 (pin of UNPREDICTABLE), a write to it raises RI
+-- exist raise Reserved Instruction; FRE (5) too, read or written (no FRE with FIR.FREP = 0; W7)
 #guard raises (fp1 (.ctc1 8#32 0#32) [] 0x7c#32 [(8, 0xffffffff#32)]) excCodeRI
 #guard nextFcsrEq (fp1 (.ctc1 8#32 0#32) [] 0x7c#32 [(8, 0xffffffff#32)]) 0x7c#32
 #guard raises (fp1 (.cfc1 9#32 7#32) [] 0x7c#32 [(9, 0x55#32)]) excCodeRI
@@ -305,7 +305,8 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard raises (fp1 (.ctc1 8#32 7#32) [] 0x7c#32 [(8, 0xffffffff#32)]) excCodeRI
 #guard raises (fp1 (.cfc1 9#32 1#32) []) excCodeRI
 #guard raises (fp1 (.ctc1 8#32 4#32) []) excCodeRI
-#guard nextRegEq (fp1 (.cfc1 9#32 5#32) [] 0#32 [(9, 0x55#32)]) 9 0#32
+#guard raises (fp1 (.cfc1 9#32 5#32) [] 0#32 [(9, 0x55#32)]) excCodeRI
+#guard nextRegEq (fp1 (.cfc1 9#32 5#32) [] 0#32 [(9, 0x55#32)]) 9 0x55#32
 #guard raises (fp1 (.ctc1 8#32 5#32) []) excCodeRI
 
 -- #### Floating Point exception (enabled exception): destination not written
@@ -441,7 +442,6 @@ private def dpMemTestState : State :=
 -- a store clears LLbit; a failed (misaligned) one does not get that far
 #guard nextLlBitEq (hstep (prog1 (.sdc1 8#32 2#32 8#32)) { dpMemTestState with llBit := true }) false
 
--- BEGIN R6-6B
 -- #### The Release 6 FP instructions (MD00086 Vol II-A Rev 6.06)
 -- CMP.condn.fmt (p.136-140): a mask of all ones / all zeros; the upper half of a .S result kept
 #guard fpIs (fp1 (.cmpS 4#32 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)]) 2 0xffffffff#32 0#32
@@ -527,4 +527,3 @@ private def dpMemTestState : State :=
 #guard fpIs (fp1 (.rintS 2#32 4#32) [(4, 0x40400000#32)]) 2 0x40400000#32 0#32
 #guard fpIs64 (fp64 (.rintD 2#32 4#32) [(4, 0xc004000000000000#64)] 3#32) 2 0xc008000000000000#64
   0x00001007#32
--- END R6-6B

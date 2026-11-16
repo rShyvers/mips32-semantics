@@ -87,7 +87,6 @@ structure State where
   pc : W32
   /-- General-purpose registers, size 32; index = register number. -/
   regs : Array W32
-  -- BEGIN R6-5
   /-- Coprocessor-1 (FPU) registers `$f0`..`$f31`, size 32; index = FP
   register number. Each holds a raw **64-bit** pattern (same raw-bit-pattern
   storage convention as `regs`): the 64-bit FPU of Release 6 (`Status.FR = 1`,
@@ -108,7 +107,6 @@ structure State where
   register is read (`Mips.Fp.readFCSR`). `FEXR`/`FENR` are views of this one register
   (`cfc1`/`ctc1`). -/
   fcsr : W32
-  -- END R6-5
   /-- **Physical memory**: byte-addressable and sparse, keyed by the **physical** address. Every
   processor access (instruction fetch, loads, stores) reaches it through the Fixed Mapping MMU
   (`State.lean`, `translate`), so one physical byte can have several virtual names (kseg0 and
@@ -136,13 +134,11 @@ structure State where
   "in a delay slot", for taken and not-taken branches alike. (Release 6 has no
   branch-likely instructions, so no delay-slot instruction is ever nullified;
   a pre-Release 6 profile would add the `nullified` marker back.)
-  -- BEGIN R6-3
   A not-taken Release 6 conditional compact branch also sets `some (pc + 8)`: the next instruction
   is in its **forbidden slot**, which the manual treats as a delay slot (a CTI there raises Reserved
   Instruction, an exception there reports `EPC` = the branch with `Cause.BD = 1`: MD00082 Vol I-A
   Rev 6.01 §5.3.2.1-5.3.2.2, p.62; DECISIONS D6). A taken compact branch or jump sets `none`
   (`Exec/Branch.lean`).
-  -- END R6-3
   -/
   pendingBranch : Option W32 := none
   /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
@@ -281,7 +277,6 @@ structure State where
   restarts (`Step.lean`, `step`) and by the Reset exception ("The assertion of any reset or NMI must
   restart the pipeline", p.442). `false` at power-on. -/
   standby : Bool := false
-  -- BEGIN R6-2
   /-- Coprocessor 0 `UserLocal` (register 4, select 2; MD00090 Vol III Rev 6.02 §9.11, Table 9.19,
   p.143): "a read-write register that is not interpreted by the hardware and conditionally readable
   via the RDHWR instruction"; "For Release 6, this register is mandatory". Read/Write, reset state
@@ -309,7 +304,6 @@ structure State where
   (Release 6)". The model has no EJTAG and `SDBBP` is subsetted out (it raises Reserved Instruction
   whatever this bit holds), so the bit is stored and read back with no other effect. -/
   cp0Config5SBRI : Bool := false
-  -- END R6-2
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
@@ -417,13 +411,11 @@ Table 9.47 p.195; `RP` (27) and `TS` (21) are reserved 0 in Release 6, p.190, p.
 "For Release 6, hardware ignores a write of 1", p.193-194). -/
 def statusWriteMask : W32 := 0x3040ff17
 
--- BEGIN R6-5
 /-- `Status.FR` (bit 26): read-only 1 with the 64-bit FPU of this profile ("This bit must be
 ignored on write and read as 1 for an implementation of Release 6 ... in which a 64-bit
 floating-point unit is implemented", MD00090 Vol III Rev 6.02 §9.32, Table 9.47, p.191). It is not
 stored in `State.cp0Status`; every read of `Status` adds it (`statusValue`). -/
 def statusFrMask : W32 := 0x04000000
--- END R6-5
 
 /-- `Cause.BD` (bit 31): the exception was taken in a branch delay slot. -/
 def causeBdMask : W32 := 0x80000000

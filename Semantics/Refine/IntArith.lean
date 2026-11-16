@@ -157,7 +157,6 @@ theorem sltu_refines (s : State) (hg : Good s) (rs rt rd w : W32)
 
 -- 7C S1 integer ALU: end
 
--- BEGIN R6-4
 /-! ## Release 6: MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA
 
 The value lemmas tie the manual's integer formulas (MD00086 Vol II-A Rev 6.06, p.301, p.169: the
@@ -349,6 +348,5 @@ theorem lsa_refines (s : State) (hg : Good s) (rs rt rd sa w : W32)
   · rw [InCop1Space, opcode_sa2Format]; rfl
   · rw [InCop0Space, opcode_sa2Format]; rfl
   · alu_run [Ops.LSA, readGPR_abs s hg.2.2, low2_and3, sign_extend, BitVec.signExtend_eq]
--- END R6-4
 
 end Refine

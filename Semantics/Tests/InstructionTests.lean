@@ -602,7 +602,7 @@ example : decode 0x4620208d#32 = some (.truncWD 2#32 4#32) := by decide
 example : decode 0x4620208e#32 = some (.ceilWD 2#32 4#32) := by decide
 example : decode 0x4620208f#32 = some (.floorWD 2#32 4#32) := by decide
 example : decode 0x7c810835#32 = some (.pref 4#32 1#32 16#32) := by decide         -- pref 1,16($4)
--- BEGIN R6-5 (C): longword conversions (words from llvm-mc-21 -mcpu=mips32r6), decode and round trip
+-- Longword conversions (words from llvm-mc-21 -mcpu=mips32r6), decode and round trip
 example : decode 0x460020a5#32 = some (.cvtLS 2#32 4#32) := by decide  -- cvt.l.s $f2,$f4
 example : encode (.cvtLS 2#32 4#32) = 0x460020a5#32 := by decide
 example : decode (encode (.cvtLS 31#32 17#32)) = some (.cvtLS 31#32 17#32) := by decide
@@ -644,8 +644,6 @@ example : decode (encode (.cvtDL 31#32 17#32)) = some (.cvtDL 31#32 17#32) := by
 example : decode 0x46a02080#32 = some (.cmpD 0#32 2#32 4#32 0#32) := by decide  -- cmp.af.d $f2,$f4,$f0
 example : decode 0x46a020a4#32 = none := by decide  -- cvt.w.l
 example : decode 0x46a020a5#32 = none := by decide  -- cvt.l.l
--- END R6-5 (C)
--- BEGIN R6-6B
 -- The Release 6 FP instructions (words: llvm-mc -mcpu=mips32r6; the negated CMP condns from the
 -- CMP.condn.fmt diagram, p.136, and Table A.17, p.457)
 example : decode 0x46831040#32 = some (.cmpS 0#32 1#32 2#32 3#32) := by decide  -- cmp.af.s $f1, $f2, $f3
@@ -869,12 +867,42 @@ example : decode 0x46831062#32 = none := by decide  -- fmt W function 100010
 -- RINT/CLASS with ft ≠ 0 do not decode
 example : decode 0x4603105a#32 = none := by decide
 example : decode 0x4623105b#32 = none := by decide
--- END R6-6B
 example : encode (.pref 4#32 1#32 16#32) = 0x7c810835#32 := by decide
 example : decode 0xcc810010#32 = none := by decide                                 -- pre-R6 PREF (0x33)
 example : decode 0x41606000#32 = some (.di 0#32) := by decide                      -- di
 example : decode 0x41686020#32 = some (.ei 8#32) := by decide                      -- ei $8
 example : decode 0x41686800#32 = none := by decide                                 -- MFMC0, rd ≠ 12
+-- dvp / evp (DVP p.172, EVP p.181; words from llvm-mc -mcpu=mips32r6)
+example : decode 0x41680024#32 = some (.dvp 8#32) := by decide                     -- dvp $8
+example : decode 0x41600004#32 = some (.evp 0#32) := by decide                     -- evp
+example : decode (encode (.dvp 31#32)) = some (.dvp 31#32) := by decide
+example : decode (encode (.evp 17#32)) = some (.evp 17#32) := by decide
+example : decode 0x41680824#32 = none := by decide                                 -- dvp, rd ≠ 0
+example : decode 0x41680064#32 = none := by decide                                 -- dvp, bits 10..6 ≠ 0
+example : decode 0x4168002c#32 = none := by decide                                 -- dvp, bits 4..3 ≠ 0
+-- Coverage audit (Wave R6-7): encodings of pages outside the profile do not decode (Reserved
+-- Instruction, or Coprocessor Unusable by encoding space; words from llvm-mc-21 / the page diagrams).
+example : decode 0x42000008#32 = none := by decide   -- tlbp     (Fixed Mapping MMU, TLBP p.427)
+example : decode 0x42000001#32 = none := by decide   -- tlbr     (TLBR p.428)
+example : decode 0x42000002#32 = none := by decide   -- tlbwi    (TLBWI p.430)
+example : decode 0x42000006#32 = none := by decide   -- tlbwr    (TLBWR p.432)
+example : decode 0x42000003#32 = none := by decide   -- tlbinv   (TLBINV p.423)
+example : decode 0x42000004#32 = none := by decide   -- tlbinvf  (TLBINVF p.426)
+example : decode 0x4200001f#32 = none := by decide   -- deret    (EJTAG absent, DERET p.163)
+example : decode 0x0000000e#32 = none := by decide   -- sdbbp    (EJTAG absent, SDBBP p.361)
+example : decode 0x40486000#32 = none := by decide   -- mfhc0    (Config5.MVH = 0, MFHC0 p.270)
+example : decode 0x40c86000#32 = none := by decide   -- mthc0    (Config5.MVH = 0, MTHC0 p.294)
+example : decode 0x7d484876#32 = none := by decide   -- llwp     (Config5.XNP = 1, LLWP p.228)
+example : decode 0x7d484866#32 = none := by decide   -- scwp     (Config5.XNP = 1, SCWP p.355)
+example : decode 0x7d28002f#32 = none := by decide   -- lwe      (EVA absent, LWE p.239)
+example : decode 0x7d01001b#32 = none := by decide   -- cachee   (EVA absent, CACHEE p.121)
+example : decode 0x7d28008f#32 = none := by decide   -- crc32w   (CRC absent, p.143)
+example : decode 0x7d00003d#32 = none := by decide   -- ginvi    (GINV absent, GINVI p.187)
+example : decode 0x7d0000bd#32 = none := by decide   -- ginvt    (GINVT p.189)
+example : decode 0x4a000001#32 = none := by decide   -- cop2     (no coprocessor 2, COP2 p.141)
+example : decode 0x49220002#32 = none := by decide   -- bc2eqz   (BC2EQZ p.64)
+example : decode 0x0109001e#32 = none := by decide   -- ddiv     (MIPS64, DDIV p.161)
+example : decode 0x74100000#32 = none := by decide   -- jalx     (removed, JALX p.201)
 example : decode 0x40087801#32 = some (.mfc0 8#32 15#32 1#32) := by decide         -- mfc0 $8,$15,1 (EBase)
 example : decode 0x40888001#32 = some (.mtc0 8#32 16#32 1#32) := by decide         -- mtc0 $8,$16,1 (Config1)
 example : decode 0x40087800#32 = some (.mfc0 8#32 15#32 0#32) := by decide         -- PRId
@@ -987,7 +1015,6 @@ example : decode 0x4c8628a0#32 = none := by decide
 example : decode (mkRT 29#32 4#32 3#32 0#32 0x01#32) = none := by decide
 example : decode (mkIT 0x11#32 0x08#32 0x1c#32 0x1234#32) = none := by decide
 
--- BEGIN R6-2
 -- `eretnc` (MD00086 Vol II-A Rev 6.06, ERETNC, p.179: COP0, CO = 1, bit 6 = 1, funct ERET),
 -- `sigrie code` (SIGRIE p.375: REGIMM rt = 0x17, rs = 0), `cache op, offset(base)` (CACHE p.114:
 -- SPECIAL3 funct 0x25, 9-bit offset, bit 6 = 0). Encodings checked with
@@ -1014,8 +1041,6 @@ example : decode 0x0000000e#32 = none := by decide                              
 example : decode 0x4200001f#32 = none := by decide                                 -- deret
 example : decode 0x42000002#32 = none := by decide                                 -- tlbwi
 example : decode 0x42000003#32 = none := by decide                                 -- tlbinv
--- END R6-2
--- BEGIN R6-4
 -- Release 6 integer instructions: round trips, the words llvm-mc gives (Tests/AsmTests.lean
 -- `r6IntWords`), and the neighbouring encodings that do not decode.
 example : decode (encode (.mul 29#32 8#32 3#32)) = some (.mul 29#32 8#32 3#32) := by decide
@@ -1053,8 +1078,6 @@ example : decode ((0x1f#32 <<< 26) ||| mkRT 1#32 9#32 8#32 0#32 0x20#32) = none 
 example : decode (mkIT 0x3b#32 8#32 0x10#32 0#32) = none := by decide
 example : decode (mkIT 0x3b#32 8#32 0x18#32 0#32) = none := by decide
 example : decode (mkIT 0x3b#32 8#32 0x1c#32 0#32) = none := by decide
--- END R6-4
--- BEGIN R6-3
 -- Release 6 compact branches and jumps: round trip (MD00086 Vol II-A Rev 6.06 Table A.26, p.464).
 example : decode (encode (.bc 0x2abcdef#32)) = some (.bc 0x2abcdef#32) := by decide
 example : decode (encode (.balc 0x3ffffff#32)) = some (.balc 0x3ffffff#32) := by decide
@@ -1090,4 +1113,3 @@ example : decode (mkIT 0x08#32 0#32 3#32 4#32) = some (.beqzalc 3#32 4#32) := by
 example : decode (mkIT 0x18#32 3#32 3#32 4#32) = some (.bnvc 3#32 3#32 4#32) := by decide   -- rs = rt
 example : decode (mkIT 0x36#32 0#32 3#32 4#32) = some (.jic 3#32 4#32) := by decide         -- rs = 0: JIC
 example : decode (mkIT 0x3e#32 3#32 0#32 4#32) = some (.bnezc 3#32 4#32) := by decide       -- rs ≠ 0: BNEZC
--- END R6-3

@@ -52,7 +52,6 @@ def powerOnState : State :=
     cp0HWREna := 0#32
     hwInt := 0#6
     standby := false
-    -- BEGIN R6-2
     -- `UserLocal`, `BadInstr`, `BadInstrP`, `KScratch1..6`: reset state "Undefined" (MD00090 Vol III
     -- Rev 6.02 Tables 9.19, 9.42, 9.43, 9.84, p.143, 179, 181, 311), pinned to 0; `Config5.SBRI`:
     -- reset state 0 (Table 9.69, p.263).
@@ -61,7 +60,6 @@ def powerOnState : State :=
     cp0BadInstrP := 0#32
     cp0KScratch := fun _ => 0#32
     cp0Config5SBRI := false
-    -- END R6-2
     }
 
 /-- The initial machine state at program counter `pc`: all general-purpose
@@ -121,7 +119,6 @@ register `0` are silently ignored and the state is returned unchanged. -/
 def writeReg (s : State) (i : Fin 32) (v : W32) : State :=
   if i == 0 then s else { s with regs := s.regs.set! i.val v }
 
--- BEGIN R6-5
 /-- Read coprocessor-1 (FPU) register `i` as its whole raw 64-bit pattern (a double, a longword, or
 an uninterpreted doubleword; `ValueFPR(fpr, D/L)` with `FR = 1`, MD00086 Vol II-A Rev 6.06,
 Figure 2.22, p.22: "valueFPR ← FPR[fpr]"). Out-of-range indices, which should not occur for
@@ -150,7 +147,6 @@ def writeFpReg (s : State) (i : Fin 32) (v : W32) : State :=
 
 /-- `Status` as software reads it: the stored bits and the read-only `FR = 1` (`statusFrMask`). -/
 def statusValue (s : State) : W32 := s.cp0Status ||| statusFrMask
--- END R6-5
 
 /-! ## Operating mode -/
 

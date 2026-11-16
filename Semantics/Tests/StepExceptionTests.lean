@@ -506,11 +506,9 @@ private def cp0Unusable (s : State) : Bool :=
 #guard cp0Unusable (step1 (.wait 0#32) userSt)
 #guard cp0Unusable (step1 (.rdpgpr 8#32 9#32) userSt)
 #guard cp0Unusable (step1 (.wrpgpr 8#32 9#32) userSt)
--- BEGIN R6-2
 #guard cp0Unusable (step1 .eretnc userSt)
 #guard cp0Unusable (step1 (.cache 0#32 0x14#32 0#32) userSt)
 #guard cp0Unusable (step1 (.mfc0 8#32 0#32 0#32) userSt)   -- an unimplemented register too
--- END R6-2
 -- Undecodable COP0 words (rs = 3 reserved; TLBP; rs = 0x0d reserved) and CACHE: CpU in User Mode, RI in
 -- Kernel Mode. (RDPGPR, 0x41400000, decodes since wave 6: `rdpgpr $0, $0`.)
 #guard (let w := 0x40600000#32
@@ -646,7 +644,6 @@ private def swIntSt : State := { regs0 with cp0Status := 0x20000101#32, cp0Cause
 #guard readReg (step1 (.wrpgpr 8#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 8 == 0x5678#32
 #guard readReg (step1 (.wrpgpr 0#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 0 == 0#32
 
--- BEGIN R6-2
 -- ### Release 6 CP0 registers and instructions (Wave R6-2)
 
 -- UserLocal (4,2) and KScratch1..6 (31,2..7): what mtc0 writes, mfc0 reads back
@@ -731,4 +728,3 @@ private def swIntSt : State := { regs0 with cp0Status := 0x20000101#32, cp0Cause
 #guard (step1 (.wait 0#32) regs0).standby
 -- Config5.SBRI is cleared by the Reset exception.
 #guard (resetException { regs0 with cp0Config5SBRI := true }).cp0Config5SBRI == false
--- END R6-2

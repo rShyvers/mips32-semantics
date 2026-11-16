@@ -22,7 +22,6 @@ a `Kept` predicate, its lemmas for each result shape of `execInstr`, one `split`
 
 namespace Refine
 
--- BEGIN R6-5
 /-- The FCSR bits that are not R/W on this profile: 31..25, 23..18 (`FcsrReservedZero`). -/
 def fcsrReservedBits : W32 := 0xFEFC0000#32
 
@@ -77,7 +76,6 @@ theorem rz_writeControl (f v g : W32) (n : Nat) (h : Mips.Fp.writeControl f n v 
   · unfold RZ Mips.Fp.writeFCSR Mips.Fp.fcsrWritableMask
     rw [BitVec.and_assoc, show (0x0103FFFF#32 &&& 0xFEFC0000#32) = 0#32 by decide,
       BitVec.and_zero]
--- END R6-5
 
 theorem si_or_exl (x : W32) : SI (x ||| statusExlMask) ↔ SI x := by
   unfold SI

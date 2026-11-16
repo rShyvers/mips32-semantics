@@ -369,7 +369,6 @@ theorem cf_ins (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ins rt rs
     Ops.INS rt rs pos size (ctxOf i o₁) { arch := a } = Ops.INS rt rs pos size (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.INS]; ofree
 
--- BEGIN R6-4
 theorem cf_lwpc (rs off : W32) (a : Arch) (h : ConsultsOracle (.lwpc rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.LWPC rs off (ctxOf i o₁) { arch := a } = Ops.LWPC rs off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.LWPC, bind, PC]; ofree
@@ -408,9 +407,7 @@ theorem cf_modu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.modu rs rt rd)
   simp only [ConsultsOracle, ← toNat_eq_zero'] at h
   simp only [Ops.MODU, bind, GPR]
   exact cf_divResult _ rs rd _ _ a h i o₁ o₂
--- END R6-4
 
--- BEGIN R6-3
 theorem cf_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.BLEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BLEZALC rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.BLEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
@@ -435,7 +432,6 @@ theorem cf_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt of
     Ops.BNEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BNEZALC rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.BNEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
 
--- END R6-3
 
 set_option maxHeartbeats 1000000 in
 set_option linter.unusedSimpArgs false in
@@ -489,14 +485,11 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case cvtSD fd fs => exact cf_cvtSD fd fs a h i o₁ o₂
   case ext rt rs pos size => exact cf_ext rt rs pos size a h i o₁ o₂
   case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
-  -- BEGIN R6-4
   case lwpc rs off => exact cf_lwpc rs off a h i o₁ o₂
   case div rs rt rd => exact cf_div rs rt rd a h i o₁ o₂
   case mod rs rt rd => exact cf_mod rs rt rd a h i o₁ o₂
   case divu rs rt rd => exact cf_divu rs rt rd a h i o₁ o₂
   case modu rs rt rd => exact cf_modu rs rt rd a h i o₁ o₂
-  -- END R6-4
-  -- BEGIN R6-3
   case blezalc rt off => exact cf_blezalc rt off a h i o₁ o₂
   case bgezalc rt off => exact cf_bgezalc rt off a h i o₁ o₂
   case bgtzalc rt off => exact cf_bgtzalc rt off a h i o₁ o₂
@@ -521,7 +514,6 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case bnvc rs rt off => simp only [Ops.BNVC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
   case jic rt off => simp only [Ops.JIC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
   case jialc rt off => simp only [Ops.JIALC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  -- END R6-3
   case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; split <;> rfl)
@@ -544,9 +536,7 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
       Ops.SW, Ops.SWC1, Ops.SYNC, Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TGE, Ops.TGEU, Ops.TLT,
       Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
       Ops.XORI,
-      -- BEGIN R6-2
       Ops.ERETNC, Ops.SIGRIE, Ops.CACHE,
-      -- END R6-2
       -- R6-4
       Ops.MUL, Ops.MUH, Ops.MULU, Ops.MUHU, Ops.SELEQZ, Ops.SELNEZ, Ops.LSA, Ops.ALIGN, Ops.BITSWAP,
       Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC,

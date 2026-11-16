@@ -66,7 +66,6 @@ structure Impl where
   /-- `Config3` (16, 3; Vol III §9.48, Table 9.67, p.245-251): "All fields in the Config3 register
   are read-only" (p.245). -/
   Config3 : W32
-  -- BEGIN R6-2
   /-- `Config4` (16, 4; Vol III §9.49, Table 9.68, p.253-258), read-only on this profile (its only
   R/W field, the FTLB page size, needs an FTLB). -/
   Config4 : W32
@@ -78,7 +77,6 @@ structure Impl where
   writes of unsupported values are ignored" (Vol III Table 9.64, p.233, 235); which encodings are
   supported is implementation-dependent beyond the "Required" 2 and 3 of Table 9.12 (p.133). -/
   CCASupported : BitVec 3 → Bool
-  -- END R6-2
   /-- `IntCtl` (12, 1; Vol III §9.33, Table 9.48, p.199-201), read-only here; `VS` = 0 is required
   by `Impl.WF`. -/
   IntCtl : W32
@@ -98,7 +96,7 @@ structure Impl where
   SynciAddressError : Bool
   -- 7B S4 FPU
   /-- `FIR`, the FP Implementation Register (`CFC1` with `fs = 0`; MD00082 Vol I-A Rev 6.01 §6.5.1,
-  Table 6.5 p.87-88), read-only and implementation-dependent. -/
+  p.87, Table 6.5 p.88-90), read-only and implementation-dependent. -/
   FIR : W32
   -- 7R: the reciprocal approximations (not part of the IEEE core)
   /-- `RECIP.S`: the approximation of `1.0 / fs` under the FCSR environment, with the IEEE exceptions
@@ -128,11 +126,13 @@ structure Oracle where
   /-- A store executed between `LL` and `SC` (by this processor): "A coherent store is executed
   between an LL and SC sequence on the same processor to the block of synchronizable physical memory
   containing the word (if Config5LLB=1; else whether such a store causes the SC to fail is not
-  predictable)" (MD00086 Vol II-A Rev 6.06, SC, p.347; there is no `Config5`), and for a store to
-  another block "the SC may fail where it could have succeeded, i.e., success is not predictable"
-  (SC, p.347-348: "A load or store executed on the processor executing the LL and SC that is not to
-  the block of synchronizable physical memory containing the word"). `true`: this store makes the
-  `SC` fail (`LLbit ← 0`). -/
+  predictable)" (MD00086 Vol II-A Rev 6.06, SC, p.347). Release 6 has `Config5.LLB = 1` ("In Release
+  6, Config5LLB is read-only 1", MD00090 Vol III Rev 6.02 Table 9.69, p.264), so a store to the
+  block of the word must make the `SC` fail; for a store to another block "the SC may fail where it
+  could have succeeded, i.e., success is not predictable" (SC, p.347-348: "A load or store executed
+  on the processor executing the LL and SC that is not to the block of synchronizable physical memory
+  containing the word"). The field does not see the address, so only `true` is right for every
+  store (W7 pin audit). `true`: this store makes the `SC` fail (`LLbit ← 0`). -/
   storeClearsLL : Arch → Bool
   /-- `Cause.CE` for an exception other than Coprocessor Unusable: "The CE field is loaded, but not
   defined, for any exception type other than a coprocessor unusable exception" (MD00090 Vol III Rev
@@ -147,17 +147,14 @@ structure Oracle where
   instruction does not have the same effect when re-executed. The result of executing such an
   instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, JALR, p.196). -/
   jalrRsIsRd : Arch → Instruction → Outcome
-  -- BEGIN R6-3
   /-- A Release 6 compact branch-and-link with `rt = 31` (BLEZALC, BGEZALC, BGTZALC, BLTZALC,
   BEQZALC, BNEZALC): "Branch-and-link Restartability: GPR 31 must not be used for the source
   registers, because such an instruction does not have the same effect when reexecuted. The result of
   executing such an instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06,
   B{LE,GE,GT,LT,EQ,NE}ZALC, Restrictions, p.78). -/
   linkSourceIs31 : Arch → Instruction → Outcome
-  -- END R6-3
   -- end 7B S3
   -- 7B S4 FPU
-  -- BEGIN R6-5
   /-- **The upper 32 bits of a 64-bit FPR after a 32-bit result is stored in it** (`StoreFPR(fpr,
   S/W/UNINTERPRETED_WORD, value)`): "Any FPU instruction that writes a 32-bit result (S or W format)
   to the low 32-bits of a 64-bit FPR leaves the upper bits of the FPR UNPREDICTABLE. This includes
@@ -165,11 +162,6 @@ structure Oracle where
   that computes a 32 bit result" (MD00082 Vol I-A Rev 6.01 §6.6.2, p.98). Arguments: the state
   before the store and the register. -/
   fprUpper : Arch → Fin 32 → W32
-  -- END R6-5
-  /-- `CFC1 rt, fs` with `fs` = 5 (`FRE`): "if ConfigAR ≤ 2 then temp ← UNPREDICTABLE" (MD00086 Vol
-  II-A Rev 6.06, CFC1, Operation, p.130; Release 6 has `ConfigAR = 2`). Gives the value `temp`.
-  Arguments: the state and `fs`. -/
-  cfc1Unpredictable : Arch → W32 → W32
   /-- `CTC1 rt, fs` where the Operation says `UNPREDICTABLE`: `fs` = 5, 6 (`FRE`, `NFRE`: "if ConfigAR
   ≤ 2 then UNPREDICTABLE"), or the written value has a reserved bit set (MD00086 Vol II-A Rev 6.06,
   CTC1, Restrictions p.149, Operation p.150). Arguments: the state, `fs`, `temp ← GPR[rt]31..0`.
@@ -190,7 +182,8 @@ structure Oracle where
   named are unused fields that are required to be zero ... If such fields are set to non-zero
   values, the operation of the processor is UNPREDICTABLE", MD00086 Vol II-A Rev 6.06 §2.1.1, p.12),
   `EXT` with `lsb + msbd > 31` (p.183), `INS` with `lsb > msb` (p.193), a `JALR` hint that is
-  neither 0 nor the hazard barrier (p.196).
+  neither 0 nor the hazard barrier (JALR p.196 and JALR.HB p.198 define only those two values; the
+  pages do not say UNPREDICTABLE for another one, see `Manual.UnpredictableEncoding`).
   `UNPREDICTABLE` operations "may cause ... arbitrary exceptions" or a result (§1.2.1, p.3):
   `.signal e`; `.arbitrary a'`; `.proceed` = treat the word as matching no diagram
   (`Manual.Undecodable`). The arguments are the state and the word. -/
@@ -204,9 +197,11 @@ structure Oracle where
   /-- A load executed between `LL` and `SC` by this processor: "A load that executes on the
   processor executing the LL/SC sequence to the block of synchronizable physical memory containing
   the word, will not cause the SC to fail (if Config5LLB=1; else such a load may cause the SC to
-  fail)" (MD00086 Vol II-A Rev 6.06, SC, p.347; no `Config5` here), and a load to another block
-  "may fail where it could have succeeded" (p.347-348). `true`: this load makes the `SC` fail
-  (`LLbit ← 0`). -/
+  fail)" (MD00086 Vol II-A Rev 6.06, SC, p.347; Release 6 has `Config5.LLB = 1`, MD00090 Vol III
+  Rev 6.02 Table 9.69, p.264, so a load to the block of the word must not make it fail), and a load
+  to another block "may fail where it could have succeeded" (p.347-348). The field does not see the
+  address, so only `false` is right for every load (W7 pin audit). `true`: this load makes the `SC`
+  fail (`LLbit ← 0`). -/
   loadClearsLL : Arch → Bool
   /-- The QNaN that `CVT.D.S` delivers for a QNaN operand. "When a floating-point result is to be
   delivered, a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible,
@@ -217,7 +212,6 @@ structure Oracle where
   cvtQNaNToD : W32 → BitVec 64
   /-- The QNaN that `CVT.S.D` delivers for a QNaN operand (as `cvtQNaNToD`, §6.3.1.5, p.82). -/
   cvtQNaNToS : BitVec 64 → W32
-  -- BEGIN R6-2
   /-- `BadInstr` after a synchronous exception without a valid instruction word: "When a synchronous
   exception occurs for which there is no valid instruction word (for example TLB Refill - Instruction
   Fetch), the value stored in BadInstr is UNPREDICTABLE" (MD00090 Vol III Rev 6.02 §9.25, p.179); on
@@ -227,15 +221,12 @@ structure Oracle where
   exception occurs and the faulting instruction is not in a branch delay slot, then the value stored
   in BadInstrP is UNPREDICTABLE" (MD00090 Vol III Rev 6.02 §9.26, p.181). -/
   badInstrP : Arch → W32
-  -- END R6-2
-  -- BEGIN R6-4
   /-- `DIV`/`MOD`/`DIVU`/`MODU` with a zero divisor: "If the divisor in GPR rt is zero, the result
   value is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, DIV MOD DIVU MODU, Restrictions, p.168;
   Exceptions, p.169: "No arithmetic exceptions occur. Division by zero produces an UNPREDICTABLE
   result"). Arguments: the state, the instruction, and the dividend `s1` as the Operation reads it
   (`GPR[rs]`). Gives the value written to `GPR[rd]`. -/
   divByZero : Arch → Instruction → W32 → W32
-  -- END R6-4
 
 /-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only, no
 caches and none of the features `Config3` describes; an `Impl` describes such a processor when:
@@ -244,15 +235,15 @@ caches and none of the features `Config3` describes; an `Impl` describes such a 
   GPRs are implemented" (MD00090 Vol III Rev 6.02, Table 9.49, p.203), and then `SRSCtl.PSS = 0`
   (bits 9..6): "The operation of the processor is UNDEFINED if software writes a value into this
   field that is greater than the value in the HSS field" (p.204). `SGPR[0, r]` is `GPR[r]` ("The
-  normal GPRs are logically considered shadow set 0", Vol III Chapter 7, p.103).
+  normal GPRs are logically considered shadow set zero", Vol III Chapter 7, p.103).
 * `IntCtl.VS = 0` (bits 9..5): "If neither EIC interrupt mode nor VI mode are implemented
   (Config3VEIC = 0 and Config3VInt = 0), this field is ignored on write and reads as zero" (Table
   9.48, p.201); `Config3.VEIC = Config3.VInt = 0` follows from the next item.
 * `Config3 = 0x8C00_3000`: the profile is Release 6, so Config3 exists ("Required if any optional
   feature described by this register is implemented: Release 2 of the Architecture, ...", Vol III
   §9.48, p.245) with the fields Release 6 fixes: `M` = 1 (Config4 present, p.245), `BP` = `BI` = 1
-  ("Release 6: BadInstrP/BadInstr is always implemented", p.246), `ULRI` = 1 ("Release 6: UserLocal is
-  always implemented", p.248), `RXI` = 1 ("Release 6: The RIE and XIE bits are always implemented",
+  ("Release 6: BadInstrP is always implemented", "Release 6: BadInstr is always implemented",
+  p.246), `ULRI` = 1 ("Release 6: UserLocal is always implemented", p.248), `RXI` = 1 ("Release 6: The RIE and XIE bits are always implemented",
   p.248); every other field flags a feature the spec does not have (CM GCR space, MSA, Segment
   Control, page table walk, VZ, the MCU ASE, microMIPS (`ISA`, `ISAOnExc`, `MMAR`), DSP,
   ContextConfig, IFlowtrace, XPA, EIC and vectored interrupts, small pages, CDMM, MT, SmartMIPS, trace
@@ -284,13 +275,9 @@ def Impl.WF (i : Impl) : Prop :=
   i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5 ∧
   i.Config3 = 0x8C003000#32 ∧ i.Config2 &&& 0xF0F0F0F0#32 = 0x80000000#32 ∧
   i.Config1.extractLsb' 31 1 = 1#1 ∧
-  -- BEGIN R6-2
   i.Config4 = 0x80FC0000#32 ∧ i.Config5Fixed = 0x00002010#32 ∧
   i.CCASupported 2#3 = true ∧ i.CCASupported 3#3 = true ∧
-  -- END R6-2
-  -- BEGIN R6-5
   i.FIR &&& 0xF0FF0000#32 = 0x00F30000#32
-  -- END R6-5
 
 instance (i : Impl) : Decidable i.WF := by unfold Impl.WF; infer_instance
 
@@ -335,11 +322,9 @@ def modelImpl : Impl where
   Config1 := 0x80000001#32
   Config2 := 0x80000000#32
   Config3 := 0x8C003000#32
-  -- BEGIN R6-2
   Config4 := 0x80FC0000#32
   Config5Fixed := 0x00002010#32
   CCASupported := fun v => v == 2#3 || v == 3#3
-  -- END R6-2
   IntCtl := 0xE0000000#32
   SRSCtl := 0#32
   CCRes := 1#32
@@ -373,16 +358,12 @@ def modelOracle : Oracle where
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
   -- 7B S3 control + system
   jalrRsIsRd := fun _ _ => .proceed
-  -- BEGIN R6-3
   -- the Operation as written: the link is written, then `GPR[rt]` (= the link) is compared
   linkSourceIs31 := fun _ _ => .proceed
-  -- END R6-3
   -- end 7B S3
   -- 7B S4 FPU
-  -- BEGIN R6-5: the upper half of a 32-bit FPR write is unchanged (what QEMU does)
+  -- The upper half of a 32-bit FPR write is unchanged (what QEMU does)
   fprUpper := fun a fpr => (a.FPR fpr).extractLsb' 32 32
-  -- END R6-5
-  cfc1Unpredictable := fun _ _ => 0#32
   -- R6-5: `FRE`/`NFRE` (5, 6) signal Reserved Instruction (the exception "Release 6 implementations
   -- and later are required to produce" for these aliases, CTC1 p.149); a value with reserved bits set
   -- is written with those bits ignored (`FCSRWrite`)
@@ -406,16 +387,13 @@ def modelOracle : Oracle where
   loadClearsLL := fun _ => false
   cvtQNaNToD := fun x => (Mips.Fp.f32ToF64 false x).1
   cvtQNaNToS := fun x => (Mips.Fp.f64ToF32 Mips.Fp.Env.RN x).1
-  -- BEGIN R6-2
   badInstrNoWord := fun _ => 0#32
   badInstrP := fun _ => 0#32
-  -- END R6-2
-  -- BEGIN R6-4: a zero divisor acts as a divisor of 1: the quotient is the dividend, the remainder 0
+  -- A zero divisor acts as a divisor of 1: the quotient is the dividend, the remainder 0
   divByZero := fun _ i s1 =>
     match i with
     | .div .. | .divu .. => s1
     | _ => 0#32
-  -- END R6-4
 
 /-- `modelImpl` is an implementation of this profile. -/
 theorem modelImpl_WF : modelImpl.WF := by decide

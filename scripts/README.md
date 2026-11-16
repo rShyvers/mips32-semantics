@@ -20,7 +20,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | 4 | comparator | `lake comparator` exits 0 and prints `Your solution is okay!` |
 | 5 | diffharness | `lake exe DiffHarness` exits 0, and `SUMMARY: all N corpus programs PASS` has N = number of `tests/corpus/*.asm`; java and `vendor/mars/Mars4_5.jar` required (missing = FAIL) |
 | 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed`; this includes the manual-spec check (`Manual.InstructionTime` against `step` through `Refine.abs` on every state of every `tests/corpus` and `tests/oracle` program; any mismatch fails; a state where `InstructionTime` is `none` would be counted as skipped; since 7B no constructor lacks an Operation, so the count is 0) |
-| 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU mips32r6-generic, little-endian, vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mipsel` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
+| 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU mips32r6-generic, little-endian, vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0, and the behaviour suite prints `COVERAGE: N/N` (every `Instruction` constructor executed by some `tests/oracle/*.asm` program, see "Oracle coverage" below): no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mipsel` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
 | 8 | trace | `trace.py --check` passes (every constructor has a step arm, a primary spec theorem and `Refine.<ctor>_refines`; no spec theorem has sorry) and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites the table. `docs/TRACE.md` is checked on the `documentation` branch (`docs/check.sh`), not here |
 | 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent; a SKIP in a full run makes the verdict RED |
 | 10 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
@@ -90,6 +90,14 @@ silently skipped. Output: one line per test `PASS` / `FAIL` / `DEVIATION(declare
 `SUMMARY: N tests, P pass, D declared deviations, K known model bugs, F fail, S skipped`. A few seconds for all tests (parallel), ~60 ms of QEMU per test.
 
 Many of the tests (FP convert/flag/trap/CpU/random-pool programs) are produced by `tests/oracle/gen/gen_tests.py` (deterministic; the committed `.asm` files are the artefacts).
+
+### Oracle coverage (every constructor is executed)
+A full run (no `--only`) also checks that every constructor of `inductive Instruction` is **executed** by at least one `tests/oracle/*.asm` program
+(`tests/asm` programs do not count). `oracle.py` runs the model as `MipsRun --coverage`, which adds the field `executed` to the JSON: the sorted
+constructor names (head of the derived `Repr`) for which a hosted step reached the fetch/decode/execute path with a decoding word (`executesInstr`; an
+instruction that traps counts as executed, a hosted `syscall` service too). The constructor list is parsed from `Semantics/Instruction.lean`, never hardcoded,
+so a new constructor without an oracle program fails at once. Output: `COVERAGE: N/M ...`; on a gap `COVERAGE FAIL: never executed by any oracle program: a b c`
+and exit 1. Gate step 7 requires the `COVERAGE` line and no `COVERAGE FAIL`. Fix a gap with a new `tests/oracle/cover_<name>.asm`. `oracle.py selftest` tests the checker.
 
 ### How a test runs
 1. `lake exe MipsRun --max-steps N prog.asm` (our assembler, our model) prints one JSON object. Besides the original fields it carries the
@@ -171,7 +179,7 @@ After the Release 6 retarget the declarations marked the waves still to come; al
 Programs the harness cannot judge are listed as `SKIP name: reason` and counted (`ASM_SKIP` plus an automatic rule: a `.ktext` handler containing `syscall`, and EBase relocation `mtc0 $x,$15,1`).
 
 ## JSON render (`MipsRun`)
-`lake exe MipsRun [--max-steps N] [--bare] [--reset] prog.asm` prints one JSON object. It is a **read-out** of the model's `State`, computed outside
+`lake exe MipsRun [--max-steps N] [--bare] [--reset] [--coverage] prog.asm` prints one JSON object. It is a **read-out** of the model's `State`, computed outside
 `step` (`MipsRun.lean`: `stateJson`, `cp0Json`, `fcrJson`); nothing in it changes the semantics. It exists so that a front end can render the machine
 as other simulators do, and so that `oracle.py` is data-driven. Tags: **raw** = a stored `State` field as is; **derived** = computed from `State`
 (the value software reads, or an observer's summary); **virtual** / **physical** = which address space an address-valued field speaks.

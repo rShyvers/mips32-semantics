@@ -1,8 +1,6 @@
 import Semantics.Refine.Abs
 import Semantics.Env
--- BEGIN R6-6B
 import Semantics.Manual.Decode
--- END R6-6B
 
 /-!
 # ManualTests — the independent manual spec, run on concrete states
@@ -234,7 +232,7 @@ def execAgree (i : Instruction) (s : State) : Bool :=
           (writeFpReg64 (setRegs regs0 [(8, 0x10010000#32)]) 2 0x2222222211111111#64)) with
         | some a => a.Mem 0x50010000#32 == 0x11 && a.Mem 0x50010004#32 == 0x22
         | none => false)
--- BEGIN R6-5 (C): the 64-bit FPU against the spec: L conversions, MTHC1/MFHC1, CVT.D.S
+-- The 64-bit FPU against the spec: L conversions, MTHC1/MFHC1, CVT.D.S
 #guard agree (fpState (.cvtLS 4#32 2#32) [(2, 0x40200000#32)])
 #guard agree (fpState (.cvtLS 4#32 2#32) [(2, 0x7fc00000#32)])
 #guard agree (fpState (.truncLS 4#32 2#32) [(2, 0xc0200000#32)] 3#32)
@@ -251,8 +249,7 @@ def execAgree (i : Instruction) (s : State) : Bool :=
 #guard agree (loadImage (prog1 (.mfhc1 8#32 4#32)) (writeFpReg64 regs0 4 0x0123456789abcdef#64))
 #guard agree (fpState (.cvtDS 4#32 2#32) [(2, 0x7f800001#32)])
 #guard agree (fpState (.addS 4#32 2#32 0#32) [(2, 0x7f800001#32), (0, 0x3f800000#32)])
--- END R6-5 (C)
--- BEGIN R6-6B: the Release 6 FP instructions against the spec (incl. the trap of CMP's Invalid and
+-- The Release 6 FP instructions against the spec (incl. the trap of CMP's Invalid and
 -- the words Manual.Decode reads)
 #guard agree (fpState (.cmpS 4#32 4#32 2#32 0#32) [(2, 0x3f800000#32), (0, 0x40000000#32)])
 #guard agree (fpState (.cmpS 10#32 4#32 2#32 0#32) [(2, 0x7fc00000#32), (0, 0x40000000#32)])
@@ -278,7 +275,6 @@ def execAgree (i : Instruction) (s : State) : Bool :=
 #guard Manual.Decode 0x46831050#32 == .reserved
 #guard Manual.Decode 0x4603105b#32 == .unpredictable
 #guard Manual.Decode 0x46831051#32 == .instr (.cmpS 17#32 1#32 2#32 3#32)
--- END R6-6B
 -- Instruction fetch is little-endian too: the program word is fetched and decoded.
 #guard agree (loadImage (prog1 (.addiu 0#32 8#32 5#32)) regs0)
 -- Removed encodings (Release 6, "6R"/"6Rm", MD00086 Vol II-A Rev 6.06 Table A.1-A.2, p.451):

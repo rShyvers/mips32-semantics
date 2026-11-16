@@ -207,7 +207,7 @@ def field_matches(pat, field):
 
 # ----------------------------------------------------------------------------- model side
 def run_model(env, path, max_steps, bare=False):
-    cmd = [env.mipsrun, "--max-steps", str(max_steps)] + (["--bare"] if bare else []) + [path]
+    cmd = [env.mipsrun, "--coverage", "--max-steps", str(max_steps)] + (["--bare"] if bare else []) + [path]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if r.returncode not in (0, 1):
         raise HarnessError(f"MipsRun exit {r.returncode}: {r.stderr[-400:]}")
@@ -605,6 +605,7 @@ def run_one(env, name, path=None):
         model = run_model(env, path, d.max_steps or 100000, d.bare)
         mrec = model_record(model)
         res["model_term"] = mrec["term"]
+        res["executed"] = model.get("executed", [])
         qrec = qemu_record(env, model, tdir)
         res["qemu_term"] = qrec["term"]
         res["verdict"], res["details"] = judge(model, mrec, qrec, d)
@@ -614,6 +615,38 @@ def run_one(env, name, path=None):
     except subprocess.TimeoutExpired as e:
         res["verdict"], res["details"] = "FAIL", ["timeout: " + str(e)]
     return res
+
+
+INSTR_LEAN = os.path.join(ROOT, "Semantics", "Instruction.lean")
+
+
+def instruction_constructors():
+    """Every constructor name of `inductive Instruction`, parsed from the Lean source (never hardcoded)."""
+    names, inside = [], False
+    for ln in open(INSTR_LEAN).read().splitlines():
+        if re.match(r"^inductive Instruction\b", ln):
+            inside = True
+            continue
+        if inside:
+            if ln and not ln[0].isspace():
+                break
+            m = re.match(r"^\s+\|\s*(\w+)\b", ln)
+            if m:
+                names.append(m.group(1))
+    return names
+
+
+def coverage_check(results):
+    """Behaviour coverage: every `Instruction` constructor must have been EXECUTED by the model (`MipsRun
+    --coverage`: `step` reached `execute` on that decoded instruction) in at least one `tests/oracle/*.asm`
+    program, i.e. in a program that is also run on QEMU.  Returns (executed, total, missing)."""
+    ctors = instruction_constructors()
+    seen = set()
+    for r in results:
+        if not r["name"].startswith("asm/"):
+            seen.update(r.get("executed", []))
+    missing = [c for c in ctors if c not in seen]
+    return len(ctors) - len(missing), len(ctors), missing
 
 
 def cmd_run(env, args):
@@ -633,7 +666,14 @@ def cmd_run(env, args):
                 names.append("asm/" + f[:-4])
     with cf.ThreadPoolExecutor(max_workers=args.jobs) as ex:
         results = list(ex.map(lambda n: run_one(env, n), names))
-    return report(results, args, skipped)
+    rc = report(results, args, skipped)
+    if not args.only:     # full runs only: a filtered run cannot cover everything
+        done, total, missing = coverage_check(results)
+        print("COVERAGE: %d/%d Instruction constructors executed by tests/oracle programs" % (done, total))
+        if missing:
+            print("COVERAGE FAIL: never executed by any oracle program: " + " ".join(missing))
+            rc = 1
+    return rc
 
 
 def report(results, args, skipped=()):
@@ -697,7 +737,7 @@ ENC_MANUAL = {
     "rdpgpr $zero,$ra": ([0x415F0000], "MD00086 Rev 6.06 RDPGPR p.335: COP0 010000 | 01010 | rt=$ra(31) | rd=$zero(0) | 0"),
     "wrpgpr $t0,$t1": ([0x41C94000], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | WRPGPR 01110 | rt(20:16)=$t1 | rd(15:11)=$t0 | 0(10:0)"),
     "wrpgpr $ra,$zero": ([0x41C0F800], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | 01110 | rt=$zero(0) | rd=$ra(31) | 0"),
-    # BEGIN R6-6B (llvm-mc 21 has no mnemonic for the negated CMP predicates)
+    # Llvm-mc 21 has no mnemonic for the negated CMP predicates
     "cmp.or.s $f0,$f2,$f4": ([0x46841011], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn OR 10001"),
     "cmp.or.s $f31,$f30,$f29": ([0x469DF7D1], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn OR 10001"),
     "cmp.or.d $f0,$f2,$f4": ([0x46A41011], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn OR 10001"),
@@ -722,7 +762,6 @@ ENC_MANUAL = {
     "cmp.sne.s $f31,$f30,$f29": ([0x469DF7DB], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SNE 11011"),
     "cmp.sne.d $f0,$f2,$f4": ([0x46A4101B], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SNE 11011"),
     "cmp.sne.d $f31,$f30,$f29": ([0x46BDF7DB], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SNE 11011"),
-    # END R6-6B
 }
 
 
@@ -1023,6 +1062,12 @@ def cmd_selftest(env, args):
     check("known-model-bug that stops occurring fails (remove it)", v == "FAIL" and any("stale known-model-bug" in x for x in det), v)
     v, _ = judge(model, m, q, D("# oracle: known-model-bug gpr:t0 only-two-words"))
     check("known-model-bug needs citation and description", v == "FAIL", v)
+    ctors = instruction_constructors()
+    check("constructor list is parsed from the Lean source", len(ctors) > 100 and "add" in ctors, len(ctors))
+    d0, t0, miss = coverage_check([{"name": "x", "executed": ctors[:-1]}, {"name": "asm/y", "executed": ctors[-1:]}])
+    check("coverage check names a never-executed constructor (tests/asm programs do not count)",
+          miss == ctors[-1:] and d0 == t0 - 1, miss)
+    check("coverage check passes when all executed", coverage_check([{"name": "x", "executed": ctors}])[2] == [], "")
     q2 = rec(status=0xFFFFFFFF ^ STATUS_MASK, cause=0x40000000)
     v, _ = judge(model, m, q2, D(""))
     check("bits outside the documented Status/Cause masks are ignored", v == "PASS", v)

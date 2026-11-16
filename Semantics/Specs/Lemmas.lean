@@ -201,7 +201,6 @@ theorem writeReg_proj_hwInt (s : State) (i : Fin 32) (v : W32) : (writeReg s i v
 theorem writeReg_proj_standby (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).standby = s.standby := by
   unfold writeReg; split <;> rfl
 
--- BEGIN R6-2
 theorem writeReg_proj_cp0UserLocal (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).cp0UserLocal = s.cp0UserLocal := by
   unfold writeReg; split <;> rfl
@@ -221,7 +220,6 @@ theorem writeReg_proj_cp0KScratch (s : State) (i : Fin 32) (v : W32) :
 theorem writeReg_proj_cp0Config5SBRI (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).cp0Config5SBRI = s.cp0Config5SBRI := by
   unfold writeReg; split <;> rfl
--- END R6-2
 
 /-! ### `timerTick` touches only `Count` and `Cause.TI`
 
@@ -328,7 +326,6 @@ theorem writeMemByte_regs (s stored : State) (addr : W32) (v : UInt8)
   · injection h with h'
     rw [← h']
 
--- BEGIN R6-5
 /-- The low 32 bits of `hi ++ lo` are `lo`. -/
 theorem extractLsb'_lo_append (hi lo : W32) : (hi ++ lo).extractLsb' 0 32 = lo :=
   BitVec.extractLsb'_append_eq_right
@@ -346,7 +343,6 @@ theorem writeFpReg64_reads_back (s : State) (i : Fin 32) (v : BitVec 64)
     (hsize : s.fpRegs.size = 32) : readFpReg64 (writeFpReg64 s i v) i = v := by
   unfold writeFpReg64 readFpReg64
   simp [Array.getD_eq_getD_getElem?, hsize, i.isLt]
--- END R6-5
 
 /-- Writing `v` to FP register `i` and immediately reading `i` back (as a 32-bit value) gives
 exactly `v` (`writeFpReg` has no hardwired-zero slot, unlike `writeReg`). -/
@@ -441,7 +437,6 @@ theorem writeMemWord_isSome_of_aligned (s : State) (a v : W32) (h : a.toNat % 4 
   rw [ite_of_neg (by omega), translate_of_allowed s a hacc]
   rfl
 
--- BEGIN R6-2
 /-! ## `cp0WriteAt` (the `mtc0` effect) touches only coprocessor 0 state -/
 
 /-- `mtc0` (`cp0WriteAt`) never changes the GPRs. -/
@@ -490,4 +485,3 @@ theorem cp0ReadAt_pb (s : State) (x : Option W32) (rd sel : W32) :
   unfold cp0ReadAt; split
   · rename_i r _; cases r <;> rfl
   · rfl
--- END R6-2

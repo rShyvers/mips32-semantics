@@ -9,7 +9,7 @@ noreorder`, every branch keeps its real delay slot.
 
 | idiom | expansion |
 |---|---|
-| `nop` / `ssnop` / `ehb` | `sll $0, $0, 0` / `1` / `3` |
+| `nop` / `ehb` | `sll $0, $0, 0` / `3` (NOP p.312, EHB p.175) |
 | `move rd, rs` | `addu rd, $0, rs` |
 | `b target` | `beq $0, $0, target` (GNU as) |
 | `beqz rs, t` / `bnez rs, t` | `beq rs, $0, t` / `bne rs, $0, t` |
@@ -18,6 +18,10 @@ noreorder`, every branch keeps its real delay slot.
 | `abs rd[, rs]` | `bgez rs, 2 ; move rd, rs (nop if rd = rs) ; sub rd, $0, rs` (GNU as) |
 | `blt`/`bge`/`bgt`/`ble`(`u`) `rs, rt, t` | `slt(u) $at, ... ; bne/beq $at, $0, t` |
 | `jr rs` / `jr.hb rs` | `jalr $0, rs` / `jalr.hb $0, rs` (Release 6: JR p.207, JR.HB p.208) |
+| `bgtc`/`blec`/`bgtuc`/`bleuc rt, rs, t` | `bltc`/`bgec`/`bltuc`/`bgeuc rs, rt, t` (B<cond>C p.83) |
+
+`ssnop` is rejected: "Assemblers targeting specifically Release 6 should reject the SSNOP instruction
+with an error" (MD00086 Vol II-A Rev 6.06, SSNOP, p.387; `Asm.rejectedMnemonics`).
 
 (`lui` is the AUI idiom, in `Asm/Int.lean`; `bal`, `nal`, `pause` are real instructions.)
 
@@ -71,10 +75,28 @@ def sllHint (name sa : String) : Idiom :=
     | [] => some [("sll", ["$0", "$0", sa])]
     | _ => none
 
+/-- `name a, b, target` ↦ `base b, a, target`: an assembly idiom with the two registers reversed. -/
+def reversedOperands (name base : String) : Idiom :=
+  idiom name "rt, rs, target" fun
+    | [rt, rs, l] => some [(base, [rs, rt, l])]
+    | _ => none
+
+/-- **The reversed-operand compact branches** (MD00086 Vol II-A Rev 6.06, B<cond>C, p.83: "Assembly
+idioms with reversed operands for signed/unsigned compare-and-branch: BGTC rt, rs, offset; BLEC rt, rs,
+offset; BGTUC rt, rs, offset; BLEUC rt, rs, offset"; "BLEC: ... (alias for BGEC)", "BGTC: ... (alias for
+BLTC)", "BLEUC: ... (alias for BGEUC)", "BGTUC: ... (alias for BLTUC)"). The written first operand is
+the instruction's `rt`, the second its `rs`: `bgtc a, b, t` branches if `a > b`, which is `bltc b, a, t`
+(`GPR[rs] < GPR[rt]`). llvm-mc 21 (`-mcpu=mips32r6`) rejects these four mnemonics, so they are checked
+by `Tests/AsmTests.lean` against the instruction they stand for, not by `tests/oracle/encodings.list`. -/
+def reversedCompactIdioms : List (String × Idiom) :=
+  [ ("bgtc",  reversedOperands "bgtc" "bltc"),
+    ("blec",  reversedOperands "blec" "bgec"),
+    ("bgtuc", reversedOperands "bgtuc" "bltuc"),
+    ("bleuc", reversedOperands "bleuc" "bgeuc") ]
+
 /-- The idiom table. -/
 def idiomTable : List (String × Idiom) :=
   [ ("nop", sllHint "nop" "0"),
-    ("ssnop", sllHint "ssnop" "1"),
     ("ehb", sllHint "ehb" "3"),
     ("move", idiom "move" "rd, rs" fun | [rd, rs] => some [("addu", [rd, "$0", rs])] | _ => none),
     ("b", idiom "b" "target" fun | [l] => some [("beq", ["$0", "$0", l])] | _ => none),
@@ -93,7 +115,8 @@ def idiomTable : List (String × Idiom) :=
     ("bgtu", cmpBranch "bgtu" "sltu" "bne" true),
     ("bleu", cmpBranch "bleu" "sltu" "beq" true),
     ("jr", idiom "jr" "rs" fun | [rs] => some [("jalr", ["$0", rs])] | _ => none),
-    ("jr.hb", idiom "jr.hb" "rs" fun | [rs] => some [("jalr.hb", ["$0", rs])] | _ => none) ]
+    ("jr.hb", idiom "jr.hb" "rs" fun | [rs] => some [("jalr.hb", ["$0", rs])] | _ => none) ] ++
+  reversedCompactIdioms
 
 /-- The idioms whose expansion goes through `$at` (rejected under `.set noat`). -/
 def atIdioms : List String := ["blt", "bge", "bgt", "ble", "bltu", "bgeu", "bgtu", "bleu"]

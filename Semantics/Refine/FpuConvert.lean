@@ -221,7 +221,6 @@ theorem cvtSW_refines (s : State) (hg : Good s) (fd fs w : W32)
   apply runAbs_congr
   simp only [Ops.CVT_S_W, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.cvtSW]
 
--- BEGIN R6-5
 /-- **ROUND.L.S refines.** -/
 theorem roundLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.roundLS fd fs) = some w) :
@@ -390,6 +389,5 @@ theorem cvtDL_refines (s : State) (hg : Good s) (fd fs w : W32)
   apply runAbs_congr
   simp only [Ops.CVT_D_L, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.cvtDL]
 
--- END R6-5
 
 end Refine

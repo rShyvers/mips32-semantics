@@ -146,12 +146,10 @@ theorem rw_cvtSD (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.cvtSD fd fs) a 
 theorem rw_cvtSW (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.cvtSW fd fs) a = true) :
     RowWitness (.cvtSW fd fs) a :=
   row_upper rfl fd fun _ _ => by simp only [Ops.CVT_S_W]; runp_up
--- BEGIN R6-5
 theorem rw_cvtSL (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.cvtSL fd fs) a = true) :
     RowWitness (.cvtSL fd fs) a :=
   row_upper rfl fd fun _ _ => by simp only [Ops.CVT_S_L]; runp_up
--- END R6-5
--- BEGIN R6-6B: the 32-bit results of the Release 6 FP instructions
+-- The 32-bit results of the Release 6 FP instructions
 theorem rw_cmpS (cond fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.cmpS cond fd fs ft) a = true) :
     RowWitness (.cmpS cond fd fs ft) a :=
   row_upper rfl fd fun _ _ => by simp only [Ops.CMP_S]; runp_up
@@ -188,7 +186,6 @@ theorem rw_classS (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.classS fd fs) 
 theorem rw_rintS (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.rintS fd fs) a = true) :
     RowWitness (.rintS fd fs) a :=
   row_upper rfl fd fun _ _ => by simp only [Ops.RINT_S]; runp_up
--- END R6-6B
 
 /-! ## `CVT.D.S` of a quiet NaN -/
 

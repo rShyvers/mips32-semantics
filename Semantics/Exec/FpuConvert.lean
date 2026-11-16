@@ -27,7 +27,6 @@ def execFpuConvert (s : State) : Instruction → Option State
   | .floorWD fd fs => some <| fpFinishS s fd (Mips.Fp.f64ToW32 .RM (fpEnv s).flush (readFpD s fs))
   | .cvtWD fd fs => some <| fpFinishS s fd (Mips.Fp.f64ToW32 (fpEnv s).rm (fpEnv s).flush (readFpD s fs))
   | .cvtSD fd fs => some <| fpFinishS s fd (Mips.Fp.f64ToF32 (fpEnv s) (readFpD s fs))
-  -- BEGIN R6-5
   | .roundLS fd fs => some <| fpFinishD s fd (Mips.Fp.f32ToW64 .RN (fpEnv s).flush (readFpReg s (regIdx fs)))
   | .truncLS fd fs => some <| fpFinishD s fd (Mips.Fp.f32ToW64 .RZ (fpEnv s).flush (readFpReg s (regIdx fs)))
   | .ceilLS fd fs => some <| fpFinishD s fd (Mips.Fp.f32ToW64 .RP (fpEnv s).flush (readFpReg s (regIdx fs)))
@@ -41,5 +40,4 @@ def execFpuConvert (s : State) : Instruction → Option State
   | .cvtLD fd fs => some <| fpFinishD s fd (Mips.Fp.f64ToW64 (fpEnv s).rm (fpEnv s).flush (readFpD s fs))
   | .cvtSL fd fs => some <| fpFinishS s fd (Mips.Fp.w64ToF32 (fpEnv s) (readFpD s fs))
   | .cvtDL fd fs => some <| fpFinishD s fd (Mips.Fp.w64ToF64 (fpEnv s) (readFpD s fs))
-  -- END R6-5
   | _ => none

@@ -183,7 +183,6 @@ theorem eret_refines (s : State) (w : W32) (hw : enc .eret = some w) :
       · simp [Complete, abs, hpb, readReg, readFpReg64, statusExlMask]
       · simp [Complete, abs, hpb, readReg, readFpReg64, statusErlMask]
 
--- BEGIN R6-2
 /-- **ERETNC refines** (MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180): Reserved Instruction in a delay
 slot, Coprocessor Unusable without CP0 access, else as `ERET` but with `LLbit` unchanged. -/
 theorem eretnc_refines (s : State) (w : W32) (hw : enc .eretnc = some w) :
@@ -235,6 +234,41 @@ theorem cache_refines (s : State) (hg : Good s) (base op off w : W32)
       rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
         gep_adel]
     · exact congrArg some (complete_nop s)
--- END R6-2
+
+/-! ## DVP, EVP: no-ops without multi-threading (`Config5.VP = 0`) -/
+
+theorem opcode_vp (rt sc : W32) :
+    opcode (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 1 5 sc ||| fld 3 0 4#32) =
+      0x10#32 := by opcode_tac
+
+/-- DVP and EVP (`sc` = 1 / 0) refine: Coprocessor Unusable without CP0 access, else no operation
+(MD00086 Vol II-A Rev 6.06, DVP p.172, EVP p.181: with `Config5VP = 0` "this instruction must be
+treated as a NOP instruction"). -/
+theorem vp_refines (s : State) (i : Instruction) (rt sc w : W32)
+    (hi : i = .dvp rt ∨ i = .evp rt) (hop : Manual.Operation i = some (pure ()))
+    (hw : w = fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 1 5 sc ||| fld 3 0 4#32)
+    (hx : execBody s i = mkNext s s) :
+    Execute modelCtx w i (abs s) = some (abs (execInstr s i)) := by
+  have hc0 : InCop0Space w = true := by subst hw; simp [InCop0Space, opcode_vp]
+  have hc1 : InCop1Space w = false := by subst hw; simp [InCop1Space, opcode_vp]
+  have hb : isBranchLike i = false := by rcases hi with rfl | rfl <;> rfl
+  have hu1 : usesCop1 i = false := by rcases hi with rfl | rfl <;> rfl
+  have hu0 : usesCop0 i = true := by rcases hi with rfl | rfl <;> rfl
+  have hcti : IsCTI i = false := by rcases hi with rfl | rfl <;> rfl
+  rw [execute_cop0 w _ s _ (.inl hcti) hc1 hc0 hop, execInstr_cop0 s _ (.inl hb) hu1 hu0]
+  cases hu : cp0Usable s
+  · rfl
+  · simp only [↓reduceIte, hx]
+    exact congrArg some (complete_nop s)
+
+/-- **DVP refines.** -/
+theorem dvp_refines (s : State) (rt w : W32) (hw : enc (.dvp rt) = some w) :
+    Execute modelCtx w (.dvp rt) (abs s) = some (abs (execInstr s (.dvp rt))) :=
+  vp_refines s _ rt 1#32 w (.inl rfl) rfl (Option.some.inj hw).symm rfl
+
+/-- **EVP refines.** -/
+theorem evp_refines (s : State) (rt w : W32) (hw : enc (.evp rt) = some w) :
+    Execute modelCtx w (.evp rt) (abs s) = some (abs (execInstr s (.evp rt))) :=
+  vp_refines s _ rt 0#32 w (.inr rfl) rfl (Option.some.inj hw).symm rfl
 
 end Refine

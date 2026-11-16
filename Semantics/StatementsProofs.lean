@@ -5,9 +5,7 @@ import Semantics.Refine.ImplValid
 import Semantics.FpOpsCorrectApi
 import Semantics.FpOpsCorrectIEEE
 import Semantics.FpOpsCorrectFma  -- R6-6A
--- BEGIN R6-6C
 import Semantics.FpOpsCorrectR6
--- END R6-6C
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -154,7 +152,6 @@ theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr :
     step s = timerTick (takeException s excCodeRI) :=
   _root_.branch_in_delay_slot_reserved_instruction s w instr hfetch hdecode hpb hbr hexec
 
--- BEGIN R6-3
 theorem beqc_spec_raw (s : State) (w rs rt off : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beqc rs rt off))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -174,7 +171,6 @@ theorem forbidden_slot_cti_reserved (s : State) (w w2 rs rt off : W32) (instr : 
     step (step s) = timerTick (takeException (step s) excCodeRI) :=
   _root_.forbidden_slot_cti_reserved s w w2 rs rt off instr hfetch hdecode hpb hexec hnot hfetch2
     hdecode2 hcti hexec2
--- END R6-3
 
 /-! ## R-type arithmetic -/
 
@@ -1366,7 +1362,6 @@ theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
       (Mips.Fp.f64ToW32 rm fl x) :=
   _root_.Mips.Fp.f64ToW32_spec rm fl x
 
--- BEGIN R6-5
 theorem f32ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
     Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
       (Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat))
@@ -1386,7 +1381,6 @@ theorem w64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
 theorem w64ToF64_spec (e : Mips.Fp.Env) (x : BitVec 64) :
     Mips.Fp.binary64.FromIntSpec e x.toInt ((Mips.Fp.w64ToF64 e x).1.toNat, (Mips.Fp.w64ToF64 e x).2) :=
   _root_.Mips.Fp.w64ToF64_spec e x
--- END R6-5
 
 theorem condTable_formula : ∀ (cond : BitVec 4) (r : Mips.Fp.Format.Relation),
     Mips.Fp.fpCompare cond (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
@@ -1426,7 +1420,6 @@ theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 3
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 :=
   _root_.Mips.Fp.fcsrSpec_unique h1 h2
 
--- BEGIN R6-2
 theorem exceptionEntry_badInstr (s : State) (code ce : W32) :
     (exceptionEntry s code ce).cp0BadInstr = faultingInstr s ∧
       (exceptionEntry s code ce).cp0BadInstrP =
@@ -1478,9 +1471,7 @@ theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
     step s = timerTick { s with pc := s.pc + 4#32 } :=
   _root_.mtc0_unimplemented_ignored s w rt rd sel hfetch hdecode hpb hcp0 hexec hnone
 
--- END R6-2
 
--- BEGIN R6-6A
 theorem f32Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 32) :
     Mips.Fp.binary32.WithFlushInexact e.flush [c.toNat, a.toNat, b.toNat]
       (Mips.Fp.binary32.FmaSpec e sub (Mips.Fp.binary32.FlushedIn e.flush c.toNat)
@@ -1494,8 +1485,6 @@ theorem f64Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 64) :
         (Mips.Fp.binary64.FlushedIn e.flush a.toNat) (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
       ((Mips.Fp.f64Fma e sub c a b).1.toNat, (Mips.Fp.f64Fma e sub c a b).2) :=
   _root_.Mips.Fp.f64Fma_spec e sub c a b
--- END R6-6A
--- BEGIN R6-6C
 
 theorem cmpTable_formula : ∀ (condn : BitVec 5) (r : Mips.Fp.Format.Relation),
     Mips.Fp.cmpCondition condn (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
@@ -1539,6 +1528,5 @@ theorem f64Rint_spec (e : Mips.Fp.Env) (a : BitVec 64) :
     Mips.Fp.binary64.RintSpec e a.toNat ((Mips.Fp.f64Rint e a).1.toNat, (Mips.Fp.f64Rint e a).2) :=
   _root_.Mips.Fp.f64Rint_spec e a
 
--- END R6-6C
 
 end Trusted

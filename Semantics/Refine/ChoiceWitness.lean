@@ -36,14 +36,11 @@ open Manual
 structure WP where
   lc : Bool := false
   sc : Bool := true
-  cf : W32 := 0#32
   up : W32 := 0#32  -- R6-5: `fprUpper`
   qd : Bool := true
   qs : Bool := true
-  -- BEGIN R6-2
   bnw : W32 := 0#32
   bip : W32 := 0#32
-  -- END R6-2
   dz : W32 := 0#32  -- R6-4: `divByZero`
 
 /-- UNPREDICTABLE / UNDEFINED operations resolved as Reserved Instruction. -/
@@ -55,11 +52,8 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   causeCE := fun _ _ => ce
   resetUndefined := modelOracle.resetUndefined
   jalrRsIsRd := fun _ _ => sigRI
-  -- BEGIN R6-3
   linkSourceIs31 := fun _ _ => sigRI
-  -- END R6-3
   fprUpper := fun _ _ => p.up  -- R6-5
-  cfc1Unpredictable := fun _ _ => p.cf
   ctc1Unpredictable := fun _ _ _ => sigRI
   extOutOfRange := fun _ => sigRI
   insLsbAboveMsb := fun _ => sigRI
@@ -68,16 +62,14 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   loadClearsLL := fun _ => p.lc
   cvtQNaNToD := fun _ => if p.qd then QA64 else QB64
   cvtQNaNToS := fun _ => if p.qs then QA32 else QB32
-  -- BEGIN R6-2
   badInstrNoWord := fun _ => p.bnw
   badInstrP := fun _ => p.bip
-  -- END R6-2
   divByZero := fun _ _ _ => p.dz  -- R6-4
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
   -- R6-3: two more conjuncts (`linkSourceIs31`); R6-5: `fprOddWrite` (two) out, `fprUpper` in
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split
@@ -120,7 +112,6 @@ theorem gep_CE (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch) (h
   have : j = 0 ∨ j = 1 := by omega
   rcases this with rfl | rfl <;> simp
 
--- BEGIN R6-2
 /-- After the general exception processing for an exception other than the Interrupt outside a delay
 slot, `BadInstrP` is the oracle's (UNPREDICTABLE, MD00090 Vol III Rev 6.02 §9.26, p.181). -/
 theorem gep_badInstrP (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch)
@@ -145,7 +136,6 @@ theorem gep_badInstr (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Ar
   cases (InstructionFetch.run (ctxOf i modelOracle) { arch := x }).1 <;> intro hf
   · cases hf
   · rfl
--- END R6-2
 
 /-! ## What two completed instructions are compared on -/
 

@@ -141,7 +141,6 @@ def INS (rt rs pos size : W32) : Pseudo Unit := do
   if (lsb : Int) > msb then unpredictableOr ((← Pseudo.oracle).insLsbAboveMsb (← Pseudo.get)) body
   else body
 
--- BEGIN R6-4
 /-- **ALIGN rd, rs, rt, bp** — MD00086 Vol II-A Rev 6.06, ALIGN, p.39 (an image-only page: diagram,
 Description and Operation read from the PDF).
 ```
@@ -195,6 +194,5 @@ def BITSWAP (rd rt : W32) : Pseudo Unit := do
       reverse_bits_in_byte (x.extractLsb' 8 8) ++ reverse_bits_in_byte (x.extractLsb' 0 8)
   -- GPR[rd] ← tmp
   setGPR (reg rd) tmp
--- END R6-4
 
 end Manual.Ops

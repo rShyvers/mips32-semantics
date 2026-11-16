@@ -79,7 +79,6 @@ def opsD : FmtOps :=
     abs := .absD, mov := .movD, neg := .negD, recip := .recipD, rsqrt := .rsqrtD,
     roundW := .roundWD, truncW := .truncWD, ceilW := .ceilWD, floorW := .floorWD, cvtW := .cvtWD }
 
--- BEGIN R6-5
 /-- The longword (L) conversions (MD00086 Vol II-A Rev 6.06: CVT.L.fmt p.154, ROUND.L.fmt p.341,
 TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185, CVT.S.fmt p.159, CVT.D.fmt p.153). -/
 def longRows : EncTable :=
@@ -89,9 +88,7 @@ def longRows : EncTable :=
     ("ceil.l.s", fp2 .ceilLS), ("ceil.l.d", fp2 .ceilLD),
     ("floor.l.s", fp2 .floorLS), ("floor.l.d", fp2 .floorLD),
     ("cvt.s.l", fp2 .cvtSL), ("cvt.d.l", fp2 .cvtDL) ]
--- END R6-5
 
--- BEGIN R6-6B
 /-- `ft, target` (BC1EQZ, BC1NEZ): an FPR and a 16-bit branch offset, as `brRs`. -/
 def brFt (mk : (ft off : W32) → Instruction) : Enc := fun c ops =>
   match ops with
@@ -125,7 +122,6 @@ def r6FpRows : EncTable :=
     ("maxa.s", fp3 .maxaS), ("maxa.d", fp3 .maxaD), ("mina.s", fp3 .minaS), ("mina.d", fp3 .minaD),
     ("class.s", fp2 .classS), ("class.d", fp2 .classD),
     ("rint.s", fp2 .rintS), ("rint.d", fp2 .rintD) ]
--- END R6-6B
 
 /-- The FPU instructions. -/
 def fpuTable : EncTable :=

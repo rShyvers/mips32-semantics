@@ -21,8 +21,12 @@ present in `lake-manifest.json`'s packages to reuse).
 ## CLI
 
 ```
-MipsRun [--max-steps N] [--bare] [--reset] [path.asm]
+MipsRun [--max-steps N] [--bare] [--reset] [--coverage] [path.asm]
 ```
+`--coverage` adds one field, `"executed"`: the sorted names of the `Instruction` constructors the run
+executed (a hosted step where `executesInstr` holds and the word at `pc` decodes; the name is the
+head of the derived `Repr`; a hosted `syscall` service counts). Used by `scripts/oracle_coverage.py`.
+
 `--max-steps N` bounds the run (default 1000000). The program is loaded (`Env.load`) and run
 *hosted* (`Env.runHosted`): the MARS-style `syscall` services 1/4/10/11 are performed by the
 environment, and the run stops by the environment's conventions (exit, an exception vector the
@@ -308,7 +312,7 @@ def readSource (path : Option String) : IO (Except String String) := do
     | none => pure (Except.ok (← (← IO.getStdin).readToEnd))
   catch e => pure (Except.error (toString e))
 
-/-- Command line: `MipsRun [--max-steps N] [--bare] [--reset] [path.asm]`. -/
+/-- Command line: `MipsRun [--max-steps N] [--bare] [--reset] [--coverage] [path.asm]`. -/
 structure Cli where
   path : Option String := none
   maxSteps : Nat := 1000000
@@ -316,6 +320,8 @@ structure Cli where
   bare : Bool := false
   /-- `--reset`: start at the reset vector from `resetState` (no boot convention). -/
   reset : Bool := false
+  /-- `--coverage`: also report the constructors executed. -/
+  coverage : Bool := false
 
 def parseArgs : List String → Except String Cli
   | [] => .ok {}
@@ -333,10 +339,46 @@ def parseArgs : List String → Except String Cli
     match parseArgs rest with
     | .ok c => .ok { c with reset := true }
     | .error e => .error e
+  | "--coverage" :: rest =>
+    match parseArgs rest with
+    | .ok c => .ok { c with coverage := true }
+    | .error e => .error e
   | p :: rest =>
     match parseArgs rest with
     | .ok c => .ok { c with path := some p }
     | .error e => .error e
+
+/-- Constructor name of an instruction: the head word of its derived `Repr`
+(`Instruction.add 1 2 3` gives `add`). -/
+def ctorName (i : Instruction) : String :=
+  let t : String := (Std.Format.pretty (repr i) 1000000)
+  let cs := t.toList.dropWhile (fun c => c == '(' || c == ' ')
+  let w : String := String.ofList (cs.takeWhile (fun c => c != ' ' && c != ')' && c != '\n'))
+  if w.startsWith "Instruction." then (w.drop 12).toString else w
+
+/-- The constructors executed along the hosted run (the same iteration as `runHosted`). -/
+def executedCtors (env : HostEnv) (fuel : Nat) (h : Hosted) : List String :=
+  let rec go : Nat → Hosted → List String → List String
+    | 0, _, acc => acc
+    | fuel + 1, h, acc =>
+      let acc :=
+        if (stopReason env h.machine).isNone && executesInstr h.machine then
+          match readMemWord h.machine h.machine.pc with
+          | some w => match decode w with
+            | some i => ctorName i :: acc
+            | none => acc
+          | none => acc
+        else acc
+      match hostStep env h with
+      | .halt _ => acc
+      | .next h' => go fuel h' acc
+  go fuel h []
+
+/-- Splice the `executed` field into a rendered result object. -/
+def withExecuted (json : String) (names : List String) : String :=
+  let l := (names.eraseDups.toArray.qsort (· < ·)).toList
+  (String.ofList (json.toList.dropLast)) ++ ", \"executed\": [" ++
+    ", ".intercalate (l.map jsonStr) ++ "]}"
 
 def main (args : List String) : IO UInt32 := do
   match parseArgs args with
@@ -356,10 +398,16 @@ def main (args : List String) : IO UInt32 := do
     | .ok prog =>
       if cli.reset then
         let result := runProgramAtReset prog cli.maxSteps (services := !cli.bare)
-        IO.println (renderRunResult prog resetState result)
+        let out := renderRunResult prog resetState result
+        IO.println (if cli.coverage then
+          withExecuted out (executedCtors { image := prog, services := !cli.bare } cli.maxSteps
+            { machine := loadAtReset prog }) else out)
       else
         let result := runProgram prog cli.maxSteps (services := !cli.bare)
-        IO.println (renderRunResult prog hostedStart result)
+        let out := renderRunResult prog hostedStart result
+        IO.println (if cli.coverage then
+          withExecuted out (executedCtors { image := prog, services := !cli.bare } cli.maxSteps
+            { machine := load prog }) else out)
       return 0
 
 -- ====================================================================

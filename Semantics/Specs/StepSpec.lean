@@ -34,15 +34,9 @@ import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
 import Semantics.Specs.Timer
 import Semantics.Specs.Interrupt
--- BEGIN R6-4
 import Semantics.Specs.PcRel
--- END R6-4
--- BEGIN R6-3
 import Semantics.Specs.CompactBranch
--- END R6-3
--- BEGIN R6-6B
 import Semantics.Specs.FpuR6
--- END R6-6B
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -129,7 +123,6 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses, the FCSR.FS flush flag; the longword (L) conversions |
 | FPU, Release 6 (R6-6) | `FpuR6.lean` | `cmp.condn.fmt` (mask, `condn` table), `bc1eqz`/`bc1nez` (delay-slot branches on bit 0), `sel`/`seleqz`/`selnez` (FCSR untouched), `maddf`/`msubf`, `max`/`min`/`maxa`/`mina`, `class` (FCSR untouched), `rint` |
 
-<!-- BEGIN R6-2 -->
 Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,
 `cp0WriteAt_eq`, `mfc0_unimplemented_reads_zero`, `mtc0_unimplemented_ignored`, `mfc0_config3/4/5`,
 `mfc0_llAddr`, `mtc0_llAddr*`, `cp0_scratch_round_trip`, `cp0Usable_iff_kernelMode`); `eretnc` and
@@ -137,7 +130,8 @@ Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`:
 `sigrie` (`Trap.lean`: `sigrie_spec_raw`); `BadInstr`/`BadInstrP` (`Exception.lean`:
 `exceptionEntry_badInstr`, `takeInterrupt_badInstr_unchanged`); `rdhwr` 5 and 29 (`Timer.lean`:
 `hwrValue_xnp`, `hwrValue_ulr`); reset (`Reset.lean`: `resetException_r6`, `resetState_r6`).
-<!-- END R6-2 -->
+Release 6 virtual processors (Wave R6-7): `dvp`/`evp` are no-ops with `Config5.VP = 0` (`Cp0.lean`:
+`dvp_spec_raw`, `evp_spec_raw`; outside Kernel Mode `cp0_instruction_user_mode_unusable`).
 
 The partition follows the constructor groups of `Instruction` (`Semantics/Instruction.lean`) and
 the sections of `docs/spec/INSTRUCTION-REF.md`; each family file's header lists its constructors,

@@ -27,9 +27,10 @@ set_option maxRecDepth 4000
 
 /-! ## Control registers -/
 
-/-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), `FRE` (5,
-UNPREDICTABLE, pinned to 0), FCCR (25), FEXR (26), FENR (28), FCSR (31); any other number raises
-Reserved Instruction ("Release 6 traps") (MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
+/-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25), FEXR
+(26), FENR (28), FCSR (31); any other number, `FRE` (5) included (`FIR.FREP = 0`; p.130's "ConfigAR
+≤ 2" read as `< 2`, `Manual.Ops.CFC1`), raises Reserved Instruction ("Release 6 traps") (MD00086
+Vol II-A Rev 6.06, CFC1, p.129-130) -/
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :

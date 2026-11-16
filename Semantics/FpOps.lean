@@ -938,11 +938,12 @@ register `reg` (0 = FIR, 25 = FCCR, 26 = FEXR, 28 = FENR, 31 = FCSR); `none` = R
 Instruction: `UFR` (1) and `UNFR` (4) ("if ConfigAR ≥ 2 SignalException(ReservedInstruction) /*
 Release 6 traps */", `FIR.UFRP = 0`) and every register that does not exist ("In Release 6 and
 later, a Reserved Instruction exception occurs if fs specifies a register that does not exist").
-`FRE` (5) reads `UNPREDICTABLE` ("if ConfigAR ≤ 2 then temp ← UNPREDICTABLE", p.130): pinned to 0. -/
+`FRE` (5) is one of them: `FIR.FREP = 0` (MD00082 Vol I-A Rev 6.01 Table 6.5, p.88), and the arm's
+"if ConfigAR ≤ 2 then temp ← UNPREDICTABLE" (p.130) is read as `ConfigAR < 2`, whose Release 6
+`else` signals Reserved Instruction without `Config5.UFR` (misprint, `Manual.Ops.CFC1`). -/
 def readControl (fcsr : BitVec 32) (reg : Nat) : Option (BitVec 32) :=
   match reg with
   | 0 => some firValue
-  | 5 => some 0#32
   | 25 => some (readFCCR fcsr)
   | 26 => some (readFEXR fcsr)
   | 28 => some (readFENR fcsr)
@@ -1210,7 +1211,6 @@ def f64Rsqrt (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
 /-- `CVT.D.W` with flags (always exact: no flag is ever raised). -/
 def w32ToF64F (x : BitVec 32) : BitVec 64 × Flags := (w32ToF64 x, Flags.none)
 
--- BEGIN R6-6B
 /-! ## §10  `CMP.condn.fmt` (MD00086 Vol II-A Rev 6.06, p.136-140)
 
 The Release 6 compare writes a mask instead of a condition code. Its `condn` field (bits 4..0) is
@@ -1237,9 +1237,7 @@ def f64Cmp (condn : BitVec 5) (a b : BitVec 64) : Bool × Flags :=
   let r := f64Relation a b
   (cmpCondition condn r.unordered r.less r.equal,
     { invalid := fpCompareInvalid (condn.setWidth 4) r.unordered (isSNaN64 a || isSNaN64 b) })
--- END R6-6B
 
--- BEGIN R6-6C
 /-! ## §11  `MAX`/`MIN`/`MAXA`/`MINA.fmt`, `CLASS.fmt`, `RINT.fmt` (MD00086 Vol II-A Rev 6.06,
 p.262-265, p.132, p.337) -/
 
@@ -1331,9 +1329,7 @@ def f32Rint (e : Env) (a : BitVec 32) : BitVec 32 × Flags :=
 def f64Rint (e : Env) (a : BitVec 64) : BitVec 64 × Flags :=
   let r := binary64.rint e a.toNat
   (BitVec.ofNat 64 r.1, r.2)
--- END R6-6C
 
--- BEGIN R6-6A
 /-! ## §12  Fused multiply-add: `MADDF.fmt`, `MSUBF.fmt` (MD00086 Vol II-A Rev 6.06, p.259-260)
 
 `MADDF: FPR[fd] ← FPR[fd] + (FPR[fs] × FPR[ft])`, `MSUBF: FPR[fd] ← FPR[fd] − (FPR[fs] × FPR[ft])`;
@@ -1393,6 +1389,5 @@ def f64Fma (e : Env) (sub : Bool) (c a b : BitVec 64) : BitVec 64 × Flags :=
     (binary64.fma e sub (binary64.flushIn e.flush c.toNat) (binary64.flushIn e.flush a.toNat)
       (binary64.flushIn e.flush b.toNat))
   (BitVec.ofNat 64 r.1, r.2)
--- END R6-6A
 
 end Mips.Fp

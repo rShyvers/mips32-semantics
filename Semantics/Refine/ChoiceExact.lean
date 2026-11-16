@@ -53,14 +53,12 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case ctc1 x₁ x₂ => exact rw_ctc1 x₁ x₂ a h
   case jalr x₁ x₂ => exact rw_jalr x₁ x₂ a h
   case jalrHb x₁ x₂ => exact rw_jalrHb x₁ x₂ a h
-  -- BEGIN R6-3
   case blezalc x₁ x₂ => exact rw_blezalc x₁ x₂ a h
   case bgezalc x₁ x₂ => exact rw_bgezalc x₁ x₂ a h
   case bgtzalc x₁ x₂ => exact rw_bgtzalc x₁ x₂ a h
   case bltzalc x₁ x₂ => exact rw_bltzalc x₁ x₂ a h
   case beqzalc x₁ x₂ => exact rw_beqzalc x₁ x₂ a h
   case bnezalc x₁ x₂ => exact rw_bnezalc x₁ x₂ a h
-  -- END R6-3
   case absS x₁ x₂ => exact rw_absS x₁ x₂ a h
   case negS x₁ x₂ => exact rw_negS x₁ x₂ a h
   case absD x₁ x₂ => exact rw_absD x₁ x₂ a h
@@ -81,14 +79,12 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case mthc1 x₁ x₂ => exact rw_mthc1 x₁ x₂ a h
   case ext x₁ x₂ x₃ x₄ => exact rw_ext x₁ x₂ x₃ x₄ a h
   case ins x₁ x₂ x₃ x₄ => exact rw_ins x₁ x₂ x₃ x₄ a h
-  -- BEGIN R6-4
   case lwpc x₁ x₂ => exact rw_lwpc x₁ x₂ a h
   case div x₁ x₂ x₃ => exact rw_div x₁ x₂ x₃ a h
   case mod x₁ x₂ x₃ => exact rw_mod x₁ x₂ x₃ a h
   case divu x₁ x₂ x₃ => exact rw_divu x₁ x₂ x₃ a h
   case modu x₁ x₂ x₃ => exact rw_modu x₁ x₂ x₃ a h
-  -- END R6-4
-  -- BEGIN R6-5: the 32-bit FPR results (`fprUpper`)
+  -- The 32-bit FPR results (`fprUpper`)
   case mtc1 x₁ x₂ => exact rw_mtc1 x₁ x₂ a h
   case movS x₁ x₂ => exact rw_movS x₁ x₂ a h
   case addS x₁ x₂ x₃ => exact rw_addS x₁ x₂ x₃ a h
@@ -105,8 +101,6 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case cvtWS x₁ x₂ => exact rw_cvtWS x₁ x₂ a h
   case cvtSW x₁ x₂ => exact rw_cvtSW x₁ x₂ a h
   case cvtSL x₁ x₂ => exact rw_cvtSL x₁ x₂ a h
-  -- END R6-5
-  -- BEGIN R6-6B
   case cmpS x₁ x₂ x₃ x₄ => exact rw_cmpS x₁ x₂ x₃ x₄ a h
   case selS x₁ x₂ x₃ => exact rw_selS x₁ x₂ x₃ a h
   case seleqzS x₁ x₂ x₃ => exact rw_seleqzS x₁ x₂ x₃ a h
@@ -119,7 +113,6 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case minaS x₁ x₂ x₃ => exact rw_minaS x₁ x₂ x₃ a h
   case classS x₁ x₂ => exact rw_classS x₁ x₂ a h
   case rintS x₁ x₂ => exact rw_rintS x₁ x₂ a h
-  -- END R6-6B
   all_goals simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/
@@ -136,7 +129,6 @@ theorem sep_ne (i : Impl) (x y : Arch) (h : Sep x y) : some (TimerTick i x) ≠ 
   · apply h; exact (congrArg Arch.BadInstrP he :)
   · apply h; exact (congrArg Arch.BadInstr he :)
 
--- BEGIN R6-2
 /-- Two witness oracles that differ in `badInstrP`: an exception other than the Interrupt outside a
 delay slot is told apart by `BadInstrP` (MD00090 Vol III Rev 6.02 §9.26, p.181). -/
 theorem sep_bip (i : Impl) (e : Exception) (x : Arch) (he : e ≠ .Interrupt)
@@ -154,7 +146,6 @@ theorem sep_bnw (i : Impl) (e : Exception) (x : Arch) (he : e ≠ .Interrupt)
       (GeneralExceptionProcessing i (wo { bnw := 1#32 } ce₂) e x) := by
   right; right; right
   rw [gep_badInstr i _ _ e x he hf, gep_badInstr i _ _ e x he hf]; decide
--- END R6-2
 
 theorem it_eq (o : Oracle) (dec : W32 → Option Instruction) (a : Arch) (hi : InterruptTaken modelImpl a = false)
     (hl : a.LowPower = false) :

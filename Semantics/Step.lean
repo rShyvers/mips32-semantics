@@ -16,9 +16,7 @@ import Semantics.Exec.FpuControl
 import Semantics.Exec.FpuMemory
 import Semantics.Exec.FpuArith
 import Semantics.Exec.FpuConvert
--- BEGIN R6-6B
 import Semantics.Exec.FpuR6
--- END R6-6B
 
 /-!
 # Step — small-step semantics of the modeled MIPS32 Release 6 instruction set
@@ -68,13 +66,11 @@ target; not taken: `pc + 8`). Every non-control-flow instruction goes
 through `mkNext`/`advance`, which commits a pending target. A control-transfer
 instruction in a delay slot raises Reserved Instruction, as Release 6 requires (`execInstr`).
 Release 6 has no branch-likely instructions, so no instruction is ever nullified.
--- BEGIN R6-3
 The Release 6 compact branches and jumps (`Exec/Branch.lean`, `Exec/Jump.lean`) have no delay slot:
 taken, `pc` becomes the target at once. A conditional compact branch that is not taken sets
 `pendingBranch := some (pc + 8)`: its forbidden slot has the delay slot's rules (CTI → Reserved
 Instruction; an exception reports the branch with `Cause.BD = 1`; MD00082 Vol I-A Rev 6.01
 §5.3.2.1-5.3.2.2, p.62; DECISIONS D6).
--- END R6-3
 
 ## Exceptions
 
@@ -165,9 +161,7 @@ macro "exec_unfold" : tactic =>
     execImmediate, execMemory, execAtomic, execBranch, execJump, execTrap, execSyscall, execSystem,
     execCp0, execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert, Option.getD,
     execFpuR6,  -- R6-6B
-    -- BEGIN R6-2
     cp0WriteAt, cp0Write
-    -- END R6-2
     ])
 
 /-- Execute the already-fetched, already-decoded instruction `instr` in
@@ -320,9 +314,7 @@ def resetException (s : State) : State :=
       pendingBranch := none
       llBit := false
       standby := false
-      -- BEGIN R6-2
       cp0Config5SBRI := false
-      -- END R6-2
       }
 
 /-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose

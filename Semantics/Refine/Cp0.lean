@@ -26,7 +26,6 @@ theorem mtc0_word (rt rd sel : W32) :
     rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
   simp [InCop0Space, InCop1Space, hop]
 
--- BEGIN R6-2
 /-! ## The coprocessor 0 register file: the spec's field tables against the model's layout table -/
 
 /-- The registers the spec implements are the ones the model's layout names. -/
@@ -87,7 +86,6 @@ theorem cprWrite_layout (s : State) (r q : Nat) (c : Cp0Reg) (v : W32)
     first
       | rfl
       | (simp only [abs, updateKScratch]; rfl)
--- END R6-2
 
 /-- **MTC0 refines** (Release 6): a register the spec does not implement ignores the write on both
 sides; an implemented one is written through its field table (`cprWrite_layout`); the UNDEFINED

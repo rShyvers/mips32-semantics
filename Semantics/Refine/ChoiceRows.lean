@@ -12,7 +12,6 @@ collects them.
 * loads with `LLbit = 1`: `loadClearsLL` true / false leaves `LLbit` 0 / 1 (MD00086 Vol II-A Rev 6.06,
   SC, p.347-348);
 * stores with `LLbit = 1`: `storeClearsLL` true / false, the same;
-* `CFC1` of `FRE` (`fs = 5`) with `rt ≠ 0`: two `GPR[rt]` values;
 * the UNPREDICTABLE / UNDEFINED operations (`CTC1`, `MFC0`/`MTC0`, `EXT`/`INS`, `JALR` with
   `rs = rd`): the witness oracle
   signals Reserved Instruction, so both runs signal and the two `Cause.CE` values tell them apart.
@@ -107,14 +106,9 @@ end
 section
 set_option linter.unusedSimpArgs false
 
+/-- `CFC1` reads no oracle field (its `FRE` arm signals Reserved Instruction); no row. -/
 theorem rw_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = true) : RowWitness (.cfc1 rt fs) a := by
-  simp only [ConsultsOracle, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h
-  obtain ⟨h5, hrt⟩ := h
-  subst h5
-  have hw := fun (x : Arch) (v : W32) => writeGPR_GPR x (reg rt) v hrt
-  exact row_of rfl { cf := 0#32 } { cf := 1#32 } (fun x => x.GPR (reg rt) = 0#32) (fun x => x.GPR (reg rt) = 1#32)
-    (fun x y => obs_GPR _ _ _ (by decide) x y) (fun _ => by simp only [Ops.CFC1]; runp)
-    (fun _ => by simp only [Ops.CFC1]; runp)
+  simp [ConsultsOracle] at h
 
 /-- R6-5: `MFHC1` reads bits 63..32 of a 64-bit FPR; no row. -/
 theorem rw_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a = true) :
@@ -123,7 +117,6 @@ theorem rw_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a =
 
 end
 
--- BEGIN R6-4
 /-! ## Release 6: `LWPC` while `LLbit = 1`; `DIV`/`MOD`/`DIVU`/`MODU` by zero with `rd ≠ 0`
 
 `LWPC` is a load (`loadClearsLL`). A zero divisor writes `divByZero` to `GPR[rd]`: the witness
@@ -171,7 +164,6 @@ theorem rw_modu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.modu rs rt rd)
   exact row_div rfl rd fun _ _ => by simp only [Ops.MODU, Ops.divResult]; runp
 
 end
--- END R6-4
 
 /-! ## Operations the witness oracle resolves as an exception -/
 
@@ -204,7 +196,6 @@ theorem rw_jalrHb (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalrHb rs rd) a
     RowWitness (.jalrHb rs rd) a := by
   simp only [ConsultsOracle, beq_iff_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.JALR_HB]; runp
--- BEGIN R6-3
 -- The compact branch-and-link with `rt = 31` (`linkSourceIs31`): the witness oracle signals.
 theorem rw_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = true) :
     RowWitness (.blezalc rt off) a := by
@@ -230,7 +221,6 @@ theorem rw_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt of
     RowWitness (.bnezalc rt off) a := by
   simp only [ConsultsOracle, beq_iff_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.BNEZALC, Ops.BZALC]; runp
--- END R6-3
 /-- R6-5: `MTHC1` writes bits 63..32 of a 64-bit FPR; no row. -/
 theorem rw_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = true) : RowWitness (.mthc1 rt fs) a := by
   simp [ConsultsOracle] at h

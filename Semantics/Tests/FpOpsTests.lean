@@ -505,7 +505,6 @@ end Test
 
 end Mips.Fp
 
--- BEGIN R6-6A
 /-! ## `MADDF.fmt` / `MSUBF.fmt` (`f32Fma`, `f64Fma`; MD00086 Vol II-A Rev 6.06, p.259-260)
 
 `fma e sub c a b` is `c + a·b` (`sub = false`, MADDF) or `c − a·b` (MSUBF), `c` = fd, `a` = fs,
@@ -592,8 +591,6 @@ def fma32Cases : List (Bool × Env × BitVec 32 × BitVec 32 × BitVec 32 × Bit
 end Test
 
 end Mips.Fp
--- END R6-6A
--- BEGIN R6-6C
 /-! ## Release 6: `CMP.condn.fmt`, `MAX/MIN/MAXA/MINA.fmt`, `CLASS.fmt`, `RINT.fmt`
 
 Hand-computed expectations (MD00086 Vol II-A Rev 6.06: CMP.condn.fmt Table 3.9 p.138-139; MAX/MIN
@@ -731,9 +728,7 @@ def cmpPairs32 : List (BitVec 32 × BitVec 32 × Char) :=
   f64Cmp (BitVec.ofNat 5 c) 0x7FF8000000000000#64 0#64 == (s.contains 'u', { invalid := c % 16 ≥ 8 })
 
 end Mips.Fp.TestR6C
--- END R6-6C
 
--- BEGIN R6-6D
 /-! FCSR.FS = 1 input flushing: every non-comparison operation that flushes a subnormal operand
 signals Inexact for it (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102: "Flushing of subnormal input operands
 in all instructions except comparisons causes Inexact exception to be signaled"); the comparisons
@@ -767,4 +762,3 @@ def fs : Env := { flush := true }
 #guard f64MinMax .mina fs 0x8000000000000001#64 0x3FF0000000000000#64 == (0x8000000000000000#64, Flags.none)
 
 end Mips.Fp.TestR6D
--- END R6-6D
