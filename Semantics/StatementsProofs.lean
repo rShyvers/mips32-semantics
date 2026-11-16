@@ -4,6 +4,10 @@ import Semantics.Refine.ChoiceExact
 import Semantics.Refine.ImplValid
 import Semantics.FpOpsCorrectApi
 import Semantics.FpOpsCorrectIEEE
+import Semantics.FpOpsCorrectFma  -- R6-6A
+-- BEGIN R6-6C
+import Semantics.FpOpsCorrectR6
+-- END R6-6C
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -1261,63 +1265,83 @@ theorem nanResult_first_snan (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
   _root_.Mips.Fp.Format.nanResult_first_snan f ops q h
 
 theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) :=
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) :=
   _root_.Mips.Fp.f32Add_spec e a b
 
 theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) :=
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) :=
   _root_.Mips.Fp.f32Sub_spec e a b
 
 theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) :=
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) :=
   _root_.Mips.Fp.f32Mul_spec e a b
 
 theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) :=
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) :=
   _root_.Mips.Fp.f32Div_spec e a b
 
 theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
-    Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat]
+      (Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat))
       ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) :=
   _root_.Mips.Fp.f32Sqrt_spec e a
 
 theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) :=
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) :=
   _root_.Mips.Fp.f64Add_spec e a b
 
 theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) :=
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) :=
   _root_.Mips.Fp.f64Sub_spec e a b
 
 theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) :=
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) :=
   _root_.Mips.Fp.f64Mul_spec e a b
 
 theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) :=
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) :=
   _root_.Mips.Fp.f64Div_spec e a b
 
 theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
-    Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat]
+      (Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat))
       ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) :=
   _root_.Mips.Fp.f64Sqrt_spec e a
 
 theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
-    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
-      (Mips.Fp.binary64.FlushedIn e.flush x.toNat)
+    Mips.Fp.binary64.WithFlushInexact e.flush [x.toNat]
+      (Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
+        (Mips.Fp.binary64.FlushedIn e.flush x.toNat))
       ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) :=
   _root_.Mips.Fp.f64ToF32_spec e x
 
 theorem f32ToF64_spec (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat)
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat))
       ((Mips.Fp.f32ToF64 fl x).1.toNat, (Mips.Fp.f32ToF64 fl x).2) :=
   _root_.Mips.Fp.f32ToF64_spec fl x
 
@@ -1331,20 +1355,28 @@ theorem w32ToF64_spec (x : BitVec 32) :
   _root_.Mips.Fp.w32ToF64_spec x
 
 theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW32 rm fl x) :=
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat))
+      (Mips.Fp.f32ToW32 rm fl x) :=
   _root_.Mips.Fp.f32ToW32_spec rm fl x
 
 theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
-    Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW32 rm fl x) :=
+    Mips.Fp.binary64.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat))
+      (Mips.Fp.f64ToW32 rm fl x) :=
   _root_.Mips.Fp.f64ToW32_spec rm fl x
 
 -- BEGIN R6-5
 theorem f32ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW64 rm fl x) :=
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat))
+      (Mips.Fp.f32ToW64 rm fl x) :=
   _root_.Mips.Fp.f32ToW64_spec rm fl x
 
 theorem f64ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
-    Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW64 rm fl x) :=
+    Mips.Fp.binary64.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat))
+      (Mips.Fp.f64ToW64 rm fl x) :=
   _root_.Mips.Fp.f64ToW64_spec rm fl x
 
 theorem w64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
@@ -1447,5 +1479,66 @@ theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
   _root_.mtc0_unimplemented_ignored s w rt rd sel hfetch hdecode hpb hcp0 hexec hnone
 
 -- END R6-2
+
+-- BEGIN R6-6A
+theorem f32Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 32) :
+    Mips.Fp.binary32.WithFlushInexact e.flush [c.toNat, a.toNat, b.toNat]
+      (Mips.Fp.binary32.FmaSpec e sub (Mips.Fp.binary32.FlushedIn e.flush c.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush a.toNat) (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Fma e sub c a b).1.toNat, (Mips.Fp.f32Fma e sub c a b).2) :=
+  _root_.Mips.Fp.f32Fma_spec e sub c a b
+
+theorem f64Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 64) :
+    Mips.Fp.binary64.WithFlushInexact e.flush [c.toNat, a.toNat, b.toNat]
+      (Mips.Fp.binary64.FmaSpec e sub (Mips.Fp.binary64.FlushedIn e.flush c.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush a.toNat) (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Fma e sub c a b).1.toNat, (Mips.Fp.f64Fma e sub c a b).2) :=
+  _root_.Mips.Fp.f64Fma_spec e sub c a b
+-- END R6-6A
+-- BEGIN R6-6C
+
+theorem cmpTable_formula : ∀ (condn : BitVec 5) (r : Mips.Fp.Format.Relation),
+    Mips.Fp.cmpCondition condn (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
+      Mips.Fp.cmpHolds condn.toNat r ∧
+    (Mips.Fp.cmpTable condn.toNat).2.2.2.2 = (condn.setWidth 4).getLsbD 3 :=
+  _root_.Mips.Fp.cmpTable_formula
+
+theorem f32Cmp_spec (condn : BitVec 5) (a b : BitVec 32) :
+    Mips.Fp.binary32.CmpSpec condn a.toNat b.toNat (Mips.Fp.f32Cmp condn a b) :=
+  _root_.Mips.Fp.f32Cmp_spec condn a b
+
+theorem f64Cmp_spec (condn : BitVec 5) (a b : BitVec 64) :
+    Mips.Fp.binary64.CmpSpec condn a.toNat b.toNat (Mips.Fp.f64Cmp condn a b) :=
+  _root_.Mips.Fp.f64Cmp_spec condn a b
+
+theorem f32MinMax_spec (op : Mips.Fp.Format.MinMaxOp) (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.MinMaxSpec op (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat)
+      ((Mips.Fp.f32MinMax op e a b).1.toNat, (Mips.Fp.f32MinMax op e a b).2) :=
+  _root_.Mips.Fp.f32MinMax_spec op e a b
+
+theorem f64MinMax_spec (op : Mips.Fp.Format.MinMaxOp) (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.MinMaxSpec op (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat)
+      ((Mips.Fp.f64MinMax op e a b).1.toNat, (Mips.Fp.f64MinMax op e a b).2) :=
+  _root_.Mips.Fp.f64MinMax_spec op e a b
+
+theorem f32Class_spec (a : BitVec 32) :
+    Mips.Fp.binary32.ClassSpec a.toNat (Mips.Fp.f32Class a).toNat :=
+  _root_.Mips.Fp.f32Class_spec a
+
+theorem f64Class_spec (a : BitVec 64) :
+    Mips.Fp.binary64.ClassSpec a.toNat (Mips.Fp.f64Class a).toNat :=
+  _root_.Mips.Fp.f64Class_spec a
+
+theorem f32Rint_spec (e : Mips.Fp.Env) (a : BitVec 32) :
+    Mips.Fp.binary32.RintSpec e a.toNat ((Mips.Fp.f32Rint e a).1.toNat, (Mips.Fp.f32Rint e a).2) :=
+  _root_.Mips.Fp.f32Rint_spec e a
+
+theorem f64Rint_spec (e : Mips.Fp.Env) (a : BitVec 64) :
+    Mips.Fp.binary64.RintSpec e a.toNat ((Mips.Fp.f64Rint e a).1.toNat, (Mips.Fp.f64Rint e a).2) :=
+  _root_.Mips.Fp.f64Rint_spec e a
+
+-- END R6-6C
 
 end Trusted

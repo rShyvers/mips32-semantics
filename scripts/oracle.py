@@ -697,6 +697,32 @@ ENC_MANUAL = {
     "rdpgpr $zero,$ra": ([0x415F0000], "MD00086 Rev 6.06 RDPGPR p.335: COP0 010000 | 01010 | rt=$ra(31) | rd=$zero(0) | 0"),
     "wrpgpr $t0,$t1": ([0x41C94000], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | WRPGPR 01110 | rt(20:16)=$t1 | rd(15:11)=$t0 | 0(10:0)"),
     "wrpgpr $ra,$zero": ([0x41C0F800], "MD00086 Rev 6.06 WRPGPR p.444: COP0 010000 | 01110 | rt=$zero(0) | rd=$ra(31) | 0"),
+    # BEGIN R6-6B (llvm-mc 21 has no mnemonic for the negated CMP predicates)
+    "cmp.or.s $f0,$f2,$f4": ([0x46841011], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn OR 10001"),
+    "cmp.or.s $f31,$f30,$f29": ([0x469DF7D1], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn OR 10001"),
+    "cmp.or.d $f0,$f2,$f4": ([0x46A41011], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn OR 10001"),
+    "cmp.or.d $f31,$f30,$f29": ([0x46BDF7D1], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn OR 10001"),
+    "cmp.une.s $f0,$f2,$f4": ([0x46841012], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn UNE 10010"),
+    "cmp.une.s $f31,$f30,$f29": ([0x469DF7D2], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn UNE 10010"),
+    "cmp.une.d $f0,$f2,$f4": ([0x46A41012], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn UNE 10010"),
+    "cmp.une.d $f31,$f30,$f29": ([0x46BDF7D2], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn UNE 10010"),
+    "cmp.ne.s $f0,$f2,$f4": ([0x46841013], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn NE 10011"),
+    "cmp.ne.s $f31,$f30,$f29": ([0x469DF7D3], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn NE 10011"),
+    "cmp.ne.d $f0,$f2,$f4": ([0x46A41013], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn NE 10011"),
+    "cmp.ne.d $f31,$f30,$f29": ([0x46BDF7D3], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn NE 10011"),
+    "cmp.sor.s $f0,$f2,$f4": ([0x46841019], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SOR 11001"),
+    "cmp.sor.s $f31,$f30,$f29": ([0x469DF7D9], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SOR 11001"),
+    "cmp.sor.d $f0,$f2,$f4": ([0x46A41019], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SOR 11001"),
+    "cmp.sor.d $f31,$f30,$f29": ([0x46BDF7D9], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SOR 11001"),
+    "cmp.sune.s $f0,$f2,$f4": ([0x4684101A], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SUNE 11010"),
+    "cmp.sune.s $f31,$f30,$f29": ([0x469DF7DA], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SUNE 11010"),
+    "cmp.sune.d $f0,$f2,$f4": ([0x46A4101A], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SUNE 11010"),
+    "cmp.sune.d $f31,$f30,$f29": ([0x46BDF7DA], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SUNE 11010"),
+    "cmp.sne.s $f0,$f2,$f4": ([0x4684101B], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SNE 11011"),
+    "cmp.sne.s $f31,$f30,$f29": ([0x469DF7DB], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10100 (S) | ft | fs | fd | 0 | condn SNE 11011"),
+    "cmp.sne.d $f0,$f2,$f4": ([0x46A4101B], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SNE 11011"),
+    "cmp.sne.d $f31,$f30,$f29": ([0x46BDF7DB], "MD00086 Rev 6.06 CMP.condn.fmt p.136 diagram, Table A.17 p.457: COP1 010001 | 10101 (D) | ft | fs | fd | 0 | condn SNE 11011"),
+    # END R6-6B
 }
 
 

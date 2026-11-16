@@ -211,7 +211,18 @@
     "Trusted.f32ToW64_spec",
     "Trusted.f64ToW64_spec",
     "Trusted.w64ToF32_spec",
-    "Trusted.w64ToF64_spec"
+    "Trusted.w64ToF64_spec",
+    "Trusted.f32Fma_spec",
+    "Trusted.f64Fma_spec",
+    "Trusted.cmpTable_formula",
+    "Trusted.f32Cmp_spec",
+    "Trusted.f64Cmp_spec",
+    "Trusted.f32MinMax_spec",
+    "Trusted.f64MinMax_spec",
+    "Trusted.f32Class_spec",
+    "Trusted.f64Class_spec",
+    "Trusted.f32Rint_spec",
+    "Trusted.f64Rint_spec"
   ],
   "definition_names": [],
   "permitted_axioms": [

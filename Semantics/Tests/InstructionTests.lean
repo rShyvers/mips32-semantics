@@ -568,7 +568,7 @@ example : decode 0x000000c0#32 = some (.sll 0#32 0#32 3#32) := by decide
 
 -- ## Tests: FCSR-era additions (cc fields, signaling compares, new instructions)
 
--- `C.cond.fmt` is removed in Release 6 (W6 adds CMP.cond.fmt): its words decode to `none`
+-- `C.cond.fmt` is removed in Release 6 (replaced by CMP.condn.fmt, R6-6): its words decode to `none`
 example : decode 0x46062832#32 = none := by decide  -- removed in R6 (was `cCondS`)
 example : decode 0x46262f3a#32 = none := by decide  -- removed in R6 (was `cCondD`)
 -- bits 7..6 of a compare must be zero
@@ -640,10 +640,236 @@ example : decode 0x46a020a1#32 = some (.cvtDL 2#32 4#32) := by decide  -- cvt.d.
 example : encode (.cvtDL 2#32 4#32) = 0x46a020a1#32 := by decide
 example : decode (encode (.cvtDL 31#32 17#32)) = some (.cvtDL 31#32 17#32) := by decide
 -- the L format is not defined for the arithmetic operations or for CVT.W/CVT.L: reserved
-example : decode 0x46a02080#32 = none := by decide  -- add.l (fmt L, funct ADD)
+-- R6-6B: fmt L function 0 is CMP.AF.D (Table A.17, p.457), no longer a reserved `add.l`
+example : decode 0x46a02080#32 = some (.cmpD 0#32 2#32 4#32 0#32) := by decide  -- cmp.af.d $f2,$f4,$f0
 example : decode 0x46a020a4#32 = none := by decide  -- cvt.w.l
 example : decode 0x46a020a5#32 = none := by decide  -- cvt.l.l
 -- END R6-5 (C)
+-- BEGIN R6-6B
+-- The Release 6 FP instructions (words: llvm-mc -mcpu=mips32r6; the negated CMP condns from the
+-- CMP.condn.fmt diagram, p.136, and Table A.17, p.457)
+example : decode 0x46831040#32 = some (.cmpS 0#32 1#32 2#32 3#32) := by decide  -- cmp.af.s $f1, $f2, $f3
+example : encode (.cmpS 0#32 1#32 2#32 3#32) = 0x46831040#32 := by decide
+example : decode (encode (.cmpS 0#32 31#32 17#32 9#32)) = some (.cmpS 0#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31040#32 = some (.cmpD 0#32 1#32 2#32 3#32) := by decide  -- cmp.af.d $f1, $f2, $f3
+example : encode (.cmpD 0#32 1#32 2#32 3#32) = 0x46a31040#32 := by decide
+example : decode (encode (.cmpD 0#32 31#32 17#32 9#32)) = some (.cmpD 0#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831041#32 = some (.cmpS 1#32 1#32 2#32 3#32) := by decide  -- cmp.un.s $f1, $f2, $f3
+example : encode (.cmpS 1#32 1#32 2#32 3#32) = 0x46831041#32 := by decide
+example : decode (encode (.cmpS 1#32 31#32 17#32 9#32)) = some (.cmpS 1#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31041#32 = some (.cmpD 1#32 1#32 2#32 3#32) := by decide  -- cmp.un.d $f1, $f2, $f3
+example : encode (.cmpD 1#32 1#32 2#32 3#32) = 0x46a31041#32 := by decide
+example : decode (encode (.cmpD 1#32 31#32 17#32 9#32)) = some (.cmpD 1#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831042#32 = some (.cmpS 2#32 1#32 2#32 3#32) := by decide  -- cmp.eq.s $f1, $f2, $f3
+example : encode (.cmpS 2#32 1#32 2#32 3#32) = 0x46831042#32 := by decide
+example : decode (encode (.cmpS 2#32 31#32 17#32 9#32)) = some (.cmpS 2#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31042#32 = some (.cmpD 2#32 1#32 2#32 3#32) := by decide  -- cmp.eq.d $f1, $f2, $f3
+example : encode (.cmpD 2#32 1#32 2#32 3#32) = 0x46a31042#32 := by decide
+example : decode (encode (.cmpD 2#32 31#32 17#32 9#32)) = some (.cmpD 2#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831043#32 = some (.cmpS 3#32 1#32 2#32 3#32) := by decide  -- cmp.ueq.s $f1, $f2, $f3
+example : encode (.cmpS 3#32 1#32 2#32 3#32) = 0x46831043#32 := by decide
+example : decode (encode (.cmpS 3#32 31#32 17#32 9#32)) = some (.cmpS 3#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31043#32 = some (.cmpD 3#32 1#32 2#32 3#32) := by decide  -- cmp.ueq.d $f1, $f2, $f3
+example : encode (.cmpD 3#32 1#32 2#32 3#32) = 0x46a31043#32 := by decide
+example : decode (encode (.cmpD 3#32 31#32 17#32 9#32)) = some (.cmpD 3#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831044#32 = some (.cmpS 4#32 1#32 2#32 3#32) := by decide  -- cmp.lt.s $f1, $f2, $f3
+example : encode (.cmpS 4#32 1#32 2#32 3#32) = 0x46831044#32 := by decide
+example : decode (encode (.cmpS 4#32 31#32 17#32 9#32)) = some (.cmpS 4#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31044#32 = some (.cmpD 4#32 1#32 2#32 3#32) := by decide  -- cmp.lt.d $f1, $f2, $f3
+example : encode (.cmpD 4#32 1#32 2#32 3#32) = 0x46a31044#32 := by decide
+example : decode (encode (.cmpD 4#32 31#32 17#32 9#32)) = some (.cmpD 4#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831045#32 = some (.cmpS 5#32 1#32 2#32 3#32) := by decide  -- cmp.ult.s $f1, $f2, $f3
+example : encode (.cmpS 5#32 1#32 2#32 3#32) = 0x46831045#32 := by decide
+example : decode (encode (.cmpS 5#32 31#32 17#32 9#32)) = some (.cmpS 5#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31045#32 = some (.cmpD 5#32 1#32 2#32 3#32) := by decide  -- cmp.ult.d $f1, $f2, $f3
+example : encode (.cmpD 5#32 1#32 2#32 3#32) = 0x46a31045#32 := by decide
+example : decode (encode (.cmpD 5#32 31#32 17#32 9#32)) = some (.cmpD 5#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831046#32 = some (.cmpS 6#32 1#32 2#32 3#32) := by decide  -- cmp.le.s $f1, $f2, $f3
+example : encode (.cmpS 6#32 1#32 2#32 3#32) = 0x46831046#32 := by decide
+example : decode (encode (.cmpS 6#32 31#32 17#32 9#32)) = some (.cmpS 6#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31046#32 = some (.cmpD 6#32 1#32 2#32 3#32) := by decide  -- cmp.le.d $f1, $f2, $f3
+example : encode (.cmpD 6#32 1#32 2#32 3#32) = 0x46a31046#32 := by decide
+example : decode (encode (.cmpD 6#32 31#32 17#32 9#32)) = some (.cmpD 6#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831047#32 = some (.cmpS 7#32 1#32 2#32 3#32) := by decide  -- cmp.ule.s $f1, $f2, $f3
+example : encode (.cmpS 7#32 1#32 2#32 3#32) = 0x46831047#32 := by decide
+example : decode (encode (.cmpS 7#32 31#32 17#32 9#32)) = some (.cmpS 7#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31047#32 = some (.cmpD 7#32 1#32 2#32 3#32) := by decide  -- cmp.ule.d $f1, $f2, $f3
+example : encode (.cmpD 7#32 1#32 2#32 3#32) = 0x46a31047#32 := by decide
+example : decode (encode (.cmpD 7#32 31#32 17#32 9#32)) = some (.cmpD 7#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831048#32 = some (.cmpS 8#32 1#32 2#32 3#32) := by decide  -- cmp.saf.s $f1, $f2, $f3
+example : encode (.cmpS 8#32 1#32 2#32 3#32) = 0x46831048#32 := by decide
+example : decode (encode (.cmpS 8#32 31#32 17#32 9#32)) = some (.cmpS 8#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31048#32 = some (.cmpD 8#32 1#32 2#32 3#32) := by decide  -- cmp.saf.d $f1, $f2, $f3
+example : encode (.cmpD 8#32 1#32 2#32 3#32) = 0x46a31048#32 := by decide
+example : decode (encode (.cmpD 8#32 31#32 17#32 9#32)) = some (.cmpD 8#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831049#32 = some (.cmpS 9#32 1#32 2#32 3#32) := by decide  -- cmp.sun.s $f1, $f2, $f3
+example : encode (.cmpS 9#32 1#32 2#32 3#32) = 0x46831049#32 := by decide
+example : decode (encode (.cmpS 9#32 31#32 17#32 9#32)) = some (.cmpS 9#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31049#32 = some (.cmpD 9#32 1#32 2#32 3#32) := by decide  -- cmp.sun.d $f1, $f2, $f3
+example : encode (.cmpD 9#32 1#32 2#32 3#32) = 0x46a31049#32 := by decide
+example : decode (encode (.cmpD 9#32 31#32 17#32 9#32)) = some (.cmpD 9#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104a#32 = some (.cmpS 10#32 1#32 2#32 3#32) := by decide  -- cmp.seq.s $f1, $f2, $f3
+example : encode (.cmpS 10#32 1#32 2#32 3#32) = 0x4683104a#32 := by decide
+example : decode (encode (.cmpS 10#32 31#32 17#32 9#32)) = some (.cmpS 10#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104a#32 = some (.cmpD 10#32 1#32 2#32 3#32) := by decide  -- cmp.seq.d $f1, $f2, $f3
+example : encode (.cmpD 10#32 1#32 2#32 3#32) = 0x46a3104a#32 := by decide
+example : decode (encode (.cmpD 10#32 31#32 17#32 9#32)) = some (.cmpD 10#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104b#32 = some (.cmpS 11#32 1#32 2#32 3#32) := by decide  -- cmp.sueq.s $f1, $f2, $f3
+example : encode (.cmpS 11#32 1#32 2#32 3#32) = 0x4683104b#32 := by decide
+example : decode (encode (.cmpS 11#32 31#32 17#32 9#32)) = some (.cmpS 11#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104b#32 = some (.cmpD 11#32 1#32 2#32 3#32) := by decide  -- cmp.sueq.d $f1, $f2, $f3
+example : encode (.cmpD 11#32 1#32 2#32 3#32) = 0x46a3104b#32 := by decide
+example : decode (encode (.cmpD 11#32 31#32 17#32 9#32)) = some (.cmpD 11#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104c#32 = some (.cmpS 12#32 1#32 2#32 3#32) := by decide  -- cmp.slt.s $f1, $f2, $f3
+example : encode (.cmpS 12#32 1#32 2#32 3#32) = 0x4683104c#32 := by decide
+example : decode (encode (.cmpS 12#32 31#32 17#32 9#32)) = some (.cmpS 12#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104c#32 = some (.cmpD 12#32 1#32 2#32 3#32) := by decide  -- cmp.slt.d $f1, $f2, $f3
+example : encode (.cmpD 12#32 1#32 2#32 3#32) = 0x46a3104c#32 := by decide
+example : decode (encode (.cmpD 12#32 31#32 17#32 9#32)) = some (.cmpD 12#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104d#32 = some (.cmpS 13#32 1#32 2#32 3#32) := by decide  -- cmp.sult.s $f1, $f2, $f3
+example : encode (.cmpS 13#32 1#32 2#32 3#32) = 0x4683104d#32 := by decide
+example : decode (encode (.cmpS 13#32 31#32 17#32 9#32)) = some (.cmpS 13#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104d#32 = some (.cmpD 13#32 1#32 2#32 3#32) := by decide  -- cmp.sult.d $f1, $f2, $f3
+example : encode (.cmpD 13#32 1#32 2#32 3#32) = 0x46a3104d#32 := by decide
+example : decode (encode (.cmpD 13#32 31#32 17#32 9#32)) = some (.cmpD 13#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104e#32 = some (.cmpS 14#32 1#32 2#32 3#32) := by decide  -- cmp.sle.s $f1, $f2, $f3
+example : encode (.cmpS 14#32 1#32 2#32 3#32) = 0x4683104e#32 := by decide
+example : decode (encode (.cmpS 14#32 31#32 17#32 9#32)) = some (.cmpS 14#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104e#32 = some (.cmpD 14#32 1#32 2#32 3#32) := by decide  -- cmp.sle.d $f1, $f2, $f3
+example : encode (.cmpD 14#32 1#32 2#32 3#32) = 0x46a3104e#32 := by decide
+example : decode (encode (.cmpD 14#32 31#32 17#32 9#32)) = some (.cmpD 14#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683104f#32 = some (.cmpS 15#32 1#32 2#32 3#32) := by decide  -- cmp.sule.s $f1, $f2, $f3
+example : encode (.cmpS 15#32 1#32 2#32 3#32) = 0x4683104f#32 := by decide
+example : decode (encode (.cmpS 15#32 31#32 17#32 9#32)) = some (.cmpS 15#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3104f#32 = some (.cmpD 15#32 1#32 2#32 3#32) := by decide  -- cmp.sule.d $f1, $f2, $f3
+example : encode (.cmpD 15#32 1#32 2#32 3#32) = 0x46a3104f#32 := by decide
+example : decode (encode (.cmpD 15#32 31#32 17#32 9#32)) = some (.cmpD 15#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831051#32 = some (.cmpS 17#32 1#32 2#32 3#32) := by decide  -- cmp.or.s $f1, $f2, $f3
+example : encode (.cmpS 17#32 1#32 2#32 3#32) = 0x46831051#32 := by decide
+example : decode (encode (.cmpS 17#32 31#32 17#32 9#32)) = some (.cmpS 17#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31051#32 = some (.cmpD 17#32 1#32 2#32 3#32) := by decide  -- cmp.or.d $f1, $f2, $f3
+example : encode (.cmpD 17#32 1#32 2#32 3#32) = 0x46a31051#32 := by decide
+example : decode (encode (.cmpD 17#32 31#32 17#32 9#32)) = some (.cmpD 17#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831052#32 = some (.cmpS 18#32 1#32 2#32 3#32) := by decide  -- cmp.une.s $f1, $f2, $f3
+example : encode (.cmpS 18#32 1#32 2#32 3#32) = 0x46831052#32 := by decide
+example : decode (encode (.cmpS 18#32 31#32 17#32 9#32)) = some (.cmpS 18#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31052#32 = some (.cmpD 18#32 1#32 2#32 3#32) := by decide  -- cmp.une.d $f1, $f2, $f3
+example : encode (.cmpD 18#32 1#32 2#32 3#32) = 0x46a31052#32 := by decide
+example : decode (encode (.cmpD 18#32 31#32 17#32 9#32)) = some (.cmpD 18#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831053#32 = some (.cmpS 19#32 1#32 2#32 3#32) := by decide  -- cmp.ne.s $f1, $f2, $f3
+example : encode (.cmpS 19#32 1#32 2#32 3#32) = 0x46831053#32 := by decide
+example : decode (encode (.cmpS 19#32 31#32 17#32 9#32)) = some (.cmpS 19#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31053#32 = some (.cmpD 19#32 1#32 2#32 3#32) := by decide  -- cmp.ne.d $f1, $f2, $f3
+example : encode (.cmpD 19#32 1#32 2#32 3#32) = 0x46a31053#32 := by decide
+example : decode (encode (.cmpD 19#32 31#32 17#32 9#32)) = some (.cmpD 19#32 31#32 17#32 9#32) := by decide
+example : decode 0x46831059#32 = some (.cmpS 25#32 1#32 2#32 3#32) := by decide  -- cmp.sor.s $f1, $f2, $f3
+example : encode (.cmpS 25#32 1#32 2#32 3#32) = 0x46831059#32 := by decide
+example : decode (encode (.cmpS 25#32 31#32 17#32 9#32)) = some (.cmpS 25#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a31059#32 = some (.cmpD 25#32 1#32 2#32 3#32) := by decide  -- cmp.sor.d $f1, $f2, $f3
+example : encode (.cmpD 25#32 1#32 2#32 3#32) = 0x46a31059#32 := by decide
+example : decode (encode (.cmpD 25#32 31#32 17#32 9#32)) = some (.cmpD 25#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683105a#32 = some (.cmpS 26#32 1#32 2#32 3#32) := by decide  -- cmp.sune.s $f1, $f2, $f3
+example : encode (.cmpS 26#32 1#32 2#32 3#32) = 0x4683105a#32 := by decide
+example : decode (encode (.cmpS 26#32 31#32 17#32 9#32)) = some (.cmpS 26#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3105a#32 = some (.cmpD 26#32 1#32 2#32 3#32) := by decide  -- cmp.sune.d $f1, $f2, $f3
+example : encode (.cmpD 26#32 1#32 2#32 3#32) = 0x46a3105a#32 := by decide
+example : decode (encode (.cmpD 26#32 31#32 17#32 9#32)) = some (.cmpD 26#32 31#32 17#32 9#32) := by decide
+example : decode 0x4683105b#32 = some (.cmpS 27#32 1#32 2#32 3#32) := by decide  -- cmp.sne.s $f1, $f2, $f3
+example : encode (.cmpS 27#32 1#32 2#32 3#32) = 0x4683105b#32 := by decide
+example : decode (encode (.cmpS 27#32 31#32 17#32 9#32)) = some (.cmpS 27#32 31#32 17#32 9#32) := by decide
+example : decode 0x46a3105b#32 = some (.cmpD 27#32 1#32 2#32 3#32) := by decide  -- cmp.sne.d $f1, $f2, $f3
+example : encode (.cmpD 27#32 1#32 2#32 3#32) = 0x46a3105b#32 := by decide
+example : decode (encode (.cmpD 27#32 31#32 17#32 9#32)) = some (.cmpD 27#32 31#32 17#32 9#32) := by decide
+example : decode 0x46031050#32 = some (.selS 1#32 2#32 3#32) := by decide  -- sel.s $f1, $f2, $f3
+example : encode (.selS 1#32 2#32 3#32) = 0x46031050#32 := by decide
+example : decode (encode (.selS 31#32 17#32 9#32)) = some (.selS 31#32 17#32 9#32) := by decide
+example : decode 0x46231050#32 = some (.selD 1#32 2#32 3#32) := by decide  -- sel.d $f1, $f2, $f3
+example : encode (.selD 1#32 2#32 3#32) = 0x46231050#32 := by decide
+example : decode (encode (.selD 31#32 17#32 9#32)) = some (.selD 31#32 17#32 9#32) := by decide
+example : decode 0x46031054#32 = some (.seleqzS 1#32 2#32 3#32) := by decide  -- seleqz.s $f1, $f2, $f3
+example : encode (.seleqzS 1#32 2#32 3#32) = 0x46031054#32 := by decide
+example : decode (encode (.seleqzS 31#32 17#32 9#32)) = some (.seleqzS 31#32 17#32 9#32) := by decide
+example : decode 0x46231054#32 = some (.seleqzD 1#32 2#32 3#32) := by decide  -- seleqz.d $f1, $f2, $f3
+example : encode (.seleqzD 1#32 2#32 3#32) = 0x46231054#32 := by decide
+example : decode (encode (.seleqzD 31#32 17#32 9#32)) = some (.seleqzD 31#32 17#32 9#32) := by decide
+example : decode 0x46031057#32 = some (.selnezS 1#32 2#32 3#32) := by decide  -- selnez.s $f1, $f2, $f3
+example : encode (.selnezS 1#32 2#32 3#32) = 0x46031057#32 := by decide
+example : decode (encode (.selnezS 31#32 17#32 9#32)) = some (.selnezS 31#32 17#32 9#32) := by decide
+example : decode 0x46231057#32 = some (.selnezD 1#32 2#32 3#32) := by decide  -- selnez.d $f1, $f2, $f3
+example : encode (.selnezD 1#32 2#32 3#32) = 0x46231057#32 := by decide
+example : decode (encode (.selnezD 31#32 17#32 9#32)) = some (.selnezD 31#32 17#32 9#32) := by decide
+example : decode 0x46031058#32 = some (.maddfS 1#32 2#32 3#32) := by decide  -- maddf.s $f1, $f2, $f3
+example : encode (.maddfS 1#32 2#32 3#32) = 0x46031058#32 := by decide
+example : decode (encode (.maddfS 31#32 17#32 9#32)) = some (.maddfS 31#32 17#32 9#32) := by decide
+example : decode 0x46231058#32 = some (.maddfD 1#32 2#32 3#32) := by decide  -- maddf.d $f1, $f2, $f3
+example : encode (.maddfD 1#32 2#32 3#32) = 0x46231058#32 := by decide
+example : decode (encode (.maddfD 31#32 17#32 9#32)) = some (.maddfD 31#32 17#32 9#32) := by decide
+example : decode 0x46031059#32 = some (.msubfS 1#32 2#32 3#32) := by decide  -- msubf.s $f1, $f2, $f3
+example : encode (.msubfS 1#32 2#32 3#32) = 0x46031059#32 := by decide
+example : decode (encode (.msubfS 31#32 17#32 9#32)) = some (.msubfS 31#32 17#32 9#32) := by decide
+example : decode 0x46231059#32 = some (.msubfD 1#32 2#32 3#32) := by decide  -- msubf.d $f1, $f2, $f3
+example : encode (.msubfD 1#32 2#32 3#32) = 0x46231059#32 := by decide
+example : decode (encode (.msubfD 31#32 17#32 9#32)) = some (.msubfD 31#32 17#32 9#32) := by decide
+example : decode 0x4603105e#32 = some (.maxS 1#32 2#32 3#32) := by decide  -- max.s $f1, $f2, $f3
+example : encode (.maxS 1#32 2#32 3#32) = 0x4603105e#32 := by decide
+example : decode (encode (.maxS 31#32 17#32 9#32)) = some (.maxS 31#32 17#32 9#32) := by decide
+example : decode 0x4623105e#32 = some (.maxD 1#32 2#32 3#32) := by decide  -- max.d $f1, $f2, $f3
+example : encode (.maxD 1#32 2#32 3#32) = 0x4623105e#32 := by decide
+example : decode (encode (.maxD 31#32 17#32 9#32)) = some (.maxD 31#32 17#32 9#32) := by decide
+example : decode 0x4603105c#32 = some (.minS 1#32 2#32 3#32) := by decide  -- min.s $f1, $f2, $f3
+example : encode (.minS 1#32 2#32 3#32) = 0x4603105c#32 := by decide
+example : decode (encode (.minS 31#32 17#32 9#32)) = some (.minS 31#32 17#32 9#32) := by decide
+example : decode 0x4623105c#32 = some (.minD 1#32 2#32 3#32) := by decide  -- min.d $f1, $f2, $f3
+example : encode (.minD 1#32 2#32 3#32) = 0x4623105c#32 := by decide
+example : decode (encode (.minD 31#32 17#32 9#32)) = some (.minD 31#32 17#32 9#32) := by decide
+example : decode 0x4603105f#32 = some (.maxaS 1#32 2#32 3#32) := by decide  -- maxa.s $f1, $f2, $f3
+example : encode (.maxaS 1#32 2#32 3#32) = 0x4603105f#32 := by decide
+example : decode (encode (.maxaS 31#32 17#32 9#32)) = some (.maxaS 31#32 17#32 9#32) := by decide
+example : decode 0x4623105f#32 = some (.maxaD 1#32 2#32 3#32) := by decide  -- maxa.d $f1, $f2, $f3
+example : encode (.maxaD 1#32 2#32 3#32) = 0x4623105f#32 := by decide
+example : decode (encode (.maxaD 31#32 17#32 9#32)) = some (.maxaD 31#32 17#32 9#32) := by decide
+example : decode 0x4603105d#32 = some (.minaS 1#32 2#32 3#32) := by decide  -- mina.s $f1, $f2, $f3
+example : encode (.minaS 1#32 2#32 3#32) = 0x4603105d#32 := by decide
+example : decode (encode (.minaS 31#32 17#32 9#32)) = some (.minaS 31#32 17#32 9#32) := by decide
+example : decode 0x4623105d#32 = some (.minaD 1#32 2#32 3#32) := by decide  -- mina.d $f1, $f2, $f3
+example : encode (.minaD 1#32 2#32 3#32) = 0x4623105d#32 := by decide
+example : decode (encode (.minaD 31#32 17#32 9#32)) = some (.minaD 31#32 17#32 9#32) := by decide
+example : decode 0x4600105b#32 = some (.classS 1#32 2#32) := by decide  -- class.s $f1, $f2
+example : encode (.classS 1#32 2#32) = 0x4600105b#32 := by decide
+example : decode (encode (.classS 31#32 17#32)) = some (.classS 31#32 17#32) := by decide
+example : decode 0x4620105b#32 = some (.classD 1#32 2#32) := by decide  -- class.d $f1, $f2
+example : encode (.classD 1#32 2#32) = 0x4620105b#32 := by decide
+example : decode (encode (.classD 31#32 17#32)) = some (.classD 31#32 17#32) := by decide
+example : decode 0x4600105a#32 = some (.rintS 1#32 2#32) := by decide  -- rint.s $f1, $f2
+example : encode (.rintS 1#32 2#32) = 0x4600105a#32 := by decide
+example : decode (encode (.rintS 31#32 17#32)) = some (.rintS 31#32 17#32) := by decide
+example : decode 0x4620105a#32 = some (.rintD 1#32 2#32) := by decide  -- rint.d $f1, $f2
+example : encode (.rintD 1#32 2#32) = 0x4620105a#32 := by decide
+example : decode (encode (.rintD 31#32 17#32)) = some (.rintD 31#32 17#32) := by decide
+example : decode 0x45230002#32 = some (.bc1eqz 3#32 2#32) := by decide  -- bc1eqz $f3, 8
+example : encode (.bc1eqz 3#32 2#32) = 0x45230002#32 := by decide
+example : decode 0x45bfffff#32 = some (.bc1nez 31#32 0xffff#32) := by decide  -- bc1nez $f31, -4
+example : encode (.bc1nez 31#32 0xffff#32) = 0x45bfffff#32 := by decide
+example : decode (encode (.bc1eqz 17#32 0x8000#32)) = some (.bc1eqz 17#32 0x8000#32) := by decide
+-- reserved CMP condn values (16, 20..24, 28..31) do not decode; bit 5 set is no CMP
+example : decode 0x46831050#32 = none := by decide
+example : decode 0x46831054#32 = none := by decide
+example : decode 0x46831055#32 = none := by decide
+example : decode 0x46831056#32 = none := by decide
+example : decode 0x46831057#32 = none := by decide
+example : decode 0x46831058#32 = none := by decide
+example : decode 0x4683105c#32 = none := by decide
+example : decode 0x4683105d#32 = none := by decide
+example : decode 0x4683105e#32 = none := by decide
+example : decode 0x4683105f#32 = none := by decide
+example : decode 0x46a31050#32 = none := by decide
+example : decode 0x46a31058#32 = none := by decide
+example : decode 0x46a3105f#32 = none := by decide
+example : decode 0x46831062#32 = none := by decide  -- fmt W function 100010
+-- RINT/CLASS with ft ≠ 0 do not decode
+example : decode 0x4603105a#32 = none := by decide
+example : decode 0x4623105b#32 = none := by decide
+-- END R6-6B
 example : encode (.pref 4#32 1#32 16#32) = 0x7c810835#32 := by decide
 example : decode 0xcc810010#32 = none := by decide                                 -- pre-R6 PREF (0x33)
 example : decode 0x41606000#32 = some (.di 0#32) := by decide                      -- di

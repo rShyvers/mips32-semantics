@@ -195,10 +195,12 @@ def overflowOracle (rm : RoundingMode) (src : Float) : Bool :=
       ((x.zeroExtend 64 &&& 0x80000000#64) <<< 32 ||| 0x7FF8000000000000#64 |||
         ((x.zeroExtend 64 &&& 0x003FFFFF#64) <<< 29))
 
--- FCSR.FS = 1: a subnormal operand is converted as a zero of the same sign
+-- FCSR.FS = 1: a subnormal operand is converted as a zero of the same sign, and the flush signals
+-- Inexact (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102)
 #guard pats32.all fun x =>
   f32ToF64 true x ==
-    f32ToF64 false (if isSubnormal32 x then x &&& 0x80000000#32 else x)
+    (let r := f32ToF64 false (if isSubnormal32 x then x &&& 0x80000000#32 else x)
+     (r.1, if isSubnormal32 x then r.2.or Flags.inexactOnly else r.2))
 
 /-! ### `f64ToF32` vs `Float.toFloat32` -/
 
@@ -319,11 +321,13 @@ def rzOracle (f : Float) : Float := if f < 0.0 then f.ceil else f.floor
   f32ToW64 .RP false x == w64Oracle f.ceil integral &&
   f32ToW64 .RN false x == w64Oracle (rnOracle f) integral
 
--- FCSR.FS = 1 flushes a subnormal operand first: ceil of the smallest subnormal is 1, or 0
+-- FCSR.FS = 1 flushes a subnormal operand first: ceil of the smallest subnormal is 1, or 0 (and the
+-- flush signals Inexact, §6.7.2.4, p.102)
 #guard f32ToW32 .RP false 0x00000001#32 == (1#32, Flags.inexactOnly) &&
-  f32ToW32 .RP true 0x00000001#32 == (0#32, Flags.none) &&
+  f32ToW32 .RP true 0x00000001#32 == (0#32, Flags.inexactOnly) &&
   f64ToW64 .RM false 0x8000000000000001#64 == (0xFFFFFFFFFFFFFFFF#64, Flags.inexactOnly) &&
-  f64ToW64 .RM true 0x8000000000000001#64 == (0#64, Flags.none)
+  f64ToW64 .RM true 0x8000000000000001#64 == (0#64, Flags.inexactOnly) &&
+  f64ToW64 .RM true 0x0000000000000000#64 == (0#64, Flags.none)
 
 /-! ### Longword → float vs `Int64.toFloat` / `Int64.toFloat32` (CVT.D.L, CVT.S.L) -/
 
@@ -500,3 +504,267 @@ def nan64 (a b : BitVec 64) : BitVec 64 :=
 end Test
 
 end Mips.Fp
+
+-- BEGIN R6-6A
+/-! ## `MADDF.fmt` / `MSUBF.fmt` (`f32Fma`, `f64Fma`; MD00086 Vol II-A Rev 6.06, p.259-260)
+
+`fma e sub c a b` is `c + a·b` (`sub = false`, MADDF) or `c − a·b` (MSUBF), `c` = fd, `a` = fs,
+`b` = ft. The explicit cases below were also run on QEMU `mips32r6-generic` (a scratch MADDF/MSUBF
+program through the `scripts/oracle.py` harness, 2026-11-16), which gave the same results and Cause
+bits, except where noted. -/
+
+namespace Mips.Fp
+
+namespace Test
+
+/-- `(sub, FCSR environment, c, a, b, expected result, expected flags)` for `f32Fma`. -/
+def fma32Cases : List (Bool × Env × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × Flags) :=
+  [ -- ∞ × 0 + QNaN: the QNaN, and Invalid (pin; QEMU agrees)
+    (false, Env.RN, 0x7FC12345, 0x7F800000, 0x00000000, 0x7FC12345, ({ invalid := true } : Flags)),
+    (false, Env.RN, 0x7FC12345, 0x00000000, 0xFF800000, 0x7FC12345, ({ invalid := true } : Flags)),
+    -- ∞ × 0 + SNaN: the SNaN made quiet, Invalid
+    (false, Env.RN, 0x7F812345, 0x7F800000, 0x00000000, 0x7FC12345, ({ invalid := true } : Flags)),
+    -- NaN order [fd, fs, ft], the first signaling NaN first
+    (false, Env.RN, 0x7FC11111, 0x7F822222, 0x3F800000, 0x7FC22222, ({ invalid := true } : Flags)),
+    (false, Env.RN, 0x7F811111, 0x7FC22222, 0x3F800000, 0x7FC11111, ({ invalid := true } : Flags)),
+    (false, Env.RN, 0x7FC11111, 0x7FC22222, 0x3F800000, 0x7FC11111, Flags.none),
+    (false, Env.RN, 0x3F800000, 0x7FC22222, 0x7F833333, 0x7FC33333, ({ invalid := true } : Flags)),
+    (false, Env.RN, 0x3F800000, 0x7FC22222, 0x7FC33333, 0x7FC22222, Flags.none),
+    -- MSUBF does not negate a NaN
+    (true, Env.RN, 0xFFC11111, 0x3F800000, 0x3F800000, 0xFFC11111, Flags.none),
+    -- fused ≠ unfused: (1 + 2^-23)(1 - 2^-24) - 1 = 2^-24 - 2^-47, exact (the product alone rounds to 1)
+    (false, Env.RN, 0xBF800000, 0x3F800001, 0x3F7FFFFF, 0x337FFFFE, Flags.none),
+    -- exact zero: +0 in RN, −0 in RM (opposite-signed terms); equal-signed zero terms keep the sign
+    (true, Env.RN, 0x3F800000, 0x3F800000, 0x3F800000, 0x00000000, Flags.none),
+    (true, Env.RM, 0x3F800000, 0x3F800000, 0x3F800000, 0x80000000, Flags.none),
+    (false, Env.RN, 0x80000000, 0x00000000, 0x40A00000, 0x00000000, Flags.none),
+    (false, Env.RN, 0x80000000, 0x80000000, 0x40A00000, 0x80000000, Flags.none),
+    (true, Env.RN, 0x80000000, 0x00000000, 0x40A00000, 0x80000000, Flags.none),
+    -- (+∞) + (+∞ × −1) and +∞ + ∞ × 0: Invalid, the default QNaN
+    (false, Env.RN, 0x7F800000, 0x7F800000, 0xBF800000, 0x7FC00000, ({ invalid := true } : Flags)),
+    (false, Env.RN, 0x7F800000, 0x7F800000, 0x00000000, 0x7FC00000, ({ invalid := true } : Flags)),
+    -- (+∞) + (+∞ × +1): +∞; −∞ + finite: −∞; both exact
+    (false, Env.RN, 0x7F800000, 0x7F800000, 0x3F800000, 0x7F800000, Flags.none),
+    (false, Env.RN, 0xFF800000, 0x3F800000, 0x3F800000, 0xFF800000, Flags.none),
+    -- overflow (Overflow + Inexact), tiny inexact result (Underflow + Inexact)
+    (false, Env.RN, 0x00000000, 0x7F7FFFFF, 0x40000000, 0x7F800000, ({ overflow := true, inexact := true } : Flags)),
+    (false, Env.RN, 0x00000000, 0x00800001, 0x3E800000, 0x00200000, ({ underflow := true, inexact := true } : Flags)),
+    -- FCSR.FS = 0: 1 + 2^-149 rounds to 1, Inexact
+    (false, Env.RN, 0x3F800000, 0x00000001, 0x3F800000, 0x3F800000, ({ inexact := true } : Flags)),
+    -- FCSR.FS = 1: the subnormal operand is flushed, 1 + 0 = 1 exactly, and the flush signals Inexact
+    -- ("Inexact may be signaled both by input flushing and/or by the fused-multiply-add", MADDF.fmt
+    -- p.260; MD00082 Vol I-A Rev 6.01 §6.7.2.4 p.102)
+    (false, ({ flush := true } : Env), 0x3F800000, 0x00000001, 0x3F800000, 0x3F800000, Flags.inexactOnly),
+    (false, ({ flush := true } : Env), 0x00000001, 0x3F800000, 0x3F800000, 0x3F800000, Flags.inexactOnly),
+    -- FCSR.FS = 1 and no subnormal operand: no flush, exact
+    (false, ({ flush := true } : Env), 0x3F800000, 0x3F800000, 0x3F800000, 0x40000000, Flags.none) ]
+
+#guard fma32Cases.all fun (sub, e, c, a, b, r, fl) => f32Fma e sub c a b == (r, fl)
+
+-- fused differs from MUL then ADD (two roundings) on the same operands
+#guard (f32Add .RN (f32Mul .RN 0x3F800001#32 0x3F7FFFFF#32).1 0xBF800000#32).1 == 0x00000000#32
+
+-- binary64: the double-rounding case and ∞ × 0 + QNaN (both as on QEMU)
+#guard f64Fma .RN false 0xBFF0000000000000#64 0x3FF0000000000001#64 0x3FEFFFFFFFFFFFFF#64 ==
+  (0x3C9FFFFFFFFFFFFE#64, Flags.none)
+#guard f64Fma .RN false 0x7FF8000000012345#64 0x7FF0000000000000#64 0#64 ==
+  (0x7FF8000000012345#64, Flags.invalidOnly)
+#guard (f64Add .RN (f64Mul .RN 0x3FF0000000000001#64 0x3FEFFFFFFFFFFFFF#64).1
+  0xBFF0000000000000#64).1 == 0#64
+
+-- Against the host, round to nearest: the product of two singles is exact in double precision; when
+-- `c ± a·b` is also exact in double (Knuth's TwoSum error term is 0), rounding it to single once is the
+-- correctly rounded fused result (zeros included: the host's zero sign follows the same IEEE rule).
+#guard pairs32.all fun (a, b) =>
+  isNaN32 a || isNaN32 b || isInf32 a || isInf32 b ||
+  [0x00000000#32, 0x80000000#32, 0x3F800000#32, 0xBF800000#32, 0x00800000#32, 0x4B000001#32].all fun c =>
+  [false, true].all fun sub =>
+    let x := (toF32 c).toFloat
+    let p := (toF32 a).toFloat * (toF32 b).toFloat
+    let y := if sub then -p else p
+    let s := x + y
+    let bb := s - x
+    let err := (x - (s - bb)) + (y - bb)
+    err != 0.0 ||
+      let r := f32Fma .RN sub c a b
+      r.1 == ofF32 s.toFloat32 && r.2.inexact == ((toF32 r.1).toFloat != s) && !r.2.invalid
+
+end Test
+
+end Mips.Fp
+-- END R6-6A
+-- BEGIN R6-6C
+/-! ## Release 6: `CMP.condn.fmt`, `MAX/MIN/MAXA/MINA.fmt`, `CLASS.fmt`, `RINT.fmt`
+
+Hand-computed expectations (MD00086 Vol II-A Rev 6.06: CMP.condn.fmt Table 3.9 p.138-139; MAX/MIN
+Table 4.1 p.264-265; CLASS.fmt p.132; RINT.fmt p.337). -/
+
+namespace Mips.Fp.TestR6C
+
+-- single-precision patterns
+def pz : BitVec 32 := 0x00000000#32
+def nz : BitVec 32 := 0x80000000#32
+def one : BitVec 32 := 0x3F800000#32
+def mone : BitVec 32 := 0xBF800000#32
+def two : BitVec 32 := 0x40000000#32
+def mtwo : BitVec 32 := 0xC0000000#32
+def three : BitVec 32 := 0x40400000#32
+def mthree : BitVec 32 := 0xC0400000#32
+def half : BitVec 32 := 0x3F000000#32
+def mhalf : BitVec 32 := 0xBF000000#32
+def onehalf : BitVec 32 := 0x3FC00000#32
+def twohalf : BitVec 32 := 0x40200000#32
+def mtwohalf : BitVec 32 := 0xC0200000#32
+def mpoint3 : BitVec 32 := 0xBE99999A#32
+def pinf : BitVec 32 := 0x7F800000#32
+def ninf : BitVec 32 := 0xFF800000#32
+def qnan1 : BitVec 32 := 0x7FC00001#32
+def qnan2 : BitVec 32 := 0x7FC00002#32
+def snan : BitVec 32 := 0x7F800001#32
+def psub : BitVec 32 := 0x00000001#32
+def nsub : BitVec 32 := 0x80000001#32
+def big : BitVec 32 := 0x4E800000#32   -- 2^30, an integer
+
+def flushEnv : Env := { flush := true }
+
+/-! ### MAX/MIN/MAXA/MINA -/
+
+-- Table 4.1: signed zeros, both operand orders
+#guard (f32MinMax .max .RN nz pz).1 == pz && (f32MinMax .max .RN pz nz).1 == pz
+#guard (f32MinMax .min .RN nz pz).1 == nz && (f32MinMax .min .RN pz nz).1 == nz
+#guard (f32MinMax .maxa .RN nz pz).1 == pz && (f32MinMax .maxa .RN pz nz).1 == pz
+#guard (f32MinMax .mina .RN nz pz).1 == nz && (f32MinMax .mina .RN pz nz).1 == nz
+-- ordinary values
+#guard (f32MinMax .max .RN mone two).1 == two && (f32MinMax .min .RN mone two).1 == mone
+#guard (f32MinMax .maxa .RN mthree two).1 == mthree && (f32MinMax .mina .RN mthree two).1 == two
+-- equal magnitudes: MAXA returns the larger, MINA the smaller (p.264)
+#guard (f32MinMax .maxa .RN mtwo two).1 == two && (f32MinMax .maxa .RN two mtwo).1 == two
+#guard (f32MinMax .mina .RN mtwo two).1 == mtwo && (f32MinMax .mina .RN two mtwo).1 == mtwo
+-- infinities
+#guard (f32MinMax .max .RN ninf one).1 == one && (f32MinMax .min .RN ninf one).1 == ninf
+#guard (f32MinMax .maxa .RN ninf one).1 == ninf && (f32MinMax .mina .RN ninf one).1 == one
+-- one QNaN: the number, no exception; two QNaNs: the fs one
+#guard [Format.MinMaxOp.max, .min, .maxa, .mina].all fun op =>
+  f32MinMax op .RN qnan1 one == (one, Flags.none) && f32MinMax op .RN one qnan1 == (one, Flags.none) &&
+  f32MinMax op .RN qnan1 qnan2 == (qnan1, Flags.none) && f32MinMax op .RN qnan2 qnan1 == (qnan2, Flags.none)
+-- an SNaN: Invalid; a number is still preferred; NaN results are not quietened
+#guard [Format.MinMaxOp.max, .min, .maxa, .mina].all fun op =>
+  f32MinMax op .RN snan one == (one, Flags.invalidOnly) &&
+  f32MinMax op .RN one snan == (one, Flags.invalidOnly) &&
+  f32MinMax op .RN snan qnan1 == (snan, Flags.invalidOnly) &&
+  f32MinMax op .RN qnan1 snan == (qnan1, Flags.invalidOnly)
+-- FCSR.FS: subnormal operands are flushed (to zero of the same sign) before the choice
+#guard (f32MinMax .max .RN psub nz).1 == psub && (f32MinMax .max flushEnv psub nz).1 == pz
+#guard (f32MinMax .min flushEnv nsub pz).1 == nz
+-- double precision
+#guard (f64MinMax .max .RN 0x8000000000000000#64 0#64).1 == 0#64
+#guard (f64MinMax .mina .RN 0xC000000000000000#64 0x4000000000000000#64).1 == 0xC000000000000000#64
+#guard f64MinMax .min .RN 0x7FF0000000000001#64 0x3FF0000000000000#64 ==
+  (0x3FF0000000000000#64, Flags.invalidOnly)
+
+/-! ### CLASS -/
+
+#guard [(snan, 1), (qnan1, 2), (ninf, 4), (mone, 8), (nsub, 16), (nz, 32),
+        (pinf, 64), (one, 128), (psub, 256), (pz, 512)].all fun (x, m) => f32Class x == BitVec.ofNat 32 m
+#guard [(0x7FF0000000000001#64, 1), (0x7FF8000000000000#64, 2), (0xFFF0000000000000#64, 4),
+        (0xBFF0000000000000#64, 8), (0x8000000000000001#64, 16), (0x8000000000000000#64, 32),
+        (0x7FF0000000000000#64, 64), (0x3FF0000000000000#64, 128), (0x0000000000000001#64, 256),
+        (0#64, 512)].all fun (x, m) => f64Class x == BitVec.ofNat 64 m
+
+/-! ### RINT -/
+
+-- 2.5 and -2.5 in the four modes (halfway: RN ties to even)
+#guard f32Rint .RN twohalf == (two, Flags.inexactOnly) && f32Rint .RZ twohalf == (two, Flags.inexactOnly) &&
+  f32Rint .RP twohalf == (three, Flags.inexactOnly) && f32Rint .RM twohalf == (two, Flags.inexactOnly)
+#guard f32Rint .RN mtwohalf == (mtwo, Flags.inexactOnly) && f32Rint .RZ mtwohalf == (mtwo, Flags.inexactOnly) &&
+  f32Rint .RP mtwohalf == (mtwo, Flags.inexactOnly) && f32Rint .RM mtwohalf == (mthree, Flags.inexactOnly)
+#guard f32Rint .RN onehalf == (two, Flags.inexactOnly)
+-- zero results keep the operand's sign
+#guard f32Rint .RN half == (pz, Flags.inexactOnly) && f32Rint .RN mhalf == (nz, Flags.inexactOnly)
+#guard f32Rint .RP mpoint3 == (nz, Flags.inexactOnly) && f32Rint .RM mpoint3 == (mone, Flags.inexactOnly)
+#guard f32Rint .RN nz == (nz, Flags.none) && f32Rint .RM pz == (pz, Flags.none)
+-- integers are exact
+#guard f32Rint .RN three == (three, Flags.none) && f32Rint .RZ big == (big, Flags.none)
+-- infinities, NaNs
+#guard f32Rint .RN ninf == (ninf, Flags.none) && f32Rint .RN qnan1 == (qnan1, Flags.none)
+#guard f32Rint .RN snan == (0x7FC00001#32, Flags.invalidOnly)
+-- subnormals: rounded (inexact), or flushed under FCSR.FS (the flushing signals Inexact, MD00082
+-- Vol I-A Rev 6.01 §6.7.2.4, p.102)
+#guard f32Rint .RP psub == (one, Flags.inexactOnly) &&
+  f32Rint { rm := .RP, flush := true } psub == (pz, Flags.inexactOnly) &&
+  f32Rint { rm := .RM, flush := true } nsub == (nz, Flags.inexactOnly)
+-- double precision
+#guard f64Rint .RN 0x4004000000000000#64 == (0x4000000000000000#64, Flags.inexactOnly)
+#guard f64Rint .RP 0x4004000000000000#64 == (0x4008000000000000#64, Flags.inexactOnly)
+#guard f64Rint .RN 0x7FEFFFFFFFFFFFFF#64 == (0x7FEFFFFFFFFFFFFF#64, Flags.none)
+#guard f64Rint .RM 0xBFE0000000000000#64 == (0xBFF0000000000000#64, Flags.inexactOnly)
+
+/-! ### CMP: the 22 implemented predicates on the four relations
+
+Each predicate is the set of relations it accepts (`g` greater, `l` less, `e` equal, `u` unordered),
+transcribed from the CMP column of Table 3.9. -/
+
+def cmpPreds : List (Nat × String) :=
+  [(0, ""), (1, "u"), (2, "e"), (3, "eu"), (4, "l"), (5, "lu"), (6, "le"), (7, "leu"),
+   (8, ""), (9, "u"), (10, "e"), (11, "eu"), (12, "l"), (13, "lu"), (14, "le"), (15, "leu"),
+   (17, "gle"), (18, "glu"), (19, "gl"), (25, "gle"), (26, "glu"), (27, "gl")]
+
+/-- Operand pairs with their relation; `+0`/`-0` compare equal. -/
+def cmpPairs32 : List (BitVec 32 × BitVec 32 × Char) :=
+  [(two, one, 'g'), (one, two, 'l'), (one, one, 'e'), (pz, nz, 'e'), (ninf, mone, 'l'),
+   (pinf, pinf, 'e'), (qnan1, one, 'u'), (one, qnan1, 'u')]
+
+#guard cmpPreds.all fun (c, s) => cmpPairs32.all fun (a, b, r) =>
+  f32Cmp (BitVec.ofNat 5 c) a b == (s.contains r, Flags.none) || r == 'u'
+-- unordered (QNaN): predicate value, and Invalid exactly for the signalling ones (cond3)
+#guard cmpPreds.all fun (c, s) =>
+  f32Cmp (BitVec.ofNat 5 c) qnan1 one == (s.contains 'u', { invalid := c % 16 ≥ 8 })
+-- an SNaN: always Invalid
+#guard cmpPreds.all fun (c, s) =>
+  f32Cmp (BitVec.ofNat 5 c) one snan == (s.contains 'u', Flags.invalidOnly)
+-- double precision
+#guard cmpPreds.all fun (c, s) =>
+  [(0x4000000000000000#64, 0x3FF0000000000000#64, 'g'), (0x8000000000000000#64, 0#64, 'e'),
+   (0xFFF0000000000000#64, 0#64, 'l')].all fun (a, b, r) =>
+    f64Cmp (BitVec.ofNat 5 c) a b == (s.contains r, Flags.none)
+#guard cmpPreds.all fun (c, s) =>
+  f64Cmp (BitVec.ofNat 5 c) 0x7FF8000000000000#64 0#64 == (s.contains 'u', { invalid := c % 16 ≥ 8 })
+
+end Mips.Fp.TestR6C
+-- END R6-6C
+
+-- BEGIN R6-6D
+/-! FCSR.FS = 1 input flushing: every non-comparison operation that flushes a subnormal operand
+signals Inexact for it (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102: "Flushing of subnormal input operands
+in all instructions except comparisons causes Inexact exception to be signaled"); the comparisons
+(here MAX/MIN, "Floating Point Comparison Instructions", Table 7.9, p.110) do not. -/
+namespace Mips.Fp.TestR6D
+
+def fs : Env := { flush := true }
+
+-- arithmetic: 1 + 2^-149 is 1 + 0 = 1 exactly, Inexact from the flush; no subnormal, no flag
+#guard f32Add fs 0x3F800000#32 0x00000001#32 == (0x3F800000#32, Flags.inexactOnly)
+#guard f32Add fs 0x3F800000#32 0x3F800000#32 == (0x40000000#32, Flags.none)
+#guard f64Mul fs 0x0000000000000001#64 0x4630000000000000#64 == (0#64, Flags.inexactOnly)
+#guard f32Sub fs 0x80000001#32 0x00000000#32 == (0x80000000#32, Flags.inexactOnly)
+-- division by a flushed operand: Division by Zero and the flush's Inexact
+#guard f32Div fs 0x3F800000#32 0x00000001#32 == (0x7F800000#32, { divZero := true, inexact := true })
+#guard f64Sqrt fs 0x0000000000000001#64 == (0#64, Flags.inexactOnly)
+-- RECIP / RSQRT
+#guard f32Recip fs 0x80000001#32 == (0xFF800000#32, { divZero := true, inexact := true })
+#guard f64Rsqrt fs 0x0000000000000001#64 == (0x7FF0000000000000#64, { divZero := true, inexact := true })
+-- a NaN with a subnormal: Invalid from the SNaN, Inexact from the flush (ORed)
+#guard f32Mul fs 0x7F800001#32 0x00000001#32 == (0x7FC00001#32, { invalid := true, inexact := true })
+-- conversions
+#guard f64ToF32 fs 0x0000000000000001#64 == (0#32, Flags.inexactOnly)
+#guard f32ToW64 .RP true 0x00000001#32 == (0#64, Flags.inexactOnly)
+-- fused multiply-add: any of the three operands
+#guard f32Fma fs false 0x00000000#32 0x00000001#32 0x71800000#32 == (0#32, Flags.inexactOnly)
+#guard f64Fma fs true 0x0000000000000001#64 0x3FF0000000000000#64 0x3FF0000000000000#64 ==
+  (0xBFF0000000000000#64, Flags.inexactOnly)
+-- comparisons: flushed, no flag (MAX(+2^-149, -0) is MAX(+0, -0) = +0)
+#guard f32MinMax .max fs 0x00000001#32 0x80000000#32 == (0#32, Flags.none)
+#guard f64MinMax .mina fs 0x8000000000000001#64 0x3FF0000000000000#64 == (0x8000000000000000#64, Flags.none)
+
+end Mips.Fp.TestR6D
+-- END R6-6D

@@ -16,6 +16,9 @@ import Semantics.Exec.FpuControl
 import Semantics.Exec.FpuMemory
 import Semantics.Exec.FpuArith
 import Semantics.Exec.FpuConvert
+-- BEGIN R6-6B
+import Semantics.Exec.FpuR6
+-- END R6-6B
 
 /-!
 # Step — small-step semantics of the modeled MIPS32 Release 6 instruction set
@@ -142,7 +145,8 @@ table only. -/
 def execTables : List (State → Instruction → Option State) :=
   [execIntArith, execShift, execBitOps, execImmediate, execMemory, execAtomic,
    execBranch, execJump, execTrap, execSyscall, execSystem, execCp0,
-   execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert]
+   execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert,
+   execFpuR6]  -- R6-6B: the Release 6 FPU instructions
 
 /-- The effect of the already-fetched, already-decoded instruction `instr` in state `s`, **after**
 `execInstr`'s guards (no control transfer in a delay slot; the coprocessor usable for the
@@ -160,6 +164,7 @@ macro "exec_unfold" : tactic =>
   `(tactic| dsimp only [execBody, execTables, List.findSome?, execIntArith, execShift, execBitOps,
     execImmediate, execMemory, execAtomic, execBranch, execJump, execTrap, execSyscall, execSystem,
     execCp0, execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert, Option.getD,
+    execFpuR6,  -- R6-6B
     -- BEGIN R6-2
     cp0WriteAt, cp0Write
     -- END R6-2

@@ -91,7 +91,8 @@ matrix is `docs/TRACE.md`.
 | BEGIN R6-2 | 3 | 3 | 0 | 3 | eretnc, sigrie, cache |
 | END R6-2 | 24 | 24 | 0 | 24 | bc, balc, beqc, bnec, bltc, bgec, bltuc, bgeuc, blezc, bgezc, bgtzc, bltzc, beqzc, bnezc, blezalc, bgezalc, bgtzalc, bltzalc, beqzalc, bnezalc, bovc, bnvc, jic, jialc |
 | END R6-3 | 12 | 12 | 0 | 12 | cvt.l.s, cvt.l.d, round.l.s, round.l.d, trunc.l.s, trunc.l.d, ceil.l.s, ceil.l.d, floor.l.s, floor.l.d, cvt.s.l, cvt.d.l |
-| **Total** | **175** | **175** | **83** | **175** | |
+| END R6-5 | 26 | 26 | 0 | 26 | cmp.af.s, cmp.af.d, bc1eqz, bc1nez, sel.s, sel.d, seleqz.s, seleqz.d, selnez.s, selnez.d, maddf.s, maddf.d, msubf.s, msubf.d, max.s, max.d, min.s, min.d, maxa.s, maxa.d, mina.s, mina.d, class.s, class.d, rint.s, rint.d |
+| **Total** | **201** | **201** | **83** | **201** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->

@@ -50,7 +50,15 @@ def SHARED_FPOPS : List Name := [
   `Mips.Fp.f32ToF64, `Mips.Fp.f64ToF32, `Mips.Fp.f32ToW32, `Mips.Fp.f64ToW32,
   `Mips.Fp.w32ToF32, `Mips.Fp.w32ToF64F,
   -- R6-5: the longword (L) conversions of the 64-bit FPU
-  `Mips.Fp.f32ToW64, `Mips.Fp.f64ToW64, `Mips.Fp.w64ToF32, `Mips.Fp.w64ToF64 ]
+  `Mips.Fp.f32ToW64, `Mips.Fp.f64ToW64, `Mips.Fp.w64ToF32, `Mips.Fp.w64ToF64,
+  -- R6-6B: the Release 6 FP operations (fused multiply-add, maxNum/minNum/maxNumMag/minNumMag,
+  -- class, roundToIntegralExact); CMP.condn.fmt is transcribed on `f32Relation`/`f64Relation`
+  `Mips.Fp.f32Fma, `Mips.Fp.f64Fma, `Mips.Fp.f32MinMax, `Mips.Fp.f64MinMax,
+  `Mips.Fp.Format.MinMaxOp, `Mips.Fp.Format.MinMaxOp.max, `Mips.Fp.Format.MinMaxOp.min,
+  `Mips.Fp.Format.MinMaxOp.maxa, `Mips.Fp.Format.MinMaxOp.mina,
+  `Mips.Fp.f32Class, `Mips.Fp.f64Class, `Mips.Fp.f32Rint, `Mips.Fp.f64Rint,
+  -- the input flush of FCSR.FS (CMP.condn.fmt flushes without Inexact, Vol I-A §6.7.2.4, p.102)
+  `Mips.Fp.Format.flushIn ]
 
 /-- The model's types the spec may name. -/
 def SHARED_TYPES : List Name := [`W32, `VAddr, `PAddr]

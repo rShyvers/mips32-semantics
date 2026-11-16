@@ -239,6 +239,12 @@ def find_mnemonics(ctor, lits):
     hits = sorted({t for t in toks if t.replace(".", "") == key})
     if hits:
         return hits, "doc"
+    # R6-6B: a constructor with an operand in its mnemonic (`cmpS` -> `cmp.<condn>.s`): the
+    # docstring lists every spelling `<head>.<x>.<tail>` with `<head><tail>` = the name
+    hits = sorted({t for t in toks if t.count(".") == 2
+                   and (t.split(".")[0] + t.split(".")[2]) == key})
+    if hits:
+        return hits, "doc"
     return [camel_guess(ctor["name"])], "guess"
 
 

@@ -106,6 +106,20 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case cvtSW x₁ x₂ => exact rw_cvtSW x₁ x₂ a h
   case cvtSL x₁ x₂ => exact rw_cvtSL x₁ x₂ a h
   -- END R6-5
+  -- BEGIN R6-6B
+  case cmpS x₁ x₂ x₃ x₄ => exact rw_cmpS x₁ x₂ x₃ x₄ a h
+  case selS x₁ x₂ x₃ => exact rw_selS x₁ x₂ x₃ a h
+  case seleqzS x₁ x₂ x₃ => exact rw_seleqzS x₁ x₂ x₃ a h
+  case selnezS x₁ x₂ x₃ => exact rw_selnezS x₁ x₂ x₃ a h
+  case maddfS x₁ x₂ x₃ => exact rw_maddfS x₁ x₂ x₃ a h
+  case msubfS x₁ x₂ x₃ => exact rw_msubfS x₁ x₂ x₃ a h
+  case maxS x₁ x₂ x₃ => exact rw_maxS x₁ x₂ x₃ a h
+  case minS x₁ x₂ x₃ => exact rw_minS x₁ x₂ x₃ a h
+  case maxaS x₁ x₂ x₃ => exact rw_maxaS x₁ x₂ x₃ a h
+  case minaS x₁ x₂ x₃ => exact rw_minaS x₁ x₂ x₃ a h
+  case classS x₁ x₂ => exact rw_classS x₁ x₂ a h
+  case rintS x₁ x₂ => exact rw_rintS x₁ x₂ a h
+  -- END R6-6B
   all_goals simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/

@@ -58,6 +58,19 @@ each page states its constraint (e.g. BGEZC `rs = rt`, BEQC `rs < rt`, BOVC `rs 
 register fields are compared as the 5-bit numbers the diagram holds (`reg`). -/
 def encIf (c : Bool) (w : W32) : Option W32 := if c then some w else none
 -- END R6-3
+-- BEGIN R6-6B
+/-- **The `condn` values of CMP.condn.fmt** (MD00086 Vol II-A Rev 6.06, Table A.17, p.457, "MIPS32 COP1
+Encoding of Function Field When rs=W or L"): functions `000000`-`001111` (CMP.AF ... CMP.SULE),
+`010001`-`010011` (CMP.OR, CMP.UNE, CMP.NE) and `011001`-`011011` (CMP.SOR, CMP.SUNE, CMP.SNE). "All
+encodings of the condn field that are not specified (for example, items shaded in Table 3.9) are
+reserved in Release 6 and produce a Reserved Instruction exception" (CMP.condn.fmt, p.136). -/
+def CmpCondns : List Nat :=
+  [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+   0x11, 0x12, 0x13, 0x19, 0x1A, 0x1B]
+
+/-- `cond` is a `condn` of `CmpCondns`. -/
+def CmpCondnOK (cond : W32) : Bool := CmpCondns.contains cond.toNat
+-- END R6-6B
 
 /-- **The format diagram of each transcribed instruction** (MD00086 Vol II-A Rev 6.06, the Release 6
 diagram of each page, printed page of the diagram):
@@ -98,7 +111,13 @@ diagram of each page, printed page of the diagram):
   ROUND.W p.342, TRUNC.W p.441, CEIL.W p.128, FLOOR.W p.186, CVT.W p.160, CVT.D p.153, CVT.S p.159.
   The longword conversions (R6-5), fmt S, D and L = `10101`: ROUND.L p.341, TRUNC.L p.440, CEIL.L
   p.127, FLOOR.L p.185, CVT.L p.154 (fmt S/D), CVT.S.L p.159, CVT.D.L p.153 (fmt L).
-  -- W6: the other Release 6 FPU pages (CMP.condn, SEL, MADDF, ...).
+  -- BEGIN R6-6B
+  The Release 6 FP pages: CMP.condn.fmt p.136 (`COP1 | 10100 (S) / 10101 (D) | ft | fs | fd | 0 |
+  condn`, the `condn` values of Table A.17, p.457, `CmpCondnOK`); BC1EQZ `01001` and BC1NEZ `01101`
+  p.54 (`COP1 | rs | ft | offset`); with fmt S/D: SEL p.368 (`010000`), SELEQZ `010100` and SELNEZ
+  `010111` p.371, MADDF `011000` and MSUBF `011001` p.259, MIN `011100`, MINA `011101`, MAX `011110`,
+  MAXA `011111` p.262, RINT p.337 (`00000 fs fd 011010`), CLASS p.132 (`00000 fs fd 011011`).
+  -- END R6-6B
 -/
 def enc : Instruction → Option W32
   | .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)
@@ -309,6 +328,36 @@ def enc : Instruction → Option W32
   | .cvtSL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x20#32)    -- CVT.S `100000` fmt L (p.159)
   | .cvtDL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x21#32)    -- CVT.D `100001` fmt L (p.153)
   -- END R6-5
+  -- BEGIN R6-6B: the Release 6 FP pages (printed page in parentheses)
+  -- CMP.condn.fmt (p.136): bit 5 `0` and `condn` in bits 4..0; a `condn` of Table A.17 is below 32,
+  -- so its 6-bit function field has bit 5 clear.
+  | .cmpS cond fd fs ft => encIf (CmpCondnOK cond) (rFormat 0x11#32 0x14#32 ft fs fd cond)
+  | .cmpD cond fd fs ft => encIf (CmpCondnOK cond) (rFormat 0x11#32 0x15#32 ft fs fd cond)
+  | .bc1eqz ft off => some (iFormat 0x11#32 0x09#32 ft off)                -- BC1EQZ `01001` (p.54)
+  | .bc1nez ft off => some (iFormat 0x11#32 0x0D#32 ft off)                -- BC1NEZ `01101` (p.54)
+  | .selS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x10#32)      -- SEL `010000` (p.368)
+  | .selD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x10#32)
+  | .seleqzS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x14#32)   -- SELEQZ `010100` (p.371)
+  | .seleqzD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x14#32)
+  | .selnezS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x17#32)   -- SELNEZ `010111` (p.371)
+  | .selnezD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x17#32)
+  | .maddfS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x18#32)    -- MADDF `011000` (p.259)
+  | .maddfD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x18#32)
+  | .msubfS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x19#32)    -- MSUBF `011001` (p.259)
+  | .msubfD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x19#32)
+  | .rintS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x1A#32)      -- RINT `011010` (p.337)
+  | .rintD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x1A#32)
+  | .classS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x1B#32)     -- CLASS `011011` (p.132)
+  | .classD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x1B#32)
+  | .minS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x1C#32)      -- MIN `011100` (p.262)
+  | .minD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1C#32)
+  | .minaS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x1D#32)     -- MINA `011101` (p.262)
+  | .minaD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1D#32)
+  | .maxS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x1E#32)      -- MAX `011110` (p.262)
+  | .maxD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1E#32)
+  | .maxaS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x1F#32)     -- MAXA `011111` (p.262)
+  | .maxaD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1F#32)
+  -- END R6-6B
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26
@@ -366,7 +415,8 @@ page of each diagram):
   bits 10..0 of MFC1 p.267, MTC1 p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16
   of the one-operand COP1 functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W
   p.441, CEIL.W p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160;
-  R6-5: ROUND.L p.341, TRUNC.L p.440, CEIL.L p.127, FLOOR.L p.185, CVT.L p.154).
+  R6-5: ROUND.L p.341, TRUNC.L p.440, CEIL.L p.127, FLOOR.L p.185, CVT.L p.154; R6-6B: RINT p.337,
+  CLASS p.132).
 * **`EXT` with `lsb + msbd > 31`** (p.183) and **`INS` with `lsb > msb`** (p.193).
 * **A `JALR` hint other than `00000` and `10000`**: "In release 1 of the architecture, the only
   defined hint field value is 0 ... In Release 2 of the architecture, bit 10 of the hint field is
@@ -421,7 +471,8 @@ def UnpredictableEncoding (w : W32) : Bool :=
     if [0x00, 0x04, 0x03, 0x07, 0x02, 0x06].contains rs then nz 10 0
     else if rs == 0x10 || rs == 0x11 then
       if [0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x15, 0x16, 0x24,
-          0x08, 0x09, 0x0A, 0x0B, 0x25].contains fn then   -- R6-5: ROUND/TRUNC/CEIL/FLOOR.L, CVT.L
+          0x08, 0x09, 0x0A, 0x0B, 0x25,     -- R6-5: ROUND/TRUNC/CEIL/FLOOR.L, CVT.L
+          0x1A, 0x1B].contains fn then      -- R6-6B: RINT, CLASS
         nz 20 16
       else if (rs == 0x10 && fn == 0x21) || (rs == 0x11 && fn == 0x20) then nz 20 16  -- CVT.D.S, CVT.S.D
       else false

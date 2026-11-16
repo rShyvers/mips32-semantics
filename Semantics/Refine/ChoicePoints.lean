@@ -552,7 +552,10 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
       Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC,
       -- R6-5
       Ops.ROUND_L_S, Ops.ROUND_L_D, Ops.TRUNC_L_S, Ops.TRUNC_L_D, Ops.CEIL_L_S, Ops.CEIL_L_D,
-      Ops.FLOOR_L_S, Ops.FLOOR_L_D, Ops.CVT_L_S, Ops.CVT_L_D, Ops.CVT_S_L, Ops.CVT_D_L]
+      Ops.FLOOR_L_S, Ops.FLOOR_L_D, Ops.CVT_L_S, Ops.CVT_L_D, Ops.CVT_S_L, Ops.CVT_D_L,
+      -- R6-6B (the 64-bit results and the branches; the 32-bit results are rows)
+      Ops.CMP_D, Ops.BC1EQZ, Ops.BC1NEZ, Ops.SEL_D, Ops.SELEQZ_D, Ops.SELNEZ_D, Ops.MADDF_D,
+      Ops.MINMAX_D, Ops.CLASS_D, Ops.RINT_D]
        ofree)
 
 end Refine

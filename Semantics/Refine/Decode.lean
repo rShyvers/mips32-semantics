@@ -121,6 +121,11 @@ theorem mask26 : (1#32 <<< 26) - 1#32 = 67108863#32 := by decide
 theorem mask21 : (1#32 <<< 21) - 1#32 = 2097151#32 := by decide
 -- END R6-3
 
+-- BEGIN R6-6B
+/-- The model's `condn` table of CMP.condn.fmt is the diagram's (Table A.17, p.457). -/
+theorem cmpCondnOK_eq (c : W32) : cmpCondnOK c = Manual.CmpCondnOK c := rfl
+-- END R6-6B
+
 theorem fld3_sel (sel : W32) (h : sel.toNat < 8) : fld 3 0 sel = field 6 0 sel := by
   have e : sel &&& 7#32 = sel := and_7 sel h
   have e' : sel &&& 63#32 = sel := and_63 sel (by omega)
@@ -155,6 +160,15 @@ theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encod
   -- BEGIN R6-2
   case eretnc => decide
   -- END R6-2
+  -- BEGIN R6-6B
+  -- CMP.condn.fmt: the diagram's `condn` constraint is `WellFormed`'s (the same table)
+  case cmpS cond fd fs ft | cmpD cond fd fs ft =>
+    simp only [enc]
+    rw [encIf_true (cmpCondnOK_eq cond ▸ h.1)]
+    simp only [encode, rFormat, fld, field, maskLow, mkRT, BitVec.or_assoc, mask5, mask6,
+      BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero,
+      BitVec.zero_or]
+  -- END R6-6B
   all_goals
     simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, sa2Format, pc19Format,
       fld, field, maskLow,
@@ -295,7 +309,8 @@ set_option maxHeartbeats 1000000 in
 theorem encode_of_decode (w : W32) (i : Instruction) (h : decode w = some i) : encode i = w := by
   have := coOf_lt w; have := bit6Of_lt w
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
-    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf] at h
+    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
+    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD] at h  -- R6-6B: decodeR6Fmt
   repeat' split at h
   all_goals (cases h)
   -- BEGIN R6-3

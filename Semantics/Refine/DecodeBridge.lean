@@ -127,6 +127,18 @@ local macro "cb_wf" : tactic => `(tactic| (
   omega))
 -- END R6-3
 
+-- BEGIN R6-6B
+set_option hygiene false in
+/-- A CMP.condn.fmt candidate whose diagram is `w` is well-formed: its `condn` is of Table A.17. -/
+local macro "cmp_wf" : tactic => `(tactic| (
+  left
+  rename_i hje
+  simp only [enc] at hje
+  have hcc := (encIf_some hje).1
+  refine ⟨(cmpCondnOK_eq _).trans hcc, ?_, ?_, ?_⟩ <;>
+    simp only [fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa] <;> omega))
+-- END R6-6B
+
 set_option maxRecDepth 4000 in
 set_option maxHeartbeats 1000000 in
 /-- **Every candidate whose diagram is `w` is well-formed or `Rejected`**, or it is `SLL r0, r0, 5`,
@@ -150,6 +162,7 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, enc j = some w →
     | (intro x hx; cases hx)
     | intro _
   all_goals first
+    | cmp_wf  -- R6-6B
     | cb_wf
     | skip
   -- END R6-3

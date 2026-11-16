@@ -41,6 +41,17 @@ theorem fieldAt_sel (w : W32) : fieldAt w 2 0 = functOf w &&& 7#32 := by
   simp only [fieldAt, functOf, BitVec.getLsbD_and, BitVec.getLsbD_setWidth, BitVec.getLsbD_extractLsb]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
 
+-- BEGIN R6-6B
+/-- The `condn` field of CMP.condn.fmt (bits 4..0) is the low five bits of the model's `funct`. -/
+theorem fieldAt_40 (w : W32) : fieldAt w 4 0 = functOf w &&& 31#32 := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [fieldAt, functOf, BitVec.getLsbD_and, BitVec.getLsbD_setWidth, BitVec.getLsbD_extractLsb]
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
+
+theorem and63_and31 (x : W32) : x &&& 63#32 &&& 31#32 = x &&& 31#32 := by
+  rw [BitVec.and_assoc]; rfl
+-- END R6-6B
+
 theorem fieldAt_sel_lt (w : W32) : (fieldAt w 2 0).toNat < 8 := by
   simp [fieldAt, BitVec.extractLsb]; omega
 
@@ -68,6 +79,9 @@ def SelOK : Instruction → Prop
   | .beqzc rs _ | .bnezc rs _ => (reg rs != 0) = true
   | .bovc rs rt _ | .bnvc rs rt _ => decide ((reg rt).val ≤ (reg rs).val) = true
   -- END R6-3
+  -- BEGIN R6-6B
+  | .cmpS cond _ _ _ | .cmpD cond _ _ _ => CmpCondnOK cond = true
+  -- END R6-6B
   | _ => True
 
 -- one simp set serves every constructor; some members are unused in the `mfc0`/`mtc0` arms
@@ -156,7 +170,7 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   -- END R6-4
 
 set_option maxRecDepth 4000 in
-theorem length_candidates (w : W32) : (candidates w).length = 175 := by simp [candidates]
+theorem length_candidates (w : W32) : (candidates w).length = 201 := by simp [candidates]
 
 /-- The `k`-th candidate has the diagram of the instruction. -/
 local macro "cand " k:num : tactic => `(tactic| (
@@ -192,7 +206,7 @@ local macro "cand_cb " k:num : tactic => `(tactic| (
     simp [mkIT, mkOff21, field, maskLow, BitVec.and_assoc]))
 -- END R6-3
 
--- 175 cases, each a field-extraction `simp`: more than the default budget for one declaration
+-- 201 cases, each a field-extraction `simp`: more than the default budget for one declaration
 set_option maxHeartbeats 4000000 in
 set_option linter.unusedSimpArgs false in
 /-- **The candidate of `i`'s constructor read from `encode i` has the diagram `encode i`.** -/
@@ -382,5 +396,57 @@ theorem enc_candidate (i : Instruction) (hs : SelOK i) :
   case cvtSL => cand 173
   case cvtDL => cand 174
   -- END R6-5
+  -- BEGIN R6-6B
+  case cmpS cond fd fs ft =>
+    have hlt := DecodeSpec.cmpCondnOK_lt ((cmpCondnOK_eq cond).trans hs)
+    have e : cond &&& 63#32 &&& 31#32 = cond := by rw [and63_and31]; exact and_31 _ (by omega)
+    refine ⟨(candidates _)[175]'(by rw [length_candidates]; decide), List.getElem_mem _, ?_⟩
+    simp only [candidates, List.getElem_cons_succ, List.getElem_cons_zero]
+    have hf : fieldAt (encode (.cmpS cond fd fs ft)) 4 0 = cond := by
+      simp only [encode, fieldAt_40, functOf_or_mkRT]
+      rw [show (17#32 <<< 26 &&& 63#32 : W32) = 0#32 by decide, BitVec.zero_or, e]
+    rw [hf]
+    refine (enc_eq_encode_gen _ (by exact hs)).trans (congrArg some ?_)
+    simp only [encode]
+    try simp
+    try simp [mkRT, and_7, *]
+  case cmpD cond fd fs ft =>
+    have hlt := DecodeSpec.cmpCondnOK_lt ((cmpCondnOK_eq cond).trans hs)
+    have e : cond &&& 63#32 &&& 31#32 = cond := by rw [and63_and31]; exact and_31 _ (by omega)
+    refine ⟨(candidates _)[176]'(by rw [length_candidates]; decide), List.getElem_mem _, ?_⟩
+    simp only [candidates, List.getElem_cons_succ, List.getElem_cons_zero]
+    have hf : fieldAt (encode (.cmpD cond fd fs ft)) 4 0 = cond := by
+      simp only [encode, fieldAt_40, functOf_or_mkRT]
+      rw [show (17#32 <<< 26 &&& 63#32 : W32) = 0#32 by decide, BitVec.zero_or, e]
+    rw [hf]
+    refine (enc_eq_encode_gen _ (by exact hs)).trans (congrArg some ?_)
+    simp only [encode]
+    try simp
+    try simp [mkRT, and_7, *]
+  case bc1eqz => cand 177
+  case bc1nez => cand 178
+  case selS => cand 179
+  case selD => cand 180
+  case seleqzS => cand 181
+  case seleqzD => cand 182
+  case selnezS => cand 183
+  case selnezD => cand 184
+  case maddfS => cand 185
+  case maddfD => cand 186
+  case msubfS => cand 187
+  case msubfD => cand 188
+  case maxS => cand 197
+  case maxD => cand 198
+  case minS => cand 193
+  case minD => cand 194
+  case maxaS => cand 199
+  case maxaD => cand 200
+  case minaS => cand 195
+  case minaD => cand 196
+  case classS => cand 191
+  case classD => cand 192
+  case rintS => cand 189
+  case rintD => cand 190
+  -- END R6-6B
 
 end Refine

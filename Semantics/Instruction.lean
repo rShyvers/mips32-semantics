@@ -609,6 +609,81 @@ inductive Instruction where
   /-- `CVT.D.L`: longword → double, rounding per FCSR.RM (fmt = L, funct 0x21; CVT.D.fmt, p.153). -/
   | cvtDL (fd fs : W32)
   -- END R6-5
+  -- BEGIN R6-6B
+  -- The Release 6 FP instructions (MD00086 Vol II-A Rev 6.06). COP1 R-format: `ft` = `rt`, `fs` = `rd`,
+  -- `fd` = `sa`.
+  /-- `CMP.condn.S fd, fs, ft`: `FPR[fd] ← FPR[fs] compare_cond FPR[ft]` as a 32-bit mask of all ones or
+  all zeros (COP1, `rs` = 10100, bit 5 = 0, `condn` in bits 4..0; CMP.condn.fmt, p.136-140). `cond` is
+  the `condn` field; only the 22 values of Table A.17 (p.457) are instructions (`cmpCondnOK`). The
+  mnemonics are `cmp.af.s`, `cmp.un.s`, `cmp.eq.s`, `cmp.ueq.s`, `cmp.lt.s`, `cmp.ult.s`, `cmp.le.s`,
+  `cmp.ule.s`, `cmp.saf.s`, `cmp.sun.s`, `cmp.seq.s`, `cmp.sueq.s`, `cmp.slt.s`, `cmp.sult.s`,
+  `cmp.sle.s`, `cmp.sule.s`, `cmp.or.s`, `cmp.une.s`, `cmp.ne.s`, `cmp.sor.s`, `cmp.sune.s`,
+  `cmp.sne.s`. -/
+  | cmpS (cond fd fs ft : W32)
+  /-- `CMP.condn.D fd, fs, ft`: as `cmpS`, a 64-bit mask (COP1, `rs` = 10101; p.136-140). The
+  mnemonics are `cmp.af.d`, `cmp.un.d`, `cmp.eq.d`, `cmp.ueq.d`, `cmp.lt.d`, `cmp.ult.d`, `cmp.le.d`,
+  `cmp.ule.d`, `cmp.saf.d`, `cmp.sun.d`, `cmp.seq.d`, `cmp.sueq.d`, `cmp.slt.d`, `cmp.sult.d`,
+  `cmp.sle.d`, `cmp.sule.d`, `cmp.or.d`, `cmp.une.d`, `cmp.ne.d`, `cmp.sor.d`, `cmp.sune.d`,
+  `cmp.sne.d`. -/
+  | cmpD (cond fd fs ft : W32)
+  /-- `BC1EQZ ft, offset`: branch with a delay slot if bit 0 of `FPR[ft]` is 0 (COP1, `rs` = 01001,
+  16-bit `offset`; BC1EQZ BC1NEZ, p.54-55). A CTI. -/
+  | bc1eqz (ft off : W32)
+  /-- `BC1NEZ ft, offset`: branch with a delay slot if bit 0 of `FPR[ft]` is 1 (COP1, `rs` = 01101;
+  p.54-55). A CTI. -/
+  | bc1nez (ft off : W32)
+  /-- `SEL.S fd, fs, ft`: `FPR[fd] ← FPR[fd].bit0 ? FPR[ft] : FPR[fs]` (fmt = S, funct 0x10; SEL.fmt,
+  p.368). -/
+  | selS (fd fs ft : W32)
+  /-- `SEL.D` (fmt = D, funct 0x10; p.368). -/
+  | selD (fd fs ft : W32)
+  /-- `SELEQZ.S fd, fs, ft`: `FPR[fd] ← FPR[ft].bit0 ? 0 : FPR[fs]` (fmt = S, funct 0x14;
+  SELEQZ.fmt SELNEQZ.fmt, p.371). -/
+  | seleqzS (fd fs ft : W32)
+  /-- `SELEQZ.D` (fmt = D, funct 0x14; p.371). -/
+  | seleqzD (fd fs ft : W32)
+  /-- `SELNEZ.S fd, fs, ft`: `FPR[fd] ← FPR[ft].bit0 ? FPR[fs] : 0` (fmt = S, funct 0x17; p.371). -/
+  | selnezS (fd fs ft : W32)
+  /-- `SELNEZ.D` (fmt = D, funct 0x17; p.371). -/
+  | selnezD (fd fs ft : W32)
+  /-- `MADDF.S fd, fs, ft`: `FPR[fd] ← FPR[fd] + FPR[fs] × FPR[ft]`, fused (fmt = S, funct 0x18;
+  MADDF.fmt MSUBF.fmt, p.259-260). -/
+  | maddfS (fd fs ft : W32)
+  /-- `MADDF.D` (fmt = D, funct 0x18; p.259-260). -/
+  | maddfD (fd fs ft : W32)
+  /-- `MSUBF.S fd, fs, ft`: `FPR[fd] ← FPR[fd] − FPR[fs] × FPR[ft]`, fused (fmt = S, funct 0x19;
+  p.259-260). -/
+  | msubfS (fd fs ft : W32)
+  /-- `MSUBF.D` (fmt = D, funct 0x19; p.259-260). -/
+  | msubfD (fd fs ft : W32)
+  /-- `MAX.S fd, fs, ft`: `maxNum(FPR[fs], FPR[ft])` (fmt = S, funct 0x1e; MAX.fmt MIN.fmt MAXA.fmt
+  MINA.fmt, p.262-265). -/
+  | maxS (fd fs ft : W32)
+  /-- `MAX.D` (fmt = D, funct 0x1e; p.262-265). -/
+  | maxD (fd fs ft : W32)
+  /-- `MIN.S fd, fs, ft`: `minNum(FPR[fs], FPR[ft])` (fmt = S, funct 0x1c; p.262-265). -/
+  | minS (fd fs ft : W32)
+  /-- `MIN.D` (fmt = D, funct 0x1c; p.262-265). -/
+  | minD (fd fs ft : W32)
+  /-- `MAXA.S fd, fs, ft`: `maxNumMag(FPR[fs], FPR[ft])` (fmt = S, funct 0x1f; p.262-265). -/
+  | maxaS (fd fs ft : W32)
+  /-- `MAXA.D` (fmt = D, funct 0x1f; p.262-265). -/
+  | maxaD (fd fs ft : W32)
+  /-- `MINA.S fd, fs, ft`: `minNumMag(FPR[fs], FPR[ft])` (fmt = S, funct 0x1d; p.262-265). -/
+  | minaS (fd fs ft : W32)
+  /-- `MINA.D` (fmt = D, funct 0x1d; p.262-265). -/
+  | minaD (fd fs ft : W32)
+  /-- `CLASS.S fd, fs`: the 10-bit class mask of `FPR[fs]` (fmt = S, `ft` = 0, funct 0x1b; CLASS.fmt,
+  p.132-133). -/
+  | classS (fd fs : W32)
+  /-- `CLASS.D` (fmt = D, funct 0x1b; p.132-133). -/
+  | classD (fd fs : W32)
+  /-- `RINT.S fd, fs`: round to an integral value in the same format, per FCSR.RM (fmt = S, `ft` = 0,
+  funct 0x1a; RINT.fmt, p.337-338). -/
+  | rintS (fd fs : W32)
+  /-- `RINT.D` (fmt = D, funct 0x1a; p.337-338). -/
+  | rintD (fd fs : W32)
+  -- END R6-6B
   deriving Repr, DecidableEq
 
 /-- Extract the 6-bit opcode field (bits 31..26), zero-extended to a `W32`. -/
@@ -902,11 +977,69 @@ def decodeCop0 (w : W32) : Option Instruction :=
   | 0x0e => decodeIf (z shamt && z (functOf w)) (.wrpgpr rd rt)
   | _ => none
 
+-- BEGIN R6-6B
+/-- The Release 6 COP1 functions of one format (S or D) that take `fd, fs, ft`, or `fd, fs` with
+`ft = 0` (`unary`). -/
+structure R6Cop1Fmt where
+  sel : W32 → W32 → W32 → Instruction
+  seleqz : W32 → W32 → W32 → Instruction
+  selnez : W32 → W32 → W32 → Instruction
+  maddf : W32 → W32 → W32 → Instruction
+  msubf : W32 → W32 → W32 → Instruction
+  min : W32 → W32 → W32 → Instruction
+  mina : W32 → W32 → W32 → Instruction
+  max : W32 → W32 → W32 → Instruction
+  maxa : W32 → W32 → W32 → Instruction
+  rint : W32 → W32 → Instruction
+  cls : W32 → W32 → Instruction
+
+/-- Format S. -/
+def decodeR6FmtS : R6Cop1Fmt :=
+  { sel := .selS, seleqz := .seleqzS, selnez := .selnezS, maddf := .maddfS, msubf := .msubfS,
+    min := .minS, mina := .minaS, max := .maxS, maxa := .maxaS, rint := .rintS, cls := .classS }
+
+/-- Format D. -/
+def decodeR6FmtD : R6Cop1Fmt :=
+  { sel := .selD, seleqz := .seleqzD, selnez := .selnezD, maddf := .maddfD, msubf := .msubfD,
+    min := .minD, mina := .minaD, max := .maxD, maxa := .maxaD, rint := .rintD, cls := .classD }
+
+/-- The Release 6 functions of `fmt = S`/`D` (Table A.15, p.456; the MIN/MINA/MAX/MAXA values of
+the page diagrams, p.262; SEL p.368, SELEQZ/SELNEZ p.371, MADDF/MSUBF p.259, RINT p.337 and CLASS
+p.132 with `ft = 00000`), keyed by the function field `f`; `fd` = `sa`, `fs` = `rd`, `ft` = `rt`. -/
+def decodeR6Fmt (t : R6Cop1Fmt) (f : Nat) (fd fs ft : W32) : Option Instruction :=
+  match f with
+  | 0x10 => some (t.sel fd fs ft)
+  | 0x14 => some (t.seleqz fd fs ft)
+  | 0x17 => some (t.selnez fd fs ft)
+  | 0x18 => some (t.maddf fd fs ft)
+  | 0x19 => some (t.msubf fd fs ft)
+  | 0x1a => decodeIf (ft == 0#32) (t.rint fd fs)
+  | 0x1b => decodeIf (ft == 0#32) (t.cls fd fs)
+  | 0x1c => some (t.min fd fs ft)
+  | 0x1d => some (t.mina fd fs ft)
+  | 0x1e => some (t.max fd fs ft)
+  | 0x1f => some (t.maxa fd fs ft)
+  | _ => none
+
+/-- The `condn` values of CMP.condn.fmt that are instructions (MD00086 Vol II-A Rev 6.06, Table A.17,
+p.457: functions `000000`-`001111` and `010001`-`010011`, `011001`-`011011`; "All encodings of the
+condn field that are not specified ... are reserved in Release 6 and produce a Reserved Instruction
+exception", CMP.condn.fmt, p.136). -/
+def cmpCondns : List Nat := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27]
+
+/-- Whether `c` is one of `cmpCondns`. -/
+def cmpCondnOK (c : W32) : Bool := cmpCondns.contains c.toNat
+-- END R6-6B
+
 /-- **COP1** `fmt = S` (`rs` = 0x10), keyed by `funct` (Table A.15, p.456). Fields: `ft` = `rt`,
 `fs` = `rd`, `fd` = `sa`; unary operations require `ft = 0`. Release 6 removed MOVCF (0x11),
 MOVZ/MOVN (0x12/0x13) and C.cond.fmt (0x30-0x3f).
--- W6: SEL (0x10), SELEQZ (0x14), SELNEZ (0x17), MADDF/MSUBF (0x18/0x19), RINT (0x1a), CLASS
---     (0x1b), MIN/MINA/MAX/MAXA (0x1c-0x1f). -/
+-- BEGIN R6-6B
+Release 6 adds SEL 0x10, SELEQZ 0x14, SELNEZ 0x17, MADDF 0x18, MSUBF 0x19, RINT 0x1a and CLASS 0x1b
+(`ft = 0`), MIN 0x1c, MINA 0x1d, MAX 0x1e, MAXA 0x1f (`decodeR6Fmt`). The function values of MIN/MINA/
+MAX/MAXA are those of the instruction page's diagrams (MAX.fmt, p.262: MIN `011100`, MINA `011101`,
+MAX `011110`, MAXA `011111`); Table A.15 (p.456) prints MIN, MAX, MINA, MAXA in that order instead.
+-- END R6-6B -/
 def decodeCop1S (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -936,10 +1069,12 @@ def decodeCop1S (w : W32) : Option Instruction :=
   | 0x0b => decodeIf (z rt) (.floorLS shamt rd)
   | 0x25 => decodeIf (z rt) (.cvtLS shamt rd)
   -- END R6-5
-  | _ => none
+  -- BEGIN R6-6B
+  | f => decodeR6Fmt decodeR6FmtS f shamt rd rt
+  -- END R6-6B
 
-/-- **COP1** `fmt = D` (`rs` = 0x11), keyed by `funct` (Table A.16, p.457); as `decodeCop1S`.
--- W6: SEL, SELEQZ, SELNEZ, MADDF, MSUBF, RINT, CLASS, MIN, MINA, MAX, MAXA (.D). -/
+/-- **COP1** `fmt = D` (`rs` = 0x11), keyed by `funct` (Table A.16, p.457); as `decodeCop1S`, with
+the same Release 6 functions (`decodeR6Fmt`). -/
 def decodeCop1D (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -969,11 +1104,18 @@ def decodeCop1D (w : W32) : Option Instruction :=
   | 0x0b => decodeIf (z rt) (.floorLD shamt rd)
   | 0x25 => decodeIf (z rt) (.cvtLD shamt rd)
   -- END R6-5
-  | _ => none
+  -- BEGIN R6-6B
+  | f => decodeR6Fmt decodeR6FmtD f shamt rd rt
+  -- END R6-6B
 
 /-- **COP1** (opcode 0x11), keyed by `rs` (Table A.14, p.456). Release 6 removed BC1 (`rs` =
 0x08: BC1F/BC1T/BC1FL/BC1TL).
--- W6: `rs` 0x09 BC1EQZ, 0x0d BC1NEZ; `fmt = W` / `L` functs 0x00-0x1f: CMP.condn.S / CMP.condn.D. -/
+-- BEGIN R6-6B
+Release 6 adds BC1EQZ (`rs` = 0x09) and BC1NEZ (`rs` = 0x0d) (Table A.14, p.456; BC1EQZ BC1NEZ,
+p.54), and CMP.condn.S / CMP.condn.D encoded with `fmt = W` / `L` and function `0 condn` (Table A.17,
+p.457: "Release 6 introduces the CMP.condn fmt instruction family ... .S and .D for CMP.condn fmt are
+encoded as .W 10100 and .L 10101"); only the `condn` values of Table A.17 decode (`cmpCondnOK`).
+-- END R6-6B -/
 def decodeCop1 (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -993,14 +1135,22 @@ def decodeCop1 (w : W32) : Option Instruction :=
     match (functOf w).toNat with
     | 0x20 => decodeIf (z rt) (.cvtSW shamt rd)
     | 0x21 => decodeIf (z rt) (.cvtDW shamt rd)
-    | _ => none
+    -- BEGIN R6-6B
+    | _ => decodeIf (cmpCondnOK (functOf w)) (.cmpS (functOf w) shamt rd rt)
+    -- END R6-6B
   -- BEGIN R6-5
   | 0x15 =>  -- fmt = L
     match (functOf w).toNat with
     | 0x20 => decodeIf (z rt) (.cvtSL shamt rd)
     | 0x21 => decodeIf (z rt) (.cvtDL shamt rd)
-    | _ => none
+    -- BEGIN R6-6B
+    | _ => decodeIf (cmpCondnOK (functOf w)) (.cmpD (functOf w) shamt rd rt)
+    -- END R6-6B
   -- END R6-5
+  -- BEGIN R6-6B
+  | 0x09 => some (.bc1eqz rt (immOf w))
+  | 0x0d => some (.bc1nez rt (immOf w))
+  -- END R6-6B
   | _ => none
 
 -- BEGIN R6-3
@@ -1324,3 +1474,31 @@ def encode (i : Instruction) : W32 :=
   | .cvtSL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x20#32
   | .cvtDL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x21#32
   -- END R6-5
+  -- BEGIN R6-6B
+  | .cmpS cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x14#32 ft fs fd cond
+  | .cmpD cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x15#32 ft fs fd cond
+  | .bc1eqz ft off => mkIT 0x11#32 0x09#32 ft off
+  | .bc1nez ft off => mkIT 0x11#32 0x0d#32 ft off
+  | .selS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x10#32
+  | .selD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x10#32
+  | .seleqzS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x14#32
+  | .seleqzD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x14#32
+  | .selnezS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x17#32
+  | .selnezD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x17#32
+  | .maddfS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x18#32
+  | .maddfD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x18#32
+  | .msubfS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x19#32
+  | .msubfD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x19#32
+  | .rintS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x1a#32
+  | .rintD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x1a#32
+  | .classS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x1b#32
+  | .classD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x1b#32
+  | .minS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1c#32
+  | .minD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1c#32
+  | .minaS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1d#32
+  | .minaD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1d#32
+  | .maxS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1e#32
+  | .maxD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1e#32
+  | .maxaS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1f#32
+  | .maxaD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1f#32
+  -- END R6-6B

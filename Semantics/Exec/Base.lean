@@ -86,6 +86,12 @@ def isBranchLike (instr : Instruction) : Bool :=
   | .blezalc _ _ | .bgezalc _ _ | .bgtzalc _ _ | .bltzalc _ _ | .beqzalc _ _ | .bnezalc _ _
   | .bovc _ _ _ | .bnvc _ _ _ | .jic _ _ | .jialc _ _ => true
   -- END R6-3
+  -- BEGIN R6-6B
+  -- BC1EQZ/BC1NEZ: "If a control transfer instruction (CTI) is executed in the delay slot of a branch
+  -- or jump, Release 6 implementations are required to signal a Reserved Instruction exception"
+  -- (MD00086 Vol II-A Rev 6.06, BC1EQZ BC1NEZ, p.54).
+  | .bc1eqz _ _ | .bc1nez _ _ => true
+  -- END R6-6B
   | _ => false
 
 /-- Signed-overflow predicate for `add`/`addi`, following INSTRUCTION-REF's
@@ -320,6 +326,14 @@ def usesCop1 (instr : Instruction) : Bool :=
   | .cvtLS _ _ | .cvtLD _ _ | .roundLS _ _ | .roundLD _ _ | .truncLS _ _ | .truncLD _ _
   | .ceilLS _ _ | .ceilLD _ _ | .floorLS _ _ | .floorLD _ _ | .cvtSL _ _ | .cvtDL _ _ => true
   -- END R6-5
+  -- BEGIN R6-6B
+  | .cmpS _ _ _ _ | .cmpD _ _ _ _ | .bc1eqz _ _ | .bc1nez _ _
+  | .selS _ _ _ | .selD _ _ _ | .seleqzS _ _ _ | .seleqzD _ _ _ | .selnezS _ _ _ | .selnezD _ _ _
+  | .maddfS _ _ _ | .maddfD _ _ _ | .msubfS _ _ _ | .msubfD _ _ _
+  | .maxS _ _ _ | .maxD _ _ _ | .minS _ _ _ | .minD _ _ _
+  | .maxaS _ _ _ | .maxaD _ _ _ | .minaS _ _ _ | .minaD _ _ _
+  | .classS _ _ | .classD _ _ | .rintS _ _ | .rintD _ _ => true
+  -- END R6-6B
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 1's encoding space: opcode COP1
