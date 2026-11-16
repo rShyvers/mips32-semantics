@@ -293,10 +293,26 @@ def toExact (f : Format) (n : Nat) : Exact :=
 /-- **An input operand under `FCSR.FS`** (`fl`): with `FS = 1` "As of Release 5, every input
 subnormal value is replaced with zero of the same sign" (MD00082 Vol I-A Rev 6.01 Table 6.8, `FS`,
 p.93; Release 6 is later than Release 5, so this is required); otherwise the operand unchanged.
-Applied to every floating-point operand of an arithmetic operation or conversion (not to the
-non-arithmetic `MOV`, `ABS`, `NEG`, which only copy or change the sign bit). -/
+Applied to every floating-point operand of an arithmetic operation, conversion or comparison (not to
+the non-arithmetic `MOV`, `ABS`, `NEG`, which only copy or change the sign bit); the Inexact this
+signals outside the comparisons is `flushFlags`. -/
 def flushIn (f : Format) (fl : Bool) (n : Nat) : Nat :=
   if fl && f.isSubnormal n then f.zero (f.signBit n) else n
+
+/-- **The exception signaled by flushing the input operands `ops`** under FCSR.FS (`fl`): Inexact iff
+`fl` and some operand is subnormal, nothing else. "Flushing of subnormal input operands in all
+instructions except comparisons causes Inexact exception to be signaled"; "For floating-point
+comparisons, the Inexact exception is not signaled when subnormal input operands are flushed"
+(MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). Every arithmetic operation and conversion of this file
+that flushes its operands (`flushIn`) ORs these flags into its own (`withFlush`); the comparisons
+(`f32Cmp`/`f64Cmp` callers, `f32MinMax`/`f64MinMax`) do not. -/
+def flushFlags (f : Format) (fl : Bool) (ops : List Nat) : Flags :=
+  { inexact := fl && ops.any (fun n => f.isSubnormal n) }
+
+/-- An operation's result on the flushed operands, with the flags of flushing the original operands
+`ops` (`flushFlags`) ORed into its own. -/
+def withFlush {α : Type} (f : Format) (fl : Bool) (ops : List Nat) (r : α × Flags) : α × Flags :=
+  (r.1, r.2.or (f.flushFlags fl ops))
 
 /-! ## §4  Correctly rounded packing -/
 
@@ -549,20 +565,20 @@ def toExact64 (x : BitVec 64) : Exact := binary64.toExact x.toNat
 `FLOOR.W.S` = `.RM`, `CVT.W.S` = the current FCSR.RM), the operand flushed when
 `fl` (FCSR.FS, `Format.flushIn`).  See `Format.toW32`. -/
 def f32ToW32 (rm : RoundingMode) (fl : Bool) (x : BitVec 32) : BitVec 32 × Flags :=
-  binary32.toW32 rm (binary32.flushIn fl x.toNat)
+  binary32.withFlush fl [x.toNat] (binary32.toW32 rm (binary32.flushIn fl x.toNat))
 
 /-- Double → signed 32-bit word (`ROUND/TRUNC/CEIL/FLOOR/CVT.W.D`).
 See `Format.toW32`. -/
 def f64ToW32 (rm : RoundingMode) (fl : Bool) (x : BitVec 64) : BitVec 32 × Flags :=
-  binary64.toW32 rm (binary64.flushIn fl x.toNat)
+  binary64.withFlush fl [x.toNat] (binary64.toW32 rm (binary64.flushIn fl x.toNat))
 
 /-- Single → signed 64-bit longword (`ROUND/TRUNC/CEIL/FLOOR/CVT.L.S`). See `Format.toFixed`. -/
 def f32ToW64 (rm : RoundingMode) (fl : Bool) (x : BitVec 32) : BitVec 64 × Flags :=
-  binary32.toW64 rm (binary32.flushIn fl x.toNat)
+  binary32.withFlush fl [x.toNat] (binary32.toW64 rm (binary32.flushIn fl x.toNat))
 
 /-- Double → signed 64-bit longword (`ROUND/TRUNC/CEIL/FLOOR/CVT.L.D`). See `Format.toFixed`. -/
 def f64ToW64 (rm : RoundingMode) (fl : Bool) (x : BitVec 64) : BitVec 64 × Flags :=
-  binary64.toW64 rm (binary64.flushIn fl x.toNat)
+  binary64.withFlush fl [x.toNat] (binary64.toW64 rm (binary64.flushIn fl x.toNat))
 
 /-! ## §6  Format conversions -/
 
@@ -570,7 +586,8 @@ def f64ToW64 (rm : RoundingMode) (fl : Bool) (x : BitVec 64) : BitVec 64 × Flag
 mode needed); the operand flushed when `fl` (FCSR.FS, `Format.flushIn`); NaN per
 `Format.convertNaN` (payload widened and made quiet; Invalid for a signaling NaN). -/
 def f32ToF64 (fl : Bool) (x : BitVec 32) : BitVec 64 × Flags :=
-  let r := Format.convert binary32 binary64 Env.RN (binary32.flushIn fl x.toNat)
+  let r := binary32.withFlush fl [x.toNat]
+    (Format.convert binary32 binary64 Env.RN (binary32.flushIn fl x.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 
 /-- `CVT.S.D`: double → single, correctly rounded under `e`, with
@@ -578,7 +595,8 @@ Overflow / Underflow / Inexact (see `Format.roundCore`); the operand flushed und
 `e.flush` (`Format.flushIn`); NaN per `Format.convertNaN` (payload truncated and
 made quiet; Invalid for a signaling NaN). -/
 def f64ToF32 (e : Env) (x : BitVec 64) : BitVec 32 × Flags :=
-  let r := Format.convert binary64 binary32 e (binary64.flushIn e.flush x.toNat)
+  let r := binary64.withFlush e.flush [x.toNat]
+    (Format.convert binary64 binary32 e (binary64.flushIn e.flush x.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 
 /-- `CVT.S.W`: signed 32-bit word → single, correctly rounded under `e`
@@ -984,7 +1002,9 @@ pin (SPEC-NOTES), the one QEMU `mips32r6-generic` implements.
 
 Subnormal operands are flushed to zero when FCSR.FS = 1 (`Format.flushIn`, applied by the
 `f32*`/`f64*` wrappers: "As of Release 5, every input subnormal value is replaced with zero of the
-same sign", Table 6.8, p.93). The model never raises Unimplemented Operation. -/
+same sign", Table 6.8, p.93), and the flush signals Inexact (`Format.withFlush`: "Flushing of subnormal
+input operands in all instructions except comparisons causes Inexact exception to be signaled",
+§6.7.2.4, p.102). The model never raises Unimplemented Operation. -/
 
 /-- Integer square root by binary digit recurrence, structural on the bit
 index: `isqrtAux n i r` extends the partial root `r` with bits `i-1 … 0`. -/
@@ -1111,46 +1131,54 @@ end Format
 
 /-- `ADD.S`. -/
 def f32Add (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.add e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
+  let r := binary32.withFlush e.flush [a.toNat, b.toNat]
+    (binary32.add e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 /-- `SUB.S`. -/
 def f32Sub (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.sub e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
+  let r := binary32.withFlush e.flush [a.toNat, b.toNat]
+    (binary32.sub e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 /-- `MUL.S`. -/
 def f32Mul (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.mul e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
+  let r := binary32.withFlush e.flush [a.toNat, b.toNat]
+    (binary32.mul e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 /-- `DIV.S`. -/
 def f32Div (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.div e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
+  let r := binary32.withFlush e.flush [a.toNat, b.toNat]
+    (binary32.div e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 /-- `SQRT.S`. -/
 def f32Sqrt (e : Env) (a : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.sqrt e (binary32.flushIn e.flush a.toNat)
+  let r := binary32.withFlush e.flush [a.toNat] (binary32.sqrt e (binary32.flushIn e.flush a.toNat))
   (BitVec.ofNat 32 r.1, r.2)
 
 /-! ### Double precision -/
 
 /-- `ADD.D`. -/
 def f64Add (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.add e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
+  let r := binary64.withFlush e.flush [a.toNat, b.toNat]
+    (binary64.add e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 /-- `SUB.D`. -/
 def f64Sub (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.sub e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
+  let r := binary64.withFlush e.flush [a.toNat, b.toNat]
+    (binary64.sub e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 /-- `MUL.D`. -/
 def f64Mul (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.mul e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
+  let r := binary64.withFlush e.flush [a.toNat, b.toNat]
+    (binary64.mul e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 /-- `DIV.D`. -/
 def f64Div (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.div e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
+  let r := binary64.withFlush e.flush [a.toNat, b.toNat]
+    (binary64.div e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 /-- `SQRT.D`. -/
 def f64Sqrt (e : Env) (a : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.sqrt e (binary64.flushIn e.flush a.toNat)
+  let r := binary64.withFlush e.flush [a.toNat] (binary64.sqrt e (binary64.flushIn e.flush a.toNat))
   (BitVec.ofNat 64 r.1, r.2)
 
 /-! ### Reciprocal, reciprocal square root
@@ -1181,5 +1209,190 @@ def f64Rsqrt (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
 
 /-- `CVT.D.W` with flags (always exact: no flag is ever raised). -/
 def w32ToF64F (x : BitVec 32) : BitVec 64 × Flags := (w32ToF64 x, Flags.none)
+
+-- BEGIN R6-6B
+/-! ## §10  `CMP.condn.fmt` (MD00086 Vol II-A Rev 6.06, p.136-140)
+
+The Release 6 compare writes a mask instead of a condition code. Its `condn` field (bits 4..0) is
+read as in the Operation (p.140): `condition ← cond4 xor ((cond2 and less) or (cond1 and equal) or
+(cond0 and unordered))`; Invalid Operation when an operand is an SNaN, or when `cond3` (signalling)
+is set and an operand is a QNaN. Which `condn` values are implemented (22 of 32) is the decoder's
+business (Table 3.9, p.138-139). -/
+
+/-- The `CMP.condn.fmt` predicate on the ordering relation (p.140). -/
+def cmpCondition (condn : BitVec 5) (unordered less equal : Bool) : Bool :=
+  condn.getLsbD 4 ^^ fpCompare (condn.setWidth 4) unordered less equal
+
+/-- `CMP.condn.S`: the predicate value and the flags raised, on the operands as given. This function
+takes no FCSR environment; with FCSR.FS = 1 the caller passes the flushed operands (`Format.flushIn`;
+MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102: inputs are flushed, and "For floating-point comparisons,
+the Inexact exception is not signaled when subnormal input operands are flushed"). -/
+def f32Cmp (condn : BitVec 5) (a b : BitVec 32) : Bool × Flags :=
+  let r := f32Relation a b
+  (cmpCondition condn r.unordered r.less r.equal,
+    { invalid := fpCompareInvalid (condn.setWidth 4) r.unordered (isSNaN32 a || isSNaN32 b) })
+
+/-- `CMP.condn.D`: the predicate value and the flags raised. -/
+def f64Cmp (condn : BitVec 5) (a b : BitVec 64) : Bool × Flags :=
+  let r := f64Relation a b
+  (cmpCondition condn r.unordered r.less r.equal,
+    { invalid := fpCompareInvalid (condn.setWidth 4) r.unordered (isSNaN64 a || isSNaN64 b) })
+-- END R6-6B
+
+-- BEGIN R6-6C
+/-! ## §11  `MAX`/`MIN`/`MAXA`/`MINA.fmt`, `CLASS.fmt`, `RINT.fmt` (MD00086 Vol II-A Rev 6.06,
+p.262-265, p.132, p.337) -/
+
+namespace Format
+
+/-- The four operations of MAX/MIN/MAXA/MINA.fmt (p.262). -/
+inductive MinMaxOp where
+  | max | min | maxa | mina
+  deriving DecidableEq, Repr
+
+/-- The numeric choice of MAX/MIN/MAXA/MINA on two non-NaN operands (`MaxFP`, `MinFP`,
+`MaxAbsoluteFP`, `MinAbsoluteFP`, p.264): `true` = the result is `a` (`fs`). Equal magnitudes fall
+back to MAX resp. MIN; `-0.0 < 0.0` (Table 4.1, p.264). -/
+def minMaxPickA (f : Format) (op : MinMaxOp) (a b : Nat) : Bool :=
+  let ka := f.orderKey a
+  let kb := f.orderKey b
+  -- signed order with `-0 < +0`
+  let lt : Bool := decide (ka < kb) || (decide (ka = kb) && f.signBit a && !f.signBit b)
+  let gt : Bool := decide (kb < ka) || (decide (ka = kb) && f.signBit b && !f.signBit a)
+  let ma := a % 2 ^ (f.expBits + f.fracBits)
+  let mb := b % 2 ^ (f.expBits + f.fracBits)
+  match op with
+  | .max => !lt
+  | .min => !gt
+  | .maxa => decide (mb < ma) || (decide (ma = mb) && !lt)
+  | .mina => decide (ma < mb) || (decide (ma = mb) && !gt)
+
+/-- MAX/MIN/MAXA/MINA.fmt (p.263-265): Invalid Operation iff an operand is an SNaN; both NaN → `a`
+(`fs`); one NaN → the other operand; NaNs are not made quiet ("Treat as if the SNaN were a QNaN (do
+not quieten the result)", Table 4.1, p.265). -/
+def minMax (f : Format) (op : MinMaxOp) (a b : Nat) : Nat × Flags :=
+  let fl : Flags := { invalid := f.isSNaN a || f.isSNaN b }
+  if f.isNaN a && f.isNaN b then (a, fl)
+  else if f.isNaN a then (b, fl)
+  else if f.isNaN b then (a, fl)
+  else (if f.minMaxPickA op a b then a else b, fl)
+
+/-- CLASS.fmt (p.132): the 10-bit class mask. Bit 0 SNaN, 1 QNaN, 2..5 negative infinity / normal /
+subnormal / zero, 6..9 positive infinity / normal / subnormal / zero. -/
+def classMask (f : Format) (a : Nat) : Nat :=
+  let s := f.signBit a
+  let off : Nat := if s then 2 else 6
+  if f.isSNaN a then 1
+  else if f.isQNaN a then 2
+  else if f.isInf a then 2 ^ off
+  else if f.isZero a then 2 ^ (off + 3)
+  else if f.isSubnormal a then 2 ^ (off + 2)
+  else 2 ^ (off + 1)
+
+/-- RINT.fmt (p.337): round to an integral value in the same format, in the rounding mode `e.rm`;
+Inexact iff the result differs from the operand (roundToIntegralExact). NaN operands as the
+arithmetic operations; infinities and zeros are returned unchanged. With FCSR.FS = 1 a subnormal
+operand is replaced with the zero of its sign and Inexact is signaled ("As of Release 5, every input
+subnormal value is replaced with zero of the same sign"; "Flushing of subnormal input operands in all
+instructions except comparisons causes Inexact exception to be signaled", MD00082 Vol I-A Rev 6.01
+§6.7.2.4, p.102; RINT is a conversion instruction, Table 7.10, p.110). -/
+def rint (f : Format) (e : Env) (a : Nat) : Nat × Flags :=
+  if f.isNaN a then (f.nanResult [a], f.nanFlags [a])
+  else if f.isInf a || f.isZero a then (a, Flags.none)
+  else if e.flush && f.isSubnormal a then (f.zero (f.signBit a), Flags.inexactOnly)
+  else
+    let v := f.toExact a
+    let i := roundToInt e.rm v
+    ((f.roundEnv e ⟨f.signBit a, i.natAbs, 0⟩).1, { inexact := !v.isIntegral })
+
+end Format
+
+/-- `MAX/MIN/MAXA/MINA.S`; the operands flushed under FCSR.FS (`Format.flushIn`: "As of Release 5,
+every input subnormal value is replaced with zero of the same sign", MD00082 Vol I-A Rev 6.01
+Table 6.8, `FS`, p.93, and §6.7.2.4, p.102), without Inexact: MAX/MIN/MAXA/MINA are listed among the
+"Floating Point Comparison Instructions" (Table 7.9, p.110), and "For floating-point comparisons, the
+Inexact exception is not signaled when subnormal input operands are flushed" (p.102). -/
+def f32MinMax (op : Format.MinMaxOp) (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.minMax op (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `MAX/MIN/MAXA/MINA.D`. -/
+def f64MinMax (op : Format.MinMaxOp) (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.minMax op (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
+  (BitVec.ofNat 64 r.1, r.2)
+/-- `CLASS.S` (the mask, zero-extended to 32 bits; not affected by `FCSR.FS`, p.132). -/
+def f32Class (a : BitVec 32) : BitVec 32 := BitVec.ofNat 32 (binary32.classMask a.toNat)
+/-- `CLASS.D`. -/
+def f64Class (a : BitVec 64) : BitVec 64 := BitVec.ofNat 64 (binary64.classMask a.toNat)
+/-- `RINT.S` (FCSR.FS input flushing inside `Format.rint`, which signals Inexact for it). -/
+def f32Rint (e : Env) (a : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.rint e a.toNat
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `RINT.D`. -/
+def f64Rint (e : Env) (a : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.rint e a.toNat
+  (BitVec.ofNat 64 r.1, r.2)
+-- END R6-6C
+
+-- BEGIN R6-6A
+/-! ## §12  Fused multiply-add: `MADDF.fmt`, `MSUBF.fmt` (MD00086 Vol II-A Rev 6.06, p.259-260)
+
+`MADDF: FPR[fd] ← FPR[fd] + (FPR[fs] × FPR[ft])`, `MSUBF: FPR[fd] ← FPR[fd] − (FPR[fs] × FPR[ft])`;
+"The intermediate product is calculated to infinite precision. ... The result sum is calculated to
+infinite precision, rounded according to the current rounding mode in FCSR" (p.259): one rounding of
+the exact `c ± a·b`. -/
+
+namespace Format
+
+/-- `a × b` is `0 × ∞` or `∞ × 0` (any signs; `false` when an operand is a NaN). -/
+def infTimesZero (f : Format) (a b : Nat) : Bool :=
+  (f.isInf a && f.isZero b) || (f.isZero a && f.isInf b)
+
+/-- Fused `c + a·b` (`sub = false`) or `c − a·b` (`sub = true`); `c` = `fd`, `a` = `fs`, `b` = `ft`.
+
+* A NaN operand: the NaN rule of the arithmetic operations (`nanResult`) over the operands in the
+  order `[c, a, b]` (the first signaling NaN made quiet, else the first quiet NaN; the order QEMU
+  `mips32r6-generic` uses with `NAN2008 = 1`). Invalid iff a signaling NaN, **or `a × b` is `0 × ∞`**:
+  "Multiplication: 0 × ∞, with any signs" is invalid (MD00082 Vol I-A Rev 6.01 §6.7.2.1, p.100);
+  IEEE Std 754-2019 §7.2 c), p.52 leaves it "implementation defined" when `c` is a quiet NaN. Model
+  pin: signaled (what QEMU `mips32r6-generic` does), the result is still the NaN of `nanResult`.
+* `0 × ∞` (no NaN): Invalid, the default QNaN.
+* An infinite product: `(±∞) + (∓∞)` is invalid ("magnitude subtraction of infinities", §6.7.2.1),
+  otherwise the infinity, exactly (§6.3.1.3). A finite product and `c = ±∞`: `c`, exactly.
+* Otherwise the exact `c ± a·b` (`Exact.add`: an exact zero sum of opposite-signed terms is `+0`,
+  `−0` in RM; IEEE Std 754-2019 §6.3, p.50 applies this to fusedMultiplyAdd) rounded once. -/
+def fma (f : Format) (e : Env) (sub : Bool) (c a b : Nat) : Nat × Flags :=
+  if f.isNaN c || f.isNaN a || f.isNaN b then
+    (f.nanResult [c, a, b], { invalid := [c, a, b].any (fun x => f.isSNaN x) || f.infTimesZero a b })
+  else if f.infTimesZero a b then (f.defaultQNaN, Flags.invalidOnly)
+  else
+    let ps : Bool := (f.signBit a != f.signBit b) != sub
+    if f.isInf a || f.isInf b then
+      if f.isInf c && f.signBit c != ps then (f.defaultQNaN, Flags.invalidOnly)
+      else (f.inf ps, Flags.none)
+    else if f.isInf c then (c, Flags.none)
+    else
+      let p := Exact.mul (f.toExact a) (f.toExact b)
+      f.roundEnv e (Exact.add e.rm (f.toExact c) { p with sign := ps })
+
+end Format
+
+/-- `MADDF.S` (`sub = false`) / `MSUBF.S` (`sub = true`): `c ± a·b` with one rounding, each operand
+flushed under FCSR.FS first (`flushIn`, as for every arithmetic operation: "subnormals are flushed before
+beginning the fused-multiply-add computation", MADDF.fmt p.260), and the flush signals Inexact ORed
+with the flags of the fused operation (`withFlush`: "Inexact may be signaled both by input flushing
+and/or by the fused-multiply-add: the conditions or ORed", p.260; MD00082 Vol I-A Rev 6.01 §6.7.2.4,
+p.102). -/
+def f32Fma (e : Env) (sub : Bool) (c a b : BitVec 32) : BitVec 32 × Flags :=
+  let r := binary32.withFlush e.flush [c.toNat, a.toNat, b.toNat]
+    (binary32.fma e sub (binary32.flushIn e.flush c.toNat) (binary32.flushIn e.flush a.toNat)
+      (binary32.flushIn e.flush b.toNat))
+  (BitVec.ofNat 32 r.1, r.2)
+/-- `MADDF.D` / `MSUBF.D`. -/
+def f64Fma (e : Env) (sub : Bool) (c a b : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.withFlush e.flush [c.toNat, a.toNat, b.toNat]
+    (binary64.fma e sub (binary64.flushIn e.flush c.toNat) (binary64.flushIn e.flush a.toNat)
+      (binary64.flushIn e.flush b.toNat))
+  (BitVec.ofNat 64 r.1, r.2)
+-- END R6-6A
 
 end Mips.Fp

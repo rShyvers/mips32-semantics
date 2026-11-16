@@ -256,6 +256,10 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .cvtSD .., _ | .cvtSW .., _ | .cvtSL .., _ => true
   | .cvtDS _ fs, a => Mips.Fp.isQNaN32 ((a.FPR (reg fs)).extractLsb' 0 32)
   -- END R6-5
+  -- BEGIN R6-6B: the 32-bit FPR results of the Release 6 FP instructions (`fprUpper`)
+  | .cmpS .., _ | .selS .., _ | .seleqzS .., _ | .selnezS .., _ | .maddfS .., _ | .msubfS .., _
+  | .maxS .., _ | .minS .., _ | .maxaS .., _ | .minaS .., _ | .classS .., _ | .rintS .., _ => true
+  -- END R6-6B
   -- BEGIN R6-4
   | .lwpc .., a => a.LLbit
   | .div _ rt rd, a | .mod _ rt rd, a | .divu _ rt rd, a | .modu _ rt rd, a =>

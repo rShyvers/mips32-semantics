@@ -39,9 +39,7 @@ p.290.)
 pre-Release 6 encodings Release 6 removed or moved ("6R"/"6Rm" in the opcode tables: "6Rm and 6R
 instructions signal a Reserved Instruction exception when executed by a Release 6 implementation. If the
 encoding has been used for a new instruction or coprocessor, the unusable exception takes priority",
-MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the Release 6 instructions of later waves
-(-- W6: the new FP instructions),
-which decode as `.reserved` until transcribed; the TLB instructions, which under the Fixed Mapping MMU
+MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the TLB instructions, which under the Fixed Mapping MMU
 "are no longer required and must cause a Reserved Instruction Exception" (MD00090 Vol III Rev 6.02
 §A.1.3, p.317; TLBINV/TLBINVF with `Config4.IE = 0`, DECISIONS D4); the EJTAG instructions
 `SDBBP`/`DERET`, optional and subsetted out ("If EJTAG is not implemented, the EJTAG instructions
@@ -83,7 +81,8 @@ SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6, the 2-bit `sa` 
 (Release 6 makes PAUSE a CTI with its own Operation, PAUSE p.317). The Release 6 compact branches
 read the 26-bit `offset` of BC/BALC at 25..0 and the 21-bit `offset` of BEQZC/BNEZC at 20..0; the
 compact branches sharing an opcode are separated by the constraints of their diagrams (`encIf`), so
-at most one of them has the diagram `w`. -/
+at most one of them has the diagram `w`. R6-6B: `CMP.condn.fmt` reads `condn` at 4..0 (p.136); its
+diagram holds only for the `condn` values of Table A.17 (`CmpCondnOK`). -/
 def candidates (w : W32) : List Instruction :=
   let f := fieldAt w
   [ .pause,
@@ -267,8 +266,36 @@ def candidates (w : W32) : List Instruction :=
     .cvtLS (f 10 6) (f 15 11),
     .cvtLD (f 10 6) (f 15 11),
     .cvtSL (f 10 6) (f 15 11),
-    .cvtDL (f 10 6) (f 15 11)
+    .cvtDL (f 10 6) (f 15 11),
     -- END R6-5
+    -- BEGIN R6-6B
+    .cmpS (f 4 0) (f 10 6) (f 15 11) (f 20 16),
+    .cmpD (f 4 0) (f 10 6) (f 15 11) (f 20 16),
+    .bc1eqz (f 20 16) (f 15 0),
+    .bc1nez (f 20 16) (f 15 0),
+    .selS (f 10 6) (f 15 11) (f 20 16),
+    .selD (f 10 6) (f 15 11) (f 20 16),
+    .seleqzS (f 10 6) (f 15 11) (f 20 16),
+    .seleqzD (f 10 6) (f 15 11) (f 20 16),
+    .selnezS (f 10 6) (f 15 11) (f 20 16),
+    .selnezD (f 10 6) (f 15 11) (f 20 16),
+    .maddfS (f 10 6) (f 15 11) (f 20 16),
+    .maddfD (f 10 6) (f 15 11) (f 20 16),
+    .msubfS (f 10 6) (f 15 11) (f 20 16),
+    .msubfD (f 10 6) (f 15 11) (f 20 16),
+    .rintS (f 10 6) (f 15 11),
+    .rintD (f 10 6) (f 15 11),
+    .classS (f 10 6) (f 15 11),
+    .classD (f 10 6) (f 15 11),
+    .minS (f 10 6) (f 15 11) (f 20 16),
+    .minD (f 10 6) (f 15 11) (f 20 16),
+    .minaS (f 10 6) (f 15 11) (f 20 16),
+    .minaD (f 10 6) (f 15 11) (f 20 16),
+    .maxS (f 10 6) (f 15 11) (f 20 16),
+    .maxD (f 10 6) (f 15 11) (f 20 16),
+    .maxaS (f 10 6) (f 15 11) (f 20 16),
+    .maxaD (f 10 6) (f 15 11) (f 20 16)
+    -- END R6-6B
     ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an

@@ -150,7 +150,7 @@ theorem f32Recip_error (e : Env) (he : e.flush = false) {x : BitVec 32} {y : Rat
         (r - 1 / y).abs ≤ (2 : Rat) ^ (max binary32.ulpMin (a - binary32.fracBits)) := by
   obtain ⟨r, h1, h2, h3⟩ := recip_error binary32 binary32_wf e he value_one32 hx hy hrange
   refine ⟨r, ?_, h3⟩
-  simp only [f32Div, BitVec.toNat_ofNat, he, Format.flushIn_false]
+  simp only [f32Div, BitVec.toNat_ofNat, he, Format.flushIn_false, Format.withFlush_false]
   rw [show (1065353216 % 2 ^ 32 : Nat) = 1065353216 by decide]
   have h2' : (binary32.div e 1065353216 x.toNat).fst < 2 ^ 32 := h2
   rw [Nat.mod_eq_of_lt h2']; exact h1
@@ -163,7 +163,7 @@ theorem f64Recip_error (e : Env) (he : e.flush = false) {x : BitVec 64} {y : Rat
         (r - 1 / y).abs ≤ (2 : Rat) ^ (max binary64.ulpMin (a - binary64.fracBits)) := by
   obtain ⟨r, h1, h2, h3⟩ := recip_error binary64 binary64_wf e he value_one64 hx hy hrange
   refine ⟨r, ?_, h3⟩
-  simp only [f64Div, BitVec.toNat_ofNat, he, Format.flushIn_false]
+  simp only [f64Div, BitVec.toNat_ofNat, he, Format.flushIn_false, Format.withFlush_false]
   rw [show (4607182418800017408 % 2 ^ 64 : Nat) = 4607182418800017408 by decide]
   have h2' : (binary64.div e 4607182418800017408 x.toNat).fst < 2 ^ 64 := h2
   rw [Nat.mod_eq_of_lt h2']; exact h1

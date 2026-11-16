@@ -43,7 +43,10 @@ kept out of the core where they are cheap to lift:
   operand order the spec passes is the printed order of each Operation.
 * **Input subnormals with `FCSR.FS = 1`** are flushed by the core (`Mips.Fp.Format.flushIn`: "As of
   Release 5, every input subnormal value is replaced with zero of the same sign", Table 6.8, `FS`,
-  p.93), which reads `FS` from `IEEE.env`.
+  p.93), which reads `FS` from `IEEE.env`; outside the comparisons the core also signals Inexact for
+  the flush (`Mips.Fp.Format.withFlush`: "Flushing of subnormal input operands in all instructions
+  except comparisons causes Inexact exception to be signaled", §6.7.2.4, p.102). The comparisons
+  flush without a flag (`flushInS`/`flushInD`; MAX/MIN/MAXA/MINA in the core).
 -/
 
 namespace Manual
@@ -215,6 +218,67 @@ def isQNaNS (x : W32) : Bool := Mips.Fp.isQNaN32 x
 def isSNaND (x : BitVec 64) : Bool := Mips.Fp.isSNaN64 x
 /-- `QNaN(x)`, double. -/
 def isQNaND (x : BitVec 64) : Bool := Mips.Fp.isQNaN64 x
+
+-- BEGIN R6-6B
+/-- An operand of a comparison as compared, single: with `FCSR.FS = 1` "every input subnormal value
+is replaced with zero of the same sign" (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102), and "For
+floating-point comparisons, the Inexact exception is not signaled when subnormal input operands are
+flushed" (same page): no flag. The core's flush. -/
+def flushInS (a : Arch) (x : W32) : W32 := BitVec.ofNat 32 (Mips.Fp.binary32.flushIn (FCSR_FS a) x.toNat)
+/-- As `flushInS`, double. -/
+def flushInD (a : Arch) (x : BitVec 64) : BitVec 64 :=
+  BitVec.ofNat 64 (Mips.Fp.binary64.flushIn (FCSR_FS a) x.toNat)
+
+/-- `ValueFPR(fs, S) <fmt ValueFPR(ft, S)` on two non-NaN operands (the ordering of the core,
+`Mips.Fp.f32Relation`; `-0 = +0`: "Comparisons ignore the sign of zero", CMP.condn.fmt, p.136). -/
+def ltS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).less
+/-- `ValueFPR(fs, S) =fmt ValueFPR(ft, S)` on two non-NaN operands. -/
+def eqS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).equal
+/-- `<fmt`, double. -/
+def ltD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).less
+/-- `=fmt`, double. -/
+def eqD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).equal
+
+/-- `vfd + (vfs * vft)` (`sub = false`) or `vfd - (vfs * vft)` (`sub = true`), single: "The
+intermediate product is calculated to infinite precision ... The result sum is calculated to infinite
+precision, rounded according to the current rounding mode in FCSR" (MADDF.fmt MSUBF.fmt, p.259), with
+its IEEE exceptions; the core's fused operation. -/
+def fmaS (a : Arch) (sub : Bool) (d x y : W32) : W32 × Mips.Fp.Flags :=
+  Mips.Fp.f32Fma (env a) sub d x y
+/-- As `fmaS`, double. -/
+def fmaD (a : Arch) (sub : Bool) (d x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64Fma (env a) sub d x y
+
+/-- The operations of MAX/MIN/MAXA/MINA.fmt (p.262: "MAX.fmt corresponds to the IEEE 754-2008
+operation maxNum", MIN `minNum`, MAXA `maxNumMag`, MINA `minNumMag`), on the core's `MinMaxOp`. -/
+abbrev MinMaxOp := Mips.Fp.Format.MinMaxOp
+
+/-- MAX/MIN/MAXA/MINA.S: the Operation of p.263-264 (`SNaN` → Invalid Operation; both NaN → `fs`; one
+NaN → the other operand; otherwise `MaxFP`/`MinFP`/`MaxAbsoluteFP`/`MinAbsoluteFP`, Table 4.1 p.264-265
+for `±0`), with the IEEE exceptions; the core's operation. -/
+def minMaxS (a : Arch) (op : MinMaxOp) (x y : W32) : W32 × Mips.Fp.Flags :=
+  Mips.Fp.f32MinMax op (env a) x y
+/-- As `minMaxS`, double. -/
+def minMaxD (a : Arch) (op : MinMaxOp) (x y : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
+  Mips.Fp.f64MinMax op (env a) x y
+
+/-- `ClassFP(fin, S)` (CLASS.fmt, p.132): "Bits 0 and 1 indicate NaN values: signaling NaN (bit 0) and
+quiet NaN (bit 1). Bits 2, 3, 4, 5 classify negative values: infinity (bit 2), normal (bit 3),
+subnormal (bit 4), and zero (bit 5). Bits 6, 7, 8, 9 classify positive values ... The input values and
+generated bit masks are not affected by the flush-subnormal-to-zero mode FCSR.FS"; "zero extended to
+fmt-width bits". The core's class operation. -/
+def classS (x : W32) : W32 := Mips.Fp.f32Class x
+/-- As `classS`, double. -/
+def classD (x : BitVec 64) : BitVec 64 := Mips.Fp.f64Class x
+
+/-- `RoundIntFP(fin, S)` and its exceptions (RINT.fmt, p.337: "rounded to an integral valued floating-
+point number in the same format based on the rounding mode bits RM"; "The Inexact exception is
+signaled if the result does not have the same numerical value as the input operand"; IEEE 754-2008
+`roundToIntegralExact`). The core's operation. -/
+def rintS (a : Arch) (x : W32) : W32 × Mips.Fp.Flags := Mips.Fp.f32Rint (env a) x
+/-- As `rintS`, double. -/
+def rintD (a : Arch) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags := Mips.Fp.f64Rint (env a) x
+-- END R6-6B
 end IEEE
 
 /-! ### `ValueFPR` / `StoreFPR` for the 64-bit formats (Figures 2.22, 2.23, p.22-23) -/

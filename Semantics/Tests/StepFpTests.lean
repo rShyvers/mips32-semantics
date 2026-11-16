@@ -211,9 +211,10 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpIs64 (fp1 (.floorLS 2#32 4#32) [(4, 0xff800000#32)]) 2 0x8000000000000000#64 0x00010040#32
 #guard fpIs64 (fp1 (.truncLS 2#32 4#32) [(4, 0xdf000000#32)]) 2 0x8000000000000000#64 0#32
 -- FCSR.FS = 1 flushes a subnormal operand to zero first: ceil of the smallest subnormal is 1
--- with FS = 0 (Inexact) and 0 with FS = 1 (exact)
+-- with FS = 0 (Inexact) and 0 with FS = 1, Inexact signaled by the flush (MD00082 Vol I-A Rev 6.01
+-- §6.7.2.4, p.102)
 #guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 1#32)]) 2 1#64 0x00001004#32
-#guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 1#32)] 0x01000000#32) 2 0#64 0x01000000#32
+#guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 1#32)] 0x01000000#32) 2 0#64 0x01001004#32
 -- double → longword
 #guard fpIs64 (fp64 (.roundLD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 2#64 0x00001004#32
 #guard fpIs64 (fp64 (.ceilLD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 3#64 0x00001004#32
@@ -267,8 +268,8 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   0xfff0000000000001#64 0x0001f07c#32
 
 -- (Release 6 removed MADD/MSUB/NMADD/NMSUB.fmt, C.cond.fmt, BC1F/BC1T/BC1FL/BC1TL and the
--- conditional moves MOVF/MOVT/MOVN/MOVZ(.fmt); their tests are gone. W6 adds CMP.cond.fmt,
--- BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt.)
+-- conditional moves MOVF/MOVT/MOVN/MOVZ(.fmt); their tests are gone. Their Release 6 replacements
+-- CMP.condn.fmt, BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt are tested below, R6-6B.)
 
 -- #### Control registers: cfc1 / ctc1 (MD00086 Vol II-A Rev 6.06, CFC1 p.129-130, CTC1 p.149-151)
 -- FIR (0) is the constant 0x00f30000 (S, D, W, L, F64, Has2008)
@@ -439,3 +440,91 @@ private def dpMemTestState : State :=
 #guard raisesAddr (hstep (prog1 (.sdc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdES 0x10010004#32
 -- a store clears LLbit; a failed (misaligned) one does not get that far
 #guard nextLlBitEq (hstep (prog1 (.sdc1 8#32 2#32 8#32)) { dpMemTestState with llBit := true }) false
+
+-- BEGIN R6-6B
+-- #### The Release 6 FP instructions (MD00086 Vol II-A Rev 6.06)
+-- CMP.condn.fmt (p.136-140): a mask of all ones / all zeros; the upper half of a .S result kept
+#guard fpIs (fp1 (.cmpS 4#32 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)]) 2 0xffffffff#32 0#32
+#guard fpIs (fp1 (.cmpS 4#32 2#32 4#32 6#32) [(4, 0x40000000#32), (6, 0x3f800000#32)]) 2 0#32 0#32
+#guard fpIs64 (fp64 (.cmpS 4#32 2#32 4#32 6#32) [(2, 0x1234567800000000#64), (4, 0x3f800000#64),
+  (6, 0x40000000#64)]) 2 0x12345678ffffffff#64 0#32
+-- EQ ignores the sign of zero; NE (condn 19) is its negation
+#guard fpIs (fp1 (.cmpS 2#32 2#32 4#32 6#32) [(4, 0x80000000#32), (6, 0#32)]) 2 0xffffffff#32 0#32
+#guard fpIs (fp1 (.cmpS 19#32 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)]) 2 0xffffffff#32 0#32
+-- a quiet NaN: UN true, quiet EQ false, no exception; the signalling SEQ (condn 10) raises Invalid
+#guard fpIs (fp1 (.cmpS 1#32 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0xffffffff#32 0#32
+#guard fpIs (fp1 (.cmpS 2#32 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0#32 0#32
+#guard fpIs (fp1 (.cmpS 10#32 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0#32 0x00010040#32
+-- OR (condn 17) of a QNaN is false; an SNaN raises Invalid even for a quiet predicate
+#guard fpIs (fp1 (.cmpS 17#32 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0#32 0#32
+#guard fpIs (fp1 (.cmpS 3#32 2#32 4#32 6#32) [(4, 0x7f800001#32), (6, 0x3f800000#32)]) 2 0xffffffff#32
+  0x00010040#32
+-- Invalid enabled: trap, `fd` not written
+#guard fpTraps (fp1 (.cmpS 10#32 2#32 4#32 6#32) [(2, 7#32), (4, 0x7fc00000#32), (6, 0x3f800000#32)]
+  0x800#32) 2 7#32 0x00010800#32
+#guard fpIs64 (fp64 (.cmpD 6#32 2#32 4#32 6#32) [(4, 0x3ff0000000000000#64), (6, 0x3ff0000000000000#64)]) 2
+  0xffffffffffffffff#64 0#32
+#guard fpIs64 (fp64 (.cmpD 4#32 2#32 4#32 6#32) [(4, 0x3ff0000000000000#64), (6, 0x3ff0000000000000#64)]) 2
+  0#64 0#32
+-- BC1EQZ/BC1NEZ (p.54-55): a delay-slot branch on bit 0 of FPR[ft]
+#guard nextPendingEq (fp1 (.bc1eqz 3#32 2#32) [(3, 0xfffffffe#32)]) (some (textBase + 12#32))
+#guard nextPendingEq (fp1 (.bc1eqz 3#32 2#32) [(3, 1#32)]) (some (textBase + 8#32))
+#guard nextPendingEq (fp1 (.bc1nez 3#32 2#32) [(3, 1#32)]) (some (textBase + 12#32))
+#guard nextPendingEq (fp1 (.bc1nez 3#32 0xffff#32) [(3, 0xffffffff#32)]) (some textBase)
+#guard nextPcEq (fp1 (.bc1nez 3#32 2#32) [(3, 0#32)]) (textBase + 4#32)
+-- a CTI in its delay slot: Reserved Instruction in the delay slot; it is one in a delay slot too
+#guard (match stepState (buildProg textBase [.bc1eqz 3#32 1#32, .beq 0#32 0#32 0#32]) regs0 with
+        | some s1 => isRiInDelaySlot (hstep (buildProg textBase [.bc1eqz 3#32 1#32, .beq 0#32 0#32 0#32]) s1)
+        | none => false)
+#guard (match stepState (buildProg textBase [.beq 0#32 0#32 1#32, .bc1nez 3#32 0#32]) regs0 with
+        | some s1 => isRiInDelaySlot (hstep (buildProg textBase [.beq 0#32 0#32 1#32, .bc1nez 3#32 0#32]) s1)
+        | none => false)
+-- SEL/SELEQZ/SELNEZ (p.368, p.371): FCSR untouched
+#guard fpIs (fp1 (.selS 2#32 4#32 6#32) [(2, 1#32), (4, 0x11#32), (6, 0x22#32)] 0x7c#32) 2 0x22#32 0x7c#32
+#guard fpIs (fp1 (.selS 2#32 4#32 6#32) [(2, 2#32), (4, 0x11#32), (6, 0x22#32)]) 2 0x11#32 0#32
+#guard fpIs64 (fp64 (.selD 2#32 4#32 6#32) [(2, 0xffffffff00000001#64), (4, 1#64), (6, 0x7ff0000000000001#64)])
+  2 0x7ff0000000000001#64 0#32
+#guard fpIs (fp1 (.seleqzS 2#32 4#32 6#32) [(4, 0x7f800001#32), (6, 0#32)]) 2 0x7f800001#32 0#32
+#guard fpIs (fp1 (.seleqzS 2#32 4#32 6#32) [(4, 0x7f800001#32), (6, 3#32)]) 2 0#32 0#32
+#guard fpIs64 (fp64 (.seleqzD 2#32 4#32 6#32) [(4, 5#64), (6, 0x100000001#64)]) 2 0#64 0#32
+#guard fpIs (fp1 (.selnezS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 1#32)]) 2 0x3f800000#32 0#32
+#guard fpIs64 (fp64 (.selnezD 2#32 4#32 6#32) [(4, 5#64), (6, 0x100000000#64)]) 2 0#64 0#32
+-- MADDF/MSUBF (p.259): fd ± fs × ft with one rounding
+#guard fpIs (fp1 (.maddfS 2#32 4#32 6#32) [(2, 0x3f800000#32), (4, 0x40000000#32), (6, 0x40400000#32)])
+  2 0x40e00000#32 0#32
+#guard fpIs64 (fp64 (.msubfD 2#32 4#32 6#32) [(2, 0x3ff0000000000000#64), (4, 0x4000000000000000#64),
+  (6, 0x4008000000000000#64)]) 2 0xc014000000000000#64 0#32
+-- fused: (1 + 2^-22) − (1 + 2^-23)² = −2^-46 exactly (an unfused product would round to 1 + 2^-22,
+-- giving 0)
+#guard fpIs (fp1 (.msubfS 2#32 4#32 6#32) [(2, 0x3f800002#32), (4, 0x3f800001#32), (6, 0x3f800001#32)])
+  2 0xa8800000#32 0#32
+-- MAX/MIN/MAXA/MINA (p.262-265): a number beats a NaN; ±0 ordered; magnitudes
+#guard fpIs (fp1 (.maxS 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0x3f800000#32 0#32
+#guard fpIs (fp1 (.minS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x7fc00000#32)]) 2 0x3f800000#32 0#32
+#guard fpIs (fp1 (.maxS 2#32 4#32 6#32) [(4, 0x80000000#32), (6, 0#32)]) 2 0#32 0#32
+#guard fpIs (fp1 (.minS 2#32 4#32 6#32) [(4, 0#32), (6, 0x80000000#32)]) 2 0x80000000#32 0#32
+#guard fpIs (fp1 (.maxaS 2#32 4#32 6#32) [(4, 0xc0400000#32), (6, 0x40000000#32)]) 2 0xc0400000#32 0#32
+#guard fpIs (fp1 (.minaS 2#32 4#32 6#32) [(4, 0xc0400000#32), (6, 0x40000000#32)]) 2 0x40000000#32 0#32
+#guard fpIs (fp1 (.minS 2#32 4#32 6#32) [(4, 0x7f800001#32), (6, 0x3f800000#32)]) 2 0x3f800000#32
+  0x00010040#32
+#guard fpIs64 (fp64 (.maxD 2#32 4#32 6#32) [(4, 0x7ff8000000000001#64), (6, 0x7ff8000000000002#64)]) 2
+  0x7ff8000000000001#64 0#32
+#guard fpIs64 (fp64 (.minaD 2#32 4#32 6#32) [(4, 0xbff0000000000000#64), (6, 0x3ff0000000000000#64)]) 2
+  0xbff0000000000000#64 0#32
+#guard fpIs64 (fp64 (.maxaD 2#32 4#32 6#32) [(4, 0xbff0000000000000#64), (6, 0x3ff0000000000000#64)]) 2
+  0x3ff0000000000000#64 0#32
+#guard fpIs64 (fp64 (.minD 2#32 4#32 6#32) [(4, 0xbff0000000000000#64), (6, 0x3ff0000000000000#64)]) 2
+  0xbff0000000000000#64 0#32
+-- CLASS (p.132): the 10-bit mask, FCSR untouched
+#guard fpIs (fp1 (.classS 2#32 4#32) [(4, 0x7f800000#32)] 0x7c#32) 2 0x40#32 0x7c#32
+#guard fpIs (fp1 (.classS 2#32 4#32) [(4, 0x7f800001#32)]) 2 1#32 0#32
+#guard fpIs (fp1 (.classS 2#32 4#32) [(4, 0x80000001#32)]) 2 0x10#32 0#32
+#guard fpIs64 (fp64 (.classD 2#32 4#32) [(4, 0x8000000000000000#64)]) 2 0x20#64 0#32
+#guard fpIs64 (fp64 (.classD 2#32 4#32) [(4, 0x3ff0000000000000#64)]) 2 0x80#64 0#32
+-- RINT (p.337): round to integral in FCSR.RM, Inexact when it changes the value
+#guard fpIs (fp1 (.rintS 2#32 4#32) [(4, 0x40200000#32)]) 2 0x40000000#32 0x00001004#32
+#guard fpIs (fp1 (.rintS 2#32 4#32) [(4, 0x40200000#32)] 2#32) 2 0x40400000#32 0x00001006#32
+#guard fpIs (fp1 (.rintS 2#32 4#32) [(4, 0x40400000#32)]) 2 0x40400000#32 0#32
+#guard fpIs64 (fp64 (.rintD 2#32 4#32) [(4, 0xc004000000000000#64)] 3#32) 2 0xc008000000000000#64
+  0x00001007#32
+-- END R6-6B

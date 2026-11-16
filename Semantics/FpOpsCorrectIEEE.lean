@@ -29,7 +29,10 @@ meets its reference definition of `Semantics/FpOpsSpec.lean`:
 Every floating-point operand of an arithmetic operation or conversion is taken as the operation
 sees it, `Format.FlushedIn` under FCSR.FS (MD00082 Vol I-A Rev 6.01 Table 6.8, `FS`, p.93: "every
 input subnormal value is replaced with zero of the same sign"); `flushIn_eq` identifies the model's
-`Format.flushIn` with it. `ABS`/`NEG` are non-arithmetic and take the operand as encoded.
+`Format.flushIn` with it. The flush signals Inexact ("Flushing of subnormal input operands in all
+instructions except comparisons causes Inexact exception to be signaled", §6.7.2.4, p.102): each
+statement is wrapped in `Format.WithFlushInexact` (`flushFlags_inexact`, `withFlush_intro`). `ABS`/`NEG`
+are non-arithmetic and take the operand as encoded.
 -/
 
 namespace Mips.Fp
@@ -61,95 +64,132 @@ theorem Format.flushIn_lt (f : Format) (fl : Bool) {n : Nat} (hn : n < 2 ^ f.wid
   · exact f.zero_lt _
   · exact hn
 
+/-- **The model's flush flags are `FlushInexact`**: Inexact iff FS and some operand is subnormal. -/
+theorem Format.flushFlags_inexact (f : Format) (fl : Bool) (ops : List Nat) :
+    (f.flushFlags fl ops).inexact = decide (f.FlushInexact fl ops) := by
+  cases fl
+  · simp [Format.flushFlags, Format.FlushInexact]
+  · simp only [Format.flushFlags, Bool.true_and]
+    rw [Bool.eq_iff_iff, List.any_eq_true, decide_eq_true_iff]
+    simp [Format.FlushInexact, Format.isSubnormal, Format.expOf, Format.fracOf, Format.expField,
+      Format.fracField]
+
+/-- **ORing the flush flags meets `WithFlushInexact`**, for any reference definition `P` met with the
+operation's own flags `g`. -/
+theorem Format.withFlush_intro {α : Type} (f : Format) (fl : Bool) (ops : List Nat)
+    (P : α × Flags → Prop) (x : α) (g : Flags) (h : P (x, g)) :
+    f.WithFlushInexact fl ops P (x, g.or (f.flushFlags fl ops)) := by
+  refine ⟨g, h, ?_⟩
+  rw [← Format.flushFlags_inexact]
+  cases g; simp [Flags.or, Format.flushFlags]
+
+/-- `withFlush` form of `withFlush_intro`. -/
+theorem Format.withFlush_spec {α : Type} (f : Format) (fl : Bool) (ops : List Nat)
+    (P : α × Flags → Prop) (r : α × Flags) (h : P r) :
+    f.WithFlushInexact fl ops P (f.withFlush fl ops r) :=
+  f.withFlush_intro fl ops P r.1 r.2 h
+
 /-! ## ADD, SUB, MUL, DIV, SQRT -/
 
 /-- **`ADD.S`** on all operands, every FCSR environment. -/
 theorem f32Add_spec (e : Env) (a b : BitVec 32) :
-    binary32.AddSpec e false (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat)
+    binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary32.AddSpec e false (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat))
       ((f32Add e a b).1.toNat, (f32Add e a b).2) := by
   have ha := binary32.flushIn_lt e.flush a.isLt; have hb := binary32.flushIn_lt e.flush b.isLt
-  simp only [f32Add, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (binary32.add_lt binary32_wf e ha hb)]
-  exact binary32.add_spec binary32_wf e ha hb
+  simp only [f32Add, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (binary32.add_lt binary32_wf e ha hb)]
+  exact binary32.withFlush_intro _ _ _ _ _ (binary32.add_spec binary32_wf e ha hb)
 
 /-- **`SUB.S`**. -/
 theorem f32Sub_spec (e : Env) (a b : BitVec 32) :
-    binary32.AddSpec e true (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat)
+    binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary32.AddSpec e true (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat))
       ((f32Sub e a b).1.toNat, (f32Sub e a b).2) := by
   have ha := binary32.flushIn_lt e.flush a.isLt; have hb := binary32.flushIn_lt e.flush b.isLt
-  simp only [f32Sub, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (binary32.sub_lt binary32_wf e ha hb)]
-  exact binary32.sub_spec binary32_wf e ha hb
+  simp only [f32Sub, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (binary32.sub_lt binary32_wf e ha hb)]
+  exact binary32.withFlush_intro _ _ _ _ _ (binary32.sub_spec binary32_wf e ha hb)
 
 /-- **`MUL.S`**. -/
 theorem f32Mul_spec (e : Env) (a b : BitVec 32) :
-    binary32.MulSpec e (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat)
+    binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary32.MulSpec e (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat))
       ((f32Mul e a b).1.toNat, (f32Mul e a b).2) := by
   have ha := binary32.flushIn_lt e.flush a.isLt; have hb := binary32.flushIn_lt e.flush b.isLt
-  simp only [f32Mul, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (binary32.mul_lt binary32_wf e ha hb)]
-  exact binary32.mul_spec binary32_wf e ha hb
+  simp only [f32Mul, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (binary32.mul_lt binary32_wf e ha hb)]
+  exact binary32.withFlush_intro _ _ _ _ _ (binary32.mul_spec binary32_wf e ha hb)
 
 /-- **`DIV.S`**. -/
 theorem f32Div_spec (e : Env) (a b : BitVec 32) :
-    binary32.DivSpec e (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat)
+    binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary32.DivSpec e (binary32.FlushedIn e.flush a.toNat) (binary32.FlushedIn e.flush b.toNat))
       ((f32Div e a b).1.toNat, (f32Div e a b).2) := by
   have ha := binary32.flushIn_lt e.flush a.isLt; have hb := binary32.flushIn_lt e.flush b.isLt
-  simp only [f32Div, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (binary32.div_lt binary32_wf e ha hb)]
-  exact binary32.div_spec binary32_wf e ha hb
+  simp only [f32Div, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (binary32.div_lt binary32_wf e ha hb)]
+  exact binary32.withFlush_intro _ _ _ _ _ (binary32.div_spec binary32_wf e ha hb)
 
 /-- **`SQRT.S`**. -/
 theorem f32Sqrt_spec (e : Env) (a : BitVec 32) :
-    binary32.SqrtSpec e (binary32.FlushedIn e.flush a.toNat) ((f32Sqrt e a).1.toNat, (f32Sqrt e a).2) := by
+    binary32.WithFlushInexact e.flush [a.toNat]
+      (binary32.SqrtSpec e (binary32.FlushedIn e.flush a.toNat))
+      ((f32Sqrt e a).1.toNat, (f32Sqrt e a).2) := by
   have ha := binary32.flushIn_lt e.flush a.isLt
-  simp only [f32Sqrt, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (binary32.sqrt_lt binary32_wf e ha)]
-  exact binary32.sqrt_spec binary32_wf e ha
+  simp only [f32Sqrt, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (binary32.sqrt_lt binary32_wf e ha)]
+  exact binary32.withFlush_intro _ _ _ _ _ (binary32.sqrt_spec binary32_wf e ha)
 
 /-- **`ADD.D`**. -/
 theorem f64Add_spec (e : Env) (a b : BitVec 64) :
-    binary64.AddSpec e false (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat)
+    binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary64.AddSpec e false (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat))
       ((f64Add e a b).1.toNat, (f64Add e a b).2) := by
   have ha := binary64.flushIn_lt e.flush a.isLt; have hb := binary64.flushIn_lt e.flush b.isLt
-  simp only [f64Add, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (binary64.add_lt binary64_wf e ha hb)]
-  exact binary64.add_spec binary64_wf e ha hb
+  simp only [f64Add, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (binary64.add_lt binary64_wf e ha hb)]
+  exact binary64.withFlush_intro _ _ _ _ _ (binary64.add_spec binary64_wf e ha hb)
 
 /-- **`SUB.D`**. -/
 theorem f64Sub_spec (e : Env) (a b : BitVec 64) :
-    binary64.AddSpec e true (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat)
+    binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary64.AddSpec e true (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat))
       ((f64Sub e a b).1.toNat, (f64Sub e a b).2) := by
   have ha := binary64.flushIn_lt e.flush a.isLt; have hb := binary64.flushIn_lt e.flush b.isLt
-  simp only [f64Sub, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (binary64.sub_lt binary64_wf e ha hb)]
-  exact binary64.sub_spec binary64_wf e ha hb
+  simp only [f64Sub, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (binary64.sub_lt binary64_wf e ha hb)]
+  exact binary64.withFlush_intro _ _ _ _ _ (binary64.sub_spec binary64_wf e ha hb)
 
 /-- **`MUL.D`**. -/
 theorem f64Mul_spec (e : Env) (a b : BitVec 64) :
-    binary64.MulSpec e (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat)
+    binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary64.MulSpec e (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat))
       ((f64Mul e a b).1.toNat, (f64Mul e a b).2) := by
   have ha := binary64.flushIn_lt e.flush a.isLt; have hb := binary64.flushIn_lt e.flush b.isLt
-  simp only [f64Mul, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (binary64.mul_lt binary64_wf e ha hb)]
-  exact binary64.mul_spec binary64_wf e ha hb
+  simp only [f64Mul, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (binary64.mul_lt binary64_wf e ha hb)]
+  exact binary64.withFlush_intro _ _ _ _ _ (binary64.mul_spec binary64_wf e ha hb)
 
 /-- **`DIV.D`**. -/
 theorem f64Div_spec (e : Env) (a b : BitVec 64) :
-    binary64.DivSpec e (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat)
+    binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (binary64.DivSpec e (binary64.FlushedIn e.flush a.toNat) (binary64.FlushedIn e.flush b.toNat))
       ((f64Div e a b).1.toNat, (f64Div e a b).2) := by
   have ha := binary64.flushIn_lt e.flush a.isLt; have hb := binary64.flushIn_lt e.flush b.isLt
-  simp only [f64Div, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (binary64.div_lt binary64_wf e ha hb)]
-  exact binary64.div_spec binary64_wf e ha hb
+  simp only [f64Div, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (binary64.div_lt binary64_wf e ha hb)]
+  exact binary64.withFlush_intro _ _ _ _ _ (binary64.div_spec binary64_wf e ha hb)
 
 /-- **`SQRT.D`**. -/
 theorem f64Sqrt_spec (e : Env) (a : BitVec 64) :
-    binary64.SqrtSpec e (binary64.FlushedIn e.flush a.toNat) ((f64Sqrt e a).1.toNat, (f64Sqrt e a).2) := by
+    binary64.WithFlushInexact e.flush [a.toNat]
+      (binary64.SqrtSpec e (binary64.FlushedIn e.flush a.toNat))
+      ((f64Sqrt e a).1.toNat, (f64Sqrt e a).2) := by
   have ha := binary64.flushIn_lt e.flush a.isLt
-  simp only [f64Sqrt, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (binary64.sqrt_lt binary64_wf e ha)]
-  exact binary64.sqrt_spec binary64_wf e ha
+  simp only [f64Sqrt, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (binary64.sqrt_lt binary64_wf e ha)]
+  exact binary64.withFlush_intro _ _ _ _ _ (binary64.sqrt_spec binary64_wf e ha)
 
 /-! ## Conversions -/
 
@@ -180,12 +220,14 @@ theorem convert_lt (src dst : Format) (hd : dst.WF) (e : Env) (a : Nat) :
 
 /-- **`CVT.S.D`** on every operand, every FCSR environment. -/
 theorem f64ToF32_spec (e : Env) (x : BitVec 64) :
-    Format.ConvertSpec binary64 binary32 e (binary64.FlushedIn e.flush x.toNat)
+    binary64.WithFlushInexact e.flush [x.toNat]
+      (Format.ConvertSpec binary64 binary32 e (binary64.FlushedIn e.flush x.toNat))
       ((f64ToF32 e x).1.toNat, (f64ToF32 e x).2) := by
   have hx := binary64.flushIn_lt e.flush x.isLt
-  simp only [f64ToF32, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 32) _ (convert_lt binary64 binary32 binary32_wf e _)]
-  exact Format.convert_spec binary64 binary32 binary64_wf binary32_wf e hx
+  simp only [f64ToF32, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 32) (convert_lt binary64 binary32 binary32_wf e _)]
+  exact binary64.withFlush_intro _ _ _ _ _
+    (Format.convert_spec binary64 binary32 binary64_wf binary32_wf e hx)
 
 theorem max32_le_max64 : binary32.maxValue ≤ binary64.maxValue :=
   Rat.le_trans (Rat.le_of_lt (maxValue_lt binary32))
@@ -193,13 +235,15 @@ theorem max32_le_max64 : binary32.maxValue ≤ binary64.maxValue :=
 
 /-- **`CVT.D.S`** on every operand: exact (no exception) for a finite operand. -/
 theorem f32ToF64_spec (fl : Bool) (x : BitVec 32) :
-    Format.WidenSpec binary32 binary64 (binary32.FlushedIn fl x.toNat)
+    binary32.WithFlushInexact fl [x.toNat]
+      (Format.WidenSpec binary32 binary64 (binary32.FlushedIn fl x.toNat))
       ((f32ToF64 fl x).1.toNat, (f32ToF64 fl x).2) := by
   have hx := binary32.flushIn_lt fl x.isLt
-  simp only [f32ToF64, ← Format.flushIn_eq]
-  rw [pair_toNat (w := 64) _ (convert_lt binary32 binary64 binary64_wf _ _)]
-  exact Format.convert_exact binary32 binary64 binary32_wf binary64_wf (by decide) (by decide)
-    max32_le_max64 (by decide) hx
+  simp only [f32ToF64, Format.withFlush, ← Format.flushIn_eq]
+  rw [toNat_ofNat_lt (w := 64) (convert_lt binary32 binary64 binary64_wf _ _)]
+  exact binary32.withFlush_intro _ _ _ _ _
+    (Format.convert_exact binary32 binary64 binary32_wf binary64_wf (by decide) (by decide)
+      max32_le_max64 (by decide) hx)
 
 /-- **`CVT.S.W`** on every word, every FCSR environment. -/
 theorem w32ToF32_spec (e : Env) (x : BitVec 32) :
@@ -296,27 +340,27 @@ theorem w32ToF64_spec (x : BitVec 32) :
 
 /-- **`CVT.W.S`, `ROUND/TRUNC/CEIL/FLOOR.W.S`** in every direction, on every operand. -/
 theorem f32ToW32_spec (rm : RoundingMode) (fl : Bool) (x : BitVec 32) :
-    binary32.ToWordSpec rm (binary32.FlushedIn fl x.toNat) (f32ToW32 rm fl x) := by
+    binary32.WithFlushInexact fl [x.toNat] (binary32.ToWordSpec rm (binary32.FlushedIn fl x.toNat)) (f32ToW32 rm fl x) := by
   rw [← Format.flushIn_eq]
-  exact binary32.toW32_spec binary32_wf rm (binary32.flushIn_lt fl x.isLt)
+  exact binary32.withFlush_spec _ _ _ _ (binary32.toW32_spec binary32_wf rm (binary32.flushIn_lt fl x.isLt))
 
 /-- **`CVT.W.D`, `ROUND/TRUNC/CEIL/FLOOR.W.D`**. -/
 theorem f64ToW32_spec (rm : RoundingMode) (fl : Bool) (x : BitVec 64) :
-    binary64.ToWordSpec rm (binary64.FlushedIn fl x.toNat) (f64ToW32 rm fl x) := by
+    binary64.WithFlushInexact fl [x.toNat] (binary64.ToWordSpec rm (binary64.FlushedIn fl x.toNat)) (f64ToW32 rm fl x) := by
   rw [← Format.flushIn_eq]
-  exact binary64.toW32_spec binary64_wf rm (binary64.flushIn_lt fl x.isLt)
+  exact binary64.withFlush_spec _ _ _ _ (binary64.toW32_spec binary64_wf rm (binary64.flushIn_lt fl x.isLt))
 
 /-- **`CVT.L.S`, `ROUND/TRUNC/CEIL/FLOOR.L.S`** in every direction, on every operand. -/
 theorem f32ToW64_spec (rm : RoundingMode) (fl : Bool) (x : BitVec 32) :
-    binary32.ToLongSpec rm (binary32.FlushedIn fl x.toNat) (f32ToW64 rm fl x) := by
+    binary32.WithFlushInexact fl [x.toNat] (binary32.ToLongSpec rm (binary32.FlushedIn fl x.toNat)) (f32ToW64 rm fl x) := by
   rw [← Format.flushIn_eq]
-  exact binary32.toW64_spec binary32_wf rm (binary32.flushIn_lt fl x.isLt)
+  exact binary32.withFlush_spec _ _ _ _ (binary32.toW64_spec binary32_wf rm (binary32.flushIn_lt fl x.isLt))
 
 /-- **`CVT.L.D`, `ROUND/TRUNC/CEIL/FLOOR.L.D`**. -/
 theorem f64ToW64_spec (rm : RoundingMode) (fl : Bool) (x : BitVec 64) :
-    binary64.ToLongSpec rm (binary64.FlushedIn fl x.toNat) (f64ToW64 rm fl x) := by
+    binary64.WithFlushInexact fl [x.toNat] (binary64.ToLongSpec rm (binary64.FlushedIn fl x.toNat)) (f64ToW64 rm fl x) := by
   rw [← Format.flushIn_eq]
-  exact binary64.toW64_spec binary64_wf rm (binary64.flushIn_lt fl x.isLt)
+  exact binary64.withFlush_spec _ _ _ _ (binary64.toW64_spec binary64_wf rm (binary64.flushIn_lt fl x.isLt))
 
 /-! ## Compares -/
 

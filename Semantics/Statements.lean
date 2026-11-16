@@ -1718,7 +1718,8 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
 (`Manual.Impl.RecipExact`), and `RSQRT.fmt` within 2 ULP of the exact `1/√fs` (RSQRT.fmt, p.343;
 `Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`, wave 10); and
 both signal Invalid Operation and Division by Zero as `Manual.Impl.RecipFlags` requires (MD00082 Vol
-I-A Rev 6.01 §6.3.1.4-5, p.81-82; §6.7.2.1-2, p.100; Overflow, Underflow, Inexact left free). -/
+I-A Rev 6.01 §6.3.1.4-5, p.81-82; §6.7.2.1-2, p.100), and Inexact when `FCSR.FS = 1` flushes a
+subnormal operand (§6.7.2.4, p.102); otherwise Overflow, Underflow, Inexact left free. -/
 theorem modelImpl_valid : Manual.modelImpl.Valid := by
   sorry
 
@@ -1945,7 +1946,8 @@ the NaN rule (`NaNResult`, §6.3.1.4-5), the signaled exceptions (`Signaled`, §
 under the whole FCSR including flush to zero (`RoundEnvSpec`, §6.7.2.4), each operation on every
 operand (`AddSpec`, `MulSpec`, `DivSpec`, `SqrtSpec`, `SignOpSpec`, `ConvertSpec`, `WidenSpec`,
 `FromIntSpec`, `ExactSpec`, `ToWordSpec`, `ToLongSpec`, `CompareSpec` with the 16-row `condTable`), the FCSR
-update (`FcsrSpec`, §6.7.1, CheckFPException). (The pre-Release 6 multiply-add family and its
+update (`FcsrSpec`, §6.7.1, CheckFPException); every non-comparison operation that flushes an operand
+also signals Inexact for it (`WithFlushInexact`, §6.7.2.4, p.102). (The pre-Release 6 multiply-add family and its
 reference definition `MaddSpec` were removed with the instructions in Release 6.) -/
 
 /-- **Table 6.3 (MD00082 Vol I-A Rev 6.01 p.82, `FCSR.NAN2008 = 1`), single**: the reference `Format.newQNaN` is
@@ -1975,98 +1977,142 @@ theorem nanResult_first_snan (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
 
 /-- **`ADD.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
   sorry
 
 /-- **`SUB.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
   sorry
 
 /-- **`MUL.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
   sorry
 
 /-- **`DIV.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
   sorry
 
 /-- **`SQRT.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
-    Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+    Mips.Fp.binary32.WithFlushInexact e.flush [a.toNat]
+      (Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat))
       ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) := by
   sorry
 
 /-- **`ADD.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
   sorry
 
 /-- **`SUB.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
   sorry
 
 /-- **`MUL.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
   sorry
 
 /-- **`DIV.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
-      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat, b.toNat]
+      (Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
   sorry
 
 /-- **`SQRT.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
-operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
-    Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+    Mips.Fp.binary64.WithFlushInexact e.flush [a.toNat]
+      (Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat))
       ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) := by
   sorry
 
 /-- **`CVT.S.D` on every operand** (MD00086 p.159), the operand flushed under FS:
 `Mips.Fp.Format.ConvertSpec` (a NaN: a QNaN, Invalid iff it was signaling; ±∞, ±0 kept; otherwise
-rounded under FCSR.RM/Enables/FS). -/
+rounded under FCSR.RM/Enables/FS).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
-    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
-      (Mips.Fp.binary64.FlushedIn e.flush x.toNat)
+    Mips.Fp.binary64.WithFlushInexact e.flush [x.toNat]
+      (Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
+        (Mips.Fp.binary64.FlushedIn e.flush x.toNat))
       ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) := by
   sorry
 
 /-- **`CVT.D.S` on every operand** (MD00086 p.153, "always exact"), the operand flushed when `fl`
 (FCSR.FS): `Mips.Fp.Format.WidenSpec` — a finite operand gives the double of the same value and sign,
-no exception. -/
+no exception.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32ToF64_spec (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat)
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat))
       ((Mips.Fp.f32ToF64 fl x).1.toNat, (Mips.Fp.f32ToF64 fl x).2) := by
   sorry
 
@@ -2088,9 +2134,13 @@ p.160, p.342, p.441, p.128, p.186), the operand flushed when `fl` (FCSR.FS):
 `Mips.Fp.Format.ToWordSpec` — a NaN gives 0, `+∞` and values rounding above `2^31-1` give `2^31-1`,
 `-∞` and values rounding below `-2^31` give `-2^31`, with Invalid only (Table 6.3, p.82, `FCSR.NAN2008
 = 1`); otherwise the value correctly rounded to an integer in direction `rm` (ties to even), Inexact iff
-not exact. -/
+not exact.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW32 rm fl x) := by
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat))
+      (Mips.Fp.f32ToW32 rm fl x) := by
   sorry
 
 /-- **`CVT.W.D`, `ROUND/TRUNC/CEIL/FLOOR.W.D`** in every direction `rm`, on every operand (MD00086
@@ -2098,9 +2148,13 @@ p.160, p.342, p.441, p.128, p.186), the operand flushed when `fl` (FCSR.FS):
 `Mips.Fp.Format.ToWordSpec` — a NaN gives 0, `+∞` and values rounding above `2^31-1` give `2^31-1`,
 `-∞` and values rounding below `-2^31` give `-2^31`, with Invalid only (Table 6.3, p.82, `FCSR.NAN2008
 = 1`); otherwise the value correctly rounded to an integer in direction `rm` (ties to even), Inexact iff
-not exact. -/
+not exact.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
-    Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW32 rm fl x) := by
+    Mips.Fp.binary64.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat))
+      (Mips.Fp.f64ToW32 rm fl x) := by
   sorry
 
 -- BEGIN R6-5
@@ -2109,18 +2163,26 @@ theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
 operand flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154, ROUND.L p.341, TRUNC.L p.440,
 CEIL.L p.127, FLOOR.L p.185): `Mips.Fp.Format.ToLongSpec` — a NaN gives 0, a value too big (or `+∞`)
 `2^63 - 1`, too small (or `-∞`) `-2^63`, with Invalid only (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82);
-otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact. -/
+otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f32ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
-    Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW64 rm fl x) := by
+    Mips.Fp.binary32.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat))
+      (Mips.Fp.f32ToW64 rm fl x) := by
   sorry
 
 /-- **`CVT.L.D`, `ROUND/TRUNC/CEIL/FLOOR.L.D`** in every direction `rm`, on every operand, the
 operand flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154, ROUND.L p.341, TRUNC.L p.440,
 CEIL.L p.127, FLOOR.L p.185): `Mips.Fp.Format.ToLongSpec` — a NaN gives 0, a value too big (or `+∞`)
 `2^63 - 1`, too small (or `-∞`) `-2^63`, with Invalid only (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82);
-otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact. -/
+otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
 theorem f64ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
-    Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW64 rm fl x) := by
+    Mips.Fp.binary64.WithFlushInexact fl [x.toNat]
+      (Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat))
+      (Mips.Fp.f64ToW64 rm fl x) := by
   sorry
 
 /-- **`CVT.S.L` on every longword** (MD00086 Vol II-A Rev 6.06, CVT.S.fmt p.159): `0 ↦ +0`,
@@ -2277,5 +2339,103 @@ theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
   sorry
 
 -- END R6-2
+
+-- BEGIN R6-6A
+
+/-- **`MADDF.S` / `MSUBF.S` on every operand** (MD00086 Vol II-A Rev 6.06, MADDF.fmt / MSUBF.fmt
+p.259-260): for all encodings of `fd` (`c`), `fs` (`a`), `ft` (`b`), both signs of the product
+(`sub = true` is `MSUBF`) and every FCSR environment `e` (rounding mode, Enables, FS), each operand
+flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet
+`Mips.Fp.Format.FmaSpec` (`Semantics/FpOpsSpec.lean`): the exact `c ± a × b` rounded once; NaN
+operands as the other arithmetic operations, plus Invalid for `0 × ∞` (pin); `0 × ∞` and
+`(±∞) + (∓∞)` invalid; infinities exact; the IEEE 754 exact-zero sign rule.
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
+theorem f32Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 32) :
+    Mips.Fp.binary32.WithFlushInexact e.flush [c.toNat, a.toNat, b.toNat]
+      (Mips.Fp.binary32.FmaSpec e sub (Mips.Fp.binary32.FlushedIn e.flush c.toNat)
+        (Mips.Fp.binary32.FlushedIn e.flush a.toNat) (Mips.Fp.binary32.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f32Fma e sub c a b).1.toNat, (Mips.Fp.f32Fma e sub c a b).2) := by
+  sorry
+
+/-- **`MADDF.D` / `MSUBF.D` on every operand** (MD00086 Vol II-A Rev 6.06, MADDF.fmt / MSUBF.fmt
+p.259-260): as `f32Fma_spec`, for binary64 (`Mips.Fp.Format.FmaSpec`).
+With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
+exceptions (`Mips.Fp.Format.WithFlushInexact`; MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102). -/
+theorem f64Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 64) :
+    Mips.Fp.binary64.WithFlushInexact e.flush [c.toNat, a.toNat, b.toNat]
+      (Mips.Fp.binary64.FmaSpec e sub (Mips.Fp.binary64.FlushedIn e.flush c.toNat)
+        (Mips.Fp.binary64.FlushedIn e.flush a.toNat) (Mips.Fp.binary64.FlushedIn e.flush b.toNat))
+      ((Mips.Fp.f64Fma e sub c a b).1.toNat, (Mips.Fp.f64Fma e sub c a b).2) := by
+  sorry
+
+-- END R6-6A
+-- BEGIN R6-6C
+
+/-- **Table 3.9 is the Operation's predicate** (MD00086 Vol II-A Rev 6.06, CMP.condn.fmt p.138-140):
+for all 32 `condn` values and every relation, `cond4 xor ((cond2 and less) or (cond1 and equal) or
+(cond0 and unordered))` is the table entry, and the "Invalid Operand Exception" column is `cond3`. -/
+theorem cmpTable_formula : ∀ (condn : BitVec 5) (r : Mips.Fp.Format.Relation),
+    Mips.Fp.cmpCondition condn (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
+      Mips.Fp.cmpHolds condn.toNat r ∧
+    (Mips.Fp.cmpTable condn.toNat).2.2.2.2 = (condn.setWidth 4).getLsbD 3 := by
+  sorry
+
+/-- **`CMP.condn.S` for all 32 `condn` values and all operands** (MD00086 Vol II-A Rev 6.06,
+CMP.condn.fmt p.136-140): `Mips.Fp.Format.CmpSpec` — the predicate is the Table 3.9 entry of the
+operands' relation in the extended reals (`+0 = -0`, NaN unordered); Invalid iff an SNaN, or `cond3`
+and a QNaN; nothing else. (The operands as given: the caller flushes them under FCSR.FS.) -/
+theorem f32Cmp_spec (condn : BitVec 5) (a b : BitVec 32) :
+    Mips.Fp.binary32.CmpSpec condn a.toNat b.toNat (Mips.Fp.f32Cmp condn a b) := by
+  sorry
+
+/-- **`CMP.condn.D`** for all 32 `condn` values and all operands (p.136-140): `Mips.Fp.Format.CmpSpec`. -/
+theorem f64Cmp_spec (condn : BitVec 5) (a b : BitVec 64) :
+    Mips.Fp.binary64.CmpSpec condn a.toNat b.toNat (Mips.Fp.f64Cmp condn a b) := by
+  sorry
+
+/-- **`MAX.S`/`MIN.S`/`MAXA.S`/`MINA.S`** on every operand, every FCSR environment, the operands
+flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, p.262-265): `Mips.Fp.Format.MinMaxSpec` — Invalid
+iff an SNaN operand; both NaN: `fs`; one NaN: the other operand; NaNs not quietened; otherwise the
+larger/smaller (by magnitude for MAXA/MINA, ties by value) operand, `-0 < +0` (Table 4.1). -/
+theorem f32MinMax_spec (op : Mips.Fp.Format.MinMaxOp) (e : Mips.Fp.Env) (a b : BitVec 32) :
+    Mips.Fp.binary32.MinMaxSpec op (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat)
+      ((Mips.Fp.f32MinMax op e a b).1.toNat, (Mips.Fp.f32MinMax op e a b).2) := by
+  sorry
+
+/-- **`MAX.D`/`MIN.D`/`MAXA.D`/`MINA.D`** (p.262-265): `Mips.Fp.Format.MinMaxSpec`. -/
+theorem f64MinMax_spec (op : Mips.Fp.Format.MinMaxOp) (e : Mips.Fp.Env) (a b : BitVec 64) :
+    Mips.Fp.binary64.MinMaxSpec op (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat)
+      ((Mips.Fp.f64MinMax op e a b).1.toNat, (Mips.Fp.f64MinMax op e a b).2) := by
+  sorry
+
+/-- **`CLASS.S`** on every operand, taken as encoded (MD00086 Vol II-A Rev 6.06, CLASS.fmt p.132):
+`Mips.Fp.Format.ClassSpec` — the 10-bit mask with exactly the operand's class bit set. -/
+theorem f32Class_spec (a : BitVec 32) :
+    Mips.Fp.binary32.ClassSpec a.toNat (Mips.Fp.f32Class a).toNat := by
+  sorry
+
+/-- **`CLASS.D`** (p.132): `Mips.Fp.Format.ClassSpec`. -/
+theorem f64Class_spec (a : BitVec 64) :
+    Mips.Fp.binary64.ClassSpec a.toNat (Mips.Fp.f64Class a).toNat := by
+  sorry
+
+/-- **`RINT.S`** on every operand, every FCSR environment (MD00086 Vol II-A Rev 6.06, RINT.fmt p.337):
+`Mips.Fp.Format.RintSpec` — NaN as the arithmetic operations, `±∞` unchanged, a finite value
+correctly rounded to an integer in FCSR.RM with the operand's sign, Inexact iff not exact; with
+FCSR.FS = 1 a subnormal operand gives the zero of its sign and Inexact (MD00082 Vol I-A Rev 6.01
+§6.7.2.4, p.102). -/
+theorem f32Rint_spec (e : Mips.Fp.Env) (a : BitVec 32) :
+    Mips.Fp.binary32.RintSpec e a.toNat ((Mips.Fp.f32Rint e a).1.toNat, (Mips.Fp.f32Rint e a).2) := by
+  sorry
+
+/-- **`RINT.D`** (p.337): `Mips.Fp.Format.RintSpec`. -/
+theorem f64Rint_spec (e : Mips.Fp.Env) (a : BitVec 64) :
+    Mips.Fp.binary64.RintSpec e a.toNat ((Mips.Fp.f64Rint e a).1.toNat, (Mips.Fp.f64Rint e a).2) := by
+  sorry
+
+-- END R6-6C
 
 end Trusted

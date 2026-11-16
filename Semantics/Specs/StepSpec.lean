@@ -40,6 +40,9 @@ import Semantics.Specs.PcRel
 -- BEGIN R6-3
 import Semantics.Specs.CompactBranch
 -- END R6-3
+-- BEGIN R6-6B
+import Semantics.Specs.FpuR6
+-- END R6-6B
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -124,6 +127,7 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | FPU loads / stores | `FpuMemory.lean` | alignment; `ldc1`/`sdc1` move one whole 64-bit FPR, `lwc1` keeps the upper half |
 | FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies; `abs`/`neg` non-arithmetic (FCSR untouched) |
 | FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses, the FCSR.FS flush flag; the longword (L) conversions |
+| FPU, Release 6 (R6-6) | `FpuR6.lean` | `cmp.condn.fmt` (mask, `condn` table), `bc1eqz`/`bc1nez` (delay-slot branches on bit 0), `sel`/`seleqz`/`selnez` (FCSR untouched), `maddf`/`msubf`, `max`/`min`/`maxa`/`mina`, `class` (FCSR untouched), `rint` |
 
 <!-- BEGIN R6-2 -->
 Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,

@@ -73,6 +73,12 @@ def IsCTI : Instruction → Bool
   | .blezalc .. | .bgezalc .. | .bgtzalc .. | .bltzalc .. | .beqzalc .. | .bnezalc ..
   | .bovc .. | .bnvc .. | .jic .. | .jialc .. => true
   -- END R6-3
+  -- BEGIN R6-6B
+  -- BC1EQZ/BC1NEZ: "If a control transfer instruction (CTI) is executed in the delay slot of a branch
+  -- or jump, Release 6 implementations are required to signal a Reserved Instruction exception"
+  -- (BC1EQZ BC1NEZ, p.54)
+  | .bc1eqz .. | .bc1nez .. => true
+  -- END R6-6B
   | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`

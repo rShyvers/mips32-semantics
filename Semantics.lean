@@ -37,6 +37,12 @@ import Semantics.FpOpsCorrectConv
 import Semantics.FpOpsCorrectCompare
 import Semantics.FpOpsCorrectFcsr
 import Semantics.FpOpsCorrectIEEE
+-- BEGIN R6-6A
+import Semantics.FpOpsCorrectFma
+-- END R6-6A
+-- BEGIN R6-6C
+import Semantics.FpOpsCorrectR6
+-- END R6-6C
 import Semantics.Step
 -- The environment layer (loader, hosted run): not part of the architecture.
 import Semantics.Env

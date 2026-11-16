@@ -220,7 +220,9 @@ instruction pages, **not** from `FpOps.lean`; where the manual leaves a choice, 
 allows every choice (a relation) or names the pin. The definitions below take each operand as the
 operation sees it: with FCSR.FS = 1 "every input subnormal value is replaced with zero of the same
 sign" (Table 6.8, `FS`, p.93, "As of Release 5"), which `FlushedIn` states and the statements about
-the model's operations apply to its operands. `Semantics/FpOpsCorrectSpecial.lean` …
+the model's operations apply to its operands; and "Flushing of subnormal input operands in all
+instructions except comparisons causes Inexact exception to be signaled" (§6.7.2.4, p.102), which
+`WithFlushInexact` adds to the exceptions of every non-comparison operation. `Semantics/FpOpsCorrectSpecial.lean` …
 `FpOpsCorrectIEEE.lean` prove the model meets them. -/
 
 namespace Format
@@ -274,6 +276,25 @@ FS is zero "Input subnormal values ... are not altered". A subnormal encoding is
 exponent 0 and fraction `≠ 0` (Table 6.2, p.80, "E_min -1, ≠0"). -/
 def FlushedIn (f : Format) (fl : Bool) (n : Nat) : Nat :=
   if fl = true ∧ f.expOf n = 0 ∧ f.fracOf n ≠ 0 then f.zeroBits (f.signOf n) else n
+
+/-- **Some input operand among `ops` is flushed** under FCSR.FS (`fl`): FS is one and some operand is
+subnormal (biased exponent 0, fraction `≠ 0`, Table 6.2, p.80), so `FlushedIn` replaces it. -/
+def FlushInexact (f : Format) (fl : Bool) (ops : List Nat) : Prop :=
+  fl = true ∧ ∃ n ∈ ops, f.expOf n = 0 ∧ f.fracOf n ≠ 0
+
+instance (f : Format) (fl : Bool) (ops : List Nat) : Decidable (f.FlushInexact fl ops) :=
+  inferInstanceAs (Decidable (_ ∧ _))
+
+/-- **A non-comparison operation with input flushing** (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102:
+"Flushing of subnormal input operands in all instructions except comparisons causes Inexact exception
+to be signaled"; MADDF.fmt, MD00086 Vol II-A Rev 6.06 p.260: "Inexact may be signaled both by input
+flushing and/or by the fused-multiply-add: the conditions or ORed"): `P` (the operation's reference
+definition, on the flushed operands) holds of the delivered result with some exceptions `g`, and the
+exceptions signaled are `g` with Inexact added iff an operand among `ops` (as encoded) was flushed
+(`FlushInexact`). -/
+def WithFlushInexact {α : Type} (f : Format) (fl : Bool) (ops : List Nat) (P : α × Flags → Prop)
+    (res : α × Flags) : Prop :=
+  ∃ g : Flags, P (res.1, g) ∧ res.2 = { g with inexact := g.inexact || decide (f.FlushInexact fl ops) }
 
 end Format
 
@@ -593,6 +614,168 @@ def CompareSpec (f : Format) (cond : BitVec 4) (a b : Nat) (res : Bool × Flags)
 
 end Format
 
+-- BEGIN R6-6C
+/-! ### `CMP.condn.fmt` (MD00086 Vol II-A Rev 6.06, p.136-140) -/
+
+/-- **The 32 `CMP.condn.fmt` predicates**, by the 5-bit `condn` field: the "Relation `> < = ?`"
+columns of Table 3.9 (p.138-139; the left half "Predicates" is `condn` = `cccc` = 0..15, the right
+half "Negated Predicates" is `condn` = 16 + `cccc`), and the "Invalid Operand Exception" column
+("no (non-signalling)" for `cccc` = 0..7, "yes (signalling)" for 8..15). Returns
+`(>, <, =, ?, signalling)`. The comment names the CMP mnemonic; the shaded (reserved) rows 16, 20..24,
+28..31 are listed too (their decoding is not this definition's business). -/
+def cmpTable : Nat → Bool × Bool × Bool × Bool × Bool
+  | 0 => (false, false, false, false, false)   -- AF
+  | 1 => (false, false, false, true, false)    -- UN
+  | 2 => (false, false, true, false, false)    -- EQ
+  | 3 => (false, false, true, true, false)     -- UEQ
+  | 4 => (false, true, false, false, false)    -- LT
+  | 5 => (false, true, false, true, false)     -- ULT
+  | 6 => (false, true, true, false, false)     -- LE
+  | 7 => (false, true, true, true, false)      -- ULE
+  | 8 => (false, false, false, false, true)    -- SAF
+  | 9 => (false, false, false, true, true)     -- SUN
+  | 10 => (false, false, true, false, true)    -- SEQ
+  | 11 => (false, false, true, true, true)     -- SUEQ
+  | 12 => (false, true, false, false, true)    -- SLT
+  | 13 => (false, true, false, true, true)     -- SULT
+  | 14 => (false, true, true, false, true)     -- SLE
+  | 15 => (false, true, true, true, true)      -- SULE
+  | 16 => (true, true, true, true, false)      -- AT (reserved)
+  | 17 => (true, true, true, false, false)     -- OR
+  | 18 => (true, true, false, true, false)     -- UNE
+  | 19 => (true, true, false, false, false)    -- NE
+  | 20 => (true, false, true, true, false)     -- UGE (reserved)
+  | 21 => (true, false, true, false, false)    -- OGE (reserved)
+  | 22 => (true, false, false, true, false)    -- UGT (reserved)
+  | 23 => (true, false, false, false, false)   -- OGT (reserved)
+  | 24 => (true, true, true, true, true)       -- SAT (reserved)
+  | 25 => (true, true, true, false, true)      -- SOR
+  | 26 => (true, true, false, true, true)      -- SUNE
+  | 27 => (true, true, false, false, true)     -- SNE
+  | 28 => (true, false, true, true, true)      -- SUGE (reserved)
+  | 29 => (true, false, true, false, true)     -- SOGE (reserved)
+  | 30 => (true, false, false, true, true)     -- SUGT (reserved)
+  | _ => (true, false, false, false, true)     -- 31: SOGT (reserved)
+
+/-- The `cmpTable` entry for a relation. -/
+def cmpHolds (condn : Nat) : Format.Relation → Bool
+  | .gt => (cmpTable condn).1
+  | .lt => (cmpTable condn).2.1
+  | .eq => (cmpTable condn).2.2.1
+  | .un => (cmpTable condn).2.2.2.1
+
+namespace Format
+
+/-- **`CMP.condn.fmt`** on the encodings `a` (`fs`), `b` (`ft`) with the 5-bit `condn`: the predicate
+value is the Table 3.9 entry of the operands' ordering relation (`cmpRel`: "unordered ... when at
+least one operand value is NaN", "Comparisons ignore the sign of zero, so +0 equals -0", p.136);
+"If one of the values is an SNaN, or if a signalling comparison is specified and at least one of the
+values is a QNaN, an Invalid Operation condition is raised" (p.136; Operation p.140: `SNaN(fs) or
+SNaN(ft) or (cond3 and (QNaN(fs) or QNaN(ft)))`); nothing else is signaled ("The comparison is exact
+and neither overflows nor underflows", p.136). Writing the mask into `fd` is the instruction's. -/
+def CmpSpec (f : Format) (condn : BitVec 5) (a b : Nat) (res : Bool × Flags) : Prop :=
+  res.1 = cmpHolds condn.toNat (f.cmpRel a b) ∧
+  (res.2.invalid = true ↔
+    (f.IsSNaN a ∨ f.IsSNaN b ∨ ((cmpTable condn.toNat).2.2.2.2 = true ∧ (f.IsQNaN a ∨ f.IsQNaN b)))) ∧
+  res.2.divZero = false ∧ res.2.overflow = false ∧ res.2.underflow = false ∧ res.2.inexact = false
+
+/-! ### `MAX.fmt`, `MIN.fmt`, `MAXA.fmt`, `MINA.fmt` (MD00086 Vol II-A Rev 6.06, p.262-265) -/
+
+/-- **The signed order of MAX/MIN**: `a < b` as values (`cmpRel`, `-∞ < finite < +∞`), and among
+equal values `-0.0 < 0.0` (Table 4.1, p.264: `MAX(-0.0, 0.0) = 0.0`, `MIN(-0.0, 0.0) = -0.0`, either
+operand order). For non-NaN operands only. -/
+def SignedLt (f : Format) (a b : Nat) : Prop :=
+  f.cmpRel a b = .lt ∨ (f.cmpRel a b = .eq ∧ f.signOf a = true ∧ f.signOf b = false)
+
+/-- **The relation of the absolute values** `|a|`, `|b|`: the ordering relation of the operands
+with their sign bits cleared (`signChanged true`, the `ABS.fmt` encoding). -/
+def magRel (f : Format) (a b : Nat) : Relation :=
+  f.cmpRel (f.signChanged true a) (f.signChanged true b)
+
+/-- **When the result of MAX/MIN/MAXA/MINA on two non-NaN operands is `fs` (`a`)**, from the
+Operation's functions (p.264): `MaxFP` "Returns the largest argument", `MinFP` "Returns the smallest
+argument", `MaxAbsoluteFP` "Returns the argument with largest absolute value. For equal absolute
+values, returns the largest argument", `MinAbsoluteFP` "Returns the argument with smallest absolute
+value. For equal absolute values, returns the smallest argument"; "largest"/"smallest" in the
+signed order `SignedLt` (Table 4.1). When neither operand is larger, they are the same encoding
+(equal value and sign), and `a` is chosen. -/
+def MinMaxPicksA (f : Format) : MinMaxOp → Nat → Nat → Prop
+  | .max, a, b => ¬ f.SignedLt a b
+  | .min, a, b => ¬ f.SignedLt b a
+  | .maxa, a, b => f.magRel a b = .gt ∨ (f.magRel a b = .eq ∧ ¬ f.SignedLt a b)
+  | .mina, a, b => f.magRel a b = .lt ∨ (f.magRel a b = .eq ∧ ¬ f.SignedLt b a)
+
+/-- **`MAX.fmt`/`MIN.fmt`/`MAXA.fmt`/`MINA.fmt`** (`op`) on `a` (`fs`), `b` (`ft`) (p.262-265,
+IEEE 754-2008 maxNum/minNum/maxNumMag/minNumMag): Invalid Operation exactly when an operand is an
+SNaN (`if SNaN(v1) or SNaN(v2) then SignalException(InvalidOperand)`, p.263), nothing else signaled;
+"Numbers are preferred to NaNs: if one input is a NaN, but not both, the value of the numeric input
+is returned. If both are NaNs, the NaN in fs is returned" (p.263; Operation: `if NaN(v1) and NaN(v2)
+then ftmp ← v1 elseif NaN(v1) then ftmp ← v2 elseif NaN(v2) then ftmp ← v1`), the NaN not made quiet
+(Table 4.1, p.265: "Treat as if the SNaN were a QNaN (do not quieten the result)"); otherwise `a` or
+`b` as `MinMaxPicksA` says. The result is an operand encoding, unchanged. Under FCSR.FS = 1 the
+statements apply this to the flushed operands (`FlushedIn`, Table 6.8, `FS`, p.93) with no Inexact
+for the flushing: MAX/MIN/MAXA/MINA are "Floating Point Comparison Instructions" (MD00082 Vol I-A Rev
+6.01 Table 7.9, p.110) and "For floating-point comparisons, the Inexact exception is not signaled when
+subnormal input operands are flushed" (§6.7.2.4, p.102). -/
+def MinMaxSpec (f : Format) (op : MinMaxOp) (a b : Nat) (res : Nat × Flags) : Prop :=
+  res.2 = (if f.IsSNaN a ∨ f.IsSNaN b then { invalid := true } else {}) ∧
+  (f.IsNaN a → f.IsNaN b → res.1 = a) ∧
+  (f.IsNaN a → ¬ f.IsNaN b → res.1 = b) ∧
+  (¬ f.IsNaN a → f.IsNaN b → res.1 = a) ∧
+  (¬ f.IsNaN a → ¬ f.IsNaN b → (f.MinMaxPicksA op a b → res.1 = a) ∧ (¬ f.MinMaxPicksA op a b → res.1 = b))
+
+/-! ### `CLASS.fmt` (MD00086 Vol II-A Rev 6.06, p.132) -/
+
+/-- **The class bit of an encoding** (p.132): "Bits 0 and 1 indicate NaN values: signaling NaN (bit 0)
+and quiet NaN (bit 1). Bits 2, 3, 4, 5 classify negative values: infinity (bit 2), normal (bit 3),
+subnormal (bit 4), and zero (bit 5). Bits 6, 7, 8, 9 classify positive values: infinity (bit 6),
+normal (bit 7), subnormal (bit 8), and zero (bit 9)." A finite nonzero encoding is subnormal iff its
+biased exponent is 0 (MD00082 Vol I-A Rev 6.01 Table 6.2, p.80, "E_min -1, ≠0"). -/
+def classBit (f : Format) (a : Nat) : Nat :=
+  match f.datum a with
+  | .nan => if f.IsSNaN a then 0 else 1
+  | .inf neg => if neg then 2 else 6
+  | .num neg x => (if neg then 2 else 6) + (if x = 0 then 3 else if f.expOf a = 0 then 2 else 1)
+
+/-- **`CLASS.fmt`**: the 10-bit mask with the one class bit of the operand set, "zero extended to
+fmt-width bits"; the operand as encoded ("The input values and generated bit masks are not affected
+by the flush-subnormal-to-zero mode FCSR.FS"); "No data-dependent exceptions are possible" (p.132). -/
+def ClassSpec (f : Format) (a : Nat) (res : Nat) : Prop :=
+  res = 2 ^ f.classBit a
+
+/-! ### `RINT.fmt` (MD00086 Vol II-A Rev 6.06, p.337) -/
+
+/-- **`RINT.fmt`** of `a` under `e` (p.337): "rounded to an integral valued floating-point number in
+the same format based on the rounding mode bits RM"; it "corresponds to the roundToIntegralExact
+operation" and "The Inexact exception is signaled if the result does not have the same numerical
+value as the input operand". A NaN: `NaNResult` (the arithmetic-operation rule; IEEE Std 754-2019
+§5.9, p.41: roundToIntegralExact "signals the invalid operation exception for a signaling NaN
+operand"). `±∞`: `±∞`, no exception (§5.9: "infinite operands to infinite results of the same sign").
+A finite `x` with sign bit `s`: the encoding of the integer `i` that is `x` correctly rounded to the
+integers in FCSR.RM (Table 6.10, MD00082 Vol I-A Rev 6.01 p.95, over the integers), with sign bit `s`
+(also for a zero result: IEEE Std 754-2019 §6.3, p.50, "the sign of the result of ... the
+roundToIntegralExact ... is the sign of the first or only operand"; §5.9: "zero operands to zero
+results of the same sign"; verified against 2019), Inexact iff `i ≠ x`, nothing else.
+The operand is taken as encoded and FCSR.FS handled here: with FS = 1 a subnormal operand (biased
+exponent 0, fraction `≠ 0`, Table 6.2, p.80) "is replaced with zero of the same sign" (MD00082 Vol I-A
+Rev 6.01 Table 6.8, `FS`, p.93), the rounding of that zero is exact, and "Flushing of subnormal input
+operands in all instructions except comparisons causes Inexact exception to be signaled" (§6.7.2.4,
+p.102; RINT.fmt is a conversion instruction, Table 7.10, p.110): the zero of the operand's sign,
+Inexact only. -/
+def RintSpec (f : Format) (e : Env) (a : Nat) (res : Nat × Flags) : Prop :=
+  if e.flush = true ∧ f.expOf a = 0 ∧ f.fracOf a ≠ 0 then
+    res = (f.zeroBits (f.signOf a), { inexact := true })
+  else
+  match f.datum a with
+  | .nan => f.NaNResult [a] res
+  | .inf s => res = (f.infBits s, {})
+  | .num s x => ∃ i : Int, CorrectlyRounded IsInt IsEvenInt e.rm (Cut.ofRat x) (i : Rat) ∧
+      f.value res.1 = some (i : Rat) ∧ f.signOf res.1 = s ∧
+      res.2 = (if (i : Rat) = x then {} else { inexact := true })
+
+end Format
+-- END R6-6C
+
 /-! ### The FCSR after an FP operation (§6.7.1, p.98-99; CheckFPException, Vol II-A §2.2.2.3.3, p.23) -/
 
 /-- The five IEEE bits of a `Flags` value in FCSR order, `k = 0 … 4` = I, U, O, Z, V (MD00082 Vol I-A
@@ -633,5 +816,76 @@ inductive FpOutcome (α : Type) where
 def OpStep {α : Type} (Op : α × Flags → Prop) (fcsr : BitVec 32) (o : FpOutcome α) : Prop :=
   ∃ r : α × Flags, Op r ∧ ∃ new trap, FcsrSpec fcsr r.2 new trap ∧
     (trap = true → o = .trap new) ∧ (trap = false → o = .done new r.1)
+
+-- BEGIN R6-6A
+/-! ### `MADDF.fmt`, `MSUBF.fmt`: fused multiply-add (MD00086 Vol II-A Rev 6.06, p.259-260) -/
+
+namespace Format
+
+/-- `a × b` is `0 × ∞` or `∞ × 0`, with any signs. -/
+def InfTimesZero (f : Format) (a b : Nat) : Prop :=
+  match f.datum a, f.datum b with
+  | .inf _, .num _ y => y = 0
+  | .num _ x, .inf _ => x = 0
+  | _, _ => False
+
+/-- **A NaN among the operands `c`, `a`, `b` of `MADDF`/`MSUBF`**: the result value is as for the
+other arithmetic operations (`NaNResult` over `[c, a, b]`: a quiet NaN, a passed operand when one is a
+QNaN, no exception but Invalid), and Invalid is signaled iff an operand is a signaling NaN **or `a × b` is
+`0 × ∞`**. MD00082 Vol I-A Rev 6.01 §6.7.2.1, p.100 lists "Multiplication: 0 × ∞, with any signs" as
+invalid without exception; IEEE Std 754-2019 §7.2 c), p.52: invalid for `fusedMultiplyAdd(0, ∞, c)`
+"unless c is a quiet NaN; if c is a quiet NaN then it is implementation defined whether the invalid
+operation exception is signaled" (verified against 2019). Pin: signaled (QEMU `mips32r6-generic`
+does the same). -/
+def FmaNaNResult (f : Format) (c a b : Nat) (res : Nat × Flags) : Prop :=
+  (∃ inv : Bool, f.NaNResult [c, a, b] (res.1, { res.2 with invalid := inv })) ∧
+  (res.2.invalid = true ↔ (∃ x ∈ [c, a, b], f.IsSNaN x) ∨ f.InfTimesZero a b)
+
+/-- The result when the exact product (negated for `MSUBF`) is the infinity of sign `p` and the
+addend has datum `d`: the sum `(±∞) + (∓∞)` is invalid ("magnitude subtraction of infinities",
+§6.7.2.1, p.100; IEEE Std 754-2019 §7.2 d), p.52, "addition or subtraction or fusedMultiplyAdd"),
+otherwise the infinity, exactly (§6.3.1.3, p.81: "Arithmetic with ∞ is the limiting case of real
+arithmetic ... regarded as exact and exception conditions do not arise"). -/
+def FmaInfProduct (f : Format) (d : Datum) (p : Bool) (res : Nat × Flags) : Prop :=
+  match d with
+  | .inf r => if r = p then res = (f.infBits p, {}) else res = f.invalidResult
+  | _ => res = (f.infBits p, {})
+
+/-- **`MADDF.fmt` (`sub = false`) and `MSUBF.fmt` (`sub = true`)** (MD00086 Vol II-A Rev 6.06,
+p.259-260): `c + a × b` resp. `c − a × b` with `c` = FPR fd, `a` = FPR fs, `b` = FPR ft, under `e`.
+"The intermediate product is calculated to infinite precision. The product is added to the value in
+FPR fd. The result sum is calculated to infinite precision, rounded according to the current rounding
+mode in FCSR" (p.259); it "signals Inexact, Overflow, or Underflow if and only if the final result
+differs from the infinite precision result in the appropriate manner" (p.260). IEEE Std 754-2019
+§5.4.1, p.33: fusedMultiplyAdd "computes (x × y) + z as if with unbounded range and precision, rounding
+only once to the destination format" (verified against 2019).
+
+* A NaN operand: `FmaNaNResult`.
+* `a × b` = `0 × ∞` (no NaN operand): Invalid (§6.7.2.1, p.100; IEEE §7.2 c)).
+* An infinite product, of sign `s xor t` (negated for `MSUBF`): `FmaInfProduct`.
+* A finite product and `c = ±∞`: `c`, exactly (§6.3.1.3, p.81).
+* All finite: with `v` the exact `x ± y·z`, an exactly zero `v` is the zero of the common sign of the
+  two terms `c` and `±a × b` (the product's sign is `s xor t`, negated for `MSUBF`) when they agree, else
+  `+0`, or `−0` in RM — the manual is silent; IEEE Std 754-2019 §6.3, p.50: "When (a × b) + c is exactly
+  zero, the sign of fusedMultiplyAdd(a, b, c) shall be determined by the rules above for a sum of
+  operands" (as `AddSpec`; verified against 2019) — no exception; a nonzero `v` is `RoundEnvSpec` of
+  `v` (one rounding; a result that rounds to zero keeps the sign of `v`, §6.3, p.50). -/
+def FmaSpec (f : Format) (e : Env) (sub : Bool) (c a b : Nat) (res : Nat × Flags) : Prop :=
+  match f.datum c, f.datum a, f.datum b with
+  | .nan, _, _ => f.FmaNaNResult c a b res
+  | _, .nan, _ => f.FmaNaNResult c a b res
+  | _, _, .nan => f.FmaNaNResult c a b res
+  | d, .inf s, .inf t => f.FmaInfProduct d (s ^^ t ^^ sub) res
+  | d, .inf s, .num t y => if y = 0 then res = f.invalidResult else f.FmaInfProduct d (s ^^ t ^^ sub) res
+  | d, .num s x, .inf t => if x = 0 then res = f.invalidResult else f.FmaInfProduct d (s ^^ t ^^ sub) res
+  | .inf r, .num _ _, .num _ _ => res = (f.infBits r, {})
+  | .num r w, .num s x, .num t y =>
+    let v := if sub then w - x * y else w + x * y
+    if v = 0 then
+      res = (f.zeroBits (if r = (s ^^ t ^^ sub) then r else decide (e.rm = .RM)), {})
+    else f.RoundEnvSpec e (Cut.ofRat v) res
+
+end Format
+-- END R6-6A
 
 end Mips.Fp

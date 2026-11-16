@@ -313,9 +313,12 @@ theorem cvtDS_model (a : Arch) (x : W32) :
   · next hq =>
     have hf : ∀ fl, Mips.Fp.binary32.flushIn fl x.toNat = x.toNat := fun fl =>
       Mips.Fp.Format.flushIn_of_isNaN _ _ _ (by decide) (qnan_isNaN32 x hq)
+    have hw : ∀ fl (r : Nat × Mips.Fp.Flags), Mips.Fp.binary32.withFlush fl [x.toNat] r = r :=
+      fun fl r => Mips.Fp.Format.withFlush_single_of_not_subnormal _ fl _ r
+        (Mips.Fp.Format.isSubnormal_of_isNaN _ _ (by decide) (qnan_isNaN32 x hq))
     have := (convert_qnan Mips.Fp.binary32 Mips.Fp.binary64 Mips.Fp.Env.RN x.toNat hq).2
     show ((Mips.Fp.f32ToF64 false x).1, Mips.Fp.Flags.none) = Mips.Fp.f32ToF64 (FCSR_FS a) x
-    simp only [Mips.Fp.f32ToF64, hf]; rw [this]
+    simp only [Mips.Fp.f32ToF64, hf, hw]; rw [this]
   · rfl
 
 /-- `CVT.S.D` with the model's oracle is the core's `f64ToF32` under the FCSR environment. -/
@@ -326,9 +329,12 @@ theorem cvtSD_model (a : Arch) (x : BitVec 64) :
   · next hq =>
     have hf : ∀ fl, Mips.Fp.binary64.flushIn fl x.toNat = x.toNat := fun fl =>
       Mips.Fp.Format.flushIn_of_isNaN _ _ _ (by decide) (qnan_isNaN64 x hq)
+    have hw : ∀ fl (r : Nat × Mips.Fp.Flags), Mips.Fp.binary64.withFlush fl [x.toNat] r = r :=
+      fun fl r => Mips.Fp.Format.withFlush_single_of_not_subnormal _ fl _ r
+        (Mips.Fp.Format.isSubnormal_of_isNaN _ _ (by decide) (qnan_isNaN64 x hq))
     have h := convert_qnan Mips.Fp.binary64 Mips.Fp.binary32 (IEEE.env a) x.toNat hq
     show ((Mips.Fp.f64ToF32 Mips.Fp.Env.RN x).1, Mips.Fp.Flags.none) = Mips.Fp.f64ToF32 (IEEE.env a) x
-    obtain ⟨h1, h2⟩ := h; simp only [Mips.Fp.f64ToF32, hf]; rw [h1] at h2 ⊢; rw [h2]
+    obtain ⟨h1, h2⟩ := h; simp only [Mips.Fp.f64ToF32, hf, hw]; rw [h1] at h2 ⊢; rw [h2]
   · rfl
 
 end Refine

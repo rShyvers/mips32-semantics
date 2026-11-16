@@ -23,6 +23,9 @@ import Semantics.Refine.PcRel
 -- BEGIN R6-3
 import Semantics.Refine.CompactBranch
 -- END R6-3
+-- BEGIN R6-6B
+import Semantics.Refine.FpuR6
+-- END R6-6B
 
 /-!
 # Refine.Instr — the per-instruction refinement of every constructor (7D)
@@ -33,7 +36,7 @@ in: the invariant `Inv s` (`Refine/Defs.lean`), and `w` is a fetched word
 that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
 `instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
-`Instruction` (175, generated in constructor order; the 12 Release 6 `L`-format conversions of R6-5 in their own block), and `allInstrRefines` collects them by
+`Instruction` (201, generated in constructor order; the 12 Release 6 `L`-format conversions of R6-5 and the 26 Release 6 FP instructions of R6-6 in their own blocks), and `allInstrRefines` collects them by
 `cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
 constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
 and the build fails.
@@ -360,6 +363,60 @@ theorem instrRefines_cvtSL (fd fs : W32) : InstrRefines (.cvtSL fd fs) :=
 theorem instrRefines_cvtDL (fd fs : W32) : InstrRefines (.cvtDL fd fs) :=
   fun s w hg _ hw => cvtDL_refines s hg.1 fd fs w hw
 -- END R6-5
+-- BEGIN R6-6B
+theorem instrRefines_cmpS (cond fd fs ft : W32) : InstrRefines (.cmpS cond fd fs ft) :=
+  fun s w hg _ hw => cmpS_refines s hg.1 cond fd fs ft w hw
+theorem instrRefines_cmpD (cond fd fs ft : W32) : InstrRefines (.cmpD cond fd fs ft) :=
+  fun s w hg _ hw => cmpD_refines s hg.1 cond fd fs ft w hw
+theorem instrRefines_bc1eqz (ft off : W32) : InstrRefines (.bc1eqz ft off) :=
+  fun s w hg _ hw => bc1eqz_refines s hg.1 ft off w hw
+theorem instrRefines_bc1nez (ft off : W32) : InstrRefines (.bc1nez ft off) :=
+  fun s w hg _ hw => bc1nez_refines s hg.1 ft off w hw
+theorem instrRefines_selS (fd fs ft : W32) : InstrRefines (.selS fd fs ft) :=
+  fun s w hg _ hw => selS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_selD (fd fs ft : W32) : InstrRefines (.selD fd fs ft) :=
+  fun s w hg _ hw => selD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_seleqzS (fd fs ft : W32) : InstrRefines (.seleqzS fd fs ft) :=
+  fun s w hg _ hw => seleqzS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_seleqzD (fd fs ft : W32) : InstrRefines (.seleqzD fd fs ft) :=
+  fun s w hg _ hw => seleqzD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_selnezS (fd fs ft : W32) : InstrRefines (.selnezS fd fs ft) :=
+  fun s w hg _ hw => selnezS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_selnezD (fd fs ft : W32) : InstrRefines (.selnezD fd fs ft) :=
+  fun s w hg _ hw => selnezD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maddfS (fd fs ft : W32) : InstrRefines (.maddfS fd fs ft) :=
+  fun s w hg _ hw => maddfS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maddfD (fd fs ft : W32) : InstrRefines (.maddfD fd fs ft) :=
+  fun s w hg _ hw => maddfD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_msubfS (fd fs ft : W32) : InstrRefines (.msubfS fd fs ft) :=
+  fun s w hg _ hw => msubfS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_msubfD (fd fs ft : W32) : InstrRefines (.msubfD fd fs ft) :=
+  fun s w hg _ hw => msubfD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maxS (fd fs ft : W32) : InstrRefines (.maxS fd fs ft) :=
+  fun s w hg _ hw => maxS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maxD (fd fs ft : W32) : InstrRefines (.maxD fd fs ft) :=
+  fun s w hg _ hw => maxD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_minS (fd fs ft : W32) : InstrRefines (.minS fd fs ft) :=
+  fun s w hg _ hw => minS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_minD (fd fs ft : W32) : InstrRefines (.minD fd fs ft) :=
+  fun s w hg _ hw => minD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maxaS (fd fs ft : W32) : InstrRefines (.maxaS fd fs ft) :=
+  fun s w hg _ hw => maxaS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_maxaD (fd fs ft : W32) : InstrRefines (.maxaD fd fs ft) :=
+  fun s w hg _ hw => maxaD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_minaS (fd fs ft : W32) : InstrRefines (.minaS fd fs ft) :=
+  fun s w hg _ hw => minaS_refines s hg.1 fd fs ft w hw
+theorem instrRefines_minaD (fd fs ft : W32) : InstrRefines (.minaD fd fs ft) :=
+  fun s w hg _ hw => minaD_refines s hg.1 fd fs ft w hw
+theorem instrRefines_classS (fd fs : W32) : InstrRefines (.classS fd fs) :=
+  fun s w hg _ hw => classS_refines s hg.1 fd fs w hw
+theorem instrRefines_classD (fd fs : W32) : InstrRefines (.classD fd fs) :=
+  fun s w hg _ hw => classD_refines s hg.1 fd fs w hw
+theorem instrRefines_rintS (fd fs : W32) : InstrRefines (.rintS fd fs) :=
+  fun s w hg _ hw => rintS_refines s hg.1 fd fs w hw
+theorem instrRefines_rintD (fd fs : W32) : InstrRefines (.rintD fd fs) :=
+  fun s w hg _ hw => rintD_refines s hg.1 fd fs w hw
+-- END R6-6B
 
 -- BEGIN R6-3
 theorem instrRefines_bc (off : W32) : InstrRefines (.bc off) :=
@@ -597,5 +654,33 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case cvtSL fd fs => exact instrRefines_cvtSL fd fs
   case cvtDL fd fs => exact instrRefines_cvtDL fd fs
   -- END R6-5
+  -- BEGIN R6-6B
+  case cmpS cond fd fs ft => exact instrRefines_cmpS cond fd fs ft
+  case cmpD cond fd fs ft => exact instrRefines_cmpD cond fd fs ft
+  case bc1eqz ft off => exact instrRefines_bc1eqz ft off
+  case bc1nez ft off => exact instrRefines_bc1nez ft off
+  case selS fd fs ft => exact instrRefines_selS fd fs ft
+  case selD fd fs ft => exact instrRefines_selD fd fs ft
+  case seleqzS fd fs ft => exact instrRefines_seleqzS fd fs ft
+  case seleqzD fd fs ft => exact instrRefines_seleqzD fd fs ft
+  case selnezS fd fs ft => exact instrRefines_selnezS fd fs ft
+  case selnezD fd fs ft => exact instrRefines_selnezD fd fs ft
+  case maddfS fd fs ft => exact instrRefines_maddfS fd fs ft
+  case maddfD fd fs ft => exact instrRefines_maddfD fd fs ft
+  case msubfS fd fs ft => exact instrRefines_msubfS fd fs ft
+  case msubfD fd fs ft => exact instrRefines_msubfD fd fs ft
+  case maxS fd fs ft => exact instrRefines_maxS fd fs ft
+  case maxD fd fs ft => exact instrRefines_maxD fd fs ft
+  case minS fd fs ft => exact instrRefines_minS fd fs ft
+  case minD fd fs ft => exact instrRefines_minD fd fs ft
+  case maxaS fd fs ft => exact instrRefines_maxaS fd fs ft
+  case maxaD fd fs ft => exact instrRefines_maxaD fd fs ft
+  case minaS fd fs ft => exact instrRefines_minaS fd fs ft
+  case minaD fd fs ft => exact instrRefines_minaD fd fs ft
+  case classS fd fs => exact instrRefines_classS fd fs
+  case classD fd fs => exact instrRefines_classD fd fs
+  case rintS fd fs => exact instrRefines_rintS fd fs
+  case rintD fd fs => exact instrRefines_rintD fd fs
+  -- END R6-6B
 
 end Refine

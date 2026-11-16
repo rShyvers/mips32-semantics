@@ -27,7 +27,7 @@ set_option linter.unusedSimpArgs false in
 theorem qnan32_to64 (x : BitVec 32) (h : Mips.Fp.isQNaN32 x = true) :
     Mips.Fp.isQNaN64 (Mips.Fp.f32ToF64 false x).1 = true := by
   open Mips.Fp in
-  simp only [isQNaN32, isQNaN64, f32ToF64, Format.flushIn, Bool.false_and, Bool.false_eq_true, ite_false,
+  simp only [isQNaN32, isQNaN64, f32ToF64, Format.withFlush, Format.flushIn, Bool.false_and, Bool.false_eq_true, ite_false,
     Format.quiet, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
     Format.isSNaN, Format.expField, Format.fracField, Format.expMax, Format.pack, Format.signBit,
     Format.defaultQNaN, binary32, binary64, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h ⊢
@@ -47,7 +47,8 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
     Mips.Fp.isQNaN32 (Mips.Fp.f64ToF32 e x).1 = true := by
   have hn : Mips.Fp.binary64.isNaN x.toNat = true := by
     revert h; simp only [Mips.Fp.isQNaN64, Mips.Fp.Format.isQNaN, Bool.and_eq_true]; exact fun h => h.1
-  simp only [Mips.Fp.f64ToF32, Mips.Fp.Format.flushIn_of_isNaN _ e.flush _ (by decide) hn]
+  simp only [Mips.Fp.f64ToF32, Mips.Fp.Format.withFlush,
+    Mips.Fp.Format.flushIn_of_isNaN _ e.flush _ (by decide) hn]
   open Mips.Fp in
   simp only [isQNaN32, isQNaN64, Format.quiet, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
     Format.isSNaN, Format.expField, Format.fracField, Format.expMax, Format.pack, Format.signBit,

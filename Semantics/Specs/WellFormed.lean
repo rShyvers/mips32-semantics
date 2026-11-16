@@ -17,7 +17,8 @@ inverts it: register numbers and shift amounts `< 32`, 16-bit immediates
 bitfield inside the word; `sll $0,$0,5` is
 not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317); a compact branch needs the
 `rs`/`rt` relation that selects it within its shared opcode (21-bit offsets of `beqzc`/`bnezc`
-`< 2 ^ 21`, 26-bit offsets of `bc`/`balc` `< 2 ^ 26`; Table A.26, p.464). -/
+`< 2 ^ 21`, 26-bit offsets of `bc`/`balc` `< 2 ^ 26`; Table A.26, p.464); a `cmp.condn.fmt` needs a
+`condn` of Table A.17 (p.457; R6-6B). -/
 def Instruction.WellFormed : Instruction → Prop
   | .add rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .addu rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
@@ -200,3 +201,32 @@ def Instruction.WellFormed : Instruction → Prop
   | .cvtSL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .cvtDL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   -- END R6-5
+  -- BEGIN R6-6B
+  -- CMP.condn.fmt: a `condn` of Table A.17 (p.457; `cmpCondnOK`, which also bounds it below 32).
+  | .cmpS cond fd fs ft => cmpCondnOK cond = true ∧ fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .cmpD cond fd fs ft => cmpCondnOK cond = true ∧ fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .bc1eqz ft off => ft.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bc1nez ft off => ft.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .selS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .selD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .seleqzS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .seleqzD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .selnezS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .selnezD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maddfS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maddfD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .msubfS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .msubfD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maxS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maxD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .minS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .minD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maxaS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .maxaD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .minaS fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .minaD fd fs ft => fd.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
+  | .classS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .classD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .rintS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .rintD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  -- END R6-6B

@@ -151,6 +151,44 @@ theorem rw_cvtSL (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.cvtSL fd fs) a 
     RowWitness (.cvtSL fd fs) a :=
   row_upper rfl fd fun _ _ => by simp only [Ops.CVT_S_L]; runp_up
 -- END R6-5
+-- BEGIN R6-6B: the 32-bit results of the Release 6 FP instructions
+theorem rw_cmpS (cond fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.cmpS cond fd fs ft) a = true) :
+    RowWitness (.cmpS cond fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.CMP_S]; runp_up
+theorem rw_selS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.selS fd fs ft) a = true) :
+    RowWitness (.selS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.SEL_S]; runp_up
+theorem rw_seleqzS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.seleqzS fd fs ft) a = true) :
+    RowWitness (.seleqzS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.SELEQZ_S]; runp_up
+theorem rw_selnezS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.selnezS fd fs ft) a = true) :
+    RowWitness (.selnezS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.SELNEZ_S]; runp_up
+theorem rw_maddfS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.maddfS fd fs ft) a = true) :
+    RowWitness (.maddfS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MADDF_S]; runp_up
+theorem rw_msubfS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.msubfS fd fs ft) a = true) :
+    RowWitness (.msubfS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MADDF_S]; runp_up
+theorem rw_maxS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.maxS fd fs ft) a = true) :
+    RowWitness (.maxS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MINMAX_S]; runp_up
+theorem rw_minS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.minS fd fs ft) a = true) :
+    RowWitness (.minS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MINMAX_S]; runp_up
+theorem rw_maxaS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.maxaS fd fs ft) a = true) :
+    RowWitness (.maxaS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MINMAX_S]; runp_up
+theorem rw_minaS (fd fs ft : W32) (a : Arch) (_h : ConsultsOracle (.minaS fd fs ft) a = true) :
+    RowWitness (.minaS fd fs ft) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.MINMAX_S]; runp_up
+theorem rw_classS (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.classS fd fs) a = true) :
+    RowWitness (.classS fd fs) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.CLASS_S]; runp_up
+theorem rw_rintS (fd fs : W32) (a : Arch) (_h : ConsultsOracle (.rintS fd fs) a = true) :
+    RowWitness (.rintS fd fs) a :=
+  row_upper rfl fd fun _ _ => by simp only [Ops.RINT_S]; runp_up
+-- END R6-6B
 
 /-! ## `CVT.D.S` of a quiet NaN -/
 

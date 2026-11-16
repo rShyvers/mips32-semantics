@@ -213,6 +213,13 @@ theorem and_1 (a : W32) (h : a.toNat < 2) : a &&& 1#32 = a := and_lowMask 1 (by 
 theorem and_7 (a : W32) (h : a.toNat < 8) : a &&& 7#32 = a := and_lowMask 3 (by decide) a h
 theorem and_15 (a : W32) (h : a.toNat < 16) : a &&& 15#32 = a := and_lowMask 4 (by decide) a h
 theorem and_63 (a : W32) (h : a.toNat < 64) : a &&& 63#32 = a := and_lowMask 6 (by decide) a h
+-- BEGIN R6-6B
+/-- A `condn` of CMP.condn.fmt (`cmpCondnOK`, Table A.17) is below 28. -/
+theorem cmpCondnOK_lt {c : W32} (h : cmpCondnOK c = true) : c.toNat < 28 := by
+  simp only [cmpCondnOK, cmpCondns, List.contains_eq_any_beq, List.any_cons, List.any_nil,
+    Bool.or_false, Bool.or_eq_true, beq_iff_eq] at h
+  omega
+-- END R6-6B
 theorem and_511 (a : W32) (h : a.toNat < 2 ^ 9) : a &&& 511#32 = a := and_lowMask 9 (by decide) a h
 theorem and_1023 (a : W32) (h : a.toNat < 2 ^ 10) : a &&& 1023#32 = a :=
   and_lowMask 10 (by decide) a h
@@ -363,8 +370,20 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
   case jic rt off | jialc rt off =>
     simp [encode, decode, decodeFor, decodePrimary, decodeJumpOrZ, h]
   -- END R6-3
+  -- BEGIN R6-6B
+  -- CMP.condn.fmt: the `condn` (below 28) is the whole function field, not CVT.S/CVT.D (0x20/0x21).
+  case cmpS cond fd fs ft | cmpD cond fd fs ft =>
+    obtain ⟨hc, h1, h2, h3⟩ := h
+    have hlt := cmpCondnOK_lt hc
+    have e : cond &&& 63#32 = cond := and_63 _ (by omega)
+    have e2 : cond.toNat &&& 63 = cond.toNat := by
+      rw [show (63 : Nat) = 2 ^ 6 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod]; omega
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop1, decodeIf, h1, h2, h3, e]
+    split <;> simp_all <;> omega
+  -- END R6-6B
   all_goals simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm,
-    decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h]
+    decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h,
+    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD]  -- R6-6B
 
 -- Splits the whole `decode` table (~150 leaves).
 set_option maxHeartbeats 1000000 in
@@ -382,8 +401,9 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
     decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
     -- BEGIN R6-3
-    decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ
+    decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ,
     -- END R6-3
+    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD  -- R6-6B
     ] at h
   repeat' split at h
   all_goals
@@ -396,6 +416,7 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
   all_goals first
+    | exact hc  -- R6-6B: CMP.condn.fmt, the `condn` test is `WellFormed`'s
     | (simp only [decide_eq_true_eq] at hc; bv_omega)
     | (simp only [Bool.and_eq_true] at hc; exact hc.2)
     | (simp only [Bool.and_eq_true, decide_eq_true_eq] at hc; exact hc.2)

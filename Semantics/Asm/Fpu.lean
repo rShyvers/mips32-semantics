@@ -10,9 +10,6 @@ conversions `fd, fs`. Release 6 removed C.cond.fmt, BC1F/BC1T(L), MOVF/MOVT(.fmt
 the indexed loads/stores, PREFX and the MADD family; those mnemonics are not in the table.
 -/
 
--- W6: the Release 6 FP instructions (CMP.cond.fmt, BC1EQZ/BC1NEZ, SEL/MADDF/MIN/MAX/... .fmt)
--- get their rows here when the model has their constructors.
-
 namespace Asm
 
 /-- An FPU control register operand: `$N`/`N`, or the `$fN` spelling. -/
@@ -94,6 +91,42 @@ def longRows : EncTable :=
     ("cvt.s.l", fp2 .cvtSL), ("cvt.d.l", fp2 .cvtDL) ]
 -- END R6-5
 
+-- BEGIN R6-6B
+/-- `ft, target` (BC1EQZ, BC1NEZ): an FPR and a 16-bit branch offset, as `brRs`. -/
+def brFt (mk : (ft off : W32) → Instruction) : Enc := fun c ops =>
+  match ops with
+  | [t, l] => do pure (mk (← fpr c t) (← branchOff c l))
+  | _ => badShape c "ft, target"
+
+/-- The `condn` names of CMP.condn.fmt and their values (MD00086 Vol II-A Rev 6.06, Table A.17,
+p.457; the mnemonics `cmp.<condn>.s`/`.d` as llvm-mc prints them; `or`, `une`, `ne`, `sor`, `sune`,
+`sne` from Table A.17, which llvm-mc 21 does not assemble). -/
+def cmpCondnNames : List (String × Nat) :=
+  [("af", 0), ("un", 1), ("eq", 2), ("ueq", 3), ("lt", 4), ("ult", 5), ("le", 6), ("ule", 7),
+   ("saf", 8), ("sun", 9), ("seq", 10), ("sueq", 11), ("slt", 12), ("sult", 13), ("sle", 14),
+   ("sule", 15), ("or", 17), ("une", 18), ("ne", 19), ("sor", 25), ("sune", 26), ("sne", 27)]
+
+/-- `cmp.<condn>.s` and `cmp.<condn>.d fd, fs, ft` for every `condn` (CMP.condn.fmt, p.136). -/
+def cmpRows : EncTable :=
+  cmpCondnNames.flatMap fun (n, k) =>
+    [("cmp." ++ n ++ ".s", fp3 (.cmpS (BitVec.ofNat 32 k))),
+     ("cmp." ++ n ++ ".d", fp3 (.cmpD (BitVec.ofNat 32 k)))]
+
+/-- The other Release 6 FP instructions (BC1EQZ BC1NEZ p.54, SEL.fmt p.368, SELEQZ.fmt/SELNEZ.fmt
+p.371, MADDF.fmt/MSUBF.fmt p.259, MAX/MIN/MAXA/MINA.fmt p.262, CLASS.fmt p.132, RINT.fmt p.337). -/
+def r6FpRows : EncTable :=
+  [ ("bc1eqz", brFt .bc1eqz), ("bc1nez", brFt .bc1nez),
+    ("sel.s", fp3 .selS), ("sel.d", fp3 .selD),
+    ("seleqz.s", fp3 .seleqzS), ("seleqz.d", fp3 .seleqzD),
+    ("selnez.s", fp3 .selnezS), ("selnez.d", fp3 .selnezD),
+    ("maddf.s", fp3 .maddfS), ("maddf.d", fp3 .maddfD),
+    ("msubf.s", fp3 .msubfS), ("msubf.d", fp3 .msubfD),
+    ("max.s", fp3 .maxS), ("max.d", fp3 .maxD), ("min.s", fp3 .minS), ("min.d", fp3 .minD),
+    ("maxa.s", fp3 .maxaS), ("maxa.d", fp3 .maxaD), ("mina.s", fp3 .minaS), ("mina.d", fp3 .minaD),
+    ("class.s", fp2 .classS), ("class.d", fp2 .classD),
+    ("rint.s", fp2 .rintS), ("rint.d", fp2 .rintD) ]
+-- END R6-6B
+
 /-- The FPU instructions. -/
 def fpuTable : EncTable :=
   [ ("mfc1",  gprCop fpr .mfc1),
@@ -109,7 +142,7 @@ def fpuTable : EncTable :=
     ("cvt.d.s", fp2 .cvtDS),
     ("cvt.s.d", fp2 .cvtSD),
     ("cvt.s.w", fp2 .cvtSW),
-    ("cvt.d.w", fp2 .cvtDW) ] ++ fmtRows opsS ++ fmtRows opsD ++ longRows
+    ("cvt.d.w", fp2 .cvtDW) ] ++ fmtRows opsS ++ fmtRows opsD ++ longRows ++ r6FpRows ++ cmpRows
 
 
 end Asm

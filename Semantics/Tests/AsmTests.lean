@@ -256,6 +256,65 @@ def r6IntWords : List W32 :=
 #guard asmFails "div $t0, $t1\n"
 #guard asmFails "divu $t0, $t1\n"
 -- END R6-4
+-- BEGIN R6-6B
+/-- The Release 6 FP forms (wave R6-6): CMP.condn.fmt for every `condn` of Table A.17 (MD00086 Vol
+II-A Rev 6.06, p.457), SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT (.s, .d). -/
+def r6FpLines : List String :=
+  ["cmp.af.s $f1, $f2, $f3", "cmp.af.d $f1, $f2, $f3", "cmp.un.s $f1, $f2, $f3",
+   "cmp.un.d $f1, $f2, $f3", "cmp.eq.s $f1, $f2, $f3", "cmp.eq.d $f1, $f2, $f3",
+   "cmp.ueq.s $f1, $f2, $f3", "cmp.ueq.d $f1, $f2, $f3", "cmp.lt.s $f1, $f2, $f3",
+   "cmp.lt.d $f1, $f2, $f3", "cmp.ult.s $f1, $f2, $f3", "cmp.ult.d $f1, $f2, $f3",
+   "cmp.le.s $f1, $f2, $f3", "cmp.le.d $f1, $f2, $f3", "cmp.ule.s $f1, $f2, $f3",
+   "cmp.ule.d $f1, $f2, $f3", "cmp.saf.s $f1, $f2, $f3", "cmp.saf.d $f1, $f2, $f3",
+   "cmp.sun.s $f1, $f2, $f3", "cmp.sun.d $f1, $f2, $f3", "cmp.seq.s $f1, $f2, $f3",
+   "cmp.seq.d $f1, $f2, $f3", "cmp.sueq.s $f1, $f2, $f3", "cmp.sueq.d $f1, $f2, $f3",
+   "cmp.slt.s $f1, $f2, $f3", "cmp.slt.d $f1, $f2, $f3", "cmp.sult.s $f1, $f2, $f3",
+   "cmp.sult.d $f1, $f2, $f3", "cmp.sle.s $f1, $f2, $f3", "cmp.sle.d $f1, $f2, $f3",
+   "cmp.sule.s $f1, $f2, $f3", "cmp.sule.d $f1, $f2, $f3", "cmp.or.s $f1, $f2, $f3",
+   "cmp.or.d $f1, $f2, $f3", "cmp.une.s $f1, $f2, $f3", "cmp.une.d $f1, $f2, $f3",
+   "cmp.ne.s $f1, $f2, $f3", "cmp.ne.d $f1, $f2, $f3", "cmp.sor.s $f1, $f2, $f3",
+   "cmp.sor.d $f1, $f2, $f3", "cmp.sune.s $f1, $f2, $f3", "cmp.sune.d $f1, $f2, $f3",
+   "cmp.sne.s $f1, $f2, $f3", "cmp.sne.d $f1, $f2, $f3", "sel.s $f1, $f2, $f3",
+   "sel.d $f1, $f2, $f3", "seleqz.s $f1, $f2, $f3", "seleqz.d $f1, $f2, $f3",
+   "selnez.s $f1, $f2, $f3", "selnez.d $f1, $f2, $f3", "maddf.s $f1, $f2, $f3",
+   "maddf.d $f1, $f2, $f3", "msubf.s $f1, $f2, $f3", "msubf.d $f1, $f2, $f3",
+   "max.s $f1, $f2, $f3", "max.d $f1, $f2, $f3", "min.s $f1, $f2, $f3",
+   "min.d $f1, $f2, $f3", "maxa.s $f1, $f2, $f3", "maxa.d $f1, $f2, $f3",
+   "mina.s $f1, $f2, $f3", "mina.d $f1, $f2, $f3", "class.s $f1, $f2",
+   "class.d $f1, $f2", "rint.s $f1, $f2", "rint.d $f1, $f2"]
+
+/-- The words of `r6FpLines`: LLVM's (`llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -show-encoding`),
+except `cmp.or/une/ne/sor/sune/sne.fmt`, which llvm-mc 21 does not assemble: those are the CMP.condn.fmt
+diagram (p.136, `010001 | 10100/10101 | ft | fs | fd | 0 | condn`) with the `condn` of Table A.17
+(p.457: OR 10001, UNE 10010, NE 10011, SOR 11001, SUNE 11010, SNE 11011). -/
+def r6FpWords : List W32 :=
+  [0x46831040#32, 0x46a31040#32, 0x46831041#32, 0x46a31041#32, 0x46831042#32, 0x46a31042#32,
+   0x46831043#32, 0x46a31043#32, 0x46831044#32, 0x46a31044#32, 0x46831045#32, 0x46a31045#32,
+   0x46831046#32, 0x46a31046#32, 0x46831047#32, 0x46a31047#32, 0x46831048#32, 0x46a31048#32,
+   0x46831049#32, 0x46a31049#32, 0x4683104a#32, 0x46a3104a#32, 0x4683104b#32, 0x46a3104b#32,
+   0x4683104c#32, 0x46a3104c#32, 0x4683104d#32, 0x46a3104d#32, 0x4683104e#32, 0x46a3104e#32,
+   0x4683104f#32, 0x46a3104f#32, 0x46831051#32, 0x46a31051#32, 0x46831052#32, 0x46a31052#32,
+   0x46831053#32, 0x46a31053#32, 0x46831059#32, 0x46a31059#32, 0x4683105a#32, 0x46a3105a#32,
+   0x4683105b#32, 0x46a3105b#32, 0x46031050#32, 0x46231050#32, 0x46031054#32, 0x46231054#32,
+   0x46031057#32, 0x46231057#32, 0x46031058#32, 0x46231058#32, 0x46031059#32, 0x46231059#32,
+   0x4603105e#32, 0x4623105e#32, 0x4603105c#32, 0x4623105c#32, 0x4603105f#32, 0x4623105f#32,
+   0x4603105d#32, 0x4623105d#32, 0x4600105b#32, 0x4620105b#32, 0x4600105a#32, 0x4620105a#32]
+
+#guard r6FpLines.length = r6FpWords.length
+#guard asmText (srcLines r6FpLines) = some r6FpWords
+#guard r6FpWords.all fun w => (decode w).map encode == some w
+-- BC1EQZ/BC1NEZ: `ft, target`, 16-bit word offset from the delay slot (BC1EQZ BC1NEZ, p.54; llvm-mc:
+-- `bc1eqz $f3, L` at L = 0x45230002 + offset -1 → 0x4523ffff, `bc1nez $f31` → 0x45bf….)
+#guard asmText "L: bc1eqz $f3, L\nbc1nez $f31, M\nnop\nM: nop\n" =
+  some [0x4523ffff#32, 0x45bf0001#32, 0#32, 0#32]
+#guard (decode 0x4523ffff#32) = some (.bc1eqz 3#32 0xffff#32)
+-- the reserved `condn` values are no mnemonic and do not decode (Table A.17)
+#guard asmUnknown "cmp.ogt.s $f1, $f2, $f3\n"
+#guard (decode 0x46831050#32) = none  -- condn 16
+#guard (decode 0x4683105c#32) = none  -- condn 28
+-- RINT/CLASS need `ft = 0`
+#guard (decode 0x4603105a#32) = none
+-- END R6-6B
 -- every golden word decodes, and re-encodes to itself (the model's decoder accepts exactly these)
 #guard r6Words.all fun w => (decode w).map encode == some w
 
@@ -287,7 +346,8 @@ def r62Words : List W32 :=
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
   m == "rdpgpr" || m == "wrpgpr" || compactBranchTable.any (·.1 == m) /- R6-3: `compactLines` -/ ||
-    (r6Lines ++ r62Lines ++ r6IntLines).any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
+    (r6Lines ++ r62Lines ++ r6IntLines ++ r6FpLines ++ ["bc1eqz", "bc1nez"] /- R6-6B -/).any fun l =>
+      ((l.splitOn " ").filter (· != "L:")).head? == some m
 #guard instrMnemonics.eraseDups.length = instrMnemonics.length
 -- RDPGPR/WRPGPR: COP0 010000 | 01010 / 01110 | rt | rd | 0 (MD00086 Vol II-A Rev 6.06, RDPGPR p.335,
 -- WRPGPR p.444)

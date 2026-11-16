@@ -24,6 +24,9 @@ import Semantics.Manual.Ops.PcRel
 -- BEGIN R6-3
 import Semantics.Manual.Ops.CompactBranch
 -- END R6-3
+-- BEGIN R6-6B
+import Semantics.Manual.Ops.FpuR6
+-- END R6-6B
 
 /-!
 # Manual.Operation — the Operation section of each instruction
@@ -228,5 +231,33 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .cvtSL fd fs => some (Ops.CVT_S_L fd fs)
   | .cvtDL fd fs => some (Ops.CVT_D_L fd fs)
   -- END R6-5
+  -- BEGIN R6-6B
+  | .cmpS cond fd fs ft => some (Ops.CMP_S cond fd fs ft)
+  | .cmpD cond fd fs ft => some (Ops.CMP_D cond fd fs ft)
+  | .bc1eqz ft off => some (Ops.BC1EQZ ft off)
+  | .bc1nez ft off => some (Ops.BC1NEZ ft off)
+  | .selS fd fs ft => some (Ops.SEL_S fd fs ft)
+  | .selD fd fs ft => some (Ops.SEL_D fd fs ft)
+  | .seleqzS fd fs ft => some (Ops.SELEQZ_S fd fs ft)
+  | .seleqzD fd fs ft => some (Ops.SELEQZ_D fd fs ft)
+  | .selnezS fd fs ft => some (Ops.SELNEZ_S fd fs ft)
+  | .selnezD fd fs ft => some (Ops.SELNEZ_D fd fs ft)
+  | .maddfS fd fs ft => some (Ops.MADDF_S false fd fs ft)
+  | .maddfD fd fs ft => some (Ops.MADDF_D false fd fs ft)
+  | .msubfS fd fs ft => some (Ops.MADDF_S true fd fs ft)
+  | .msubfD fd fs ft => some (Ops.MADDF_D true fd fs ft)
+  | .maxS fd fs ft => some (Ops.MINMAX_S .max fd fs ft)
+  | .maxD fd fs ft => some (Ops.MINMAX_D .max fd fs ft)
+  | .minS fd fs ft => some (Ops.MINMAX_S .min fd fs ft)
+  | .minD fd fs ft => some (Ops.MINMAX_D .min fd fs ft)
+  | .maxaS fd fs ft => some (Ops.MINMAX_S .maxa fd fs ft)
+  | .maxaD fd fs ft => some (Ops.MINMAX_D .maxa fd fs ft)
+  | .minaS fd fs ft => some (Ops.MINMAX_S .mina fd fs ft)
+  | .minaD fd fs ft => some (Ops.MINMAX_D .mina fd fs ft)
+  | .classS fd fs => some (Ops.CLASS_S fd fs)
+  | .classD fd fs => some (Ops.CLASS_D fd fs)
+  | .rintS fd fs => some (Ops.RINT_S fd fs)
+  | .rintD fd fs => some (Ops.RINT_D fd fs)
+  -- END R6-6B
 
 end Manual

@@ -71,6 +71,28 @@ theorem Format.flushIn_of_isInf (f : Format) (fl : Bool) (n : Nat) (hm : f.expMa
   simp only [Bool.and_eq_true, beq_iff_eq] at h
   simp [h.1, hm]
 
+/-- An operand that is not subnormal adds no flag to an operation's (`Format.withFlush`). -/
+theorem Format.withFlush_single_of_not_subnormal {α : Type} (f : Format) (fl : Bool) (n : Nat)
+    (r : α × Flags) (h : f.isSubnormal n = false) : f.withFlush fl [n] r = r := by
+  obtain ⟨x, g⟩ := r; cases g
+  simp [Format.withFlush, Format.flushFlags, Flags.or, h]
+
+/-- A NaN is not subnormal. -/
+theorem Format.isSubnormal_of_isNaN (f : Format) (n : Nat) (hm : f.expMax ≠ 0)
+    (h : f.isNaN n = true) : f.isSubnormal n = false := by
+  unfold Format.isSubnormal
+  unfold Format.isNaN at h
+  simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne] at h
+  simp [h.1, hm]
+
+/-- An infinity is not subnormal. -/
+theorem Format.isSubnormal_of_isInf (f : Format) (n : Nat) (hm : f.expMax ≠ 0)
+    (h : f.isInf n = true) : f.isSubnormal n = false := by
+  unfold Format.isSubnormal
+  unfold Format.isInf at h
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  simp [h.1, hm]
+
 private theorem isNaN_false_of_isInf (f : Format) (n : Nat) (h : f.isInf n = true) :
     f.isNaN n = false := by
   unfold Format.isInf at h; unfold Format.isNaN
@@ -82,7 +104,10 @@ I-A Rev 6.01 Table 6.3, p.82). -/
 theorem f32ToW32_of_nan (rm : RoundingMode) (fl : Bool) (x : BitVec 32) (h : isNaN32 x = true) :
     f32ToW32 rm fl x = (0#32, Flags.invalidOnly) := by
   have hn : binary32.isNaN x.toNat = true := h
-  unfold f32ToW32 Format.toW32 Format.toFixed
+  unfold f32ToW32
+  rw [Format.withFlush_single_of_not_subnormal binary32 fl _ _
+    (Format.isSubnormal_of_isNaN binary32 _ (by decide) hn)]
+  unfold Format.toW32 Format.toFixed
   rw [Format.flushIn_of_isNaN binary32 fl _ (by decide) hn]
   simp only [hn, ↓reduceIte]
 
@@ -90,7 +115,10 @@ theorem f32ToW32_of_nan (rm : RoundingMode) (fl : Bool) (x : BitVec 32) (h : isN
 theorem f32ToW32_of_inf (rm : RoundingMode) (fl : Bool) (x : BitVec 32) (h : isInf32 x = true) :
     f32ToW32 rm fl x = (if sign32 x then 0x80000000#32 else 0x7FFFFFFF#32, Flags.invalidOnly) := by
   have hi : binary32.isInf x.toNat = true := h
-  unfold f32ToW32 Format.toW32 Format.toFixed
+  unfold f32ToW32
+  rw [Format.withFlush_single_of_not_subnormal binary32 fl _ _
+    (Format.isSubnormal_of_isInf binary32 _ (by decide) hi)]
+  unfold Format.toW32 Format.toFixed
   rw [Format.flushIn_of_isInf binary32 fl _ (by decide) hi, isNaN_false_of_isInf _ _ hi]
   simp only [hi, Bool.false_eq_true, ↓reduceIte, sign32]
   split <;> simp_all <;> decide
@@ -99,7 +127,10 @@ theorem f32ToW32_of_inf (rm : RoundingMode) (fl : Bool) (x : BitVec 32) (h : isI
 theorem f64ToW32_of_nan (rm : RoundingMode) (fl : Bool) (x : BitVec 64) (h : isNaN64 x = true) :
     f64ToW32 rm fl x = (0#32, Flags.invalidOnly) := by
   have hn : binary64.isNaN x.toNat = true := h
-  unfold f64ToW32 Format.toW32 Format.toFixed
+  unfold f64ToW32
+  rw [Format.withFlush_single_of_not_subnormal binary64 fl _ _
+    (Format.isSubnormal_of_isNaN binary64 _ (by decide) hn)]
+  unfold Format.toW32 Format.toFixed
   rw [Format.flushIn_of_isNaN binary64 fl _ (by decide) hn]
   simp only [hn, ↓reduceIte]
 
@@ -107,7 +138,10 @@ theorem f64ToW32_of_nan (rm : RoundingMode) (fl : Bool) (x : BitVec 64) (h : isN
 theorem f64ToW32_of_inf (rm : RoundingMode) (fl : Bool) (x : BitVec 64) (h : isInf64 x = true) :
     f64ToW32 rm fl x = (if sign64 x then 0x80000000#32 else 0x7FFFFFFF#32, Flags.invalidOnly) := by
   have hi : binary64.isInf x.toNat = true := h
-  unfold f64ToW32 Format.toW32 Format.toFixed
+  unfold f64ToW32
+  rw [Format.withFlush_single_of_not_subnormal binary64 fl _ _
+    (Format.isSubnormal_of_isInf binary64 _ (by decide) hi)]
+  unfold Format.toW32 Format.toFixed
   rw [Format.flushIn_of_isInf binary64 fl _ (by decide) hi, isNaN_false_of_isInf _ _ hi]
   simp only [hi, Bool.false_eq_true, ↓reduceIte, sign64]
   split <;> simp_all <;> decide
@@ -116,7 +150,23 @@ theorem f64ToW32_of_inf (rm : RoundingMode) (fl : Bool) (x : BitVec 64) (h : isI
 theorem f32ToW32_flags (rm : RoundingMode) (fl : Bool) (x : BitVec 32) :
     (f32ToW32 rm fl x).2 = Flags.none ∨ (f32ToW32 rm fl x).2 = Flags.invalidOnly ∨
       (f32ToW32 rm fl x).2 = Flags.inexactOnly := by
-  unfold f32ToW32 Format.toW32 Format.toFixed
+  unfold f32ToW32 Format.withFlush
+  by_cases hs : (fl && binary32.isSubnormal x.toNat) = true
+  · -- a flushed operand is a zero, and the flush signals Inexact
+    have hz : binary32.flushIn fl x.toNat = binary32.zero (binary32.signBit x.toNat) := by
+      simp only [Format.flushIn, hs, ↓reduceIte]
+    have hf : binary32.flushFlags fl [x.toNat] = Flags.inexactOnly := by
+      simp only [Bool.and_eq_true] at hs
+      simp [Format.flushFlags, Flags.inexactOnly, hs.1, hs.2]
+    rw [hz, hf]; right; right
+    cases rm <;> cases binary32.signBit x.toNat <;> decide
+  have hf : binary32.flushFlags fl [x.toNat] = Flags.none := by
+    simp only [Bool.not_eq_true] at hs
+    simp [Format.flushFlags, Flags.none, List.any, hs]
+  have hor : ∀ g : Flags, g.or Flags.none = g := by
+    intro g; cases g; simp [Flags.or, Flags.none]
+  simp only [hf, hor]
+  unfold Format.toW32 Format.toFixed
   split
   · simp
   · split
@@ -196,8 +246,10 @@ theorem f32ToW32_zero_and_exact :
     f32ToW32 .RP false 0x00000001#32 = (1#32, Flags.inexactOnly) ∧            -- ceil 2^−149
     f32ToW32 .RM false 0x80000001#32 = (0xFFFFFFFF#32, Flags.inexactOnly) ∧  -- floor −2^−149
     -- FCSR.FS = 1: the subnormal operand is flushed to a zero first (Table 6.8, `FS`, p.93)
-    f32ToW32 .RP true 0x00000001#32 = (0#32, Flags.none) ∧
-    f32ToW32 .RM true 0x80000001#32 = (0#32, Flags.none) :=
+    -- and the flush signals Inexact (MD00082 Vol I-A Rev 6.01 §6.7.2.4, p.102)
+    f32ToW32 .RP true 0x00000001#32 = (0#32, Flags.inexactOnly) ∧
+    f32ToW32 .RM true 0x80000001#32 = (0#32, Flags.inexactOnly) ∧
+    f32ToW32 .RN true 0x00800000#32 = (0#32, Flags.inexactOnly) :=
   by decide
 
 theorem f32ToW32_boundaries :
@@ -253,9 +305,10 @@ theorem f32ToF64_cases :
     f32ToF64 false 0xFF800001#32 = (0xFFF8000020000000#64, Flags.invalidOnly) ∧
     f32ToF64 false 0x7F800022#32 = (0x7FF8000440000000#64, Flags.invalidOnly) ∧
     f32ToF64 false 0x7FC00000#32 = (defaultQNaN64, Flags.none) ∧            -- QNaN
-    -- FCSR.FS = 1: a subnormal operand is flushed to a signed zero
-    f32ToF64 true 0x00000001#32 = (0#64, Flags.none) ∧
-    f32ToF64 true 0x80000001#32 = (0x8000000000000000#64, Flags.none) := by decide
+    -- FCSR.FS = 1: a subnormal operand is flushed to a signed zero, signaling Inexact (§6.7.2.4, p.102)
+    f32ToF64 true 0x00000001#32 = (0#64, Flags.inexactOnly) ∧
+    f32ToF64 true 0x80000001#32 = (0x8000000000000000#64, Flags.inexactOnly) ∧
+    f32ToF64 true 0x00800000#32 = (0x3810000000000000#64, Flags.none) := by decide
 
 /-- Constants: `0x3FF0000010000000` = 1 + 2^−24 (exactly halfway between 1.0
 and its single successor), `0x7E37E43C8800759C` = 1e300,
@@ -612,14 +665,15 @@ theorem nanClass_flushIn64 (fl : Bool) (n : Nat) :
       binary64.isQNaN (binary64.flushIn fl n) = binary64.isQNaN n :=
   Format.nanClass_flushIn binary64 fl n (by decide) (by decide)
 
-/-- **A quiet NaN first operand is the result** of `add`/`sub`/`mul`/`div`, unchanged and without
-an exception, when the other operand is not a signaling NaN (MD00082 Vol I-A Rev 6.01 §6.3.1.5,
-p.82-83; the model's choice of operand, SPEC-NOTES §9 item 13: a signaling NaN operand is chosen
-first). -/
+/-- **A quiet NaN first operand is the result** of `add`/`sub`/`mul`/`div`, unchanged, when the other
+operand is not a signaling NaN (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82-83; the model's choice of
+operand, SPEC-NOTES §9 item 13: a signaling NaN operand is chosen first). The only exception is the
+Inexact of flushing a subnormal second operand under FCSR.FS ("Flushing of subnormal input operands in
+all instructions except comparisons causes Inexact exception to be signaled", §6.7.2.4, p.102). -/
 theorem f32_arith_qnan_left (e : Env) (a b : BitVec 32) (h : isQNaN32 a = true)
     (hb : isSNaN32 b = false) :
-    f32Add e a b = (a, Flags.none) ∧ f32Sub e a b = (a, Flags.none) ∧
-    f32Mul e a b = (a, Flags.none) ∧ f32Div e a b = (a, Flags.none) := by
+    f32Add e a b = (a, { inexact := e.flush && isSubnormal32 b }) ∧ f32Sub e a b = (a, { inexact := e.flush && isSubnormal32 b }) ∧
+    f32Mul e a b = (a, { inexact := e.flush && isSubnormal32 b }) ∧ f32Div e a b = (a, { inexact := e.flush && isSubnormal32 b }) := by
   have h1 := isNaN_of_isQNaN binary32 a.toNat h
   have h2 := isSNaN_false_of_isQNaN binary32 a.toNat h
   have hq : binary32.isQNaN a.toNat = true := h
@@ -628,22 +682,26 @@ theorem f32_arith_qnan_left (e : Env) (a b : BitVec 32) (h : isQNaN32 a = true)
   have ⟨_, sb, _⟩ := nanClass_flushIn32 e.flush b.toNat
   have hnb : binary32.isSNaN (Format.negBits binary32 (binary32.flushIn e.flush b.toNat)) = false ∨ True :=
     Or.inr trivial
+  have sa := Format.isSubnormal_of_isNaN binary32 a.toNat (by decide) h1
   simp [f32Add, f32Sub, f32Mul, f32Div, Format.add, Format.sub, Format.mul, Format.div,
-    Format.nanResult, Format.nanFlags, h1, h2, hq, fa, sb, hb', Flags.none]
+    Format.nanResult, Format.nanFlags, h1, h2, hq, fa, sb, hb', Format.withFlush,
+    Format.flushFlags, Flags.or, sa, isSubnormal32]
 
 /-- Double-precision form of `f32_arith_qnan_left`. -/
 theorem f64_arith_qnan_left (e : Env) (a b : BitVec 64) (h : isQNaN64 a = true)
     (hb : isSNaN64 b = false) :
-    f64Add e a b = (a, Flags.none) ∧ f64Sub e a b = (a, Flags.none) ∧
-    f64Mul e a b = (a, Flags.none) ∧ f64Div e a b = (a, Flags.none) := by
+    f64Add e a b = (a, { inexact := e.flush && isSubnormal64 b }) ∧ f64Sub e a b = (a, { inexact := e.flush && isSubnormal64 b }) ∧
+    f64Mul e a b = (a, { inexact := e.flush && isSubnormal64 b }) ∧ f64Div e a b = (a, { inexact := e.flush && isSubnormal64 b }) := by
   have h1 := isNaN_of_isQNaN binary64 a.toNat h
   have h2 := isSNaN_false_of_isQNaN binary64 a.toNat h
   have hq : binary64.isQNaN a.toNat = true := h
   have hb' : binary64.isSNaN b.toNat = false := hb
   have fa := Format.flushIn_of_isNaN binary64 e.flush a.toNat (by decide) h1
   have ⟨_, sb, _⟩ := nanClass_flushIn64 e.flush b.toNat
+  have sa := Format.isSubnormal_of_isNaN binary64 a.toNat (by decide) h1
   simp [f64Add, f64Sub, f64Mul, f64Div, Format.add, Format.sub, Format.mul, Format.div,
-    Format.nanResult, Format.nanFlags, h1, h2, hq, fa, sb, hb', Flags.none]
+    Format.nanResult, Format.nanFlags, h1, h2, hq, fa, sb, hb', Format.withFlush,
+    Format.flushFlags, Flags.or, sa, isSubnormal64]
 
 /-- **A signaling NaN operand signals Invalid Operation** in `add`/`sub`/
 `mul`/`div`, whatever the other operand and the rounding mode
@@ -665,7 +723,7 @@ theorem f32_arith_snan_invalid (e : Env) (a b : BitVec 32)
   have ⟨na, sa, _⟩ := nanClass_flushIn32 e.flush a.toNat
   have ⟨nb, sb, _⟩ := nanClass_flushIn32 e.flush b.toNat
   simp [f32Add, f32Sub, f32Mul, f32Div, Format.add, Format.sub, Format.mul, Format.div,
-    Format.nanFlags, na, sa, nb, sb, hn', hs]
+    Format.nanFlags, na, sa, nb, sb, hn', hs, Format.withFlush, Flags.or]
 
 /-! ### Arithmetic: concrete cases in every rounding mode
 

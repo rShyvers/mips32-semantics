@@ -64,6 +64,11 @@ theorem roundCore_correct_binary64 (rm : RoundingMode) (w : Exact) (hw : w.sig �
 @[simp] theorem Format.flushIn_false (f : Format) (n : Nat) : f.flushIn false n = n := by
   simp [Format.flushIn]
 
+/-- With FCSR.FS = 0 nothing is flushed: `withFlush` is the identity. -/
+@[simp] theorem Format.withFlush_false {α : Type} (f : Format) (ops : List Nat) (r : α × Flags) :
+    f.withFlush false ops r = r := by
+  obtain ⟨x, g⟩ := r; cases g; simp [Format.withFlush, Format.flushFlags, Flags.or]
+
 section bv
 
 variable (e : Env) (he : e.flush = false)
