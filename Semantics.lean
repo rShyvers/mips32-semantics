@@ -68,6 +68,9 @@ import Semantics.Tests.DecodeDiagramTests
 import Semantics.Refine.Abs
 import Semantics.Refine.Bridge
 import Semantics.Refine.Fetch
+-- BEGIN R6-2
+import Semantics.Refine.BridgeBits
+-- END R6-2
 import Semantics.Refine.IntArith
 import Semantics.Refine.Memory
 import Semantics.Refine.Branch

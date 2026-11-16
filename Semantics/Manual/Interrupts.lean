@@ -30,12 +30,15 @@ def InterruptTaken (i : Impl) (a : Arch) : Bool :=
   InterruptsEnabled a && InterruptRequests i a ≠ 0#8
 
 /-- **The lower power mode of `WAIT`** without an enabled interrupt (MD00086 Vol II-A Rev 6.06, WAIT,
-p.442): "The pipeline is restarted when an external event, such as an interrupt or external request
-occurs"; "It is implementation-dependent whether the pipeline restarts when a non-enabled interrupt
-is requested" (`Impl.WaitRestartsOnNotEnabled`). Restarting takes the instruction time; execution
-continues at `PC`, the instruction after the `WAIT`. -/
+p.442-443, the Release 6 Operation: "while ( !interrupt_pending_and_not_masked_out() &&
+!implementation_dependent_wake_event() ) < enter or remain in low power mode or stand-by mode>", with
+`interrupt_pending_and_not_masked_out` = `CauseIP & StatusIM` (`InterruptRequests`; `Config3VEIC = 0`);
+"In Release 6, the behavior of WAIT has been modified to make it a requirement that a processor that
+has disabled operation as a result of executing a WAIT will resume operation on arrival of an
+interrupt even if interrupts are not enabled", p.442). This profile has no implementation-dependent
+wake event. Leaving the loop takes the instruction time; execution continues at `PC`, the instruction
+after the `WAIT` (`I+1: ... PC ← PC + 4`, already done when `WAIT` completed). -/
 def LowPowerTime (i : Impl) (a : Arch) : Arch :=
-  if i.WaitRestartsOnNotEnabled && InterruptRequests i a ≠ 0#8 then { a with LowPower := false }
-  else a
+  if InterruptRequests i a ≠ 0#8 then { a with LowPower := false } else a
 
 end Manual

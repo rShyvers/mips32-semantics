@@ -215,9 +215,36 @@ def r6Words : List W32 :=
 #guard asmText (srcLines r6Lines) = some r6Words
 -- every golden word decodes, and re-encodes to itself (the model's decoder accepts exactly these)
 #guard r6Words.all fun w => (decode w).map encode == some w
+
+-- BEGIN R6-2
+/-- Wave R6-2 mnemonics (ERETNC, SIGRIE, CACHE), with the words of
+`llvm-mc -triple=mipsel -mcpu=mips32r6 -show-encoding` (llvm-mc 21). -/
+def r62Lines : List String :=
+  ["eretnc", "sigrie 5", "sigrie 0", "sigrie 65535", "cache 20, -8($9)", "cache 1, 255($4)",
+   "cache 0, 0($0)"]
+
+/-- LLVM's words for `r62Lines`. -/
+def r62Words : List W32 :=
+  [0x42000058#32, 0x04170005#32, 0x04170000#32, 0x0417ffff#32, 0x7d34fc25#32, 0x7c817fa5#32,
+   0x7c000025#32]
+
+#guard r62Lines.length = r62Words.length
+#guard asmText (srcLines r62Lines) = some r62Words
+#guard r62Words.all fun w => (decode w).map encode == some w
+-- `sigrie` without an operand is `sigrie 0`
+#guard asmText "sigrie\n" = some [0x04170000#32]
+-- out-of-range operands are rejected: a code above 0xFFFF, a cache op above 31, an offset outside
+-- the signed 9-bit range
+#guard asmText "sigrie 65536\n" = none
+#guard asmText "cache 32, 0($4)\n" = none
+#guard asmText "cache 1, 256($4)\n" = none
+#guard asmText "cache 1, -257($4)\n" = none
+-- END R6-2
+
 -- every machine mnemonic of the tables is exercised (`rdpgpr`/`wrpgpr` below), and none is listed twice
 #guard instrMnemonics.all fun m =>
-  m == "rdpgpr" || m == "wrpgpr" || r6Lines.any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
+  m == "rdpgpr" || m == "wrpgpr" ||
+    (r6Lines ++ r62Lines).any fun l => ((l.splitOn " ").filter (· != "L:")).head? == some m
 #guard instrMnemonics.eraseDups.length = instrMnemonics.length
 -- RDPGPR/WRPGPR: COP0 010000 | 01010 / 01110 | rt | rd | 0 (MD00086 Vol II-A Rev 6.06, RDPGPR p.335,
 -- WRPGPR p.444)

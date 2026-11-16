@@ -30,6 +30,9 @@ Nothing here is a headline statement: these are small facts about `if`, bit mask
   `timerTick_llAddr` `timerTick_cp0EBase` `timerTick_cp0ConfigK0` `timerTick_cp0ConfigK23`
   `timerTick_cp0ConfigKU` `timerTick_cp0Compare` `timerTick_cp0HWREna` `timerTick_hwInt`
   `timerTick_standby` `timerTick_nullified` `step_of_executesInstr` `step_nullified`
+  `cp0WriteAt_regs` `cp0WriteAt_fpRegs` `cp0WriteAt_hwInt` `cp0WriteAt_pc` `cp0WriteAt_pendingBranch` `cp0WriteAt_pb`
+  `cp0ReadAt_pb` `writeReg_proj_cp0UserLocal` `writeReg_proj_cp0BadInstr` `writeReg_proj_cp0BadInstrP`
+  `writeReg_proj_cp0KScratch` `writeReg_proj_cp0Config5SBRI`
 -/
 
 set_option maxRecDepth 4000
@@ -123,12 +126,13 @@ def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) 
 theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
     (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (cnt cmp : W32) (ti : Bool)
-    (hwre : W32) (hw : BitVec 6) (sb : Bool) (f : Nat) :
+    (hwre : W32) (hw : BitVec 6) (sb : Bool) (ul bi bip : W32) (ks : Fin 6 → W32) (sbri : Bool)
+    (f : Nat) :
     readCString ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-        k23, ku, cnt, cmp, ti, hwre, hw, sb⟩ a f
+        k23, ku, cnt, cmp, ti, hwre, hw, sb, ul, bi, bip, ks, sbri⟩ a f
       = readCStringOfMem mem st a f :=
   readCString_mem ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-      k23, ku, cnt, cmp, ti, hwre, hw, sb⟩
+      k23, ku, cnt, cmp, ti, hwre, hw, sb, ul, bi, bip, ks, sbri⟩
     { initialState 0#32 with physMem := mem, cp0Status := st } rfl rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
@@ -196,6 +200,28 @@ theorem writeReg_proj_hwInt (s : State) (i : Fin 32) (v : W32) : (writeReg s i v
 
 theorem writeReg_proj_standby (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).standby = s.standby := by
   unfold writeReg; split <;> rfl
+
+-- BEGIN R6-2
+theorem writeReg_proj_cp0UserLocal (s : State) (i : Fin 32) (v : W32) :
+    (writeReg s i v).cp0UserLocal = s.cp0UserLocal := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0BadInstr (s : State) (i : Fin 32) (v : W32) :
+    (writeReg s i v).cp0BadInstr = s.cp0BadInstr := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0BadInstrP (s : State) (i : Fin 32) (v : W32) :
+    (writeReg s i v).cp0BadInstrP = s.cp0BadInstrP := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0KScratch (s : State) (i : Fin 32) (v : W32) :
+    (writeReg s i v).cp0KScratch = s.cp0KScratch := by
+  unfold writeReg; split <;> rfl
+
+theorem writeReg_proj_cp0Config5SBRI (s : State) (i : Fin 32) (v : W32) :
+    (writeReg s i v).cp0Config5SBRI = s.cp0Config5SBRI := by
+  unfold writeReg; split <;> rfl
+-- END R6-2
 
 /-! ### `timerTick` touches only `Count` and `Cause.TI`
 
@@ -394,3 +420,54 @@ theorem writeMemWord_isSome_of_aligned (s : State) (a v : W32) (h : a.toNat % 4 
   unfold writeMemWord
   rw [ite_of_neg (by omega), translate_of_allowed s a hacc]
   rfl
+
+-- BEGIN R6-2
+/-! ## `cp0WriteAt` (the `mtc0` effect) touches only coprocessor 0 state -/
+
+/-- `mtc0` (`cp0WriteAt`) never changes the GPRs. -/
+theorem cp0WriteAt_regs (s : State) (rd sel v : W32) : (cp0WriteAt s rd sel v).regs = s.regs := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mtc0` (`cp0WriteAt`) never changes the FPRs. -/
+theorem cp0WriteAt_fpRegs (s : State) (rd sel v : W32) :
+    (cp0WriteAt s rd sel v).fpRegs = s.fpRegs := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mtc0` (`cp0WriteAt`) never changes the hardware interrupt lines. -/
+theorem cp0WriteAt_hwInt (s : State) (rd sel v : W32) : (cp0WriteAt s rd sel v).hwInt = s.hwInt := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mtc0` (`cp0WriteAt`) never changes `pc`. -/
+theorem cp0WriteAt_pc (s : State) (rd sel v : W32) : (cp0WriteAt s rd sel v).pc = s.pc := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mtc0` (`cp0WriteAt`) never changes the pending branch. -/
+theorem cp0WriteAt_pendingBranch (s : State) (rd sel v : W32) :
+    (cp0WriteAt s rd sel v).pendingBranch = s.pendingBranch := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mtc0` (`cp0WriteAt`) commutes with setting the pending branch. -/
+theorem cp0WriteAt_pb (s : State) (x : Option W32) (rd sel v : W32) :
+    cp0WriteAt { s with pendingBranch := x } rd sel v =
+      { cp0WriteAt s rd sel v with pendingBranch := x } := by
+  unfold cp0WriteAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+
+/-- `mfc0` (`cp0ReadAt`) does not look at the pending branch. -/
+theorem cp0ReadAt_pb (s : State) (x : Option W32) (rd sel : W32) :
+    cp0ReadAt { s with pendingBranch := x } rd sel = cp0ReadAt s rd sel := by
+  unfold cp0ReadAt; split
+  · rename_i r _; cases r <;> rfl
+  · rfl
+-- END R6-2

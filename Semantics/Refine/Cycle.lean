@@ -1,4 +1,4 @@
-import Semantics.Refine.Fetch
+import Semantics.Refine.Bridge
 
 /-!
 # Refine.Cycle — the non-instruction paths of one instruction time (7D)
@@ -140,44 +140,17 @@ theorem takeInterrupt_abs (s : State) (h : interruptTaken s = true) :
 
 /-! ## Lower power mode -/
 
-/-- **The lower power mode of `WAIT`**: `standbyStep` is `Manual.LowPowerTime` with the model's
-`WaitRestartsOnNotEnabled = true`. -/
+/-- **The lower power mode of `WAIT`**: `standbyStep` is `Manual.LowPowerTime` (the Release 6 rule:
+a request pending and not masked out restarts the pipeline, WAIT p.442-443). -/
 theorem standbyStep_abs (s : State) : abs (standbyStep s) = LowPowerTime modelImpl (abs s) := by
   unfold standbyStep LowPowerTime
   rw [interruptRequests_abs]
   by_cases h : InterruptRequests modelImpl (abs s) = 0#8
-  · simp only [h, ne_eq, not_true_eq_false, decide_false, Bool.false_eq_true, ite_false, Bool.and_false]
-  · simp only [h, ne_eq, not_false_eq_true, decide_true, ite_true, Bool.and_true,
-      show modelImpl.WaitRestartsOnNotEnabled = true from rfl]
+  · simp only [h, ne_eq, not_true_eq_false, decide_false, Bool.false_eq_true, ite_false]
+  · simp only [h, ne_eq, not_false_eq_true, decide_true, ite_true]
     rfl
 
 /-! ## Instruction fetch -/
-
-/-- `readMemWord` of a misaligned address is `none`. -/
-theorem readMemWord_misaligned (s : State) (va : W32) (h : ¬ va.toNat % 4 = 0) :
-    readMemWord s va = none := by
-  unfold readMemWord; simp [h]
-
-/-- **Instruction fetch** (`Manual.InstructionFetch`, under the model's choices) against the model's
-`readMemWord s s.pc`: the fetched word, or an Address Error (AdEL) with the `PC`, the state
-unchanged either way. -/
-theorem fetch_run (s : State) :
-    InstructionFetch.run modelCtx { arch := abs s } =
-      match readMemWord s s.pc with
-      | none => (.signal (.AddressErrorLoad s.pc), { arch := abs s })
-      | some w => (.ok w, { arch := abs s }) := by
-  by_cases ha : s.pc.toNat % 4 = 0
-  · have hb : (bits s.pc 1 0 != 0#2) = false := by rw [misaligned_eq]; simp [ha]
-    rw [readMemWord_eq s s.pc ha]
-    have ht := addrTrans_run s s.pc .INSTRUCTION .LOAD modelCtx { arch := abs s } rfl
-    simp only [Pseudo.run, InstructionFetch, bind, PC, memory_address, abs_PC, hb,
-      Bool.false_eq_true, ite_false]
-    rw [ht]
-    cases translate s s.pc <;> simp [loadMemory_model]
-  · have hb : (bits s.pc 1 0 != 0#2) = true := by rw [misaligned_eq]; simp [ha]
-    rw [readMemWord_misaligned s s.pc ha]
-    simp only [Pseudo.run, InstructionFetch, bind, PC, memory_address, abs_PC, hb, ite_true]
-    rfl
 
 /-- **The Address Error of a failed fetch**: the general exception processing of AdEL with
 `BadVAddr = PC` is the model's `takeAddressException`. -/

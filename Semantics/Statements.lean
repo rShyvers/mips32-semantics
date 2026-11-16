@@ -102,9 +102,10 @@ Proved in `Semantics/Specs/` — Exception.lean. -/
 status and the coprocessor number `ce`: `PC ←` the general vector (`EBase`'s
 base with offset `0x180` — `0x80000180` at reset — or `0xBFC00380` when
 `Status.BEV = 1`); `Status.EXL ← 1` (no other `Status` bit changes); **the
-pending branch is abandoned**; **`LLbit ← 0`** (MD00086 Rev 6.06 "SC",
-programming notes: "Exceptions between the LL and SC cause SC to fail");
-and nothing else outside `EPC`/`Cause` is touched — no general register,
+pending branch is abandoned**; **`LLbit` is unchanged** (Release 6 R6-2: the event that makes an `SC`
+fail is the return, "An ERET instruction is executed. (Release 5 includes ERETNC, which will not
+cause the SC to fail.)", MD00086 Vol II-A Rev 6.06, SC, p.347);
+and nothing else outside `EPC`/`Cause` (and `BadInstr`/`BadInstrP`) is touched — no general register,
 memory, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
 `EBase` or the LL address. -/
 theorem exceptionEntry_always (s : State) (code ce : W32) :
@@ -118,7 +119,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
-      (exceptionEntry s code ce).llBit = false ∧
+      (exceptionEntry s code ce).llBit = s.llBit ∧
       (exceptionEntry s code ce).cp0BadVAddr = s.cp0BadVAddr ∧
       (exceptionEntry s code ce).cp0ErrorEpc = s.cp0ErrorEpc ∧
       (exceptionEntry s code ce).cp0EBase = s.cp0EBase ∧
@@ -185,8 +186,8 @@ theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
 10) — unless it lies in a coprocessor's encoding space and that coprocessor
 is unusable, in which case Coprocessor Unusable takes precedence (MD00090
 Vol III Rev 6.02 §6.2.21, p.99; Table 6.6, p.83): coprocessor 0 (`isCop0Word`:
-COP0 or CACHE) when coprocessor 0 is not usable (`cp0Usable`: not Kernel Mode
-and `Status.CU0 = 0`), with `Cause.CE = 0`; coprocessor 1 (`isCop1Word`) when
+COP0 or CACHE) when coprocessor 0 is not usable (`cp0Usable`: not Kernel Mode;
+Release 6 has no `Status.CU0`), with `Cause.CE = 0`; coprocessor 1 (`isCop1Word`) when
 `Status.CU1 = 0`, with `Cause.CE = 1`; coprocessor 2 (`isCop2Word`), which
 the model does not have, always, with `Cause.CE = 2`. -/
 theorem step_undecodable (s : State) (w : W32)
@@ -200,7 +201,7 @@ theorem step_undecodable (s : State) (w : W32)
 
 /-- **A word that does not decode and is in no unusable coprocessor's encoding space
 raises Reserved Instruction** (ExcCode 10): not a COP1/COP2 word, and either not a COP0/CACHE
-word or coprocessor 0 is usable (Kernel Mode, or `Status.CU0 = 1`). -/
+word or coprocessor 0 is usable (Kernel Mode). -/
 theorem step_reserved_instruction (s : State) (w : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = none)
     (hc0 : isCop0Word w = false ∨ cp0Usable s = true)
@@ -602,21 +603,23 @@ theorem syscall_spec_raw (s : State) (w code : W32)
 
 Proved in `Semantics/Specs/` — Cp0.lean. -/
 
-/-- **`mfc0` reads a modeled CP0 register `(rd, sel)` into GPR `$rt`**:
-`(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
+/-- **`mfc0` reads CP0 register `(rd, sel)` into GPR `$rt`** (Release 6, MD00086 Vol II-A Rev
+6.06, MFC0, p.266: "Reading a reserved register or a register that is not implemented for the current
+core configuration returns 0"): `(4,2)` UserLocal (§9.11, p.143), `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(8,1)` BadInstr, `(8,2)` BadInstrP (§9.25-9.26, p.179-181), `(12,0)` Status,
 `(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, MD00090 Vol III Rev 6.02
 Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1
 (reads `0x8000_0001`: `M = 1`, `FP = 1`, Table 9.65, p.237-240), `(16,2)` Config2 (reads `0x8000_0000`:
-`M = 1`, no level 2/3 cache, §9.47, Table 9.66, p.241-243), `(16,3)` Config3 (reads 0: none of its
-optional features, no Config4, §9.48, Table 9.67, p.245-251), `(30,0)` ErrorEPC. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
+`M = 1`, no level 2/3 cache, §9.47, Table 9.66, p.241-243), `(16,3)` Config3 (reads `0x8C00_3000`:
+`M`, `BP`, `BI`, `ULRI`, `RXI`, §9.48, Table 9.67, p.245-251), `(16,4)` Config4 (`0x80FC_0000`, §9.49,
+p.253-255), `(16,5)` Config5 (`0x2010` with `SBRI` in bit 6, §9.50, p.259-264), `(17,0)` LLAddr (`LLB`
+= `LLbit`, the address bits not implemented, Table 9.72, p.270), `(30,0)` ErrorEPC, `(31,2..7)`
+KScratch1..6 (§9.70, p.311); every other pair reads 0. `Cause` reads the stored bits plus the hardware interrupt lines in `IP7..IP2` (`State.hwInt`) and the timer
 request: `TI` (bit 30) and, merged
 into it (`IntCtl.IPTI = 7` pin), `IP7` (bit 15) while a timer interrupt is pending (MD00090 Vol III
 Rev 6.02 Table 9.52, p.209, 211; Table 6.2, p.73). The read happens before the step's timer tick, so
 `Count` reads the value the step started with.
-`decode` produces `mfc0` only for these; for any other pair (reachable only
-through a hand-built `Instruction`) the step raises Reserved Instruction,
-which is also what the undecodable word does. Coprocessor 0 must be usable
-(`hcp0`: Kernel Mode or `Status.CU0 = 1`); otherwise see
+Coprocessor 0 must be usable
+(`hcp0`: Kernel Mode); otherwise see
 `cp0_instruction_user_mode_unusable`. -/
 theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
@@ -625,8 +628,11 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
       match rd.toNat, sel.toNat with
+      | 4, 2 => read s.cp0UserLocal
       | 7, 0 => read s.cp0HWREna
       | 8, 0 => read s.cp0BadVAddr
+      | 8, 1 => read s.cp0BadInstr
+      | 8, 2 => read s.cp0BadInstrP
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
       | 12, 0 => read s.cp0Status
@@ -641,66 +647,91 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x80000001#32
       | 16, 2 => read 0x80000000#32
-      | 16, 3 => read 0#32
+      | 16, 3 => read 0x8C003000#32
+      | 16, 4 => read 0x80FC0000#32
+      | 16, 5 => read (0x00002010#32 ||| (if s.cp0Config5SBRI then 0x40#32 else 0#32))
+      | 17, 0 => read (if s.llBit then 1#32 else 0#32)
       | 30, 0 => read s.cp0ErrorEpc
-      | _, _ => takeException s excCodeRI) := by
+      | 31, 2 => read (s.cp0KScratch 0)
+      | 31, 3 => read (s.cp0KScratch 1)
+      | 31, 4 => read (s.cp0KScratch 2)
+      | 31, 5 => read (s.cp0KScratch 3)
+      | 31, 6 => read (s.cp0KScratch 4)
+      | 31, 7 => read (s.cp0KScratch 5)
+      | _, _ => read 0#32) := by
   sorry
 
-/-- **`mtc0` writes GPR `$rt` into a modeled CP0 register, through that
-register's write mask.** `Status` (12,0) keeps only `statusWriteMask` (IE,
-EXL, ERL, UM, IM7..0, BEV, CU0, CU1; every other bit reads as zero). `Cause` (13,0)
+/-- **`mtc0` writes GPR `$rt` into CP0 register `(rd, sel)`, through that
+register's write mask**; a write to a register that is not implemented is ignored (Release 6,
+MD00086 Vol II-A Rev 6.06, MTC0, p.290). `Status` (12,0) keeps only `statusWriteMask` (IE,
+EXL, ERL, UM, IM7..0, BEV, RW (bit 28), CU1; every other bit reads as zero). `Cause` (13,0)
 changes only `causeWriteMask` (DC, IV, IP1..0) and keeps `BD`, `CE`,
 `ExcCode` and everything else. `EPC` (14,0) and `ErrorEPC` (30,0) are fully
 writable, and so is `Count` (9,0) (MD00090 Vol III Rev 6.02 §9.27, p.183). A write to `Compare`
 (11,0) stores the value and clears the timer interrupt (`Cause.TI`; §9.30, p.187). `HWREna` (7,0)
-keeps bits 3..0 (`hwrenaWriteMask`; Table 9.39, p.175). `EBase` (15,1) takes bits 29..12 of the
-written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0)
+keeps bits 3..0, 5 and 29 (`hwrenaWriteMask`; Table 9.39, p.175). `UserLocal` (4,2) and
+`KScratch1..6` (31,2..7) are fully writable; `Config5` (16,5) takes `SBRI` (bit 6) only; `LLAddr`
+(17,0) can clear `LLbit` but not set it ("LLB can be cleared by software but cannot be set", Table
+9.72, p.270). `EBase` (15,1) takes bits 29..12 of the
+written value under the fixed bits 31..30 = `10`. `Config` (16,0) takes only `K23` (bits 30..28), `KU` (27..25) and `K0` (2..0), each only if the
+value is a supported cacheability attribute (2 or 3, `ccaWrite`: "For Release 6, writes of
+unsupported values are ignored", Table 9.64, p.233, 235)
 (Read/Write: MD00090 Vol III Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317);
 `BadVAddr` (8,0), `PRId` (15,0), `Config1` (16,1), `Config2` (16,2: `TU`/`SU` not implemented, "read as
 zero and be ignored on write", Table 9.66, p.241-242), `Config3` (16,3: "All fields in the Config3
 register are read-only", §9.48, p.245), `IntCtl` (12,1: no writable field, `VS` "is
 ignored on write" without VI/EIC, MD00090 Vol III Rev 6.02 Table 9.48, p.201) and `SRSCtl` (12,2: with
-`HSS = 0` its fields can only hold 0, Table 9.49, p.203-204; pin) are read-only: the write is ignored. Any other pair
-raises Reserved Instruction, as for `mfc0_spec_raw`. Coprocessor 0 must be
+`HSS = 0` its fields can only hold 0, Table 9.49, p.203-204; pin), `BadInstr`/`BadInstrP` (8,1-2)
+and `Config4` (16,4) are read-only: the write is ignored. Coprocessor 0 must be
 usable (`hcp0`). -/
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match rd.toNat, sel.toNat with
+      | 4, 2 => { s with cp0UserLocal := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | 7, 0 =>
         { s with cp0HWREna := readReg s (regIdxSpec rt) &&& hwrenaWriteMask, pc := s.pc + 4#32 }
-      | 8, 0 => { s with pc := s.pc + 4#32 }
       | 9, 0 => { s with cp0Count := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | 11, 0 =>
         { s with cp0Compare := readReg s (regIdxSpec rt), cp0TimerInt := false, pc := s.pc + 4#32 }
       | 12, 0 =>
         { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }
-      | 12, 1 => { s with pc := s.pc + 4#32 }
-      | 12, 2 => { s with pc := s.pc + 4#32 }
       | 13, 0 =>
         { s with
               cp0Cause := (s.cp0Cause &&& ~~~causeWriteMask) |||
                 (readReg s (regIdxSpec rt) &&& causeWriteMask)
               pc := s.pc + 4#32 }
       | 14, 0 => { s with cp0Epc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
-      | 15, 0 => { s with pc := s.pc + 4#32 }
       | 15, 1 =>
         { s with
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
       | 16, 0 =>
         { s with
-              cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3
-              cp0ConfigK23 := (readReg s (regIdxSpec rt) >>> 28).setWidth 3
-              cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
+              cp0ConfigK0 := ccaWrite s.cp0ConfigK0 ((readReg s (regIdxSpec rt)).setWidth 3)
+              cp0ConfigK23 := ccaWrite s.cp0ConfigK23 ((readReg s (regIdxSpec rt) >>> 28).setWidth 3)
+              cp0ConfigKU := ccaWrite s.cp0ConfigKU ((readReg s (regIdxSpec rt) >>> 25).setWidth 3)
               pc := s.pc + 4#32 }
-      | 16, 1 => { s with pc := s.pc + 4#32 }
-      | 16, 2 => { s with pc := s.pc + 4#32 }
-      | 16, 3 => { s with pc := s.pc + 4#32 }
+      | 16, 5 =>
+        { s with cp0Config5SBRI := readReg s (regIdxSpec rt) &&& 0x40#32 != 0#32, pc := s.pc + 4#32 }
+      | 17, 0 =>
+        { s with llBit := s.llBit && readReg s (regIdxSpec rt) &&& 1#32 != 0#32, pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
-      | _, _ => takeException s excCodeRI) := by
+      | 31, 2 => { s with cp0KScratch := fun j => if j = 0 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 3 => { s with cp0KScratch := fun j => if j = 1 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 4 => { s with cp0KScratch := fun j => if j = 2 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 5 => { s with cp0KScratch := fun j => if j = 3 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 6 => { s with cp0KScratch := fun j => if j = 4 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 7 => { s with cp0KScratch := fun j => if j = 5 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | _, _ => { s with pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **`eret`** (MD00086 "ERET"), executed outside a delay slot:
@@ -722,13 +753,14 @@ theorem eret_spec_raw (s : State) (w : W32)
 
 Proved in `Semantics/Specs/` — Cp0.lean, Mode.lean, Reset.lean. -/
 
-/-- **Every coprocessor-0 instruction executed outside Kernel Mode with `Status.CU0 = 0` raises
-Coprocessor Unusable with `Cause.CE = 0`, and does nothing else.** `usesCop0`: `mfc0`, `mtc0`,
-`di`, `ei`, `eret`, `wait` (MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI
-p.176, ERET p.178, WAIT p.443, "Exceptions: Coprocessor Unusable"); the rule is MD00090 Vol III
+/-- **Every coprocessor-0 instruction executed outside Kernel Mode raises
+Coprocessor Unusable with `Cause.CE = 0`, and does nothing else** (beyond the exception entry).
+`usesCop0`: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `eretnc`, `wait`, `rdpgpr`, `wrpgpr`, `cache`
+(MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, ERETNC p.180,
+WAIT p.443, CACHE p.119, "Exceptions: Coprocessor Unusable"); the rule is MD00090 Vol III
 Rev 6.02 §6.2.22, p.100 ("A COP0 or Cache instruction was executed while the processor was running
 in a mode other than Debug Mode or Kernel Mode, and the CU0 bit in the Status register was a
-zero"). `hnb` excludes `eret`/`wait` in a delay slot (UNDEFINED; pinned to Reserved Instruction,
+zero"; Release 6 has no CU0, Table 9.47, p.190). `hnb` excludes a CTI in a delay slot (UNDEFINED; pinned to Reserved Instruction,
 `branch_in_delay_slot_reserved_instruction`). -/
 theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
@@ -738,10 +770,10 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
     step s = timerTick (exceptionEntry s excCodeCpU 0#32) := by
   sorry
 
-/-- **Coprocessor 0 is unusable exactly in User Mode with `Status.CU0 = 0`** (MD00090 Vol III
-Rev 6.02 §3.5.3, p.23). -/
+/-- **Coprocessor 0 is unusable exactly in User Mode** (MD00090 Vol III Rev 6.02 §3.5.3, p.23;
+Release 6 has no `Status.CU0`: bit 28 is the software bit `RW`, Table 9.47, p.190). -/
 theorem cp0Usable_false_iff (s : State) :
-    cp0Usable s = false ↔ (userMode s = true ∧ s.cp0Status &&& statusCu0Mask = 0#32) := by
+    cp0Usable s = false ↔ userMode s = true := by
   sorry
 
 /-- **User Mode** is `Status.UM = 1`, `Status.EXL = 0`, `Status.ERL = 0` (MD00090 Vol III
@@ -918,16 +950,19 @@ theorem hwrValue_cc (s : State) : hwrValue s 2#32 = some s.cp0Count := by
 theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 := by
   sorry
 
-/-- Registers 4..31 are not implemented (`PerfCtr`, `XNP` are Release 6; 6..28 reserved; `ULR`
-needs the optional UserLocal register; 30, 31 implementation-dependent, none). -/
-theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) : hwrValue s rd = none := by
+/-- Registers 4..31 other than 5 (`XNP`) and 29 (`ULR`) are not implemented (`PerfCtr` needs
+performance counters, none; 6..28 reserved; 30, 31 implementation-dependent, none; MD00090 Vol III
+Rev 6.02 Table 9.40, p.176). -/
+theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5)
+    (h29 : rd.toNat ≠ 29) : hwrValue s rd = none := by
   sorry
 
 /-- **`rdhwr` of an unimplemented register raises Reserved Instruction**, in every mode
 (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Restrictions, p.333). -/
 theorem rdhwr_reserved_unimplemented (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
-    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
+    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5) (h29 : rd.toNat ≠ 29)
+    (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
   sorry
 
@@ -941,7 +976,7 @@ theorem rdhwr_reserved_sel (s : State) (w rt rd sel : W32)
     step s = timerTick (takeException s excCodeRI) := by
   sorry
 
-/-- **`rdhwr` outside Kernel Mode with `Status.CU0 = 0` and the `HWREna` bit clear raises Reserved
+/-- **`rdhwr` outside Kernel Mode with the `HWREna` bit clear raises Reserved
 Instruction** (not Coprocessor Unusable): "Access to the specified hardware register is enabled if
 Coprocessor 0 is enabled, or if the corresponding bit is set in the HWREna register. If access is
 not allowed ... a Reserved Instruction Exception is signaled" (MD00086 Vol II-A Rev 6.06, RDHWR,
@@ -963,13 +998,13 @@ theorem rdhwr_allowed (s : State) (w rt rd v : W32)
       { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
   sorry
 
-/-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 3..0 only**: the bits of the registers the model
+/-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 3..0, 5 and 29 only**: the bits of the registers the model
 implements; "If RDHWR register ‘n’ is not implemented, bit ‘n’ of this field returns a zero and is
 ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175). -/
 theorem hwrena_write_masked (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 7#32 0#32))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
-    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x0000000F#32 := by
+    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x2000002F#32 := by
   sorry
 
 /-- **The Reset exception clears `HWREna`** ("HWREna ← 0", MD00090 Vol III Rev 6.02 §6.2.5, p.89)
@@ -1452,13 +1487,15 @@ theorem step_hwInt (s : State) : (step s).hwInt = s.hwInt := by
 /-- **`wait` completes and enters standby** (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "The WAIT
 instruction is implemented by stalling the pipeline at the completion of the instruction and
 entering a lower power mode"): `pc` moves to the next instruction, which "execution continues with"
-once the pipeline restarts, and `State.standby` is set (`Step.lean`'s `wait` arm). The standby
+once the pipeline restarts, and `State.standby` is set exactly when no request is pending and not
+masked out (Release 6 Operation, p.442-443: the low-power loop runs `while
+(!interrupt_pending_and_not_masked_out() ...)`; `Step.lean`'s `wait` arm). The standby
 steps themselves: `Specs/Interrupt.lean` (`step_standby_stays`, `step_standby_restarts`,
 `step_standby_interrupt`). -/
 theorem wait_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with standby := true, pc := s.pc + 4#32 }) := by
+    step s = timerTick ({ s with standby := interruptRequests s == 0#32, pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **In standby with no request, the processor stays stopped**: only the timer advances (MD00086
@@ -1676,8 +1713,7 @@ theorem decode_agrees_manual (w : W32) (i : Instruction) (h : decode w = some i)
 
 /-- **The model's decoder rejects a diagram word only where the manual leaves the choice open**:
 when `decode` rejects `w` but `Manual.Decode` decodes it to `i`, the Operation of `i` reaches an
-oracle choice from every state (`Manual.ConsultsOracle`: MFC0/MTC0 of a register coprocessor 0 does
-not contain, UNDEFINED, MFC0 p.266, MTC0 p.290; EXT with `lsb + msbd > 31`, INS with `lsb > msb`,
+oracle choice from every state (`Manual.ConsultsOracle`: EXT with `lsb + msbd > 31`, INS with `lsb > msb`,
 UNPREDICTABLE, EXT p.183, INS p.193). The model's Reserved Instruction there is `Manual.modelOracle`'s
 resolution of that choice (`step_eq_manual`, `modelOracle_valid`). -/
 theorem decode_none_manual (w : W32) (h : decode w = none) (i : Instruction)
@@ -2075,5 +2111,86 @@ theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
 theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 32} {t1 t2 : Bool}
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 := by
   sorry
+
+-- BEGIN R6-2
+/-! ## Release 6 privileged architecture (wave R6-2)
+
+Proved in `Semantics/Specs/` — Exception.lean, Cp0.lean, Trap.lean. -/
+
+/-- **Exception entry captures the faulting instruction** (Release 6, MD00090 Vol III Rev 6.02
+§9.25, p.179: `BadInstr` "capture[s] the most recent instruction which caused" a synchronous
+exception; §9.26, p.181: `BadInstrP` "contains the prior branch instruction, when the faulting
+instruction is in a branch delay slot", UNPREDICTABLE otherwise, pinned to 0): `BadInstr ←` the word
+fetched at `pc` (0 if the fetch fails, an UNPREDICTABLE value pinned to 0), `BadInstrP ←` the word at
+`pc - 4` in a delay slot, else 0. -/
+theorem exceptionEntry_badInstr (s : State) (code ce : W32) :
+    (exceptionEntry s code ce).cp0BadInstr = faultingInstr s ∧
+      (exceptionEntry s code ce).cp0BadInstrP =
+        (if s.pendingBranch.isSome then instrWordAt s (s.pc - 4#32) else 0#32) := by
+  sorry
+
+/-- **An interrupt leaves `BadInstr` and `BadInstrP` alone** ("The BadInstr register is not set by
+Interrupts", MD00090 Vol III Rev 6.02 §9.25, p.179; §9.26, p.181). -/
+theorem takeInterrupt_badInstr_unchanged (s : State) :
+    (takeInterrupt s).cp0BadInstr = s.cp0BadInstr ∧
+      (takeInterrupt s).cp0BadInstrP = s.cp0BadInstrP := by
+  sorry
+
+/-- **`eretnc`** (MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180), outside a delay slot: as `eret`
+but `LLbit` is left unchanged ("ERETNC is identical to ERET except that an ERETNC will not clear the
+LLbit"). Coprocessor 0 must be usable (`hcp0`). -/
+theorem eretnc_spec_raw (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eretnc)
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      if s.cp0Status &&& statusErlMask != 0#32 then
+        { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask }
+      else
+        { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask }) := by
+  sorry
+
+/-- **`sigrie` raises Reserved Instruction** (MD00086 Vol II-A Rev 6.06, SIGRIE, p.375:
+"SignalException(ReservedInstruction)"), in every mode. -/
+theorem sigrie_spec_raw (s : State) (w code : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sigrie code))
+    (hexec : executesInstr s = true) :
+    step s = timerTick (takeException s excCodeRI) := by
+  sorry
+
+/-- **`cache` performs no operation** (MD00086 Vol II-A Rev 6.06, CACHE, p.119: no cache is
+implemented, "In Release 6, the instruction in this case should perform no operation"), after the
+address translation of its effective address (an Address Error if it fails). Coprocessor 0 must be
+usable (`hcp0`). -/
+theorem cache_spec_raw (s : State) (w base op off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cache base op off))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      match translate s (readReg s (regIdxSpec base) + signExt9 off) with
+      | none => takeAddressException s excCodeAdEL (readReg s (regIdxSpec base) + signExt9 off)
+      | some _ => { s with pc := s.pc + 4#32 }) := by
+  sorry
+
+/-- **`mfc0` of a register the Release 6 layout does not implement reads 0** (MD00086 Vol II-A Rev
+6.06, MFC0, p.266: "Release 6: Reading a reserved register or a register that is not implemented for
+the current core configuration returns 0"). -/
+theorem mfc0_unimplemented_reads_zero (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true)
+    (hnone : cp0Layout .r6 rd.toNat sel.toNat = none) :
+    step s = timerTick
+      { (writeReg s (regIdxSpec rt) 0#32) with pc := (writeReg s (regIdxSpec rt) 0#32).pc + 4#32 } := by
+  sorry
+
+/-- **`mtc0` to a register the Release 6 layout does not implement is ignored** (MD00086 Vol II-A
+Rev 6.06, MTC0, p.290: "Release 6: Writes to a register that is reserved or not defined for the
+current core configuration are ignored"). -/
+theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true)
+    (hnone : cp0Layout .r6 rd.toNat sel.toNat = none) :
+    step s = timerTick { s with pc := s.pc + 4#32 } := by
+  sorry
+
+-- END R6-2
 
 end Trusted

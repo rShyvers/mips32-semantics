@@ -30,18 +30,18 @@ Table 6.2, p.73, read through the read-only `Cause.IP7..IP2`, Table 9.52, p.211)
 The state inaccessible in User Mode: the physical memory that no User Mode address reaches (with
 `ERL = 0`, kuseg `0x0000_0000`–`0x7FFF_FFFF` maps to physical `0x4000_0000`–`0xBFFF_FFFF`, MD00090
 Vol III Rev 6.02 Table A.1, p.313-314; `FixedMapping`; "an attempt to reference kseg0 from User Mode
-still results in an address error exception", §A.1.1, p.313), and the CP0 registers unless `CU0 = 1`
-("Coprocessor 0 is usable": "The processor is running in Kernel Mode or Debug Mode ... The CU0 bit in
-the Status register is 1", Vol III §3.5.3, p.23; `CP0Usable`).
+still results in an address error exception", §A.1.1, p.313), and the CP0 registers while CP0 is not
+usable ("The processor is running in Kernel Mode or Debug Mode ... The CU0 bit in the Status register
+is 1", Vol III §3.5.3, p.23; `CP0Usable`; Release 6 has no `CU0`).
 
-UNDEFINED operations (`cp0Undefined`: MTC0/MFC0 of a register CP0 does not contain;
-`ebaseWriteBEV0`) have one restriction only: "UNDEFINED operations or behavior must not cause the
+UNDEFINED operations (`ebaseWriteBEV0`) have one restriction only: "UNDEFINED operations or behavior must not cause the
 processor to hang" (MD00086 Vol II-A Rev 6.06 §1.2.2, p.4; "UNDEFINED operations or behavior may
 cause data loss"): `UndefinedOutcomeValid` (with the `HW` clause above).
 
 The value fields that are not UNPREDICTABLE results are not restricted: `causeCE` ("The CE field is
 loaded, but not defined", Vol III §6.2.3, p.87), `storeClearsLL`/`loadClearsLL` ("success is not
-predictable", SC p.347-348). The QNaN fields must give a QNaN ("a QNaN operand causes an arithmetic
+predictable", SC p.347-348). The UNPREDICTABLE values `badInstrNoWord` and `badInstrP` (Vol III §9.25,
+p.179; §9.26, p.181) are restricted by `NIValue`. The QNaN fields must give a QNaN ("a QNaN operand causes an arithmetic
 operation to supply a QNaN result", MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82; `QNaNValid`); "When
 possible, this QNaN result is one of the operand QNaN values" is not formalized (a single QNaN is not a
 double). A Reset leaves memory and the input lines alone ("only the following registers have defined
@@ -53,7 +53,9 @@ state", Vol III §6.2.5, p.89: the others are registers).
   `Refine/Determinism.lean`, is the soundness direction; the module doc there lists what is proved of
   the other direction). The choices are: `Cause.CE` of every exception other than Coprocessor Unusable
   (an interrupt included, and the Reserved Instruction of a CTI in a delay slot); a word with an UNPREDICTABLE field value (unless a
-  coprocessor-unusable check comes first); and in an Operation the points listed by `ConsultsOracle`.
+  coprocessor-unusable check comes first); `BadInstrP` of every exception outside a delay slot (a
+  Coprocessor Unusable exception included: "the value stored in BadInstrP is UNPREDICTABLE", Vol III
+  §9.26, p.181); and in an Operation the points listed by `ConsultsOracle`.
 -/
 
 namespace Manual
@@ -69,7 +71,11 @@ def CP0Same (x y : Arch) : Prop :=
   x.Status = y.Status ∧ x.Cause = y.Cause ∧ x.EPC = y.EPC ∧ x.BadVAddr = y.BadVAddr ∧
   x.ErrorEPC = y.ErrorEPC ∧ x.EBase = y.EBase ∧ x.ConfigK0 = y.ConfigK0 ∧
   x.ConfigK23 = y.ConfigK23 ∧ x.ConfigKU = y.ConfigKU ∧ x.Count = y.Count ∧
-  x.Compare = y.Compare ∧ x.CauseTI = y.CauseTI ∧ x.HWREna = y.HWREna ∧ x.HW = y.HW
+  x.Compare = y.Compare ∧ x.CauseTI = y.CauseTI ∧ x.HWREna = y.HWREna ∧ x.HW = y.HW ∧
+  -- BEGIN R6-2
+  x.UserLocal = y.UserLocal ∧ x.BadInstr = y.BadInstr ∧ x.BadInstrP = y.BadInstrP ∧
+  x.KScratch = y.KScratch ∧ x.Config5SBRI = y.Config5SBRI
+  -- END R6-2
 
 /-- **The state inaccessible in the mode of `a` is the same in `x` and `y`**: in User Mode the
 physical memory no User Mode address reaches, and the CP0 registers while CP0 is not usable. -/
@@ -163,8 +169,10 @@ def Oracle.Valid (o : Oracle) : Prop :=
   (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
   (∀ r, NIValue (o.fprOddRead · r)) ∧
   (∀ fs, NIValue (o.cfc1Unpredictable · fs)) ∧
+  -- BEGIN R6-2
+  NIValue o.badInstrNoWord ∧ NIValue o.badInstrP ∧
+  -- END R6-2
   -- the UNDEFINED operations
-  (∀ a i, UndefinedOutcomeValid a (o.cp0Undefined a i)) ∧
   (∀ a v, UndefinedOutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
   -- the QNaN fields
   QNaNValid o ∧
@@ -210,8 +218,7 @@ is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the o
   takes;
 * `CFC1` of a register that does not exist (`cfc1Unpredictable`), unless `rt = 0` (the value is
   written to `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
-* `MFC0`/`MTC0` of a register CP0 does not contain (`cp0Undefined`); `MTC0` of a different Exception
-  Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
+* `MTC0` of a different Exception Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
 * `EXT`/`INS` with an UNPREDICTABLE field combination; `JALR`/`JALR.HB` with `rs = rd`;
 * `ABS.fmt`/`NEG.fmt` of a quiet NaN (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN
   (`cvtQNaNToD`, `cvtQNaNToS`).
@@ -228,11 +235,9 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .cfc1 rt fs, _ =>
     !(fs == 0#32 || fs == 25#32 || fs == 26#32 || fs == 28#32 || fs == 31#32) && reg rt != 0
   | .ctc1 rt fs, a => CTC1Unpredictable fs (low (readGPR a (reg rt)) 32)
-  | .mfc0 _ rd sel, _ => !IsCoprocessorRegisterImplemented rd.toNat sel.toNat
   | .mtc0 rt rd sel, a =>
-    !IsCoprocessorRegisterImplemented rd.toNat sel.toNat ||
-      (rd.toNat == 15 && sel.toNat == 1 && !StatusBEV a &&
-        bits (readGPR a (reg rt)) 29 12 != bits a.EBase 29 12)
+    rd.toNat == 15 && sel.toNat == 1 && !StatusBEV a &&
+      bits (readGPR a (reg rt)) 29 12 != bits a.EBase 29 12
   | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
   | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
   | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
@@ -254,11 +259,22 @@ def ConsultsOracle : Instruction → Arch → Bool
 /-- A context that differs from another in the oracle only. -/
 def ctxOf (i : Impl) (o : Oracle) : Ctx := { impl := i, oracle := o }
 
+-- BEGIN R6-2
+/-- The instruction fetch at `PC` delivers a word (computed with the model's oracle; the fetch reads
+no oracle field). Where it does not, `BadInstr` is UNPREDICTABLE (`Oracle.badInstrNoWord`). -/
+def FetchOK (i : Impl) (a : Arch) : Bool :=
+  match (InstructionFetch.run (ctxOf i modelOracle) { arch := a }).1 with
+  | .ok _ => true
+  | .signal _ => false
+-- END R6-2
+
 /-- **No oracle choice that can change the result is made in the instruction time from `a`**
 (decidable; module doc). `false` when an interrupt or an exception other than Coprocessor Unusable is
 taken (its `Cause.CE` "is loaded, but not defined", Vol III §6.2.3, p.87), for a word with an
 UNPREDICTABLE field value whose coprocessor is usable, for a CTI in a delay slot (Reserved Instruction,
-whose `Cause.CE` is not defined), and when the
+whose `Cause.CE` is not defined), for a Coprocessor Unusable exception outside a delay slot (its
+`BadInstrP` is UNPREDICTABLE, Vol III §9.26, p.181) or, signalled by an Operation, from a state whose
+instruction fetch fails (its `BadInstr` is UNPREDICTABLE, §9.25, p.179), and when the
 Operation reaches a choice (`ConsultsOracle`). Whether the Operation signals is computed with the model's
 oracle `modelOracle`; when `ConsultsOracle` is `false` every oracle gives the same run. -/
 def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :=
@@ -271,15 +287,16 @@ def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :
       match dec w with
       | none =>
         if UnpredictableEncoding w then
-          (InCop1Space w && !StatusCU1 a) || (InCop0Space w && !CP0Usable a)
+          ((InCop1Space w && !StatusCU1 a) || (InCop0Space w && !CP0Usable a)) &&
+            a.BranchDelay.isSome
         else
           match Undecodable w a with
-          | .CoprocessorUnusable _ => true
+          | .CoprocessorUnusable _ => a.BranchDelay.isSome
           | _ => false
       | some ins =>
         !(IsCTI ins && a.BranchDelay.isSome) &&
-          (if InCop1Space w && !StatusCU1 a then true
-           else if InCop0Space w && !CP0Usable a then true
+          (if InCop1Space w && !StatusCU1 a then a.BranchDelay.isSome
+           else if InCop0Space w && !CP0Usable a then a.BranchDelay.isSome
            else
              !ConsultsOracle ins a &&
                match Operation ins with
@@ -287,7 +304,7 @@ def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :
                | some op =>
                  match op.run (ctxOf i modelOracle) { arch := a } with
                  | (.ok (), _) => true
-                 | (.signal (.CoprocessorUnusable _), _) => true
+                 | (.signal (.CoprocessorUnusable _), g) => g.arch.BranchDelay.isSome && FetchOK i g.arch
                  | (.signal _, _) => false)
 
 end Manual

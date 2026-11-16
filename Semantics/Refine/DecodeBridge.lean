@@ -76,10 +76,9 @@ theorem decode_diagram_complete (i : Instruction) (w : W32) (h : enc i = some w)
 
 /-! ## The candidates the model rejects -/
 
-/-- **A diagram word the model's `decode` rejects** (fields in range). -/
+/-- **A diagram word the model's `decode` rejects** (fields in range): `EXT`/`INS` with an
+UNPREDICTABLE field combination. (In Release 6 `MFC0`/`MTC0` decode for every `(rd, sel)`.) -/
 def Rejected : Instruction → Prop
-  | .mfc0 rt rd sel | .mtc0 rt rd sel =>
-    rt.toNat < 32 ∧ rd.toNat < 32 ∧ sel.toNat < 8 ∧ isModeledCp0Reg rd sel = false
   | .ext rt rs pos size =>
     rt.toNat < 32 ∧ rs.toNat < 32 ∧ pos.toNat < 32 ∧ 1 ≤ size.toNat ∧ size.toNat ≤ 32 ∧
       32 < pos.toNat + size.toNat
@@ -99,7 +98,7 @@ theorem decode_ne_sll_pause (w : W32) : Decode w ≠ .instr (.sll 0#32 0#32 5#32
   cases h
 
 theorem rejected_selOK (j : Instruction) (h : Rejected j) : SelOK j := by
-  cases j <;> simp only [Rejected] at h <;> first | exact h.2.2.1 | trivial
+  cases j <;> simp only [Rejected] at h <;> trivial
 
 attribute [local simp] fieldAt_rs fieldAt_rt fieldAt_rd fieldAt_sa fieldAt_imm fieldAt_target
   fieldAt_off9 fieldAt_code20 fieldAt_code10 fieldAt_code19
@@ -134,12 +133,6 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w,
        · right; right; obtain ⟨h1, h2, h3⟩ := hp; rw [h1, h2, h3]
        · left; exact ⟨hrd, hrt, hsa, hp⟩)
     | skip
-  -- mfc0 / mtc0
-  all_goals first
-    | (cases hm : isModeledCp0Reg (rdOf w) (fieldAt w 2 0)
-       · right; left; exact ⟨hrt, hrd, hsel, hm⟩
-       · left; exact ⟨hrt, hm⟩)
-    | skip
   -- ext
   all_goals first
     | (by_cases hc : (shamtOf w).toNat + ((rdOf w + 1#32).toNat) ≤ 32
@@ -161,14 +154,6 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w,
 /-- **The model's `decode` rejects the `Rejected` diagram words.** -/
 theorem decode_rejected (j : Instruction) (h : Rejected j) : decode (encode j) = none := by
   cases j <;> simp only [Rejected] at h
-  case mfc0 rt rd sel =>
-    obtain ⟨h1, h2, h3, h4⟩ := h
-    have h5 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h2, h3, h4, h5]
-  case mtc0 rt rd sel =>
-    obtain ⟨h1, h2, h3, h4⟩ := h
-    have h5 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h2, h3, h4, h5]
   case ext rt rs pos size =>
     obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
     have e1 : (size - 1#32) &&& 31#32 = size - 1#32 := and_31 _ (by bv_omega)
@@ -207,27 +192,11 @@ theorem decode_none_rejected (w : W32) (h : decode w = none) (j : Instruction)
 
 /-! ## The rejected words reach an oracle choice -/
 
-/-- The model's CP0 register set is the spec's `IsCoprocessorRegisterImplemented` (fields in range). -/
-theorem isModeled_iff_nat : ∀ n, n < 32 → ∀ m, m < 8 →
-    isModeledCp0Reg (BitVec.ofNat 32 n) (BitVec.ofNat 32 m) = IsCoprocessorRegisterImplemented n m := by
-  decide
-
-theorem isModeled_iff (rd sel : W32) (h1 : rd.toNat < 32) (h2 : sel.toNat < 8) :
-    isModeledCp0Reg rd sel = IsCoprocessorRegisterImplemented rd.toNat sel.toNat := by
-  have := isModeled_iff_nat rd.toNat h1 sel.toNat h2
-  simpa using this
-
 /-- **The Operation of a `Rejected` instruction always reaches an oracle choice**
-(`Manual.ConsultsOracle`): `cp0Undefined`, `extOutOfRange` or `insLsbAboveMsb`. -/
+(`Manual.ConsultsOracle`): `extOutOfRange` or `insLsbAboveMsb`. -/
 theorem rejected_consults (j : Instruction) (h : Rejected j) (a : Arch) :
     ConsultsOracle j a = true := by
   cases j <;> simp only [Rejected] at h
-  case mfc0 rt rd sel =>
-    obtain ⟨-, h2, h3, h4⟩ := h
-    simp [ConsultsOracle, ← isModeled_iff rd sel h2 h3, h4]
-  case mtc0 rt rd sel =>
-    obtain ⟨-, h2, h3, h4⟩ := h
-    simp [ConsultsOracle, ← isModeled_iff rd sel h2 h3, h4]
   case ext rt rs pos size =>
     obtain ⟨-, -, h3, h4, h5, h6⟩ := h
     have : (size - 1#32).toNat = size.toNat - 1 := by bv_omega
@@ -281,27 +250,11 @@ theorem execute_of_signal (j : Instruction) (w : W32) (a : Arch) (e : Exception)
   cases InCop1Space w && !StatusCU1 a <;> cases InCop0Space w && !CP0Usable a <;> rfl
 
 /-- **The Operation of a `Rejected` instruction signals Reserved Instruction at once** under the
-model's choices (`cp0Undefined`, `extOutOfRange`, `insLsbAboveMsb`). -/
+model's choices (`extOutOfRange`, `insLsbAboveMsb`). -/
 theorem op_rejected (j : Instruction) (h : Rejected j) (a : Arch) :
     ∃ op, Operation j = some op ∧
       op.run modelCtx { arch := a } = (.signal .ReservedInstruction, { arch := a }) := by
   cases j <;> simp only [Rejected] at h
-  case mfc0 rt rd sel =>
-    obtain ⟨-, h2, h3, h4⟩ := h
-    have hi : IsCoprocessorRegisterImplemented rd.toNat sel.toNat = false := by
-      rw [← isModeled_iff rd sel h2 h3, h4]
-    refine ⟨_, rfl, ?_⟩
-    simp only [Ops.MFC0, Pseudo.run, bind, Pseudo.impl, Pseudo.get, hi, Pseudo.oracle, resolve,
-      Bool.false_eq_true, ↓reduceIte]
-    rfl
-  case mtc0 rt rd sel =>
-    obtain ⟨-, h2, h3, h4⟩ := h
-    have hi : IsCoprocessorRegisterImplemented rd.toNat sel.toNat = false := by
-      rw [← isModeled_iff rd sel h2 h3, h4]
-    refine ⟨_, rfl, ?_⟩
-    simp only [Ops.MTC0, Pseudo.run, bind, Pseudo.get, hi, Pseudo.oracle, resolve, GPR,
-      Bool.false_eq_true, ↓reduceIte]
-    rfl
   case ext rt rs pos size =>
     obtain ⟨-, -, h3, h4, h5, h6⟩ := h
     have hc : (low pos 5).toNat + (low (size - 1#32) 5).toNat > 31 := by

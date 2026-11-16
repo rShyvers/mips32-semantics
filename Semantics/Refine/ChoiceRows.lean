@@ -138,12 +138,12 @@ theorem rw_ctc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.ctc1 rt fs) a = t
   exact row_sig rfl fun _ => by simp only [Ops.CTC1]; runp
 theorem rw_mfc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mfc0 rt rd sel) a = true) :
     RowWitness (.mfc0 rt rd sel) a := by
-  simp only [ConsultsOracle] at h
-  exact row_sig rfl fun _ => by simp only [Ops.MFC0]; runp
+  simp [ConsultsOracle] at h
 theorem rw_mtc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mtc0 rt rd sel) a = true) :
     RowWitness (.mtc0 rt rd sel) a := by
   simp only [ConsultsOracle] at h
-  exact row_sig rfl fun _ => by simp only [Ops.MTC0]; runp
+  exact row_sig rfl fun _ => by
+    simp only [Ops.MTC0]; runp <;> simp_all [IsCoprocessorRegisterImplemented]
 theorem rw_ext (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ext rt rs pos size) a = true) :
     RowWitness (.ext rt rs pos size) a := by
   simp only [ConsultsOracle, decide_eq_true_eq] at h

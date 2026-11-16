@@ -81,6 +81,9 @@ theorem enc_eq_encode_gen (i : Instruction) (h : SelOK i) : enc i = some (encode
       BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft,
       BitVec.or_zero, show (1#32 <<< 5 : W32) = 32#32 by decide]
   case eret => decide
+  -- BEGIN R6-2
+  case eretnc => decide
+  -- END R6-2
   all_goals
     simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, fld, field, maskLow,
       mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, BitVec.or_assoc,
@@ -125,7 +128,7 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   field_and524287 field_and1048575 field_and67108863 and63_and7 and31_and7
 
 set_option maxRecDepth 4000 in
-theorem length_candidates (w : W32) : (candidates w).length = 119 := by simp [candidates]
+theorem length_candidates (w : W32) : (candidates w).length = 122 := by simp [candidates]
 
 /-- The `k`-th candidate has the diagram of the instruction. -/
 local macro "cand " k:num : tactic => `(tactic| (
@@ -262,5 +265,10 @@ theorem enc_candidate (i : Instruction) (hs : SelOK i) :
   case aui => cand 116
   case nal => cand 117
   case bal => cand 118
+  -- BEGIN R6-2
+  case eretnc => cand 119
+  case sigrie => cand 120
+  case cache => cand 121
+  -- END R6-2
 
 end Refine

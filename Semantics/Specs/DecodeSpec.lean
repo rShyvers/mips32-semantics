@@ -160,18 +160,6 @@ theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
 theorem and_1048575 (a : W32) (h : a.toNat < 2 ^ 20) : a &&& 1048575#32 = a :=
   and_lowMask 20 (by decide) a h
 
-theorem isModeledCp0Reg_lt (rd sel : W32) (h : isModeledCp0Reg rd sel = true) :
-    rd.toNat < 32 ∧ sel.toNat < 8 := by
-  simp only [isModeledCp0Reg, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at h
-  rcases h with ((⟨h0, h⟩ | ⟨h0, h⟩) | ⟨h0, h⟩) | ⟨h0, h⟩
-  · subst h0
-    rcases h with ((((((((h | h) | h) | h) | h) | h) | h) | h) | h) | h <;> subst h <;> decide
-  · subst h0
-    rcases h with (h | h) | h <;> subst h <;> decide
-  · subst h0
-    rcases h with h | h <;> subst h <;> decide
-  · subst h0; subst h; decide
-
 /-! ## Extracted fields are in range -/
 
 theorem rsOf_lt (w : W32) : (rsOf w).toNat < 32 := by
@@ -234,13 +222,13 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
       hpos, e1, e2]
     omega
   case mfc0 rt rd sel =>
-    obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
+    obtain ⟨h0, h1, h2⟩ := h
     have h3 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h, h1, h2, h3]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h0, h1, h2, h3]
   case mtc0 rt rd sel =>
-    obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
+    obtain ⟨h0, h1, h2⟩ := h
     have h3 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h, h1, h2, h3]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h0, h1, h2, h3]
   case rdhwr rt rd sel =>
     obtain ⟨h1, h2, h3⟩ := h
     have e : sel &&& 31#32 = sel := and_31 _ (by omega)

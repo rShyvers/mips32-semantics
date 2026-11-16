@@ -1,4 +1,4 @@
-import Semantics.Refine.Fetch
+import Semantics.Refine.Bridge
 
 /-!
 # Refine.BridgeControl — bridge lemmas for the control and system instructions (7C S3)

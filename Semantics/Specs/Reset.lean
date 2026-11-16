@@ -9,10 +9,10 @@ import Semantics.Specs.Fixtures
 start state is the reset state followed by a named boot convention (`Env.lean`:
 `hostedStart = bootConvention textBase resetState`), and that is the old `initialState textBase`.
 
-## Theorems in this file (6)
+## Theorems in this file (8)
 
   `resetException_spec` `resetException_keeps` `resetState_spec` `hostedStart_is_reset_then_boot`
-  `bootConvention_spec` `load_is_reset_then_boot`
+  `bootConvention_spec` `load_is_reset_then_boot` `resetException_r6` `resetState_r6`
 -/
 
 set_option maxRecDepth 4000
@@ -90,6 +90,34 @@ theorem resetState_spec :
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 := by
   decide
+
+-- BEGIN R6-2
+/-- **The Release 6 CP0 registers across the Reset exception** (MD00090 Vol III Rev 6.02): the field
+tables give `Config5.SBRI` the reset state 0 (Table 9.69, p.263), so `Config5` reads `0x2010` after
+reset; `LLAddr.LLB` is `LLbit`, which the Reset exception clears, so `LLAddr` reads 0 (Table 9.72,
+p.270); `UserLocal`, `BadInstr`, `BadInstrP` and `KScratch1..6` have reset state "Undefined"
+(Tables 9.19, 9.42, 9.43, 9.84, p.143, 179, 181, 311) and keep their values (pin). -/
+theorem resetException_r6 (s : State) :
+    (resetException s).cp0Config5SBRI = false ∧
+    cp0ReadAt (resetException s) 16#32 5#32 = 0x00002010#32 ∧
+    cp0ReadAt (resetException s) 17#32 0#32 = 0#32 ∧
+    (resetException s).cp0UserLocal = s.cp0UserLocal ∧
+    (resetException s).cp0BadInstr = s.cp0BadInstr ∧
+    (resetException s).cp0BadInstrP = s.cp0BadInstrP ∧
+    (resetException s).cp0KScratch = s.cp0KScratch := by
+  refine ⟨rfl, ?_, rfl, rfl, rfl, rfl, rfl⟩
+  show (0x00002010#32 ||| (if false = true then 0x40#32 else 0#32)) = 0x00002010#32
+  decide
+
+/-- **The Release 6 CP0 registers after a cold reset**: `UserLocal`, `BadInstr`, `BadInstrP` and
+`KScratch1..6` read 0 (their undefined reset state pinned to 0 by `powerOnState`), `Config5.SBRI = 0`
+(MD00090 Vol III Rev 6.02 Table 9.69, p.263). -/
+theorem resetState_r6 :
+    resetState.cp0UserLocal = 0#32 ∧ resetState.cp0BadInstr = 0#32 ∧
+    resetState.cp0BadInstrP = 0#32 ∧ (∀ k, resetState.cp0KScratch k = 0#32) ∧
+    resetState.cp0Config5SBRI = false :=
+  ⟨rfl, rfl, rfl, fun _ => rfl, rfl⟩
+-- END R6-2
 
 /-- **The boot convention** (`Env.lean`): the program starts at `entry` in Kernel Mode with
 `Status = CU1` only (`BEV = ERL = EXL = UM = 0`), `$sp = spInit`, no branch pending; nothing else

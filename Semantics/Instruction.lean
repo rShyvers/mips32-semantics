@@ -314,8 +314,8 @@ inductive Instruction where
   exceptions" (MD00086 Vol II-A Rev 6.06, PREF, p.321). A no-op here. -/
   | pref (rs hint imm : W32)
   -- Coprocessor 0 (opcode 0x10).
-  /-- `$rt = ` CP0 register `(rd, sel)` (`rs`-field = `MF` = 0x00). `decode`
-  produces this only for a modeled pair (`isModeledCp0Reg`). -/
+  /-- `$rt = ` CP0 register `(rd, sel)` (`rs`-field = `MF` = 0x00), for every `(rd, sel)`: a
+  register the model does not implement reads 0 (Release 6, MFC0 p.266). -/
   | mfc0 (rt rd sel : W32)
   /-- CP0 register `(rd, sel) := $rt` (`rs`-field = `MT` = 0x04), through the
   register's write mask (`Step.lean`). Same scoping as `mfc0`. -/
@@ -445,6 +445,24 @@ inductive Instruction where
   | cvtWD (fd fs : W32)
   /-- Double → single, rounding per FCSR.RM (fmt = D, funct 0x20). -/
   | cvtSD (fd fs : W32)
+  -- BEGIN R6-2
+  /-- `ERETNC`: exception return without clearing `LLbit` (MD00086 Vol II-A Rev 6.06, ERETNC,
+  p.179-180: COP0, `CO` = 1, bits 24..7 zero, bit 6 = 1, funct `ERET` = 0x18). "ERETNC is identical
+  to ERET except that an ERETNC will not clear the LLbit"; required by `Config5.LLB = 1` ("ERETNC
+  instruction added", MD00090 Vol III Rev 6.02 Table 9.69, p.264). A CTI. -/
+  | eretnc
+  /-- `SIGRIE code`: signal a Reserved Instruction exception (MD00086 Vol II-A Rev 6.06, SIGRIE,
+  p.375: REGIMM, `rs` = 0, `rt` = `SIGRIE` = 0x17, 16-bit `code` in bits 15..0, "available for
+  software use"). "MIPS32 Release 6"; "required as of Release 6". -/
+  | sigrie (code : W32)
+  /-- `CACHE op, offset(base)`: perform cache operation `op` (MD00086 Vol II-A Rev 6.06, CACHE,
+  p.114-120, Release 6 diagram: SPECIAL3, `base` 25..21, `op` 20..16, 9-bit `offset` 15..7, `0` bit
+  6, funct `CACHE` = 0x25). The model has no cache: "The operation of this instruction is UNDEFINED
+  for any operation/cache combination that is not implemented. In Release 6, the instruction in this
+  case should perform no operation" (p.119). A coprocessor-0 instruction for the usability check
+  ("A COP0 or Cache instruction", MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
+  | cache (base op off : W32)
+  -- END R6-2
   deriving Repr, DecidableEq
 
 /-- Extract the 6-bit opcode field (bits 31..26), zero-extended to a `W32`. -/
@@ -511,23 +529,6 @@ SPECIAL3 = 0x1f is or-ed in by `encode`): `base` 25..21, `rt` 20..16, `offset` 1
 def mkOff9 (base rt off funct : W32) : W32 :=
   field 5 21 base ||| field 5 16 rt ||| field 9 7 off ||| field 6 0 funct
 
-/-- The coprocessor-0 registers this model implements, by `(rd, sel)`:
-select 0 — `7` HWREna, `8` BadVAddr, `9` Count, `11` Compare, `12` Status, `13` Cause, `14` EPC,
-`15` PRId, `16` Config, `30` ErrorEPC; select 1 — `12` IntCtl, `15` EBase, `16` Config1; select 2 —
-`12` SRSCtl, `16` Config2; select 3 — `16` Config3. `decode`
-accepts `mfc0`/`mtc0` only for these; every other pair does not decode and so
-raises Reserved Instruction — a documented pin (the architecture leaves
-access to an unimplemented CP0 register UNDEFINED/implementation-dependent).
--- W2: Release 6 requires "Reading a reserved register or a register that is not implemented for
--- the current core configuration returns 0" and writes ignored (MD00086 Vol II-A Rev 6.06, MFC0
--- p.266, MTC0 p.290); with that, every `(rd, sel)` decodes. -/
-def isModeledCp0Reg (rd sel : W32) : Bool :=
-  (sel == 0#32 && (rd == 7#32 || rd == 8#32 || rd == 9#32 || rd == 11#32 || rd == 12#32 ||
-      rd == 13#32 || rd == 14#32 || rd == 15#32 || rd == 16#32 || rd == 30#32)) ||
-  (sel == 1#32 && (rd == 12#32 || rd == 15#32 || rd == 16#32)) ||
-  (sel == 2#32 && (rd == 12#32 || rd == 16#32)) ||
-  (sel == 3#32 && rd == 16#32)
-
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
 otherwise. Used by the decoder tables to reject non-canonical encodings. -/
 def decodeIf (c : Bool) (i : Instruction) : Option Instruction :=
@@ -547,7 +548,9 @@ JR (0x08: JR is JALR with `rd = 0`, JR p.207), MOVZ/MOVN (0x0a/0x0b), MFHI/MTHI/
 decode. Release 6 additions decoded by later waves (until then they do not decode):
 -- W4: funct 0x05 LSA; 0x18-0x1b with `sa` = 2/3: MUL/MUH, MULU/MUHU, DIV/MOD, DIVU/MODU (Table
 --     A.23, p.462); 0x35 SELEQZ, 0x37 SELNEZ.
--- W2: funct 0x0e SDBBP (EJTAG absent). -/
+SDBBP (funct 0x0e in Release 6, SDBBP p.361) belongs to EJTAG, which is absent (DECISIONS D5): "If
+EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out" (MD00082
+Vol I-A Rev 6.01 §2.4.1, p.31), so its word does not decode (Reserved Instruction, DECISIONS D7). -/
 def decodeSpecial (w : W32) : Option Instruction :=
   let rs := rsOf w
   let rt := rtOf w
@@ -609,8 +612,7 @@ def decodeSpecial (w : W32) : Option Instruction :=
 /-- **REGIMM** (opcode 1), keyed by `rt` (Table A.4, p.452). Release 6 keeps BLTZ, BGEZ, SYNCI and
 the `rs = 0` cases of BLTZAL/BGEZAL as NAL/BAL (NAL p.306, BAL p.50); BLTZAL/BGEZAL with `rs ≠ 0`,
 the branch-likely forms (rt 0x02, 0x03, 0x12, 0x13) and the trap-immediate forms (0x08-0x0e) are
-removed and do not decode.
--- W2: rt 0x17 SIGRIE. -/
+removed and do not decode. Release 6 adds SIGRIE (`rt` = 0x17, `rs` = 0; SIGRIE p.375). -/
 def decodeRegimm (w : W32) : Option Instruction :=
   let rs := rsOf w
   let imm := immOf w
@@ -620,12 +622,15 @@ def decodeRegimm (w : W32) : Option Instruction :=
   | 0x10 => decodeIf (rs == 0#32) (.nal imm)
   | 0x11 => decodeIf (rs == 0#32) (.bal imm)
   | 0x1f => some (.synci rs imm)
+  -- BEGIN R6-2
+  | 0x17 => decodeIf (rs == 0#32) (.sigrie imm)
+  -- END R6-2
   | _ => none
 
 /-- **SPECIAL3** (opcode 0x1f), keyed by `funct` (Table A.6, p.453; BSHFL Table A.10, p.454).
 Release 6 moved `LL` (0x36), `SC` (0x26) and `PREF` (0x35) here, with a 9-bit offset.
--- W4: BSHFL `sa` = 00000 BITSWAP, 010xx ALIGN.
--- W2: funct 0x25 CACHE. -/
+Release 6 recoded CACHE here (funct 0x25, 9-bit offset; CACHE p.114).
+-- W4: BSHFL `sa` = 00000 BITSWAP, 010xx ALIGN. -/
 def decodeSpecial3 (w : W32) : Option Instruction :=
   let rs := rsOf w
   let rt := rtOf w
@@ -651,35 +656,42 @@ def decodeSpecial3 (w : W32) : Option Instruction :=
   | 0x36 => decodeIf (z (bit6Of w)) (.ll rs rt (off9Of w))
   | 0x26 => decodeIf (z (bit6Of w)) (.sc rs rt (off9Of w))
   | 0x35 => decodeIf (z (bit6Of w)) (.pref rs rt (off9Of w))
+  -- BEGIN R6-2
+  -- `cache`: 9-bit offset in bits 15..7, bit 6 zero, `op` in bits 20..16 (CACHE p.114).
+  | 0x25 => decodeIf (z (bit6Of w)) (.cache rs rt (off9Of w))
+  -- END R6-2
   | _ => none
 
 /-- **COP0** (opcode 0x10), keyed by bit 25 (`CO`) and then `funct`, else by `rs` (Tables A.11-A.13,
 p.455). The TLB instructions (no TLB: "must cause a Reserved Instruction Exception", MD00090 Vol III
-Rev 6.02 §A.1.3, p.317) and DERET (EJTAG absent) do not decode.
--- W2: ERETNC (ERET with bit 6 = 1); Release 6 CP0 register set (`isModeledCp0Reg`). -/
+Rev 6.02 §A.1.3, p.317; TLBINV/TLBINVF with `Config4.IE = 0`, DECISIONS D4) and DERET (EJTAG absent:
+"If EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out",
+MD00082 Vol I-A Rev 6.01 §2.4.1, p.31) do not decode. `mfc0`/`mtc0` decode for every `(rd, sel)`:
+"Release 6: Reading a reserved register or a register that is not implemented for the current core
+configuration returns 0" (MD00086 Vol II-A Rev 6.06, MFC0, p.266), writes to one "are ignored"
+(MTC0, p.290). -/
 def decodeCop0 (w : W32) : Option Instruction :=
   let rs := rsOf w
   let rt := rtOf w
   let rd := rdOf w
   let shamt := shamtOf w
   let z (x : W32) : Bool := x == 0#32
-  -- CO sub-format: bit 25 set. `eret` requires bits 24..6 zero; `wait`'s
+  -- CO sub-format: bit 25 set. `eret` requires bits 24..6 zero (`eretnc`: bit 6 one); `wait`'s
   -- bits 24..6 are its implementation-dependent `code` field.
   if coOf w == 1#32 then
     match (functOf w).toNat with
-    | 0x18 => decodeIf (rs == 16#32 && z rt && z rd && z shamt) .eret
+    | 0x18 =>
+      -- BEGIN R6-2
+      if shamt == 1#32 then decodeIf (rs == 16#32 && z rt && z rd) .eretnc else
+      -- END R6-2
+      decodeIf (rs == 16#32 && z rt && z rd && z shamt) .eret
     | 0x20 => some (.wait (code19Of w))
     | _ => none
   else
   match rs.toNat with
-  -- `mfc0`/`mtc0`: bits 10..3 must be zero, bits 2..0 are `sel`, and
-  -- `(rd, sel)` must name a modeled register (`isModeledCp0Reg`).
-  | 0x00 =>
-    decodeIf (z shamt && decide ((functOf w).toNat < 8) && isModeledCp0Reg rd (functOf w))
-      (.mfc0 rt rd (functOf w))
-  | 0x04 =>
-    decodeIf (z shamt && decide ((functOf w).toNat < 8) && isModeledCp0Reg rd (functOf w))
-      (.mtc0 rt rd (functOf w))
+  -- `mfc0`/`mtc0`: bits 10..3 must be zero, bits 2..0 are `sel` (any register: Release 6).
+  | 0x00 => decodeIf (z shamt && decide ((functOf w).toNat < 8)) (.mfc0 rt rd (functOf w))
+  | 0x04 => decodeIf (z shamt && decide ((functOf w).toNat < 8)) (.mtc0 rt rd (functOf w))
   -- `MFMC0` (`di`/`ei`): `rd` = 12 (Status), bits 10..6 zero, bit 5 = `sc`,
   -- bits 4..0 zero.
   | 0x0b =>
@@ -970,3 +982,8 @@ def encode (i : Instruction) : W32 :=
   | .cvtSD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x20#32
   | .cvtSW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x20#32
   | .cvtDW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x21#32
+  -- BEGIN R6-2
+  | .eretnc => (0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 1#32 0x18#32
+  | .sigrie code => mkIT 0x01#32 0#32 0x17#32 code
+  | .cache base op off => (0x1f#32 <<< 26) ||| mkOff9 base op off 0x25#32
+  -- END R6-2

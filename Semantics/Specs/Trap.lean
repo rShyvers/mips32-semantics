@@ -2,20 +2,20 @@ import Semantics.Specs.Tactics
 import Semantics.Specs.Fixtures
 
 /-!
-# Trap — conditional traps and `break`
+# Trap — conditional traps, `break` and `sigrie`
 
-Constructors: `teq` `tne` `tlt` `tge` `tltu` `tgeu` `break` (Release 6 removed the trap-immediate
+Constructors: `teq` `tne` `tlt` `tge` `tltu` `tgeu` `break` `sigrie` (Release 6 removed the trap-immediate
 instructions TEQI/TNEI/TGEI/TGEIU/TLTI/TLTIU).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  TEQ p.416; TNE p.438; TLT p.434; TGE p.418; TLTU p.437; TGEU p.421; BREAK p.109.
+  TEQ p.416; TNE p.438; TLT p.434; TGE p.418; TLTU p.437; TGEU p.421; BREAK p.109; SIGRIE p.375.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)"; "Summary table".
 
-## Theorems in this file (7)
+## Theorems in this file (8)
 
-  `break_spec_raw` `teq_spec_raw` `tne_spec_raw` `tlt_spec_raw` `tge_spec_raw` `tltu_spec_raw`
-  `tgeu_spec_raw`
+  `break_spec_raw` `sigrie_spec_raw` `teq_spec_raw` `tne_spec_raw` `tlt_spec_raw` `tge_spec_raw`
+  `tltu_spec_raw` `tgeu_spec_raw`
 -/
 
 set_option maxRecDepth 4000
@@ -43,6 +43,24 @@ theorem break_spec_raw (s : State) (w code : W32)
   dsimp only
   rw [hdecode]
   rfl
+
+-- BEGIN R6-2
+/-- **`sigrie` unconditionally raises the Reserved Instruction exception** (ExcCode 10), in any
+state, in or out of a delay slot (MD00086 Vol II-A Rev 6.06, SIGRIE, p.375: "SignalException(
+ReservedInstruction)"; "Implementations should use exactly the same mechanisms as they use for
+reserved instructions that are not defined by the Architecture": the same `takeException s
+excCodeRI` as an undecodable word, `step_reserved_instruction`). The 16-bit `code` is "available for
+software use" only. -/
+theorem sigrie_spec_raw (s : State) (w code : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sigrie code))
+    (hexec : executesInstr s = true) :
+    step s = timerTick (takeException s excCodeRI) := by
+  rw [step_of_executesInstr s hexec]; unfold execute
+  rw [hfetch]
+  dsimp only
+  rw [hdecode]
+  rfl
+-- END R6-2
 
 -- `break_spec_raw`: a concrete `break` lands exactly on the exception
 -- vector with the `Bp` exception code packed into `Cause`.

@@ -176,27 +176,35 @@ private def vectorHandlerProg : Program :=
 #guard (match stepState (prog1 (.mtc0 8#32 13#32 0#32)) (setRegs regs0 [(8, 0x40008000#32)]) with
         | some s' => causeValue s' == 0#32
         | none => false)
--- HWREna (7): bits 3..0 only (F15)
+-- HWREna (7): bits 0..3, 5 (XNP) and 29 (ULR) only (F15; Release 6)
 #guard (match stepState (prog1 (.mtc0 8#32 7#32 0#32)) (setRegs regs0 [(8, 0xffffffff#32)]) with
-        | some s' => s'.cp0HWREna == 0xf#32
+        | some s' => s'.cp0HWREna == 0x2000002f#32
         | none => false)
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 7#32 0#32)) { regs0 with cp0HWREna := 0xa#32 }) 8 0xa#32
--- rdhwr in Kernel Mode: CPUNum 0, SYNCI_Step 0, CC = Count, CCRes 1; 29 (ULR) is RI
+-- rdhwr in Kernel Mode: CPUNum 0, SYNCI_Step 0, CC = Count, CCRes 1, XNP 1, ULR = UserLocal;
+-- 4 (PerfCtr) and 6 (reserved) are RI
 #guard nextRegEq (hstep (prog1 (.rdhwr 8#32 0#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
 #guard nextRegEq (hstep (prog1 (.rdhwr 8#32 1#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
 #guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32 0#32)) { regs0 with cp0Count := 0xabc#32 }) 8 0xabc#32
 #guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32 0#32)) regs0) 8 1#32
-#guard raises (hstep (prog1 (.rdhwr 8#32 29#32 0#32)) regs0) excCodeRI
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 5#32 0#32)) regs0) 8 1#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 29#32 0#32)) { regs0 with cp0UserLocal := 0x77#32 }) 8 0x77#32
 #guard raises (hstep (prog1 (.rdhwr 8#32 4#32 0#32)) regs0) excCodeRI
--- rdhwr in User Mode (UM = 1, CU0 = 0): only the registers enabled in HWREna; otherwise RI (not CpU)
+#guard raises (hstep (prog1 (.rdhwr 8#32 6#32 0#32)) regs0) excCodeRI
+-- rdhwr in User Mode: only the registers enabled in HWREna; otherwise RI (not CpU)
 #guard raises (hstep (prog1 (.rdhwr 8#32 2#32 0#32)) { regs0 with cp0Status := statusUmMask }) excCodeRI
 #guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32 0#32))
   { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32, cp0Count := 55#32 }) 8 55#32
 #guard raises (hstep (prog1 (.rdhwr 8#32 3#32 0#32))
   { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32 }) excCodeRI
--- User Mode with CU0 = 1: Coprocessor 0 is enabled, so every implemented register is readable
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32 0#32))
-  { regs0 with cp0Status := statusUmMask ||| statusCu0Mask }) 8 1#32
+-- User Mode with Status bit 28 set: Release 6 has no CU0 (bit 28 is the software bit RW), so
+-- coprocessor 0 stays disabled and a register not enabled in HWREna is RI
+#guard raises (hstep (prog1 (.rdhwr 8#32 3#32 0#32))
+  { regs0 with cp0Status := statusUmMask ||| statusCu0Mask }) excCodeRI
+-- rdhwr 29 (ULR) from User Mode with HWREna bit 29 set reads UserLocal
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 29#32 0#32))
+  { regs0 with cp0Status := statusUmMask, cp0HWREna := 0x20000000#32, cp0UserLocal := 0x1234#32 })
+  8 0x1234#32
 -- ErrorEPC (30) is fully readable/writable.
 #guard (match stepState (prog1 (.mtc0 8#32 30#32 0#32)) (setRegs regs0 [(8, 0x3000#32)]) with
         | some s' => s'.cp0ErrorEpc == 0x3000#32
@@ -221,10 +229,15 @@ private def vectorHandlerProg : Program :=
             0xabcd#32
         | none => false)
 
--- mfc0/mtc0 naming a CP0 register the model does not have (anything but
--- 8/12/13/14/30, sel 0) do not decode, so they raise Reserved Instruction.
-#guard raises (hstep (prog1 (.mfc0 8#32 0#32 0#32)) regs0) excCodeRI
-#guard raises (hstep (prog1 (.mtc0 8#32 0#32 0#32)) (setRegs regs0 [(8, 1#32)])) excCodeRI
+-- mfc0/mtc0 naming a CP0 register the model does not have (here (0, 0), Index: no TLB) decode;
+-- Release 6: the read returns 0 and the write is ignored (MFC0 p.266, MTC0 p.290).
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 0#32 0#32)) (setRegs regs0 [(8, 0x55#32)])) 8 0#32
+#guard (match hstep (prog1 (.mtc0 8#32 0#32 0#32)) (setRegs regs0 [(8, 1#32)]),
+              hstep (prog1 (.sll 0#32 0#32 0#32)) (setRegs regs0 [(8, 1#32)]) with
+        | .next a, .next b => a.cp0Status == b.cp0Status && a.cp0Cause == b.cp0Cause &&
+            a.cp0Epc == b.cp0Epc && a.cp0HWREna == b.cp0HWREna && a.pc == b.pc && a.regs == b.regs &&
+            a.llBit == b.llBit && a.cp0UserLocal == b.cp0UserLocal
+        | _, _ => false)
 
 -- eret: restores `pc` from `cp0Epc` and clears `Status.EXL` (bit 1, the same
 -- bit `takeException` sets) in a *single* `step` call -- no delay-slot
@@ -313,10 +326,10 @@ private def ovState : State := setRegs regs0 [(8, 0x7fffffff#32), (9, 1#32), (10
 #guard (match trun (prog1 (.sw 8#32 9#32 2#32)) (setRegs regs0 [(8, 0x10010000#32)]) 10 with
         | .halted (.unhandledException c epc bad) _ _ => c == 5#32 && epc == textBase && bad == 0x10010002#32
         | _ => false)
--- A failed store leaves memory untouched; like every exception entry it
--- clears `llBit`.
+-- A failed store leaves memory untouched; exception entry does not clear `llBit` (SC p.347:
+-- the handler's ERET does).
 #guard (match stepState (prog1 (.sw 8#32 9#32 2#32)) { (setRegs regs0 [(8, 0x10010000#32), (9, 0xff#32)]) with llBit := true } with
-        | some s' => s'.llBit == false && readMemWord s' 0x10010000#32 == some 0#32
+        | some s' => s'.llBit == true && readMemWord s' 0x10010000#32 == some 0#32
         | none => false)
 -- Undecodable word, unhandled: ExcCode 10.
 #guard (match trun ((∅ : Program).insert textBase ((0x11#32 <<< 26) ||| (0x1f#32 <<< 21))) regs0 10 with
@@ -353,10 +366,18 @@ private def llEretScProg : Program :=
            | none => false)
         | none => false)
 
--- Exception entry clears `llBit`: `ll` / `break` / (handler returns by a plain
--- `jr`, not `eret`) / `sc` still fails.
+-- Exception entry keeps `llBit` (MD00086 Vol II-A Rev 6.06, SC, p.347: ERET, not the exception,
+-- makes SC fail): `ll` / `break` / (handler returns by `eretnc`) / `sc` succeeds.
 #guard (match stepState (prog1 (.break 0#32)) { regs0 with llBit := true } with
-        | some s' => s'.llBit == false
+        | some s' => s'.llBit == true
+        | none => false)
+private def llEretncScProg : Program :=
+  (buildProg textBase [.ll 8#32 9#32 0#32, (.break 0#32), .sc 8#32 10#32 0#32]).insert exceptionVectorAddr (encode .eretnc)
+#guard (match stepN llEretncScProg 2 (setRegs regs0 [(8, llscAddr), (10, 0xdeadbeef#32)]) with
+        | some s2 =>
+          (match stepN llEretncScProg 2 { s2 with cp0Epc := s2.cp0Epc + 4#32 } with
+           | some s4 => readReg s4 10 == 1#32 && readMemWord s4 llscAddr == some 0xdeadbeef#32
+           | none => false)
         | none => false)
 -- `wait` in a delay slot raises Reserved Instruction, like `eret` (pin).
 #guard (match stepState (buildProg textBase [.j 0x100#32, (.wait 0#32)]) regs0 with
@@ -378,39 +399,54 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 0#32)) regs0) 9 0x00010000#32
 -- Config: M=1, K23=2, KU=2, BE=0 (little-endian), AR=2 (Release 6), MT=3 (Fixed Mapping), K0=2
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0xA4000982#32
--- Config1: M=1 (Config2 present), FP=1; Config2: M=1 (Config3 present), no L2/L3 cache; Config3 = 0
--- (MD00090 Vol III Rev 6.02 Tables 9.65-9.67, p.237-251)
+-- Config1: M=1 (Config2 present), FP=1; Config2: M=1 (Config3 present), no L2/L3 cache;
+-- Config3 = 0x8C003000 (M, BP, BI, ULRI, RXI); Config4 = 0x80FC0000 (M, KScrExist);
+-- Config5 = 0x2010 (XNP, LLB; SBRI = 0) (MD00090 Vol III Rev 6.02 Tables 9.65-9.69, p.237-264)
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x80000001#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 2#32)) regs0) 9 0x80000000#32
-#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 3#32)) regs0) 9 0x00000000#32
--- Config1/2/3 are read-only: an all-ones write changes nothing (the state after it is the state after
--- a `nop`), and they read back their fixed values
-#guard [1, 2, 3].all fun (q : Nat) =>
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 3#32)) regs0) 9 0x8C003000#32
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 4#32)) regs0) 9 0x80FC0000#32
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 5#32)) regs0) 9 0x00002010#32
+-- Config5.SBRI (bit 6) is the one writable bit of Config5
+#guard (match hstep (prog1 (.mtc0 9#32 16#32 5#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
+        | .next s => s.cp0Config5SBRI &&
+            nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 5#32)) { s with pc := textBase }) 10 0x00002050#32
+        | .halt _ => false)
+-- Config1/2/3/4 are read-only: an all-ones write changes nothing (the state after it is the state
+-- after a `nop`), and they read back their fixed values
+#guard [1, 2, 3, 4].all fun (q : Nat) =>
   (match hstep (prog1 (.mtc0 9#32 16#32 (BitVec.ofNat 32 q))) (setRegs regs0 [(9, 0xffffffff#32)]),
          hstep (prog1 (.sll 0#32 0#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
    | .next s, .next t => s.cp0ConfigK0 == t.cp0ConfigK0 && s.cp0ConfigK23 == t.cp0ConfigK23 &&
        s.cp0ConfigKU == t.cp0ConfigKU && s.cp0Status == t.cp0Status && s.pc == t.pc &&
        nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 (BitVec.ofNat 32 q))) { s with pc := textBase }) 10
-         (if q == 1 then 0x80000001#32 else if q == 2 then 0x80000000#32 else 0#32)
+         (if q == 1 then 0x80000001#32 else if q == 2 then 0x80000000#32
+          else if q == 3 then 0x8C003000#32 else 0x80FC0000#32)
    | _, _ => false)
--- Config4 (16,4) is not implemented (Config3.M = 0): the word does not decode
-#guard decode (encode (.mfc0 9#32 16#32 4#32)) == none
+-- Every (rd, sel) decodes in Release 6 (Config6, (16,6), is not implemented and reads 0)
+#guard decode (encode (.mfc0 9#32 16#32 6#32)) == some (.mfc0 9#32 16#32 6#32)
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 6#32)) (setRegs regs0 [(9, 0x55#32)])) 9 0#32
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 1#32)) regs0) 9 0x80000000#32
 -- `Config` (16,0): only `K23` (30..28), `KU` (27..25) and `K0` (2..0) are writable (MD00090 Vol III
--- Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317); writing all ones sets the three to 7 and leaves
--- every other bit alone
+-- Rev 6.02 Table 9.64, p.233-235; Table A.2, p.317), and only with a supported value, 2 or 3 ("For
+-- Release 6, writes of unsupported values are ignored"): all ones (7) changes nothing
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
         | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-            0xFE000987#32
+            0xA4000982#32
         | .halt _ => false)
--- every 3-bit K0 value reads back; the bits outside K23/KU/K0 are ignored; nothing else changes
+-- K23 = KU = K0 = 3 is accepted; the bits outside K23/KU/K0 are ignored
+#guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xB6FFFFFB#32)]) with
+        | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
+            0xB6000983#32
+        | .halt _ => false)
+-- each 3-bit K0 value: 2 and 3 read back, the others leave K0 = 2; nothing else changes
 #guard (List.range 8).all fun k =>
   (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xfffffff8#32 ||| BitVec.ofNat 32 k)]) with
     | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-        (0xFE000980#32 ||| BitVec.ofNat 32 k)
+        (0xA4000980#32 ||| (if k == 2 || k == 3 then BitVec.ofNat 32 k else 2#32))
     | .halt _ => false)
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0#32)]) with
-        | .next s => s.cp0ConfigK0 == 0#3 && s.cp0ConfigK23 == 0#3 && s.cp0ConfigKU == 0#3 &&
+        | .next s => s.cp0ConfigK0 == 2#3 && s.cp0ConfigK23 == 2#3 && s.cp0ConfigKU == 2#3 &&
             s.cp0Status == regs0.cp0Status && s.cp0EBase == regs0.cp0EBase
         | .halt _ => false)
 -- EBase: only bits 29..12 are writable; bits 31..30 stay `10`
@@ -446,7 +482,7 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 -- ### Operating modes: User Mode and Coprocessor Unusable for coprocessor 0
 -- (MD00090 Vol III Rev 6.02 §3.2-3.5.3, p.21-23; §6.2.22, p.100)
 
-/-- User Mode: `UM = 1`, `EXL = ERL = 0`, `CU0 = 0` (CU1 kept so FP is usable). -/
+/-- User Mode: `UM = 1`, `EXL = ERL = 0`, `RW` (bit 28) = 0 (CU1 kept so FP is usable). -/
 private def userSt : State := { regs0 with cp0Status := 0x20000010#32 }
 
 /-- One step of `instr` at `textBase` from `s`. -/
@@ -460,7 +496,7 @@ private def cp0Unusable (s : State) : Bool :=
     s.cp0Status == 0x20000012#32 && s.pc == exceptionVectorAddr && s.regs == userSt.regs
 
 #guard userMode userSt && !kernelMode userSt && !cp0Usable userSt
--- Each coprocessor-0 instruction in User Mode with CU0 = 0 raises CpU (CE = 0).
+-- Each coprocessor-0 instruction in User Mode raises CpU (CE = 0).
 #guard cp0Unusable (step1 (.mfc0 8#32 12#32 0#32) userSt)
 #guard cp0Unusable (step1 (.mtc0 0#32 12#32 0#32) userSt)
 #guard cp0Unusable (step1 (.di 8#32) userSt)
@@ -469,14 +505,21 @@ private def cp0Unusable (s : State) : Bool :=
 #guard cp0Unusable (step1 (.wait 0#32) userSt)
 #guard cp0Unusable (step1 (.rdpgpr 8#32 9#32) userSt)
 #guard cp0Unusable (step1 (.wrpgpr 8#32 9#32) userSt)
+-- BEGIN R6-2
+#guard cp0Unusable (step1 .eretnc userSt)
+#guard cp0Unusable (step1 (.cache 0#32 0x14#32 0#32) userSt)
+#guard cp0Unusable (step1 (.mfc0 8#32 0#32 0#32) userSt)   -- an unimplemented register too
+-- END R6-2
 -- Undecodable COP0 words (rs = 3 reserved; TLBP; rs = 0x0d reserved) and CACHE: CpU in User Mode, RI in
 -- Kernel Mode. (RDPGPR, 0x41400000, decodes since wave 6: `rdpgpr $0, $0`.)
 #guard (let w := 0x40600000#32
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI)
--- (CACHE is the Release 6 encoding SPECIAL3 funct 0x25, `0x7c000025`; W2 decodes it.)
-#guard [0x42000008#32, 0x41a00000#32, 0x7c000025#32].all fun w =>
+-- (CACHE, the Release 6 encoding SPECIAL3 funct 0x25, decodes; a CACHE word with bit 6 set,
+-- `0x7c000065`, matches no diagram.)
+#guard decode 0x7c000025#32 == some (.cache 0#32 0#32 0#32)
+#guard [0x42000008#32, 0x41a00000#32, 0x7c000065#32].all fun w =>
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI
@@ -488,9 +531,9 @@ private def cp0Unusable (s : State) : Bool :=
 -- Non-CP0 instructions run normally in User Mode (and FP with CU1 = 1).
 #guard (let s := step1 (.addiu 0#32 8#32 5#32) userSt
         readReg s 8 == 5#32 && s.pc == textBase + 4#32 && userMode s)
--- User Mode with CU0 = 1: coprocessor 0 is usable.
+-- User Mode with Status bit 28 set (Release 6 `RW`, no `CU0`): coprocessor 0 is not usable.
 #guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x30000010#32 }
-        readReg s 8 == 0x30000010#32 && s.pc == textBase + 4#32)
+        causeExcCode s == excCodeCpU && s.cp0Cause &&& causeCeMask == 0#32 && readReg s 8 == 0#32)
 -- UM = 1 with EXL = 1 or ERL = 1 is Kernel Mode: CP0 usable.
 #guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000012#32 }
         readReg s 8 == 0x20000012#32 && s.pc == textBase + 4#32)
@@ -507,9 +550,10 @@ private def cp0Unusable (s : State) : Bool :=
 -- `eret` from a handler (EXL = 1, UM = 1) returns to User Mode at EPC.
 #guard (let s := step1 .eret { userSt with cp0Status := 0x20000012#32, cp0Epc := 0x400100#32 }
         s.pc == 0x400100#32 && userMode s && s.cp0Status == 0x20000010#32)
--- `mtc0` writes UM and CU0 (Status write mask 0x3040ff17); bit 3 (R0) reads 0.
+-- `mtc0` writes UM and RW (bit 28) (Status write mask 0x3040ff17); bit 3 (R0) reads 0; RW does not
+-- make coprocessor 0 usable in User Mode.
 #guard (let s := step1 (.mtc0 8#32 12#32 0#32) (setRegs regs0 [(8, 0x10000018#32)])
-        s.cp0Status == 0x10000010#32 && userMode s && cp0Usable s)
+        s.cp0Status == 0x10000010#32 && userMode s && !cp0Usable s)
 
 -- ### Reset (MD00090 Vol III Rev 6.02 §6.2.5, p.89-90)
 
@@ -521,7 +565,7 @@ private def cp0Unusable (s : State) : Bool :=
 -- with ERL = 1 it is still Kernel Mode and CP0 is usable.
 #guard (let s := step (loadImage ((∅ : Program).insert 0xbfc00000#32 0x40600000#32) resetState)
         causeExcCode s == excCodeRI && s.pc == 0xbfc00380#32 && s.cp0Epc == 0xbfc00000#32)
--- Reset clears Cause.DC and keeps the other Cause bits; Status keeps UM/CU0 but sets BEV/ERL.
+-- Reset clears Cause.DC and keeps the other Cause bits; Status keeps UM/RW but sets BEV/ERL.
 #guard (let r := resetException { regs0 with cp0Cause := 0x08000300#32, cp0Status := 0x10000010#32 }
         r.cp0Cause == 0x00000300#32 && r.cp0Status == 0x10400014#32 && kernelMode r &&
           r.cp0ErrorEpc == textBase)
@@ -600,3 +644,90 @@ private def swIntSt : State := { regs0 with cp0Status := 0x20000101#32, cp0Cause
 #guard readReg (step1 (.rdpgpr 8#32 9#32) (setRegs regs0 [(9, 0x1234#32)])) 8 == 0x1234#32
 #guard readReg (step1 (.wrpgpr 8#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 8 == 0x5678#32
 #guard readReg (step1 (.wrpgpr 0#32 9#32) (setRegs regs0 [(9, 0x5678#32)])) 0 == 0#32
+
+-- BEGIN R6-2
+-- ### Release 6 CP0 registers and instructions (Wave R6-2)
+
+-- UserLocal (4,2) and KScratch1..6 (31,2..7): what mtc0 writes, mfc0 reads back
+-- (MD00090 Vol III Rev 6.02 Table 9.19, p.143; Table 9.84, p.311).
+#guard (match hstep (prog1 (.mtc0 9#32 4#32 2#32)) (setRegs regs0 [(9, 0xfeed#32)]) with
+        | .next s => s.cp0UserLocal == 0xfeed#32 &&
+            nextRegEq (hstep (prog1 (.mfc0 10#32 4#32 2#32)) { s with pc := textBase }) 10 0xfeed#32
+        | .halt _ => false)
+#guard [2, 3, 4, 5, 6, 7].all fun (q : Nat) =>
+  (match hstep (prog1 (.mtc0 9#32 31#32 (BitVec.ofNat 32 q))) (setRegs regs0 [(9, BitVec.ofNat 32 (100 + q))]) with
+   | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 31#32 (BitVec.ofNat 32 q))) { s with pc := textBase }) 10
+       (BitVec.ofNat 32 (100 + q)) &&
+       -- the other KScratch registers are untouched
+       [2, 3, 4, 5, 6, 7].all fun (r : Nat) => r == q ||
+         nextRegEq (hstep (prog1 (.mfc0 10#32 31#32 (BitVec.ofNat 32 r))) { s with pc := textBase }) 10 0#32
+   | .halt _ => false)
+-- KScratch at (31,0) and (31,1) is not implemented (Config4.KScrExist = 0xFC): reads 0, write ignored.
+#guard (match hstep (prog1 (.mtc0 9#32 31#32 1#32)) (setRegs regs0 [(9, 0xfeed#32)]) with
+        | .next s => (List.finRange 6).all (fun k => s.cp0KScratch k == 0#32) &&
+            nextRegEq (hstep (prog1 (.mfc0 10#32 31#32 1#32)) { s with pc := textBase }) 10 0#32
+        | .halt _ => false)
+-- LLAddr (17,0): reads LLbit in bit 0; writing 0 clears LLbit, writing 1 never sets it
+-- (Table 9.72, p.270).
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 17#32 0#32)) { regs0 with llBit := true }) 9 1#32
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 17#32 0#32)) regs0) 9 0#32
+#guard (match stepState (prog1 (.mtc0 9#32 17#32 0#32)) { (setRegs regs0 [(9, 0#32)]) with llBit := true } with
+        | some s => s.llBit == false
+        | none => false)
+#guard (match stepState (prog1 (.mtc0 9#32 17#32 0#32)) (setRegs regs0 [(9, 1#32)]) with
+        | some s => s.llBit == false
+        | none => false)
+#guard (match stepState (prog1 (.mtc0 9#32 17#32 0#32)) { (setRegs regs0 [(9, 1#32)]) with llBit := true } with
+        | some s => s.llBit == true
+        | none => false)
+-- BadInstr after a Reserved Instruction: the faulting word; BadInstrP = 0 outside a delay slot
+-- (§9.25, p.179; §9.26, p.181).
+#guard (let s := step1 (.sigrie 0x1234#32) regs0
+        causeExcCode s == excCodeRI && s.cp0BadInstr == encode (.sigrie 0x1234#32) &&
+          s.cp0BadInstrP == 0#32 &&
+          nextRegEq (hstep (prog1 (.mfc0 9#32 8#32 1#32)) { s with pc := textBase }) 9
+            (encode (.sigrie 0x1234#32)))
+-- An undecodable word is captured too.
+#guard (let s := step (loadImage badProg regs0)
+        causeExcCode s == excCodeRI && s.cp0BadInstr == badWord)
+-- BadInstrP in a delay slot: the branch before the faulting instruction.
+#guard (let p := buildProg textBase [.beq 0#32 0#32 0x10#32, .break 0#32]
+        let s1 := step (loadImage p regs0)
+        let s2 := step s1
+        causeExcCode s2 == excCodeBp && s2.cp0Cause &&& causeBdMask != 0#32 &&
+          s2.cp0BadInstr == encode (.break 0#32) &&
+          s2.cp0BadInstrP == encode (.beq 0#32 0#32 0x10#32))
+-- BadInstr / BadInstrP are read-only: mtc0 changes nothing.
+#guard (match stepState (prog1 (.mtc0 9#32 8#32 1#32)) (setRegs { regs0 with cp0BadInstr := 7#32 } [(9, 1#32)]) with
+        | some s => s.cp0BadInstr == 7#32
+        | none => false)
+-- An interrupt does not set BadInstr / BadInstrP.
+#guard (let s := step1 (.addiu 0#32 8#32 5#32)
+          { swIntSt with cp0BadInstr := 0x11#32, cp0BadInstrP := 0x22#32 }
+        causeExcCode s == excCodeInt && s.cp0BadInstr == 0x11#32 && s.cp0BadInstrP == 0x22#32)
+-- sigrie raises Reserved Instruction in User Mode too (not a coprocessor instruction).
+#guard causeExcCode (step1 (.sigrie 0#32) userSt) == excCodeRI
+-- eretnc returns like eret but keeps LLbit (ERETNC p.179).
+#guard (match stepState (prog1 .eretnc) { eretReadyState with llBit := true } with
+        | some s' => s'.llBit == true && s'.pc == 0x3000#32 && s'.cp0Status == 0#32
+        | none => false)
+#guard (match stepState (progAt kText .eretnc)
+          { regs0 with pc := kText, cp0Epc := 0x3000#32, cp0ErrorEpc := 0x4000#32,
+                       cp0Status := statusErlMask ||| statusExlMask, llBit := true } with
+        | some s' => s'.pc == 0x4000#32 && s'.cp0Status == statusExlMask && s'.llBit
+        | none => false)
+-- eretnc in a delay slot: Reserved Instruction.
+#guard (match stepState (buildProg textBase [.j 0x100#32, .eretnc]) regs0 with
+        | some s1 => isRiInDelaySlot (hstep (buildProg textBase [.j 0x100#32, .eretnc]) s1)
+        | none => false)
+-- cache in Kernel Mode is a no-op (CACHE p.119: "should perform no operation").
+#guard (let s := step1 (.cache 8#32 0x14#32 0x1f8#32) (setRegs regs0 [(8, 0x10010000#32)])
+        s.pc == textBase + 4#32 && s.regs == (setRegs regs0 [(8, 0x10010000#32)]).regs &&
+          s.cp0Cause == regs0.cp0Cause)
+-- wait with a request pending and not masked out does not enter standby (WAIT p.442-443).
+#guard (step1 (.wait 0#32) { regs0 with cp0Status := 0x20000100#32, cp0Cause := 0x00000100#32 }).standby
+  == false
+#guard (step1 (.wait 0#32) regs0).standby
+-- Config5.SBRI is cleared by the Reset exception.
+#guard (resetException { regs0 with cp0Config5SBRI := true }).cp0Config5SBRI == false
+-- END R6-2

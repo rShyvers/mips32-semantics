@@ -1,17 +1,22 @@
-# User Mode with Status.CU0 = 1: coprocessor 0 is usable ("Access to Coprocessor 0 registers are enabled under any of the following conditions: ... The CU0 bit in the Status register is 1").
-# mfc0 reads Status (UM = 1, CU0 = 1, EXL = 0) and Cause; mtc0 writes EPC and reads it back; no exception is taken (the handler would count it in s4).
-# MD00090 Vol III Rev 6.02 sec 3.5.3 p.23; Table 9.47 p.190 (CU0 R/W); MD00086 Vol II-A Rev 6.06 MFC0 p.266, MTC0 p.290-291.
-# Release 6: this premise no longer holds (bit 28 is RW, not CU0): QEMU takes Coprocessor Unusable for each mfc0/mtc0; the model still treats bit 28
-# as CU0 (W2).
-# oracle: known-model-bug gpr:s0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables Coprocessor 0 in User Mode through bit 28 (pre-Release 6 CU0)
-# oracle: known-model-bug gpr:s2 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables Coprocessor 0 in User Mode through bit 28 (pre-Release 6 CU0)
-# oracle: known-model-bug gpr:s4 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables Coprocessor 0 in User Mode through bit 28 (pre-Release 6 CU0)
-# oracle: known-model-bug gpr:k0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables Coprocessor 0 in User Mode through bit 28 (pre-Release 6 CU0)
+# Release 6: Status bit 28 is RW, not CU0, so setting it does NOT make coprocessor 0 usable in User Mode.
+# (The file name is historical: before Release 6 bit 28 was CU0 and this test checked that it enabled CP0.)
+# MD00090 Vol III Rev 6.02 sec 9.32 Figure 9.33 p.189 (Release 6 Status: bits 31..29 CU3..CU1, bit 28 RW) and Table 9.47 p.190 (an image page;
+# read in the PDF: RW is "Read/write field. This bit can be written by software without side-effects"). Sec 3.5.3 p.23 still lists "The CU0
+# bit in the Status register is 1" as an enabling condition: pre-Release 6 wording that the Release 6 Status format overrides (no CU0 field).
+# With Status = 0x30000012 (bits 29, 28, UM = 1, EXL = 1), eret enters User Mode; each mfc0/mtc0 there raises Coprocessor Unusable
+# (MD00086 Vol II-A Rev 6.06 MFC0 p.266, MTC0 p.290-291: "Exceptions: Coprocessor Unusable"; ExcCode 11 = CpU, MD00090 Vol III Rev 6.02
+# Table 9.53 p.212; CE = 0, the unit referenced, Table 9.52 p.209), the destination registers keep 0 and EPC is not written by the user mtc0.
+# The handler counts exceptions in s4, keeps Cause & 0x3000007c (CE, ExcCode) in s5, skips the instruction.
+# oracle: expect gpr:s0=0 gpr:s2=0 gpr:s4=3 gpr:s5=0x2c
 .ktext
 addiu $s4, $s4, 1
+mfc0 $k0, $13
+li $k1, 0x3000007c
+and $s5, $k0, $k1
 mfc0 $k0, $14
 addiu $k0, $k0, 4
 mtc0 $k0, $14
+li $k1, 0
 eret
 .text
 li $s4, 0

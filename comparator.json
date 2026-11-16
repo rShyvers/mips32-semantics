@@ -197,7 +197,14 @@
     "Trusted.f64Abs_spec",
     "Trusted.f64Neg_spec",
     "Trusted.fpUpdate_spec",
-    "Trusted.fcsrSpec_unique"
+    "Trusted.fcsrSpec_unique",
+    "Trusted.exceptionEntry_badInstr",
+    "Trusted.takeInterrupt_badInstr_unchanged",
+    "Trusted.eretnc_spec_raw",
+    "Trusted.sigrie_spec_raw",
+    "Trusted.cache_spec_raw",
+    "Trusted.mfc0_unimplemented_reads_zero",
+    "Trusted.mtc0_unimplemented_ignored"
   ],
   "definition_names": [],
   "permitted_axioms": [

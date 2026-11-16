@@ -147,7 +147,9 @@ theorem takeInterrupt_in_delay_slot (s : State) (t : W32)
     rw [exceptionEntry_excCode]; rfl
 
 /-- **Interrupt entry touches nothing else**: no GPR, memory, FPR, `FCSR`, `BadVAddr`,
-`ErrorEPC`, timer state or hardware line changes; `LLbit` is cleared. -/
+`ErrorEPC`, timer state, hardware line or `LLbit` changes (exception entry does not clear `LLbit`:
+MD00086 Vol II-A Rev 6.06, SC, p.347, lists ERET, not the exception, among the events that make an
+SC fail; `exception_keeps_llBit`). -/
 theorem takeInterrupt_keeps (s : State) :
     (takeInterrupt s).regs = s.regs ∧
       (takeInterrupt s).physMem = s.physMem ∧ (takeInterrupt s).fpRegs = s.fpRegs ∧
@@ -155,7 +157,7 @@ theorem takeInterrupt_keeps (s : State) :
       (takeInterrupt s).cp0ErrorEpc = s.cp0ErrorEpc ∧ (takeInterrupt s).cp0Count = s.cp0Count ∧
       (takeInterrupt s).cp0Compare = s.cp0Compare ∧
       (takeInterrupt s).cp0TimerInt = s.cp0TimerInt ∧ (takeInterrupt s).hwInt = s.hwInt ∧
-      (takeInterrupt s).llBit = false :=
+      (takeInterrupt s).llBit = s.llBit :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-! ## The vector -/
@@ -249,6 +251,7 @@ theorem execInstr_hwInt (s : State) (instr : Instruction) : (execInstr s instr).
   cases hw : writesTimer instr
   · exact (execInstr_timerKept s instr hw).2.2.2.2
   · cases instr <;> simp only [writesTimer, reduceCtorEq] at hw
+    rename_i rt rd sel
     unfold execInstr
     split
     · rfl
@@ -256,8 +259,9 @@ theorem execInstr_hwInt (s : State) (instr : Instruction) : (execInstr s instr).
     · rfl
     split
     · rfl
-    exec_unfold
-    split <;> first | rfl | (unfold mkNext advance; split <;> rfl)
+    show (mkNext s (cp0WriteAt s rd sel (readReg s (regIdx rt)))).hwInt = s.hwInt
+    unfold mkNext advance
+    split <;> exact cp0WriteAt_hwInt _ _ _ _
 
 /-- **The hardware interrupt lines are inputs**: no step changes them (MD00090 Vol III Rev 6.02
 Table 9.52, p.211: `IP7..IP2` are Read-only, "Hardware interrupt 5 ... 0"). Whatever drives them is

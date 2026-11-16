@@ -45,11 +45,14 @@ namespace Manual
 
 /-- **The control transfer instructions** that may not be placed in a delay slot (MD00086 Vol II-A
 Rev 6.06, BEQ, Restrictions, p.72: "CTIs include all branches and jumps, NAL, ERET, ERETNC, DERET,
-WAIT, and PAUSE"; `ERETNC`/`DERET` are not on this profile).
--- W3: the compact branches and jumps; W2: ERETNC. -/
+WAIT, and PAUSE"; `DERET` is not on this profile).
+-- W3: the compact branches and jumps. -/
 def IsCTI : Instruction → Bool
   | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .nal .. | .bal ..
   | .j .. | .jal .. | .jalr .. | .jalrHb .. | .eret | .wait .. | .pause => true
+  -- BEGIN R6-2
+  | .eretnc => true
+  -- END R6-2
   | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`

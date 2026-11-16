@@ -30,24 +30,24 @@ instruction). Hence `Decode w = .reserved` exactly when `w` matches no diagram a
 UNPREDICTABLE field value.
 
 **A word whose fields the manual leaves UNDEFINED or UNPREDICTABLE in the Operation** is decoded as
-the instruction: `MFC0`/`MTC0` of a register coprocessor 0 does not contain ("Pre-Release 6: The
-results are UNDEFINED if coprocessor 0 does not contain a register as specified by rd and sel",
-MD00086 Vol II-A Rev 6.06, MFC0, p.266; MTC0, p.290) reaches `Oracle.cp0Undefined` through the
-Operation (`Ops.MFC0`, `Ops.MTC0`); `EXT` with `lsb + msbd > 31` (p.183) and `INS` with `lsb > msb`
-(p.193) reach `Oracle.extOutOfRange`/`insLsbAboveMsb` (`Ops.EXT`, `Ops.INS`).
+the instruction: `EXT` with `lsb + msbd > 31` (p.183) and `INS` with `lsb > msb` (p.193) reach
+`Oracle.extOutOfRange`/`insLsbAboveMsb` (`Ops.EXT`, `Ops.INS`). (`MFC0`/`MTC0` of a register
+coprocessor 0 does not contain is defined in Release 6: it reads 0 or is ignored, MFC0 p.266, MTC0
+p.290.)
 
 **Instructions of the opcode tables outside this profile** (no constructor, so no diagram here): the
 pre-Release 6 encodings Release 6 removed or moved ("6R"/"6Rm" in the opcode tables: "6Rm and 6R
 instructions signal a Reserved Instruction exception when executed by a Release 6 implementation. If the
 encoding has been used for a new instruction or coprocessor, the unusable exception takes priority",
 MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the Release 6 instructions of later waves
-(-- W2: CACHE, SDBBP, SIGRIE, ERETNC, ...; -- W3: the compact branches; -- W4: the new integer
-instructions; -- W6: the new FP instructions), which decode as `.reserved` until transcribed; the
-TLB instructions, which under the Fixed Mapping MMU "are no longer required and must cause a Reserved
-Instruction Exception" (MD00090 Vol III Rev 6.02 §A.1.3, p.317); `CACHE` and the EJTAG instructions
-`SDBBP`/`DERET`, optional and subsetted out ("EJTAG is optional and may be subsetted out", MD00086 Vol
-II-A Rev 6.06 §3.1, p.31); docs/spec/SPEC-NOTES.md and MIPS-COVERAGE-GAPS.md list them. Their words
-decode as `.reserved` (p.29, above).
+(-- W3: the compact branches; -- W4: the new integer instructions; -- W6: the new FP instructions),
+which decode as `.reserved` until transcribed; the TLB instructions, which under the Fixed Mapping MMU
+"are no longer required and must cause a Reserved Instruction Exception" (MD00090 Vol III Rev 6.02
+§A.1.3, p.317; TLBINV/TLBINVF with `Config4.IE = 0`, DECISIONS D4); the EJTAG instructions
+`SDBBP`/`DERET`, optional and subsetted out ("If EJTAG is not implemented, the EJTAG instructions
+(SDBBP and DERET) can be subsetted out", MD00082 Vol I-A Rev 6.01 §2.4.1, p.31; DECISIONS D7);
+docs/spec/SPEC-NOTES.md and MIPS-COVERAGE-GAPS.md list them. Their words decode as `.reserved`
+(p.29, above).
 
 `decodeDiagram` is the `Option` view used as the decoder of `Manual.InstructionTime` in the top
 theorems (`Refine.step_eq_manual`).
@@ -200,7 +200,13 @@ def candidates (w : W32) : List Instruction :=
     .xori (f 25 21) (f 20 16) (f 15 0),
     .aui (f 25 21) (f 20 16) (f 15 0),
     .nal (f 15 0),
-    .bal (f 15 0) ]
+    .bal (f 15 0),
+    -- BEGIN R6-2
+    .eretnc,
+    .sigrie (f 15 0),
+    .cache (f 25 21) (f 20 16) (f 15 7)
+    -- END R6-2
+    ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an
 UNPREDICTABLE field value; else no diagram. -/

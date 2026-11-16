@@ -421,7 +421,7 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
   case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
-    all_goals (generalize BitVec.toNat rd = n; rcases n with _ | _ | _ | _ | n <;> rfl)
+    all_goals (generalize BitVec.toNat rd = n; split <;> rfl)
   all_goals first
     | rfl
     | (simp only [
@@ -439,7 +439,11 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
       Ops.SQRT_S, Ops.SRA, Ops.SRAV, Ops.SRL, Ops.SRLV, Ops.SUB, Ops.SUBU, Ops.SUB_D, Ops.SUB_S,
       Ops.SW, Ops.SWC1, Ops.SYNC, Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TGE, Ops.TGEU, Ops.TLT,
       Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
-      Ops.XORI]
+      Ops.XORI,
+      -- BEGIN R6-2
+      Ops.ERETNC, Ops.SIGRIE, Ops.CACHE
+      -- END R6-2
+      ]
        ofree)
 
 end Refine

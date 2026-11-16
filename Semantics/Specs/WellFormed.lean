@@ -11,9 +11,9 @@ import Semantics.Instruction
 
 /-- Field-range conditions under which `encode` is injective / `decode`
 inverts it: register numbers and shift amounts `< 32`, 16-bit immediates
-`< 2 ^ 16` (the 9-bit offsets of `ll`/`sc`/`pref` `< 2 ^ 9`, `rdhwr`'s `sel` `< 8`), 26-bit jump
-targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
-bitfield inside the word; `mfc0`/`mtc0` need a modeled CP0 register; `sll $0,$0,5` is
+`< 2 ^ 16` (the 9-bit offsets of `ll`/`sc`/`pref`/`cache` `< 2 ^ 9`, the `sel` of `rdhwr`/`mfc0`/`mtc0`
+`< 8`), 26-bit jump targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
+bitfield inside the word; `sll $0,$0,5` is
 not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317). -/
 def Instruction.WellFormed : Instruction → Prop
   | .add rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
@@ -84,8 +84,8 @@ def Instruction.WellFormed : Instruction → Prop
   | .break code => code.toNat < 2 ^ 20
   | .sync stype => stype.toNat < 32
   | .pref rs hint imm => rs.toNat < 32 ∧ hint.toNat < 32 ∧ imm.toNat < 2 ^ 9
-  | .mfc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
-  | .mtc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
+  | .mfc0 rt rd sel => rt.toNat < 32 ∧ rd.toNat < 32 ∧ sel.toNat < 8
+  | .mtc0 rt rd sel => rt.toNat < 32 ∧ rd.toNat < 32 ∧ sel.toNat < 8
   | .di rt => rt.toNat < 32
   | .ei rt => rt.toNat < 32
   | .eret => True
@@ -136,3 +136,8 @@ def Instruction.WellFormed : Instruction → Prop
   | .truncWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .ceilWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .floorWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  -- BEGIN R6-2
+  | .eretnc => True
+  | .sigrie code => code.toNat < 2 ^ 16
+  | .cache base op off => base.toNat < 32 ∧ op.toNat < 32 ∧ off.toNat < 2 ^ 9
+  -- END R6-2

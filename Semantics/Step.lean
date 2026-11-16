@@ -76,7 +76,8 @@ branch is abandoned. Raised here: Integer Overflow (`add`/`sub`),
 Address Error (misaligned load/store/fetch, or a kernel address referenced from User Mode;
 sets `BadVAddr`), Interrupt (`takeInterrupt`, vector offset `0x180` or `0x200` by `Cause.IV`), Reserved
 Instruction, Coprocessor Unusable (`Cause.CE` = the unit), Floating Point,
-System Call (`syscall`, always), Breakpoint, Trap.
+System Call (`syscall`, always), Breakpoint, Trap. Every exception but the Interrupt also captures
+the faulting instruction word in `BadInstr` and, in a delay slot, the branch in `BadInstrP`.
 
 ## Floating point
 
@@ -91,9 +92,9 @@ the destination when an enabled exception was raised.
 ## Operating modes
 
 Kernel Mode and User Mode (MD00090 Vol III Rev 6.02 ch.3, p.21-23; `kernelMode`, `userMode`):
-Supervisor Mode and Debug Mode are not implemented. A coprocessor-0 instruction (`usesCop0`), an
-undecodable COP0 word or a CACHE word (`isCop0Word`) executed outside Kernel Mode with
-`Status.CU0 = 0` raises Coprocessor Unusable with `Cause.CE = 0` (§6.2.22, p.100). The User-Mode
+Supervisor Mode and Debug Mode are not implemented. A coprocessor-0 instruction (`usesCop0`) or an
+undecodable COP0 or CACHE word (`isCop0Word`) executed outside Kernel Mode raises Coprocessor
+Unusable with `Cause.CE = 0` (§6.2.22, p.100; Release 6 has no `Status.CU0`). The User-Mode
 address check (a reference outside useg from User Mode is an Address Error, Table 4.2, p.30)
 belongs to the MMU: every memory access goes through the six `readMem*`/`writeMem*` functions of
 `State.lean`, which translate through `translate` (`kernelMode`/`userMode` are defined there).
@@ -145,11 +146,17 @@ def execBody (s : State) (instr : Instruction) : State :=
   (execTables.findSome? (fun f => f s instr)).getD s
 
 /-- `exec_unfold`: reduce `execBody s i`, for `i` a constructor application, to that instruction's
-arm of its family table (a proof convenience: `execBody s i` *is* that arm, by definition). -/
+arm of its family table (a proof convenience: `execBody s i` *is* that arm, by definition). The
+`mtc0` arm's register write (`cp0WriteAt`, `cp0Write`) is unfolded too, so that a generic proof loop
+splits it into one case per coprocessor 0 register. -/
 macro "exec_unfold" : tactic =>
   `(tactic| dsimp only [execBody, execTables, List.findSome?, execIntArith, execShift, execBitOps,
     execImmediate, execMemory, execAtomic, execBranch, execJump, execTrap, execSyscall, execSystem,
-    execCp0, execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert, Option.getD])
+    execCp0, execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert, Option.getD,
+    -- BEGIN R6-2
+    cp0WriteAt, cp0Write
+    -- END R6-2
+    ])
 
 /-- Execute the already-fetched, already-decoded instruction `instr` in
 state `s`.
@@ -168,7 +175,7 @@ Second check: a coprocessor-1 instruction (`usesCop1`) with `Status.CU1 = 0`
 raises Coprocessor Unusable (`Cause.CE = 1`) and does nothing else.
 
 Third check: a coprocessor-0 instruction (`usesCop0`) executed when coprocessor 0 is not usable
-(`cp0Usable`: not Kernel Mode and `Status.CU0 = 0`) raises Coprocessor Unusable (`Cause.CE = 0`)
+(`cp0Usable`: not Kernel Mode) raises Coprocessor Unusable (`Cause.CE = 0`)
 and does nothing else (MD00090 Vol III Rev 6.02 §6.2.22, p.100). The second and third checks
 concern disjoint sets of instructions, so their order does not matter. The first check comes
 before the third: `eret` or `wait` in a delay slot is UNDEFINED (ERET p.177, WAIT p.442) and the
@@ -260,8 +267,9 @@ StatusRP ← 0;  StatusTS ← 0;  StatusSR ← 0;  StatusNMI ← 0   -- not impl
 CauseDC ← 0
 HWREna ← 0
 EBaseExceptionBase ← 0                                     -- EBase reads 0x8000_0000
-Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1..3 fixed
+Config ← ConfigurationState;  ConfigK0 ← 2                 -- "Suggested"; Config1..4 fixed
                                      -- K23, KU: reset "Undefined" (p.233), pinned to 2 like K0
+Config5SBRI ← 0                      -- the field's reset state (Table 9.69, p.263)
 if InstructionInBranchDelaySlot then ErrorEPC ← restartPC  # PC of branch/jump
 else ErrorEPC ← restartPC                                  # PC of instruction
 PC ← 0xBFC0 0000
@@ -275,12 +283,16 @@ PerfCnt) or constants (`Config1`/`Config2`/`Config3 ← ConfigurationState`: `co
 `config2Value`, `config3Value`): nothing to do. `Count`, `Compare` and `Cause.TI` are not in the list (reset state
 "Undefined", Tables 9.44, 9.46, 9.52, p.183, 187, 209): they keep their values. Every register the section does not list keeps whatever it held: its
 reset state is undefined, and keeping it is one legal value (pin). In particular the other
-`Status` bits (`UM`, `EXL`, `IE`, `IM`, `CU0`, `CU1`) are unchanged; with `ERL = 1` the processor
+`Status` bits (`UM`, `EXL`, `IE`, `IM`, `RW`, `CU1`) are unchanged; with `ERL = 1` the processor
 is in Kernel Mode regardless (§3.2, p.21). Two further pins: the pending branch is dropped (the
 reset "aborts state machines", p.89; "restart PC" is the branch when the interrupted instruction
 was in a delay slot, `s.pc - 4`), and `LLbit` is cleared (its reset state is not given). A processor
 in standby restarts ("The assertion of any reset or NMI must restart the pipeline and the
 corresponding exception must be taken", MD00086 Vol II-A Rev 6.06, WAIT, p.442): `standby ← false`.
+The Release 6 registers the section does not list take the reset state of their field table where it
+has one: `Config5.SBRI ← 0` (MD00090 Vol III Rev 6.02 Table 9.69, p.263), `LLAddr.LLB` = `LLbit ← 0`
+(Table 9.72, p.270); `UserLocal`, `BadInstr`, `BadInstrP`, `KScratch1..6` have reset state
+"Undefined" and keep their values (Tables 9.19, 9.42, 9.43, 9.84).
 The hardware interrupt lines `hwInt` are inputs and keep their values. -/
 def resetException (s : State) : State :=
   { s with
@@ -295,11 +307,15 @@ def resetException (s : State) : State :=
       pc := resetVector
       pendingBranch := none
       llBit := false
-      standby := false }
+      standby := false
+      -- BEGIN R6-2
+      cp0Config5SBRI := false
+      -- END R6-2
+      }
 
 /-- **The state after a cold reset**: the Reset exception applied to `powerOnState` (whose
 values for the registers the reset leaves undefined are all pinned to 0, `State.lean`). So
-`pc = 0xBFC0_0000`, `Status = BEV | ERL` (0x0040_0004: Kernel Mode, bootstrap vectors, CU0 = CU1
+`pc = 0xBFC0_0000`, `Status = BEV | ERL` (0x0040_0004: Kernel Mode, bootstrap vectors, RW = CU1
 = 0), `Cause = 0`, `Count = Compare = 0`, no timer interrupt pending, `HWREna = 0`, `EBase` reads 0x8000_0000, `Config.K0 = K23 = KU = 2`, `ErrorEPC = 0` (the restart PC
 of a power-on reset is not meaningful, p.89: "this value may or may not be predictable if the
 Reset Exception was taken as the result of power being applied to the processor"), every GPR,

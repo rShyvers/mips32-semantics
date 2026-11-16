@@ -1,11 +1,14 @@
 import Semantics.Manual.CP0
+import Semantics.Manual.Memory
 
 /-!
 # Manual.Exceptions — general exception processing
 
 MD00090 Vol III Rev 6.02 §6.2.3 "General Exception Processing" (p.86-88), with the extra state
 of each exception (§6.2.9 Address Error, p.92-93; §6.2.22 Coprocessor Unusable, p.100; §6.2.26
-Interrupt, p.102) and the exception codes of Table 9.53 (p.212-213).
+Interrupt, p.102) and the exception codes of Table 9.53 (p.212-213); the Release 6 registers
+`BadInstr` (§9.25, p.179) and `BadInstrP` (§9.26, p.181), which every exception synchronous to an
+instruction writes.
 -/
 
 namespace Manual
@@ -67,6 +70,24 @@ if ArchitectureRevision ≥ 2 then vectorBase ← EBase31..12 || 0x000". -/
 def vectorBase (a : Arch) : W32 :=
   if StatusBEV a then 0xBFC00200#32 else EBaseRead a &&& ~~~0xFFF#32
 
+-- BEGIN R6-2
+/-- **The faulting instruction word** (`BadInstr`, MD00090 Vol III Rev 6.02 §9.25, Table 9.42, p.179:
+"Faulting instruction word"): the word the instruction fetch at `PC` delivers (`InstructionFetch`).
+"When a synchronous exception occurs for which there is no valid instruction word (for example TLB
+Refill - Instruction Fetch), the value stored in BadInstr is UNPREDICTABLE" (p.179): when that fetch
+signals, the oracle's `badInstrNoWord`. -/
+def FaultingInstructionWord (i : Impl) (o : Oracle) (a : Arch) : W32 :=
+  match (InstructionFetch.run { impl := i, oracle := o } { arch := a }).1 with
+  | .ok w => w
+  | .signal _ => o.badInstrNoWord a
+
+/-- **The instruction word at virtual address `vAddr`**: the memory element the Fixed Mapping MMU
+maps it to (`FixedMapping` with the current `StatusERL`, `MemElemAt`), without the address check. For
+the prior branch of `BadInstrP`: the branch at `PC - 4` was fetched from there. -/
+def InstructionWordAt (a : Arch) (vAddr : W32) : W32 :=
+  MemElemAt a.Mem (FixedMapping (StatusERL a) vAddr)
+-- END R6-2
+
 /-- **General exception processing** for exception `e` signalled by the instruction at `a.PC`
 (MD00090 Vol III Rev 6.02 §6.2.3, Operation, p.87-88):
 ```
@@ -82,8 +103,22 @@ PC ← vectorBase31..30 || (vectorBase29..0 + vectorOffset29..0)
 ```
 `restartPC` is the address of the instruction, or of the branch or jump (PC − 4) in a delay slot
 (Table 6.11, p.87). "The processor is started at the exception vector" (p.87): the pending `I+1:`
-effect of the branch, if any, does not happen. `LLbit ← 0`: "Exceptions between the LL and SC cause
-SC to fail" (MD00086 Vol II-A Rev 6.06, SC, p.350). -/
+effect of the branch, if any, does not happen. `LLbit` is not changed: the event that makes an `SC`
+fail is "An ERET instruction is executed. (Release 5 includes ERETNC, which will not cause the SC to
+fail.)" (MD00086 Vol II-A Rev 6.06, SC, p.347); ERETNC "will never cause the SC to fail" (p.179). The
+programming note "Exceptions between the LL and SC cause SC to fail" (SC, p.350) holds through the
+handler's `ERET`.
+
+**`BadInstr`, `BadInstrP`** (Release 6). The Operation of §6.2.3 does not name them; their pages do:
+"The BadInstr register is only set by exceptions which are synchronous to an instruction. The BadInstr
+register is not set by Interrupts, NMI, Machine check, Bus Error or Cache Error exceptions" (§9.25,
+p.179; the list of exceptions there covers every other exception of this profile: Coprocessor
+Unusable, Reserved Instruction, Integer Overflow, Trap, System Call, Breakpoint, Floating-Point,
+Address Error); "The BadInstrP register contains the prior branch instruction, when the faulting
+instruction is in a branch delay slot" and "When a synchronous exception occurs and the faulting
+instruction is not in a branch delay slot, then the value stored in BadInstrP is UNPREDICTABLE"
+(§9.26, p.181). So for every exception but the Interrupt: `BadInstr ← FaultingInstructionWord`,
+`BadInstrP ←` the word of the branch at `PC - 4` in a delay slot, else the oracle's `badInstrP`. -/
 def GeneralExceptionProcessing (i : Impl) (o : Oracle) (e : Exception) (a0 : Arch) : Arch :=
   let a := AdditionalState e a0
   let inSlot := a.BranchDelay.isSome
@@ -105,6 +140,13 @@ def GeneralExceptionProcessing (i : Impl) (o : Oracle) (e : Exception) (a0 : Arc
       Status := a.Status ||| (1#32 <<< 1)   -- StatusEXL ← 1
       PC := base.extractLsb' 30 2 ++ (base.extractLsb' 0 30 + off.extractLsb' 0 30)
       BranchDelay := none
-      LLbit := false }
+      -- BEGIN R6-2
+      -- BadInstr / BadInstrP: every exception synchronous to an instruction (not the Interrupt)
+      BadInstr := if e = .Interrupt then a.BadInstr else FaultingInstructionWord i o a0
+      BadInstrP :=
+        if e = .Interrupt then a.BadInstrP
+        else if inSlot then InstructionWordAt a0 (a0.PC - 4#32) else o.badInstrP a0
+      -- END R6-2
+      }
 
 end Manual

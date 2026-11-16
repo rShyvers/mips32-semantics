@@ -25,7 +25,15 @@ PC ← 0xBFC0 0000
 "On a Reset Exception, only the following registers have defined state" (p.89): the others are
 `Oracle.resetUndefined`. The reset aborts the pending `I+1:` effect and restarts a pipeline stopped
 by `WAIT` ("The assertion of any reset or NMI must restart the pipeline", MD00086 Vol II-A Rev 6.06,
-WAIT, p.442). `RP`, `TS`, `SR`, `NMI` are not implemented (they read 0 already). -/
+WAIT, p.442). `RP`, `TS`, `SR`, `NMI` are not implemented (they read 0 already; `RP` and `TS` are
+reserved in Release 6, "This bit becomes reserved in Release 6", p.89-90).
+
+The Release 6 registers the list does not name have the reset state of their field table where it
+gives one: `Config5.SBRI ← 0` (MD00090 Vol III Rev 6.02 Table 9.69, p.263: reset state 0) and
+`LLAddr.LLB ← 0`, i.e. `LLbit ← 0` (Table 9.72, p.270: reset state 0); `Config4` and the read-only
+fields of `Config5` are "Preset by hardware" (implementation constants); `UserLocal`, `BadInstr`,
+`BadInstrP`, `KScratch1..6` have reset state "Undefined" (Tables 9.19, 9.42, 9.43, 9.84) and are
+`Oracle.resetUndefined`'s. -/
 def ResetException (o : Oracle) (a0 : Arch) : Arch :=
   let a1 := o.resetUndefined a0
   -- the oracle's Status is limited to the bits Status has on this profile (`StatusWritable`): the
@@ -41,6 +49,11 @@ def ResetException (o : Oracle) (a0 : Arch) : Arch :=
       ErrorEPC := restartPC
       PC := 0xBFC00000#32
       BranchDelay := none
-      LowPower := false }
+      LowPower := false
+      -- BEGIN R6-2
+      Config5SBRI := false
+      LLbit := false
+      -- END R6-2
+      }
 
 end Manual

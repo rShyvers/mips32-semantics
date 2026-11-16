@@ -66,8 +66,8 @@ abbreviations for the real `Step.lean` definitions, not copies (`Defs.lean`).
   coprocessor unusable, floating point) appear on right-hand sides as `takeException s code` /
   `takeAddressException s code addr`; `Exception.lean` states exactly what those do.
 * FPU theorems carry `hcu : cu1Enabled s = true`; `fp_coprocessor_unusable` (`FpuCommon.lean`)
-  covers the other case. Coprocessor-0 theorems carry `hcp0 : cp0Usable s = true` (Kernel Mode, or
-  `Status.CU0 = 1`); `cp0_instruction_user_mode_unusable` (`Cp0.lean`) covers the other case.
+  covers the other case. Coprocessor-0 theorems carry `hcp0 : cp0Usable s = true` (Kernel Mode;
+  Release 6 has no `Status.CU0`); `cp0_instruction_user_mode_unusable` (`Cp0.lean`) covers the other case.
 
 Besides the general statement, most files contain **satisfiable examples** (`#guard`s that run
 `step` on a concrete program loaded into a state with `Fixtures.lean`, showing the hypotheses are
@@ -116,6 +116,16 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | FPU loads / stores | `FpuMemory.lean` | alignment and the register pair used for doubles |
 | FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies |
 | FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses |
+
+<!-- BEGIN R6-2 -->
+Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,
+`cp0WriteAt_eq`, `mfc0_unimplemented_reads_zero`, `mtc0_unimplemented_ignored`, `mfc0_config3/4/5`,
+`mfc0_llAddr`, `mtc0_llAddr*`, `cp0_scratch_round_trip`, `cp0Usable_iff_kernelMode`); `eretnc` and
+`cache` (`Cp0.lean`: `eretnc_spec_raw`, `eretnc_keeps_llBit`, `cache_spec_raw`, `cache_noop`);
+`sigrie` (`Trap.lean`: `sigrie_spec_raw`); `BadInstr`/`BadInstrP` (`Exception.lean`:
+`exceptionEntry_badInstr`, `takeInterrupt_badInstr_unchanged`); `rdhwr` 5 and 29 (`Timer.lean`:
+`hwrValue_xnp`, `hwrValue_ulr`); reset (`Reset.lean`: `resetException_r6`, `resetState_r6`).
+<!-- END R6-2 -->
 
 The partition follows the constructor groups of `Instruction` (`Semantics/Instruction.lean`) and
 the sections of `docs/spec/INSTRUCTION-REF.md`; each family file's header lists its constructors,

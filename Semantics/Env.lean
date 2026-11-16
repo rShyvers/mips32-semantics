@@ -102,7 +102,7 @@ a boot ROM would execute in Kernel Mode:
 
 1. `mtc0 Status ← 0x2000_0000`: `CU1 = 1` (the FPU is usable), `BEV = 0` (normal exception
    vectors, `EBase`), `ERL = 0`, `EXL = 0`, `UM = 0` (the program runs in Kernel Mode, as MARS and
-   SPIM programs expect), `IE = 0`, `IM = 0`, `CU0 = 0`.
+   SPIM programs expect), `IE = 0`, `IM = 0`, `RW = 0`.
 2. `$sp ← spInit` (`0x7FFF_EFFC`, the MARS stack pointer).
 3. Jump to `entry` (a ROM would `jr` there, or set `ErrorEPC` and `eret`; the model just sets
    `pc`, and no branch is pending).

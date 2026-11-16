@@ -77,14 +77,37 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
 
 /-! ## Telling two instruction times apart -/
 
-/-- Two states differ in `Cause.CE` or in `Obs`. -/
-def Sep (x y : Arch) : Prop := CEof x ≠ CEof y ∨ Obs x ≠ Obs y
+/-- Two states differ in `Cause.CE`, in `Obs`, or (Release 6) in `BadInstrP` or `BadInstr`. -/
+def Sep (x y : Arch) : Prop :=
+  CEof x ≠ CEof y ∨ Obs x ≠ Obs y ∨ x.BadInstrP ≠ y.BadInstrP ∨ x.BadInstr ≠ y.BadInstr
 
 theorem sep_ne (i : Impl) (x y : Arch) (h : Sep x y) : some (TimerTick i x) ≠ some (TimerTick i y) := by
   intro he; have he := Option.some.inj he
-  rcases h with h | h
+  rcases h with h | h | h | h
   · apply h; rw [← ce_timerTick i x, ← ce_timerTick i y, he]
   · apply h; rw [← obs_timerTick i x, ← obs_timerTick i y, he]
+  · apply h; exact (congrArg Arch.BadInstrP he :)
+  · apply h; exact (congrArg Arch.BadInstr he :)
+
+-- BEGIN R6-2
+/-- Two witness oracles that differ in `badInstrP`: an exception other than the Interrupt outside a
+delay slot is told apart by `BadInstrP` (MD00090 Vol III Rev 6.02 §9.26, p.181). -/
+theorem sep_bip (i : Impl) (e : Exception) (x : Arch) (he : e ≠ .Interrupt)
+    (hs : x.BranchDelay.isSome = false) (ce₁ ce₂ : BitVec 2) :
+    Sep (GeneralExceptionProcessing i (wo { bip := 0#32 } ce₁) e x)
+      (GeneralExceptionProcessing i (wo { bip := 1#32 } ce₂) e x) := by
+  right; right; left
+  rw [gep_badInstrP i _ _ e x he hs, gep_badInstrP i _ _ e x he hs]; decide
+
+/-- Two witness oracles that differ in `badInstrNoWord`: an exception other than the Interrupt from a
+state whose fetch fails is told apart by `BadInstr` (§9.25, p.179). -/
+theorem sep_bnw (i : Impl) (e : Exception) (x : Arch) (he : e ≠ .Interrupt)
+    (hf : FetchOK i x = false) (ce₁ ce₂ : BitVec 2) :
+    Sep (GeneralExceptionProcessing i (wo { bnw := 0#32 } ce₁) e x)
+      (GeneralExceptionProcessing i (wo { bnw := 1#32 } ce₂) e x) := by
+  right; right; right
+  rw [gep_badInstr i _ _ e x he hf, gep_badInstr i _ _ e x he hf]; decide
+-- END R6-2
 
 theorem it_eq (o : Oracle) (dec : W32 → Option Instruction) (a : Arch) (hi : InterruptTaken modelImpl a = false)
     (hl : a.LowPower = false) :
@@ -133,7 +156,7 @@ theorem sep_run (a : Arch) (p₁ p₂ : WP) (P₁ P₂ : Arch → Prop) (hobs : 
     Sep (resOf (wo p₁ (ceA a)) a r₁) (resOf (wo p₂ (ceB a)) a r₂) := by
   obtain ⟨res₁, g₁⟩ := r₁; obtain ⟨res₂, g₂⟩ := r₂
   cases res₁ <;> cases res₂ <;> simp only [RunP] at h₁ h₂ <;> simp only [resOf]
-  · right; rw [obs_complete, obs_complete]; exact hobs _ _ h₁.1 h₂.1
+  · right; left; rw [obs_complete, obs_complete]; exact hobs _ _ h₁.1 h₂.1
   · left; rw [ce_complete, h₁.2, gep_CE _ _ _ _ _ h₂]; exact (ceB_ne a).symm
   · left; rw [ce_complete, h₂.2, gep_CE _ _ _ _ _ h₁]; exact ceA_ne a
   · exact sep_gep a p₁ p₂ _ _ _ _ h₁ h₂
@@ -177,16 +200,33 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
     | none =>
       rw [hd] at h hFE
       by_cases hu : UnpredictableEncoding w = true
-      · simp only [hu, ↓reduceIte, Bool.or_eq_false_iff] at h hFE
-        obtain ⟨h1, h0⟩ := h
+      · simp only [hu, ↓reduceIte] at h hFE
+        by_cases hcc : ((InCop1Space w && !StatusCU1 a) || (InCop0Space w && !CP0Usable a)) = true
+        · simp only [hcc, Bool.true_and] at h
+          have hU : ∀ p ce, Unpredictable (ctxOf modelImpl (wo p ce)) w a =
+              GeneralExceptionProcessing modelImpl (wo p ce)
+                (.CoprocessorUnusable (if (InCop1Space w && !StatusCU1 a) = true then 1 else 0)) a := by
+            intro p ce
+            by_cases h1 : (InCop1Space w && !StatusCU1 a) = true
+            · simp only [Unpredictable, h1, ↓reduceIte, ctxOf]
+            · have h0 : (InCop0Space w && !CP0Usable a) = true := by simpa [h1] using hcc
+              simp only [Unpredictable, h1, h0, ↓reduceIte, Bool.false_eq_true, ctxOf]
+          exact exact_of dec a hi hl { bip := 0#32 } { bip := 1#32 } _ _ (by rw [hFE, hU]) (by rw [hFE, hU])
+            (sep_bip _ _ a (by intro h; cases h) h _ _)
+        simp only [Bool.not_eq_true, Bool.or_eq_false_iff] at hcc
+        obtain ⟨h1, h0⟩ := hcc
         have hU : ∀ p ce, Unpredictable (ctxOf modelImpl (wo p ce)) w a =
             GeneralExceptionProcessing modelImpl (wo p ce) .ReservedInstruction a := by
           intro p ce; simp only [Unpredictable, h1, h0, Bool.false_eq_true, ↓reduceIte, ctxOf, wo, sigRI]
         exact exact_of dec a hi hl {} {} _ _ (by rw [hFE, hU]) (by rw [hFE, hU])
           (sep_gep a {} {} _ _ _ _ notCpU_RI notCpU_RI)
       · simp only [hu, Bool.false_eq_true, ↓reduceIte] at h hFE
-        have hU : NotCpU (Undecodable w a) := by
-          intro u hu'; rw [hu'] at h; simp at h
+        by_cases hcpu : ∃ u, Undecodable w a = .CoprocessorUnusable u
+        · obtain ⟨u, hu'⟩ := hcpu
+          rw [hu'] at h hFE
+          exact exact_of dec a hi hl { bip := 0#32 } { bip := 1#32 } _ _ (hFE _) (hFE _)
+            (sep_bip _ _ a (by intro h; cases h) h _ _)
+        have hU : NotCpU (Undecodable w a) := fun u hu' => hcpu ⟨u, hu'⟩
         exact exact_of dec a hi hl {} {} _ _ (hFE _) (hFE _) (sep_gep a {} {} _ _ _ _ hU hU)
     | some ins =>
       rw [hd] at h hFE
@@ -199,9 +239,20 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
       simp only [Bool.not_eq_true] at hc
       simp only [hc, Bool.not_false, Bool.true_and] at h
       by_cases h1 : (InCop1Space w && !StatusCU1 a) = true
-      · simp [h1] at h
+      · simp only [h1, ↓reduceIte] at h
+        have hE : ∀ p ce, Execute (ctxOf modelImpl (wo p ce)) w ins a =
+            some (GeneralExceptionProcessing modelImpl (wo p ce) (.CoprocessorUnusable 1) a) := by
+          intro p ce; simp only [Execute, Execute.runOperation, hc, h1, Bool.false_eq_true, ↓reduceIte, ctxOf]
+        exact exact_of dec a hi hl { bip := 0#32 } { bip := 1#32 } _ _ (by rw [hFE]; exact hE _ _)
+          (by rw [hFE]; exact hE _ _) (sep_bip _ _ a (by intro h; cases h) h _ _)
       by_cases h0 : (InCop0Space w && !CP0Usable a) = true
-      · simp [h1, h0] at h
+      · simp only [h1, h0, ↓reduceIte, Bool.false_eq_true] at h
+        have hE : ∀ p ce, Execute (ctxOf modelImpl (wo p ce)) w ins a =
+            some (GeneralExceptionProcessing modelImpl (wo p ce) (.CoprocessorUnusable 0) a) := by
+          intro p ce
+          simp only [Execute, Execute.runOperation, hc, h1, h0, Bool.false_eq_true, ↓reduceIte, ctxOf]
+        exact exact_of dec a hi hl { bip := 0#32 } { bip := 1#32 } _ _ (by rw [hFE]; exact hE _ _)
+          (by rw [hFE]; exact hE _ _) (sep_bip _ _ a (by intro h; cases h) h _ _)
       simp only [Bool.not_eq_true] at h1 h0
       simp only [h1, h0, Bool.false_eq_true, ↓reduceIte] at h
       obtain ⟨op, hop⟩ := operation_some ins
@@ -224,7 +275,23 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
         cases res with
         | ok u => simp at h
         | signal e =>
-          have he : NotCpU e := by intro u hu; subst hu; simp at h
+          by_cases hcpu : ∃ u, e = .CoprocessorUnusable u
+          · obtain ⟨u, rfl⟩ := hcpu
+            have hall : ∀ o, op.run (ctxOf modelImpl o) { arch := a } = (.signal (.CoprocessorUnusable u), g) := by
+              intro o
+              have := operation_choiceFree ins a hco modelImpl o modelOracle
+              simp only [hop, Option.map_some, Option.some.injEq] at this
+              rw [this, hM]
+            have hE' : ∀ p ce, Execute (ctxOf modelImpl (wo p ce)) w ins a =
+                some (GeneralExceptionProcessing modelImpl (wo p ce) (.CoprocessorUnusable u) g.arch) := by
+              intro p ce; rw [hE, hall]; rfl
+            simp only [Bool.and_eq_false_iff] at h
+            rcases h with hs | hf
+            · exact exact_of dec a hi hl { bip := 0#32 } { bip := 1#32 } _ _ (by rw [hFE]; exact hE' _ _)
+                (by rw [hFE]; exact hE' _ _) (sep_bip _ _ g.arch (by intro h; cases h) hs _ _)
+            · exact exact_of dec a hi hl { bnw := 0#32 } { bnw := 1#32 } _ _ (by rw [hFE]; exact hE' _ _)
+                (by rw [hFE]; exact hE' _ _) (sep_bnw _ _ g.arch (by intro h; cases h) hf _ _)
+          have he : NotCpU e := fun u hu => hcpu ⟨u, hu⟩
           have hrun : ∀ ce, RunP a (fun _ => False) (op.run (ctxOf modelImpl (wo {} ce)) { arch := a }) := by
             intro ce; rw [hcf ce]; exact he
           exact exact_of dec a hi hl {} {} _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)

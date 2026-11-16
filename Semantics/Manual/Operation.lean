@@ -158,5 +158,10 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .nal off => some (Ops.NAL off)
   | .bal off => some (Ops.BAL off)
   | .pause => some Ops.PAUSE
+  -- BEGIN R6-2
+  | .eretnc => some Ops.ERETNC
+  | .sigrie code => some (Ops.SIGRIE code)
+  | .cache base op off => some (Ops.CACHE base op off)
+  -- END R6-2
 
 end Manual

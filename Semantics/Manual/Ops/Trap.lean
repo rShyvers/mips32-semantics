@@ -1,7 +1,7 @@
 import Semantics.Manual.Pseudocode
 
 /-!
-# Manual.Ops.Trap — conditional traps and BREAK (MD00086 Vol II-A Rev 6.06)
+# Manual.Ops.Trap — conditional traps, BREAK and SIGRIE (MD00086 Vol II-A Rev 6.06)
 
 Sub-wave 7B S2. The `code` field of the register forms is not used by the Operation ("the code field
 is available for use as software parameters", e.g. TEQ, p.416).
@@ -80,5 +80,17 @@ handler. The code field is available for use as software parameters". -/
 def BREAK (_code : W32) : Pseudo Unit := do
   -- SignalException(Breakpoint)
   SignalException .Breakpoint
+
+-- BEGIN R6-2
+/-- **SIGRIE code** — MD00086 Vol II-A Rev 6.06, SIGRIE, p.375 ("MIPS32 Release 6").
+```
+SignalException(ReservedInstruction)
+```
+"The 16-bit code field is available for software use" (Restrictions, p.375): the Operation does not
+read it. -/
+def SIGRIE (_code : W32) : Pseudo Unit :=
+  -- SignalException(ReservedInstruction)
+  SignalException .ReservedInstruction
+-- END R6-2
 
 end Manual.Ops

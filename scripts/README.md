@@ -163,8 +163,8 @@ It prints `N tests: P pass, D declared QEMU deviations, K known model bugs, S sk
 ### Model-bug triage (`known-model-bug`)
 `# oracle: known-model-bug <field> <manual citation> <one-line description>` marks a mismatch where the MODEL is wrong per the manual and is not fixed yet (the gate cannot be red for it, but it must stay visible).
 It is reported in its own section (`KNOWN-MODEL-BUG`), counted separately in the SUMMARY, does not fail the run, and FAILs if the mismatch stops occurring (so the directive must be deleted when the bug is fixed).
-After the Release 6 retarget (wave W1) they mark the waves still to come: `W5` (FPU: Status.FR = 1, FCSR.NAN2008/ABS2008 = 1, 2008 NaN/conversion results)
-and `W2` (privileged: UserLocal/RDHWR 29, XNP/RDHWR 5, Config3, Status bit 28 = RW instead of CU0). `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
+After the Release 6 retarget (wave W1) they mark the waves still to come: `W5` (FPU: Status.FR = 1, FCSR.NAN2008/ABS2008 = 1, 2008 NaN/conversion results);
+the `W2` ones (privileged architecture) were fixed in wave R6-2. `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
 
 ### Programs of `tests/asm`
 `--asm` also runs the `tests/asm/*.asm` programs (names `asm/NAME`), using sidecar directives kept in `oracle.py` (`ASM_DIRECTIVES`; the programs are not edited because EquivHarness reads them).

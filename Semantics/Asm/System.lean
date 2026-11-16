@@ -1,12 +1,13 @@
 import Semantics.Asm.Operands
 
 /-!
-# Asm.System — SYSCALL, BREAK, register traps, SYNC, PAUSE, Coprocessor 0
+# Asm.System — SYSCALL, BREAK, register traps, SIGRIE, SYNC, PAUSE, Coprocessor 0, CACHE
 
 Optional code operands in GNU as syntax: `syscall [code]` (0..0xFFFFF), `break [code[, code2]]`
 (each 0..1023: `code` to bits 25..16, `code2` to bits 15..6 of the 20-bit field), `teq rs, rt[,
 code]` (0..1023), `sync [stype]` (0..31), `wait [code]` (0..0x7FFFF), `mfc0`/`mtc0 rt, rd[, sel]`
-(sel 0..7), `di`/`ei [rt]`. Release 6 removed the trap-immediate forms (TEQI ... TLTIU).
+(sel 0..7), `di`/`ei [rt]`, `sigrie [code]` (0..0xFFFF), `cache op, offset(base)` (op 0..31, 9-bit
+offset -256..255, as `pref`). Release 6 removed the trap-immediate forms (TEQI ... TLTIU).
 -/
 
 namespace Asm
@@ -40,6 +41,12 @@ def systemTable : EncTable :=
     ("eret", none0 .eret),
     ("wait", optOp "code" 524287 .wait),
     ("rdpgpr", gpr2 "rd, rt" .rdpgpr),
-    ("wrpgpr", gpr2 "rd, rt" .wrpgpr) ]
+    ("wrpgpr", gpr2 "rd, rt" .wrpgpr),
+    -- BEGIN R6-2
+    ("eretnc", none0 .eretnc),
+    ("sigrie", optOp "code" 65535 .sigrie),
+    ("cache", hintMem 9 .cache)
+    -- END R6-2
+    ]
 
 end Asm

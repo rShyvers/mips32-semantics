@@ -91,12 +91,12 @@ set_option linter.unusedSimpArgs false in
 theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encode i) := by
   cases i
   case mfc0 rt rd sel =>
-    have := (isModeledCp0Reg_lt rd sel h.2).2
+    have := h.2.2
     simp only [enc, encode, fld3_sel sel this]
     simp only [fld, field, maskLow, mkRT, BitVec.or_assoc, mask1, mask2, mask3, mask4, mask5, mask6, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero,
       BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
   case mtc0 rt rd sel =>
-    have := (isModeledCp0Reg_lt rd sel h.2).2
+    have := h.2.2
     simp only [enc, encode, fld3_sel sel this]
     simp only [fld, field, maskLow, mkRT, BitVec.or_assoc, mask1, mask2, mask3, mask4, mask5, mask6, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero,
       BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
@@ -111,6 +111,9 @@ theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encod
       BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft,
       BitVec.or_zero, show (1#32 <<< 5 : W32) = 32#32 by decide]
   case eret => decide
+  -- BEGIN R6-2
+  case eretnc => decide
+  -- END R6-2
   all_goals
     simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, fld, field, maskLow,
       mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, BitVec.or_assoc,

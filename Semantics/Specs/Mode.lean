@@ -8,7 +8,7 @@ The two operating modes MD00090 Vol III Rev 6.02 ch.3 (p.21-23) requires ("The M
 microMIPS32 PRA requires two operating modes: User Mode and Kernel Mode", p.21), as
 `Step.lean` defines them: `kernelMode` (§3.2: `KSU = 0b00` or `EXL = 1` or `ERL = 1`; without
 Supervisor Mode `KSU = UM ‖ 0`), `userMode` (§3.4: `UM = 1`, `EXL = 0`, `ERL = 0`), and
-`cp0Usable` (§3.5.3: Kernel Mode or `Status.CU0 = 1`).
+`cp0Usable` (§3.5.3: Kernel Mode or `Status.CU0 = 1`; Release 6 has no `CU0`, so Kernel Mode).
 
 What the theorems say: exactly one of the two modes holds; exception entry always enters Kernel
 Mode and leaves `Status.UM` alone (so the handler runs in Kernel Mode, and `eret` returns to the
@@ -57,10 +57,13 @@ theorem kernelMode_or_userMode (s : State) :
   unfold userMode
   cases kernelMode s <;> simp
 
-/-- **Coprocessor 0 is unusable exactly in User Mode with `Status.CU0 = 0`** (MD00090 Vol III
-Rev 6.02 §3.5.3, p.23). -/
+/-- **Coprocessor 0 is unusable exactly in User Mode** (MD00090 Vol III Rev 6.02 §3.5.3, p.23:
+"Access to Coprocessor 0 registers are enabled under any of the following conditions: The processor
+is running in Kernel Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1."
+Release 6 has no `CU0`: `Status` bit 28 is the software bit `RW`, Table 9.47, p.190; there is no
+Debug Mode). -/
 theorem cp0Usable_false_iff (s : State) :
-    cp0Usable s = false ↔ (userMode s = true ∧ s.cp0Status &&& statusCu0Mask = 0#32) := by
+    cp0Usable s = false ↔ userMode s = true := by
   unfold cp0Usable userMode
   cases kernelMode s <;> simp
 

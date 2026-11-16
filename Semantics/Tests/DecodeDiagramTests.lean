@@ -7,10 +7,10 @@ import Semantics.Tests.ManualTests
 
 Concrete words through `Manual.Decode`, and the regression of audit finding D1: `MFC0` of a register
 coprocessor 0 does not contain (`rd = 0`, `sel = 0`, `Index`, absent under the Fixed Mapping MMU) is
-a word of the MFC0 diagram (MD00086 Vol II-A Rev 6.06, MFC0, p.266); the model's `decode` rejects it,
-the spec decodes it and its Operation reaches the UNDEFINED choice `Oracle.cp0Undefined` ("Pre-Release
-6: The results are UNDEFINED if coprocessor 0 does not contain a register as specified by rd and sel",
-p.266), so two oracles give two instruction times.
+a word of the MFC0 diagram (MD00086 Vol II-A Rev 6.06, MFC0, p.266). Before Release 6 its result was
+UNDEFINED and the model's `decode` rejected it; in Release 6 "Reading a reserved register or a
+register that is not implemented for the current core configuration returns 0" (p.266), so both
+decoders accept it and both the model and the specification read 0 (wave R6-2).
 -/
 
 open Manual Refine ManualTest
@@ -22,30 +22,23 @@ open Manual Refine ManualTest
 #guard Decode 0x01000049#32 == .unpredictable
 -- EXT with lsb + msbd > 31 is a word of the EXT diagram (p.183): decoded; its Operation is UNPREDICTABLE.
 #guard Decode 0x7D099D00#32 == .instr (.ext 9#32 8#32 20#32 20#32)
--- D1: MFC0 $9, $0, 0 (Index): the diagram word, rejected by `decode`, decoded by the spec.
+-- D1: MFC0 $9, $0, 0 (Index): a diagram word, decoded by both decoders (Release 6).
 #guard Manual.enc (.mfc0 9#32 0#32 0#32) == some 0x40090000#32
-#guard decode 0x40090000#32 == none
+#guard decode 0x40090000#32 == some (.mfc0 9#32 0#32 0#32)
 #guard Decode 0x40090000#32 == .instr (.mfc0 9#32 0#32 0#32)
 #guard decodeDiagram 0x40090000#32 == some (.mfc0 9#32 0#32 0#32)
 
-/-- An oracle that resolves the UNDEFINED CP0 access by writing `0xDEADBEEF` to `GPR[9]`. -/
-def oracleCp0 : Oracle :=
-  { modelOracle with cp0Undefined := fun a _ => .arbitrary { a with GPR := update a.GPR 9 0xDEADBEEF#32 } }
+/-- The `MFC0 $9, $0, 0` state (Kernel Mode), with `$9 = 0x55` before. -/
+def sIndex : State := loadImage (prog1 (.mfc0 9#32 0#32 0#32)) (setRegs regs0 [(9, 0x55#32)])
 
-/-- The `MFC0 $9, $0, 0` state (Kernel Mode). -/
-def sIndex : State := loadImage (prog1 (.mfc0 9#32 0#32 0#32)) regs0
-
--- The model's oracle: Reserved Instruction (ExcCode 10), as `step`.
+-- The register is not implemented: the specification reads 0, as `step` does, through either decoder
+-- (no oracle choice is involved any more).
 #guard (match InstructionTime modelImpl modelOracle decodeDiagram (abs sIndex) with
-        | some a => (a.Cause >>> 2) &&& 0x1F#32 == 10#32 && a.PC == (abs (step sIndex)).PC
+        | some a => a.GPR 9 == 0#32 && a.PC == (abs (step sIndex)).PC &&
+            a.GPR 9 == (abs (step sIndex)).GPR 9
         | none => false)
--- Another valid resolution of the UNDEFINED access: reached through the spec's decoder.
-#guard (match InstructionTime modelImpl oracleCp0 decodeDiagram (abs sIndex) with
-        | some a => a.GPR 9 == 0xDEADBEEF#32
-        | none => false)
--- With the model's `decode` as the decoder the choice was unreachable (the D1 finding).
-#guard (match InstructionTime modelImpl oracleCp0 decode (abs sIndex) with
-        | some a => a.GPR 9 != 0xDEADBEEF#32
+#guard (match InstructionTime modelImpl modelOracle decode (abs sIndex) with
+        | some a => a.GPR 9 == 0#32
         | none => false)
 
 /-! ## Wave R6-1: the Release 6 diagrams -/
@@ -97,3 +90,16 @@ def sIndex : State := loadImage (prog1 (.mfc0 9#32 0#32 0#32)) regs0
   match decode w with
   | some i => Decode w == .instr i
   | none => true
+
+-- BEGIN R6-2
+-- ERETNC (p.179: ERET with bit 6 set), SIGRIE (p.375: REGIMM rt = 0x17, rs = 0), CACHE (p.114:
+-- SPECIAL3 funct 0x25, bit 6 zero) are diagram words; MFC0/MTC0 of any (rd, sel) too.
+#guard Decode 0x42000058#32 == .instr .eretnc
+#guard Decode 0x04170005#32 == .instr (.sigrie 5#32)
+#guard Decode 0x7d34fc25#32 == .instr (.cache 9#32 20#32 0x1f8#32)
+#guard decodeDiagram 0x42000058#32 == decode 0x42000058#32
+#guard decodeDiagram 0x04170005#32 == decode 0x04170005#32
+#guard decodeDiagram 0x7d34fc25#32 == decode 0x7d34fc25#32
+#guard Decode (encode (.mfc0 8#32 4#32 2#32)) == .instr (.mfc0 8#32 4#32 2#32)
+#guard Decode (encode (.mtc0 8#32 31#32 7#32)) == .instr (.mtc0 8#32 31#32 7#32)
+-- END R6-2

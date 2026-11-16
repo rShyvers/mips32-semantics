@@ -1,4 +1,4 @@
-import Semantics.Refine.Abs
+import Semantics.Refine.Fetch
 
 /-!
 # Refine.Bridge — the model's helpers against the manual's functions
@@ -20,17 +20,6 @@ theorem causeWritable_eq : CauseWritable = causeWriteMask := by decide
 theorem hwrenaWritable_eq : HWREnaWritable = hwrenaWriteMask := by decide
 
 /-! ## Single bits -/
-
-theorem and_twoPow_ne (x : W32) (i : Nat) (h : i < 32) :
-    (x &&& BitVec.twoPow 32 i != 0#32) = x.getLsbD i := by
-  rw [BitVec.and_twoPow]
-  have hne : BitVec.twoPow 32 i ≠ 0#32 := by
-    intro h'; have := congrArg (·.getLsbD i) h'; simp [h] at this
-  split <;> simp_all
-
-theorem and_twoPow_eq (x : W32) (i : Nat) (h : i < 32) :
-    (x &&& BitVec.twoPow 32 i == 0#32) = !x.getLsbD i := by
-  rw [← and_twoPow_ne x i h]; simp [bne]
 
 theorem exl_abs (s : State) : StatusEXL (abs s) = (s.cp0Status &&& statusExlMask != 0#32) := by
   rw [show statusExlMask = BitVec.twoPow 32 1 by decide, and_twoPow_ne _ 1 (by omega)]; rfl
@@ -89,6 +78,64 @@ theorem vector_eq (s : State) :
         BitVec.getLsbD_or, BitVec.getLsbD_zero]
       rcases j with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|j <;> simp <;> omega
 
+-- BEGIN R6-2
+/-! ## Instruction fetch and the faulting instruction word (`BadInstr`, `BadInstrP`) -/
+
+/-- `readMemWord` of a misaligned address is `none`. -/
+theorem readMemWord_misaligned (s : State) (va : W32) (h : ¬ va.toNat % 4 = 0) :
+    readMemWord s va = none := by
+  unfold readMemWord; simp [h]
+
+/-- **Instruction fetch** (`Manual.InstructionFetch`, under the model's choices) against the model's
+`readMemWord s s.pc`: the fetched word, or an Address Error (AdEL) with the `PC`, the state
+unchanged either way. -/
+theorem fetch_run (s : State) :
+    InstructionFetch.run modelCtx { arch := abs s } =
+      match readMemWord s s.pc with
+      | none => (.signal (.AddressErrorLoad s.pc), { arch := abs s })
+      | some w => (.ok w, { arch := abs s }) := by
+  by_cases ha : s.pc.toNat % 4 = 0
+  · have hb : (bits s.pc 1 0 != 0#2) = false := by rw [misaligned_eq]; simp [ha]
+    rw [readMemWord_eq s s.pc ha]
+    have ht := addrTrans_run s s.pc .INSTRUCTION .LOAD modelCtx { arch := abs s } rfl
+    simp only [Pseudo.run, InstructionFetch, bind, PC, memory_address, abs_PC, hb,
+      Bool.false_eq_true, ite_false]
+    rw [ht]
+    cases translate s s.pc <;> simp [loadMemory_model]
+  · have hb : (bits s.pc 1 0 != 0#2) = true := by rw [misaligned_eq]; simp [ha]
+    rw [readMemWord_misaligned s s.pc ha]
+    simp only [Pseudo.run, InstructionFetch, bind, PC, memory_address, abs_PC, hb, ite_true]
+    rfl
+
+/-- `BadInstr`'s faulting instruction word (`Manual.FaultingInstructionWord`, under the model's
+choices) is the model's `faultingInstr`: the fetched word, or the model's `badInstrNoWord` = 0. -/
+theorem faultingWord_abs (s : State) :
+    FaultingInstructionWord modelImpl modelOracle (abs s) = faultingInstr s := by
+  unfold FaultingInstructionWord faultingInstr
+  rw [show ({ impl := modelImpl, oracle := modelOracle } : Ctx) = modelCtx from rfl, fetch_run]
+  cases readMemWord s s.pc <;> rfl
+
+/-- An address with its low two bits cleared is word aligned. -/
+theorem aligned_base (pa : W32) : (pa &&& ~~~3#32).toNat % 4 = 0 := by
+  rw [BitVec.toNat_and, BitVec.toNat_not]
+  simp only [BitVec.toNat_ofNat]
+  rw [show (2:Nat) ^ 32 - 1 - 3 % 2 ^ 32 = 4 * (2 ^ 30 - 1) by rfl]
+  have h4 : (4:Nat) = 2 ^ 2 := rfl
+  rw [h4, ← Nat.and_two_pow_sub_one_eq_mod, Nat.and_assoc,
+    show (2 ^ 2 * (2 ^ 30 - 1)) &&& (2 ^ 2 - 1) = 0 by decide, Nat.and_zero]
+
+/-- The prior branch's word (`Manual.InstructionWordAt`) is the model's `instrWordAt`. -/
+theorem instrWordAt_abs (s : State) (va : W32) :
+    InstructionWordAt (abs s) va = instrWordAt s va := by
+  unfold InstructionWordAt instrWordAt
+  rw [erl_abs, fixedMapping_eq]
+  generalize fixedMappingPA (erlSet s) va = pa
+  rw [← memElem_eq s _ (aligned_base pa)]
+  show MemElemAt (memOf s.physMem) pa = MemElemAt (memOf s.physMem) (pa &&& ~~~3#32)
+  unfold MemElemAt
+  rw [BitVec.and_assoc, BitVec.and_self]
+-- END R6-2
+
 /-- The model's `ce` argument for an exception (the unit number for Coprocessor Unusable, else 0). -/
 def ceOf : Exception → W32
   | .CoprocessorUnusable u => BitVec.ofNat 32 u
@@ -130,7 +177,14 @@ theorem gep_eq (s : State) (e : Exception) (he : e ≠ .Interrupt)
   have hce := ce_eq (s := s) e hu
   have hv := vector_eq s
   have hab : AdditionalState e (abs s) = abs (badv e s) := additional_abs e s
-  simp only [GeneralExceptionProcessing, hoff, hab, hv]
+  -- BEGIN R6-2
+  have hbi : FaultingInstructionWord modelImpl modelOracle (abs s) = faultingInstr (badv e s) := by
+    rw [faultingWord_abs]; cases e <;> rfl
+  have hbip : InstructionWordAt (abs s) ((abs s).PC - 4#32) =
+      instrWordAt (badv e s) ((badv e s).pc - 4#32) := by
+    rw [instrWordAt_abs]; cases e <;> rfl
+  -- END R6-2
+  simp only [GeneralExceptionProcessing, hoff, hab, hv, he, ↓reduceIte, hbi, hbip]
   have hexl' : StatusEXL (abs (badv e s)) = ((badv e s).cp0Status &&& statusExlMask != 0#32) :=
     exl_abs _
   rw [hexl', ← hvec, ← cause_update, ← hce]
@@ -141,15 +195,6 @@ theorem toNat_sx33 (x : W32) :
     (BitVec.ofBool (bit x 31) ++ x).toNat = (if bit x 31 then 2^32 else 0) + x.toNat := by
   rw [BitVec.toNat_append, ← Nat.shiftLeft_add_eq_or_of_lt x.isLt, Nat.shiftLeft_eq]
   cases bit x 31 <;> simp
-
-theorem bit31_iff (x : W32) : bit x 31 = decide (2^31 ≤ x.toNat) := by
-  simp only [bit, BitVec.getLsbD, Nat.testBit_eq_decide_div_mod_eq]
-  have := x.isLt
-  by_cases h : 2^31 ≤ x.toNat
-  · have : x.toNat / 2^31 = 1 := by omega
-    simp [this, h]
-  · have : x.toNat / 2^31 = 0 := by omega
-    simp [this, h]
 
 theorem add33_low (x y : W32) :
     low ((BitVec.ofBool (bit x 31) ++ x) + (BitVec.ofBool (bit y 31) ++ y)) 32 = x + y := by
@@ -173,10 +218,7 @@ theorem add_ovf (x y : W32) :
     by_cases h3 : 2 * ((x.toNat + y.toNat) % 4294967296) < 4294967296 <;>
     (rw [Bool.eq_iff_iff]; simp [h1, h2, h3]; omega)
 
-/-! ## The model's context and the encoding spaces -/
-
-/-- The context of the model's choices. -/
-def modelCtx : Ctx := { impl := modelImpl, oracle := modelOracle }
+/-! ## The encoding spaces -/
 
 theorem opcode_rFormat (op rs rt rd sa fn : W32) :
     opcode (rFormat op rs rt rd sa fn) = op &&& 0x3F#32 := by
@@ -213,15 +255,8 @@ theorem offset16 (imm : W32) : sign_extend (imm16 imm) = signExt16 imm := by
 theorem cu1_abs (s : State) : StatusCU1 (abs s) = cu1Enabled s := by
   rw [cu1Enabled, show statusCu1Mask = BitVec.twoPow 32 29 by decide, and_twoPow_ne _ 29 (by omega)]; rfl
 
-theorem kernel_abs (s : State) : KernelMode (abs s) = kernelMode s := by
-  simp only [KernelMode, kernelMode, StatusUM, StatusEXL, StatusERL, abs, bit,
-    show statusUmMask = BitVec.twoPow 32 4 by decide, show statusExlMask = BitVec.twoPow 32 1 by decide,
-    show statusErlMask = BitVec.twoPow 32 2 by decide, and_twoPow_ne _ 1 (by omega),
-    and_twoPow_ne _ 2 (by omega), and_twoPow_eq _ 4 (by omega)]
-
 theorem cp0usable_abs (s : State) : CP0Usable (abs s) = cp0Usable s := by
-  rw [CP0Usable, cp0Usable, kernel_abs, show statusCu0Mask = BitVec.twoPow 32 28 by decide,
-    and_twoPow_ne _ 28 (by omega)]; rfl
+  rw [CP0Usable, cp0Usable, kernel_abs, StatusCU0, Bool.or_false]
 
 /-- `Execute` when the instruction is not a CTI and its word is outside the unusable coprocessors'
 spaces runs the Operation. -/

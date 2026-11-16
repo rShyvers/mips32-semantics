@@ -488,7 +488,8 @@ example : decode (mkRT 29#32 1#32 0#32 0#32 0x08#32) = none := by decide      --
 example : decode (mkRT 29#32 0#32 1#32 0#32 0x08#32) = none := by decide      -- jr, rd ≠ 0
 example : decode ((0x1f#32 <<< 26) ||| mkRT 1#32 8#32 3#32 0x10#32 0x20#32) = none := by decide  -- seb, rs ≠ 0
 example : decode ((0x1f#32 <<< 26) ||| mkRT 1#32 8#32 3#32 0x18#32 0x20#32) = none := by decide  -- seh, rs ≠ 0
-example : decode ((0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 1#32 0x18#32) = none := by decide  -- eret, CO bits ≠ 0
+example : decode ((0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 1#32 0x18#32) = some .eretnc := by decide  -- bit 6 set: ERETNC
+example : decode ((0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 2#32 0x18#32) = none := by decide  -- eret, CO bits ≠ 0
 example : decode ((0x10#32 <<< 26) ||| mkRT 0x11#32 0#32 0#32 0#32 0x18#32) = none := by decide  -- eret, CO bits ≠ 0
 -- `srl`/`rotr` are selected by bit 21 alone, with bits 25..22 zero; likewise
 -- `srlv`/`rotrv` by bit 6 with bits 10..7 zero.
@@ -496,10 +497,10 @@ example : decode (mkRT 2#32 8#32 3#32 5#32 0x02#32) = none := by decide
 example : decode (mkRT 3#32 8#32 3#32 5#32 0x02#32) = none := by decide
 example : decode (mkRT 29#32 8#32 3#32 2#32 0x06#32) = none := by decide
 example : decode (mkRT 29#32 8#32 3#32 3#32 0x06#32) = none := by decide
--- `mfc0`/`mtc0`: an unmodeled `(rd, sel)` (e.g. `mfc0 $t0,$12,3` = SRSMap, UNPREDICTABLE with
--- `SRSCtl.HSS = 0`), nonzero bits 10..3, or an unmodeled register do not decode.
-example : decode 0x40086003#32 = none := by decide                              -- mfc0 $t0,$12,3
-example : decode 0x40886003#32 = none := by decide                              -- mtc0 $t0,$12,3
+-- `mfc0`/`mtc0`: every `(rd, sel)` decodes in Release 6 (an unimplemented register, e.g. `mfc0
+-- $t0,$12,3` = SRSMap, reads 0 and ignores writes, MFC0 p.266, MTC0 p.290); nonzero bits 10..3 do not.
+example : decode 0x40086003#32 = some (.mfc0 8#32 12#32 3#32) := by decide        -- mfc0 $t0,$12,3
+example : decode 0x40886003#32 = some (.mtc0 8#32 12#32 3#32) := by decide        -- mtc0 $t0,$12,3
 -- IntCtl (12,1) and SRSCtl (12,2) are modeled since wave 6 (F13, F16).
 example : decode 0x40086001#32 = some (.mfc0 8#32 12#32 1#32) := by decide        -- mfc0 $t0,$12,1
 example : decode 0x40886002#32 = some (.mtc0 8#32 12#32 2#32) := by decide        -- mtc0 $t0,$12,2
@@ -511,8 +512,8 @@ example : encode (.wrpgpr 8#32 9#32) = 0x41c94000#32 := by decide
 example : decode 0x41494001#32 = none := by decide                              -- bits 10..0 ≠ 0
 example : decode 0x41c94040#32 = none := by decide                              -- bits 10..0 ≠ 0
 example : decode 0x40086008#32 = none := by decide                              -- bit 3 set
-example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 1#32 0#32 0#32) = none := by decide  -- Random (1)
-example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 10#32 0#32 0#32) = none := by decide  -- EntryHi (10)
+example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 1#32 0#32 0#32) = some (.mfc0 8#32 1#32 0#32) := by decide  -- Random (1): reads 0
+example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 10#32 0#32 0#32) = some (.mfc0 8#32 10#32 0#32) := by decide  -- EntryHi (10): reads 0
 -- Count (9,0), Compare (11,0) and HWREna (7,0) are modeled since wave 5 (F12, F15).
 example : decode ((0x10#32 <<< 26) ||| mkRT 0#32 8#32 9#32 0#32 0#32) = some (.mfc0 8#32 9#32 0#32) := by decide  -- Count
 example : decode (encode (.mtc0 8#32 11#32 0#32)) = some (.mtc0 8#32 11#32 0#32) := by decide   -- Compare
@@ -603,8 +604,8 @@ example : decode 0x40888001#32 = some (.mtc0 8#32 16#32 1#32) := by decide      
 example : decode 0x40087800#32 = some (.mfc0 8#32 15#32 0#32) := by decide         -- PRId
 example : decode 0x40088002#32 = some (.mfc0 8#32 16#32 2#32) := by decide         -- mfc0 $8,$16,2 (Config2)
 example : decode 0x40888003#32 = some (.mtc0 8#32 16#32 3#32) := by decide         -- mtc0 $8,$16,3 (Config3)
-example : decode 0x40088004#32 = none := by decide                                 -- Config4: not implemented
-example : decode 0x40087002#32 = none := by decide                                 -- (14,2): not modeled
+example : decode 0x40088004#32 = some (.mfc0 8#32 16#32 4#32) := by decide         -- Config4 (Release 6)
+example : decode 0x40087002#32 = some (.mfc0 8#32 14#32 2#32) := by decide         -- (14,2): reads 0
 example : decode 0x0000000c#32 = some (.syscall 0#32) := by decide
 example : decode 0x0001234d#32 = some (.break 0x48d#32) := by decide               -- code 0x48d = 1165
 example : decode 0x00a41df4#32 = some (.teq 5#32 4#32 0x77#32) := by decide        -- teq $5,$4,0x77
@@ -709,3 +710,32 @@ example : decode ((0x1c#32 <<< 26) ||| mkRT 29#32 8#32 3#32 0#32 0x02#32) = none
 example : decode 0x4c8628a0#32 = none := by decide
 example : decode (mkRT 29#32 4#32 3#32 0#32 0x01#32) = none := by decide
 example : decode (mkIT 0x11#32 0x08#32 0x1c#32 0x1234#32) = none := by decide
+
+-- BEGIN R6-2
+-- `eretnc` (MD00086 Vol II-A Rev 6.06, ERETNC, p.179: COP0, CO = 1, bit 6 = 1, funct ERET),
+-- `sigrie code` (SIGRIE p.375: REGIMM rt = 0x17, rs = 0), `cache op, offset(base)` (CACHE p.114:
+-- SPECIAL3 funct 0x25, 9-bit offset, bit 6 = 0). Encodings checked with
+-- `llvm-mc -triple=mipsel -mcpu=mips32r6`: eretnc = 0x42000058, `sigrie 5` = 0x04170005,
+-- `cache 20, -8($9)` = 0x7d34fc25, `cache 1, 255($4)` = 0x7c817fa5.
+example : encode .eretnc = 0x42000058#32 := by decide
+example : decode 0x42000058#32 = some .eretnc := by decide
+example : encode (.sigrie 5#32) = 0x04170005#32 := by decide
+example : decode 0x04170005#32 = some (.sigrie 5#32) := by decide
+example : decode (encode (.sigrie 0xffff#32)) = some (.sigrie 0xffff#32) := by decide
+example : decode 0x04370005#32 = none := by decide                                 -- sigrie, rs ≠ 0
+example : encode (.cache 9#32 20#32 0x1f8#32) = 0x7d34fc25#32 := by decide         -- cache 20, -8($9)
+example : decode 0x7d34fc25#32 = some (.cache 9#32 20#32 0x1f8#32) := by decide
+example : encode (.cache 4#32 1#32 0xff#32) = 0x7c817fa5#32 := by decide           -- cache 1, 255($4)
+example : decode 0x7c817fa5#32 = some (.cache 4#32 1#32 0xff#32) := by decide
+example : decode 0x7c817fe5#32 = none := by decide                                 -- cache, bit 6 set
+example : decode (encode (.cache 31#32 31#32 0x1ff#32)) = some (.cache 31#32 31#32 0x1ff#32) := by decide
+-- mfc0/mtc0 of the Release 6 registers round-trip
+example : decode (encode (.mfc0 8#32 4#32 2#32)) = some (.mfc0 8#32 4#32 2#32) := by decide   -- UserLocal
+example : decode (encode (.mtc0 8#32 31#32 7#32)) = some (.mtc0 8#32 31#32 7#32) := by decide -- KScratch6
+example : decode (encode (.mfc0 8#32 8#32 2#32)) = some (.mfc0 8#32 8#32 2#32) := by decide   -- BadInstrP
+-- SDBBP, DERET and the TLB instructions are not implemented: their words do not decode
+example : decode 0x0000000e#32 = none := by decide                                 -- sdbbp
+example : decode 0x4200001f#32 = none := by decide                                 -- deret
+example : decode 0x42000002#32 = none := by decide                                 -- tlbwi
+example : decode 0x42000003#32 = none := by decide                                 -- tlbinv
+-- END R6-2

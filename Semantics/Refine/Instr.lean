@@ -27,7 +27,7 @@ in: the invariant `Inv s` (`Refine/Defs.lean`), and `w` is a fetched word
 that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
 `instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
-`Instruction` (119, generated in constructor order), and `allInstrRefines` collects them by
+`Instruction` (122, generated in constructor order), and `allInstrRefines` collects them by
 `cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
 constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
 and the build fails.
@@ -283,6 +283,14 @@ theorem instrRefines_cvtWD (fd fs : W32) : InstrRefines (.cvtWD fd fs) :=
   fun s w hg _ hw => cvtWD_refines s hg.1 fd fs w hw
 theorem instrRefines_cvtSD (fd fs : W32) : InstrRefines (.cvtSD fd fs) :=
   fun s w hg _ hw => cvtSD_refines s hg.1 fd fs w hw
+-- BEGIN R6-2
+theorem instrRefines_eretnc : InstrRefines .eretnc :=
+  fun s w _ _ hw => eretnc_refines s w hw
+theorem instrRefines_sigrie (code : W32) : InstrRefines (.sigrie code) :=
+  fun s w hg _ hw => sigrie_refines s hg.1 code w hw
+theorem instrRefines_cache (base op off : W32) : InstrRefines (.cache base op off) :=
+  fun s w hg _ hw => cache_refines s hg.1 base op off w hw
+-- END R6-2
 
 theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   cases i
@@ -405,5 +413,10 @@ theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   case floorWD fd fs => exact instrRefines_floorWD fd fs
   case cvtWD fd fs => exact instrRefines_cvtWD fd fs
   case cvtSD fd fs => exact instrRefines_cvtSD fd fs
+  -- BEGIN R6-2
+  case eretnc => exact instrRefines_eretnc
+  case sigrie code => exact instrRefines_sigrie code
+  case cache base op off => exact instrRefines_cache base op off
+  -- END R6-2
 
 end Refine

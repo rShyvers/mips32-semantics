@@ -51,7 +51,18 @@ def powerOnState : State :=
     cp0TimerInt := false
     cp0HWREna := 0#32
     hwInt := 0#6
-    standby := false }
+    standby := false
+    -- BEGIN R6-2
+    -- `UserLocal`, `BadInstr`, `BadInstrP`, `KScratch1..6`: reset state "Undefined" (MD00090 Vol III
+    -- Rev 6.02 Tables 9.19, 9.42, 9.43, 9.84, p.143, 179, 181, 311), pinned to 0; `Config5.SBRI`:
+    -- reset state 0 (Table 9.69, p.263).
+    cp0UserLocal := 0#32
+    cp0BadInstr := 0#32
+    cp0BadInstrP := 0#32
+    cp0KScratch := fun _ => 0#32
+    cp0Config5SBRI := false
+    -- END R6-2
+    }
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;

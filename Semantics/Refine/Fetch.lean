@@ -1,4 +1,4 @@
-import Semantics.Refine.Bridge
+import Semantics.Refine.BridgeBits
 import Std.Data.HashMap.Lemmas
 
 /-!

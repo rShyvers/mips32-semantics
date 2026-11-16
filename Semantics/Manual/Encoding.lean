@@ -204,6 +204,14 @@ def enc : Instruction → Option W32
   | .nal off => some (iFormat 0x01#32 0#32 0x10#32 off)
   | .bal off => some (iFormat 0x01#32 0#32 0x11#32 off)
   | .pause => some (rFormat 0#32 0#32 0#32 0#32 5#32 0#32)
+  -- BEGIN R6-2
+  -- ERETNC p.179 (CO 1 | `0^18` | 1 | `011000`)
+  | .eretnc => some (fld 6 26 0x10#32 ||| fld 1 25 1#32 ||| fld 1 6 1#32 ||| fld 6 0 0x18#32)
+  -- SIGRIE p.375 (REGIMM `000001` | `00000` | SIGRIE `10111` | code)
+  | .sigrie code => some (iFormat 0x01#32 0#32 0x17#32 code)
+  -- CACHE p.114, Release 6 diagram (SPECIAL3 | base | op | offset (9) | 0 | CACHE `100101`)
+  | .cache base op off => some (off9Format base op off 0x25#32)
+  -- END R6-2
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26
@@ -212,7 +220,7 @@ def opcode (w : W32) : W32 := w >>> 26
 opcode COP0 `010000`, or the Release 6 CACHE, SPECIAL3 `011111` with function `100101` (MD00086 Vol
 II-A Rev 6.06, CACHE, p.114; the pre-Release 6 CACHE opcode `101111` is "6Rm", Table A.2, p.451, and
 signals Reserved Instruction). For an encoding assigned to a coprocessor "the unusable exception takes
-priority" (Table A.1, p.451). -- W2: CACHE itself. -/
+priority" (Table A.1, p.451). -/
 def InCop0Space (w : W32) : Bool :=
   opcode w == 0x10#32 || (opcode w == 0x1F#32 && (w &&& 0x3F#32) == 0x25#32)
 
@@ -255,7 +263,8 @@ page of each diagram):
   p.376 and SRA p.383; bits 25..22 of SRL/ROTR (p.385, p.339); bits 20..16 of JALR p.196; bits 25..11
   of SYNC p.407; bits 20..16 of CLZ p.135 and CLO p.134 (their `sa = 00001`); bits 25..21 of SEB p.365,
   SEH p.366, WSBH p.445; bits 25..21 and 10..9 of RDHWR p.332; bit 6 of LL p.223, SC p.347, PREF p.321;
-  bits 24..7 of ERET p.177 (bit 6 is the Release 6 ERETNC, p.179: -- W2); bits 10..3 of MFC0 p.266,
+  bits 24..7 of ERET p.177 and ERETNC p.179 (bit 6 tells them apart); bit 6 of CACHE p.114; bits
+  25..21 of SIGRIE p.375 (REGIMM `rt = 10111`); bits 10..3 of MFC0 p.266,
   MTC0 p.290; bits 10..6 and 4..0 of DI p.164, EI p.176; bits 10..0 of RDPGPR p.335, WRPGPR p.444;
   bits 10..0 of MFC1 p.267, MTC1 p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16
   of the one-operand COP1 functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W
@@ -295,7 +304,13 @@ def UnpredictableEncoding (w : W32) : Bool :=
     else if fn == 0x04 then sa > rd               -- INS: lsb > msb
     else if fn == 0x3B then nz 25 21 || nz 10 9   -- RDHWR
     else if fn == 0x36 || fn == 0x26 || fn == 0x35 then nz 6 6   -- LL, SC, PREF
+    -- BEGIN R6-2
+    else if fn == 0x25 then nz 6 6                                 -- CACHE
+    -- END R6-2
     else false
+  -- BEGIN R6-2
+  | 0x01 => fldOf w 20 16 == 0x17 && rs != 0                       -- SIGRIE
+  -- END R6-2
   | 0x10 =>  -- COP0
     if fldOf w 25 25 == 1 then fn == 0x18 && nz 24 7   -- ERET
     else if rs == 0x00 || rs == 0x04 then nz 10 3      -- MFC0, MTC0

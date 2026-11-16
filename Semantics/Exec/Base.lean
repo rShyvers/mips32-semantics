@@ -58,11 +58,17 @@ jumps, NAL, ERET, ERETNC, DERET, WAIT, and PAUSE"; "Release 6: If a control tran
 signal a Reserved Instruction exception" (MD00086 Vol II-A Rev 6.06, JALR, p.196; MD00082 Vol I-A
 Rev 6.01 §5.3.2.1, p.62). `execInstr` raises Reserved Instruction when one of these is reached with
 `s.pendingBranch = some _`, i.e. directly after any branch or jump, taken or not.
--- W3: the compact branches and jumps (and their forbidden slots); W2: ERETNC. -/
+-- W3: the compact branches and jumps (and their forbidden slots). -/
 def isBranchLike (instr : Instruction) : Bool :=
   match instr with
   | .beq _ _ _ | .bne _ _ _ | .blez _ _ | .bgtz _ _ | .bltz _ _ | .bgez _ _ | .nal _ | .bal _
   | .j _ | .jal _ | .jalr _ _ | .jalrHb _ _ | .eret | .wait _ | .pause => true
+  -- BEGIN R6-2
+  -- ERETNC: "Release 6 implementations are required to signal a Reserved Instruction exception if
+  -- ERETNC is executed in the delay slot or Release 6 forbidden slot of a branch or jump
+  -- instruction" (MD00086 Vol II-A Rev 6.06, ERETNC, p.179).
+  | .eretnc => true
+  -- END R6-2
   | _ => false
 
 /-- Signed-overflow predicate for `add`/`addi`, following INSTRUCTION-REF's
@@ -135,6 +141,25 @@ def exceptionVector (s : State) : W32 :=
   if s.cp0Status &&& statusBevMask == 0#32 then ebaseValue s ||| exceptionVectorOffset
   else exceptionVectorBevAddr
 
+-- BEGIN R6-2
+/-- **The instruction word at the virtual address `va`, read without the address check**: the
+aligned word of physical memory at the Fixed Mapping translation of `va` (`fixedMappingPA` with the
+current `Status.ERL`), in the byte order of `profile`. It is the word an instruction fetch at `va`
+returns whenever that fetch succeeds (`readMemWord`), and is defined for every `va`. Used for the
+prior branch instruction of `BadInstrP`: the branch at `pc - 4` was fetched there. -/
+def instrWordAt (s : State) (va : VAddr) : W32 :=
+  let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
+  join4 profile.bigEndianMem ((s.physMem.get? pa).getD 0) ((s.physMem.get? (pa + 1#32)).getD 0)
+    ((s.physMem.get? (pa + 2#32)).getD 0) ((s.physMem.get? (pa + 3#32)).getD 0)
+
+/-- **The faulting instruction word** that `BadInstr` captures (MD00090 Vol III Rev 6.02 §9.25,
+Table 9.42, p.179: "Faulting instruction word"): the word fetched at `pc`. "When a synchronous
+exception occurs for which there is no valid instruction word (for example TLB Refill - Instruction
+Fetch), the value stored in BadInstr is UNPREDICTABLE" (p.179): for an instruction fetch that fails
+(Address Error) the model stores `0` (pin). -/
+def faultingInstr (s : State) : W32 := (readMemWord s s.pc).getD 0#32
+-- END R6-2
+
 /-- The state after taking a general exception with `Cause.ExcCode = excCode`
 from `s`, where `s.pc` is the faulting instruction (MD00090 Vol III Rev 6.02
 §6.2.3 "General Exception Processing", p.86-88):
@@ -156,10 +181,22 @@ exception the field "is loaded, but not defined" (p.87) and the model loads
 
 "In a branch delay slot" is `s.pendingBranch.isSome`. The pending branch is
 abandoned (`pendingBranch := none`):
-the handler runs sequentially from the vector, and `eret` to `EPC` re-executes the branch. `LLbit` is cleared
-(MD00086 Vol II-A Rev 6.06, SC, p.350: "Exceptions between the LL and SC
-cause SC to fail"). -/
-def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) : State :=
+the handler runs sequentially from the vector, and `eret` to `EPC` re-executes the branch. `LLbit` is
+**not** changed: the event that makes an `SC` fail is the return, "An ERET instruction is executed.
+(Release 5 includes ERETNC, which will not cause the SC to fail.)" (MD00086 Vol II-A Rev 6.06, SC,
+p.347), and ERETNC "will not clear the LLbit ... when placed between an LL and SC sequence, will never
+cause the SC to fail" (ERETNC, p.179). The programming note "Exceptions between the LL and SC cause SC
+to fail" (SC, p.350) holds through the handler's `eret`.
+
+`sync` (default `true`) says the exception is synchronous to the instruction at `pc`; every
+exception the model raises is, except the Interrupt (`takeInterrupt` passes `false`). A synchronous
+exception also writes `BadInstr` and `BadInstrP` (MD00090 Vol III Rev 6.02 §9.25, p.179: "The
+BadInstr register is only set by exceptions which are synchronous to an instruction. The BadInstr
+register is not set by Interrupts"; §9.26, p.181, the same for `BadInstrP`): `BadInstr ←`
+`faultingInstr s`, `BadInstrP ←` the prior branch instruction `instrWordAt s (pc - 4)` in a delay
+slot, else `0` (UNPREDICTABLE: "When a synchronous exception occurs and the faulting instruction is
+not in a branch delay slot, then the value stored in BadInstrP is UNPREDICTABLE", p.181; pin). -/
+def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) (sync : Bool := true) : State :=
   let exl := s.cp0Status &&& statusExlMask != 0#32
   let inSlot := s.pendingBranch.isSome
   { s with
@@ -172,7 +209,12 @@ def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) : State :=
       cp0Status := s.cp0Status ||| statusExlMask
       pc := exceptionVector s
       pendingBranch := none
-      llBit := false }
+      -- BEGIN R6-2
+      cp0BadInstr := if sync then faultingInstr s else s.cp0BadInstr
+      cp0BadInstrP :=
+        if sync then (if inSlot then instrWordAt s (s.pc - 4#32) else 0#32) else s.cp0BadInstrP
+      -- END R6-2
+      }
 
 /-- Raise a general exception: the state after exception entry (the
 processor continues at the exception vector). -/
@@ -199,27 +241,32 @@ def cu1Enabled (s : State) : Bool := s.cp0Status &&& statusCu1Mask != 0#32
 
 /-- **Coprocessor 0 is usable** (MD00090 Vol III Rev 6.02 §3.5.3, p.23): "Access to Coprocessor
 0 registers are enabled under any of the following conditions: The processor is running in Kernel
-Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1." -/
-def cp0Usable (s : State) : Bool := kernelMode s || s.cp0Status &&& statusCu0Mask != 0#32
+Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1." Release 6 has no
+`CU0`: the CU field is `CU3..CU1` and bit 28 is the software bit `RW` (Table 9.47, p.190, an image
+page read in the PDF), and Debug Mode is not implemented (no EJTAG), so coprocessor 0 is usable
+exactly in Kernel Mode. -/
+def cp0Usable (s : State) : Bool := kernelMode s
 
-/-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `wait`,
-`rdpgpr`, `wrpgpr`. Each page lists Coprocessor Unusable among its exceptions (MD00086 Vol II-A
-Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, WAIT p.443, RDPGPR p.335,
-WRPGPR p.444), which is raised when "A COP0
+/-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `eretnc`,
+`wait`, `rdpgpr`, `wrpgpr` and `cache`. Each page lists Coprocessor Unusable among its exceptions
+(MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, ERETNC p.180,
+WAIT p.443, RDPGPR p.335, WRPGPR p.444, CACHE p.119), which is raised when "A COP0
 or Cache instruction was executed while the processor was running in a mode other than Debug
 Mode or Kernel Mode, and the CU0 bit in the Status register was a zero" (MD00090 Vol III
-Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`) and `CACHE`
-are not implemented: their words do not decode and are covered by
-`isCop0Word`. -/
+Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`) are not
+implemented: their words do not decode and are covered by `isCop0Word`. -/
 def usesCop0 (instr : Instruction) : Bool :=
   match instr with
   | .mfc0 _ _ _ | .mtc0 _ _ _ | .di _ | .ei _ | .eret | .wait _ | .rdpgpr _ _ | .wrpgpr _ _ => true
+  -- BEGIN R6-2
+  | .eretnc | .cache _ _ _ => true
+  -- END R6-2
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 0 or is a CACHE instruction:
 opcode COP0 (0x10), or SPECIAL3 with the Release 6 CACHE function `100101` (MD00086 Vol II-A Rev
 6.06, CACHE, p.114; the pre-Release 6 CACHE opcode 0x2f is "6Rm", Table A.2, p.451, and raises
-Reserved Instruction). -- W2: CACHE itself. Outside Kernel Mode with `Status.CU0 = 0` such a word raises
+Reserved Instruction; a CACHE word with bit 6 set matches no diagram). Outside Kernel Mode such a word raises
 Coprocessor Unusable (`Cause.CE = 0`) instead of Reserved Instruction: "An instruction was
 executed that specifies an unimplemented COP0 opcode encoding of the function field when rs is
 CO ... assuming that access to coprocessor 0 is allowed. If access to the coprocessor is not
@@ -338,10 +385,9 @@ the three Read/Write cacheability fields: `K23` (bits 30..28, `s.cp0ConfigK23`),
 `s.cp0ConfigKU`) and `K0` (bits 2..0, `s.cp0ConfigK0`), reset `K0 = 2` (Uncached, Table 9.12
 p.133; "Suggested", §6.2.5 p.90) and `K23 = KU = 2` (their reset state is "Undefined", p.233,
 pinned like `K0`). So `configValue` is `0x8000_0980` plus the three fields (`0xA400_0982` after
-Reset). `mtc0` stores the written bits 30..28, 27..25 and 2..0 into them unchanged (every 3-bit
-value is accepted). The model has no cache, so they have no effect on anything else. The other
-fields are read-only.
--- W2: "For Release 6, writes of unsupported values are ignored" (p.233, p.235). -/
+Reset). `mtc0` stores the written bits 30..28, 27..25 and 2..0 into them (each 3-bit
+value is accepted only if supported, `ccaSupported`). The model has no cache, so they have no effect
+on anything else. The other fields are read-only. -/
 def configValue (s : State) : W32 :=
   0x80000180#32 ||| (if profile.bigEndianMem then 0x8000#32 else 0#32) |||
     (configARFor profile.release <<< 10) |||
@@ -373,19 +419,58 @@ def config2Value : W32 := 0x80000000
 
 /-- `Config3` (CP0 register 16, select 3; MD00090 Vol III Rev 6.02 §9.48, Table 9.67, p.245-251).
 Present: "Compliance Level: Required if any optional feature described by this register is
-implemented: Release 2 of the Architecture, the SmartMIPS™ ASE, or trace logic; Optional otherwise"
-(p.245), and the model is Release 2 (`Config.AR = 1`). "All fields in the Config3 register are
-read-only" (p.245): `mtc0` to it is ignored. Every field is 0 — no feature it describes is
-implemented: `M` = 0, no Config4 ("If the Config4 register is not implemented, this bit should read
-as a 0", p.245; Rev 2.50 §8.29, p.110: "With the current architectural definition, this bit should
-always read as a 0"); `CMGCR`, `MSAP`, `BP`, `BI` (no BadInstr/BadInstrP registers), `SC`, `PW`,
-`VZ` (p.245-246); `IPLW`, `MMAR`, `MCU` (no MCU ASE, no microMIPS), `ISAOnExc` = 0 and `ISA` = 0
-("Only MIPS32 Instruction Set is implemented", p.247-248); `ULRI` = 0 (no UserLocal: `rdhwr` 29
-raises Reserved Instruction, `hwrValue`), `RXI` (p.248); `DSP2P`, `DSPP`, `CTXTC`, `ITL` (p.249);
-`LPA` ("For implementations prior to Release 5 of the Architecture, this bit returns zero on read"),
-`VEIC`, `VInt` (no EIC or vectored interrupts: interrupt compatibility mode only, §6.1.1, p.72),
-p.250; `SP` (no small pages), `CDMM`, `MT`, `SM` (no SmartMIPS), `TL` (no trace logic), p.251. -/
-def config3Value : W32 := 0x00000000
+implemented: Release 2 of the Architecture, ..." (p.245), and the model is Release 6. "All fields in
+the Config3 register are read-only" (p.245): `mtc0` to it is ignored. The fields Release 6 fixes:
+`M` = 1 (bit 31: "If the Config4 register is implemented, this bit should read as a 1", p.245;
+Config4 is required, `config4Value`), `BP` = 1 (bit 27: "Release 6: BadInstrP is always implemented",
+reset state "1 (Release 6)", p.246), `BI` = 1 (bit 26: "Release 6: BadInstr is always implemented",
+p.246), `ULRI` = 1 (bit 13: "Release 6: UserLocal is always implemented", p.248), `RXI` = 1 (bit 12:
+"Release 6: The RIE and XIE bits are always implemented", reset state "1 (Release 6)", p.248; the
+Fixed Mapping MMU has no `PageGrain`, so the bits it announces are in a register that reads 0: the
+table's Release 6 value is reported, a pin). Every other field is 0, no feature it describes being
+implemented (DECISIONS D5): `CMGCR`, `MSAP`, `SC`, `PW`, `VZ` (p.245-246); `IPLW`, `MMAR`, `MCU`,
+`ISAOnExc` and `ISA` = 0 ("Only MIPS32 Instruction Set is implemented", p.247-248); `DSP2P`, `DSPP`,
+`CTXTC`, `ITL` (p.249); `LPA`, `VEIC`, `VInt` (interrupt compatibility mode only, §6.1.1, p.72),
+p.250; `SP`, `CDMM`, `MT` ("For Release 6 and after, this bit must be 0"), `SM` (reserved 0 in
+Release 6), `TL`, p.251. So `0x8C00_3000`. -/
+def config3Value : W32 := 0x8C003000
+
+-- BEGIN R6-2
+/-- `Config4` (CP0 register 16, select 4; MD00090 Vol III Rev 6.02 §9.49, Table 9.68, p.253-258),
+read-only here: `M` = 1 (bit 31: "If the Config5 register is implemented, this bit should read as a
+1", p.253; Config5 is required in Release 6, `config5Value`); `KScrExist` (23..16) = `0xFC`: "For
+Release 6, bits 2-7 are always 1 because KScratch1-6 must be implemented", select 1 "should not be
+used as a kernel scratch register, so bit 17 is preset to zero", bit 16 (select 0) zero without
+EJTAG (p.255); `IE` (30..29) = 0: no TLB invalidate support, the Fixed Mapping MMU has no TLB ("Always
+Required for implementations with TLBs; i.e., ConfigMT=1 or 4", p.254; the same row says "In Release
+6, this field is reserved; i.e., TLBINV and TLBINVF must be supported", which presumes a TLB: pin,
+DECISIONS D4); `AE` = 0 (no `EntryHi.ASID`), `VTLBSizeExt` = 0 ("Applicable only if ConfigMT = 1 or 4",
+p.254), the FTLB fields 0 ("Required if ConfigMT=4", p.256-258), `MMUExtDef` reserved 0 in Release 6
+(p.255). So `0x80FC_0000`. -/
+def config4Value : W32 := 0x80FC0000
+
+/-- `Config5` (CP0 register 16, select 5; MD00090 Vol III Rev 6.02 §9.50, Table 9.69, p.259-264):
+`M` = 0 ("With the current architectural definition, this bit should always read as a 0", p.260);
+`XNP` = 1 (bit 13: "LLX/SCX instruction family not supported", p.261; DECISIONS D13: the profile has
+no LLWP/SCWP); `DEC` = 0 ("Only Little-Endian mode supported", p.261; DECISIONS D1); `L2C` = 0
+("Config2 present", p.261); `SBRI` (bit 6, R/W, reset 0, "Required (Release 6)", p.263) from
+`State.cp0Config5SBRI`; `LLB` = 1 (bit 4: "In Release 6, Config5LLB is read-only 1", p.264); every
+other field 0: `K`, `CV` (no Segmentation Control), `EVA`, `MSAEn` (no MSA), `UFE`/`FRE` (reserved
+with `FIR.FREP = 0`, p.262), `VP` (no multi-threading), `MVH` (no XPA), `MRP`, `UFR` ("Reserved
+(Release 6)", p.264), `NFExists` (DECISIONS D5, D10). -/
+def config5Value (s : State) : W32 :=
+  0x00002010#32 ||| (if s.cp0Config5SBRI then 0x40#32 else 0#32)
+
+/-- **The cacheability attributes `Config.K0`/`KU`/`K23` accept** (MD00090 Vol III Rev 6.02 Table
+9.64, p.233, 235: "For Release 6, writes of unsupported values are ignored"): 2 (Uncached) and 3
+(Cacheable), the two encodings Table 9.12 (p.133) marks "Required"; the others are "Available for
+implementation-dependent use", which the model does not use (pin). -/
+def ccaSupported (v : BitVec 3) : Bool := v == 2#3 || v == 3#3
+
+/-- `Config5.XNP` as `rdhwr` register 5 reads it (MD00090 Vol III Rev 6.02 Table 9.40, p.176: "If
+set to 1, then LLX/SCX family of instructions is not present"; DECISIONS D13): 1. -/
+def xnpValue : W32 := 1#32
+-- END R6-2
 
 /-! ## Timer (Count / Compare) -/
 
@@ -487,17 +572,23 @@ enabled interrupt, that interrupt is taken between the WAIT instruction and the 
 instruction (EPC for the interrupt points at the instruction following the WAIT instruction)",
 MD00086 Vol II-A Rev 6.06, WAIT, p.442). The shadow-set update of §6.2.3 (p.88: "if
 (ArchitectureRevision ≥ 2) and (SRSCtlHSS ≠ 0) and (StatusBEV = 0)") does not apply: `SRSCtl.HSS = 0`
-(`srsCtlValue`). -/
+(`srsCtlValue`). An interrupt is not synchronous to an instruction, so it leaves `BadInstr` and
+`BadInstrP` alone ("The BadInstr register is not set by Interrupts", MD00090 Vol III Rev 6.02
+§9.25, p.179; §9.26, p.181): `sync := false`. -/
 def takeInterrupt (s : State) : State :=
-  { exceptionEntry s excCodeInt with pc := interruptVector s, standby := false }
+  { exceptionEntry s excCodeInt 0#32 false with pc := interruptVector s, standby := false }
 
 /-- **A step in standby** without an enabled interrupt: the processor stays stopped unless a
 request is pending and not masked out (`Cause.IP & Status.IM ≠ 0`, ignoring `IE`, `EXL`, `ERL`),
 which restarts the pipeline: `standby ← false`, and the next step executes the instruction after the
-`wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "It is implementation-dependent whether the pipeline
-restarts when a non-enabled interrupt is requested. In this case, software must poll for the cause
-of the restart"; **pin**: it restarts, the rule Release 6 makes mandatory, `interrupt_pending_and_not_
-masked_out`, p.443, and the restart itself takes the step). -/
+`wait` (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "In Release 6, the behavior of WAIT has been
+modified to make it a requirement that a processor that has disabled operation as a result of
+executing a WAIT will resume operation on arrival of an interrupt even if interrupts are not
+enabled"; the Release 6 Operation, p.442-443, stays in the lower power mode `while
+(!interrupt_pending_and_not_masked_out() && !implementation_dependent_wake_event())`, with
+`interrupt_pending_and_not_masked_out` = `CauseIP & StatusIM` in interrupt compatibility mode; the
+model has no implementation-dependent wake event). The restart itself takes the step; the next one
+executes the instruction after the `wait` (`I+1: ... PC ← PC + 4`). -/
 def standbyStep (s : State) : State :=
   if interruptRequests s != 0#32 then { s with standby := false } else s
 
@@ -523,23 +614,28 @@ def ccResValue : W32 := 1#32
 
 /-- The value of hardware register `rd` (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Operation,
 p.332-333), or `none` if the model does not implement it: 0 `CPUNum` = `EBase.CPUNum` (bits 9..0 of
-`EBase`, which reads 0: one processor), 1 `SYNCI_Step`, 2 `CC` = `Count`, 3 `CCRes`. Not
-implemented: 4 (`PerfCtr`) and 5 (`XNP`) are Release 6; 6..28 are "reserved for future architecture
-use. Access results in a Reserved Instruction Exception"; 29 (`ULR`) reads UserLocal, "if it is
-implemented" (the register is "Pre-Release 6: Recommended", MD00090 Vol III §9.11, p.143, and the
-model has none); 30..31 are implementation-dependent, "If they are not implemented, access results in a
-Reserved Instruction Exception". -/
+`EBase`, which reads 0: one processor), 1 `SYNCI_Step`, 2 `CC` = `Count`, 3 `CCRes`, 5 `XNP` =
+`Config5.XNP` (`xnpValue`; "if (≥2) 5: temp ← Config5XNP endif // Release 6", p.333) and 29 `ULR` =
+`UserLocal` ("In Release 6, the UserLocal register is required", MD00090 Vol III Rev 6.02 Table 9.40,
+p.176). Not implemented: 4 (`PerfCtr`, "Required if any PerfCnt register is implemented", none:
+`Config1.PC = 0`); 6..28 are "reserved for future architecture use. Access results in a Reserved
+Instruction Exception"; 30..31 are implementation-dependent, "If they are not implemented, access
+results in a Reserved Instruction Exception". -/
 def hwrValue (s : State) (rd : W32) : Option W32 :=
   match rd.toNat with
   | 0 => some (ebaseValue s &&& 0x3FF#32)
   | 1 => some synciStepValue
   | 2 => some s.cp0Count
   | 3 => some ccResValue
+  -- BEGIN R6-2
+  | 5 => some xnpValue
+  | 29 => some s.cp0UserLocal
+  -- END R6-2
   | _ => none
 
 /-- **`rdhwr` access to register `rd` is allowed** (MD00086 Vol II-A Rev 6.06, RDHWR, Restrictions,
 p.333): "Access to the specified hardware register is enabled if Coprocessor 0 is enabled, or if the
-corresponding bit is set in the HWREna register" — `cp0Usable s` (Kernel Mode or `Status.CU0 = 1`,
-MD00090 Vol III §3.5.3, p.23), or bit `rd` of `HWREna`. -/
+corresponding bit is set in the HWREna register" — `cp0Usable s` (Kernel Mode, MD00090 Vol III
+§3.5.3, p.23; Release 6 has no `CU0`), or bit `rd` of `HWREna`. -/
 def rdhwrAllowed (s : State) (rd : W32) : Bool :=
   cp0Usable s || (s.cp0HWREna >>> rd) &&& 1#32 != 0#32

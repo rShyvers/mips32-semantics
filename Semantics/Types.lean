@@ -134,9 +134,9 @@ structure State where
   a pre-Release 6 profile would add the `nullified` marker back.) -/
   pendingBranch : Option W32 := none
   /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
-  Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure), by `eret`,
-  and by every exception entry ("Exceptions between the LL and SC cause SC
-  to fail"). Pinned model choice: every store-class
+  Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure) and by `eret` ("An
+  ERET instruction is executed. (Release 5 includes ERETNC, which will not cause the SC to fail.)",
+  SC p.347); exception entry and `eretnc` leave it alone. Pinned model choice: every store-class
   instruction (`sb`, `sh`, `sw`, `swc1`, `sdc1`) also clears it. MD00086 "SC": when a memory access instruction (load, store or
   prefetch) executes on the same processor between `ll` and `sc`, "the SC
   may succeed or it may fail; the success or failure is not predictable".
@@ -160,13 +160,15 @@ structure State where
     processor is in User Mode iff `UM = 1`, `EXL = 0` and `ERL = 0`
     (`userMode`, `Step.lean`; Vol III §3.2-3.4, p.21-22).
   * `BEV` (bit 22) — selects the bootstrap exception vector; set by Reset.
-  * `CU0` (bit 28) — coprocessor 0 usable outside Kernel Mode (`cp0Usable`).
+  * `RW` (bit 28) — in Release 6 a software bit "written by software without side-effects"
+    (Table 9.47, p.190); before Release 6 it was `CU0`. Coprocessor 0 is usable in Kernel Mode only
+    (`cp0Usable`).
   * `CU1` (bit 29) — coprocessor 1 usable. When it is 0 every COP1
     instruction and `lwc1`/`swc1`/`ldc1`/`sdc1` raises
     Coprocessor Unusable (MD00090 Vol III Rev 6.02 §6.2.22, p.100).
 
   **Not modeled** (read as zero, writes ignored, as Table 9.47 requires for an
-  unimplemented field): `CU2`, `CU3`, `RP`, `FR`, `RE`, `MX`, `TS`, `SR`,
+  unimplemented or Release 6 reserved field): `CU2`, `CU3`, `RP`, `FR`, `RE`, `MX`, `TS`, `SR`,
   `NMI`, `ASE`, `Impl`. -/
   cp0Status : W32
   /-- Coprocessor 0 `Cause` (register 13, sel 0). Exception entry writes
@@ -267,6 +269,35 @@ structure State where
   restarts (`Step.lean`, `step`) and by the Reset exception ("The assertion of any reset or NMI must
   restart the pipeline", p.442). `false` at power-on. -/
   standby : Bool := false
+  -- BEGIN R6-2
+  /-- Coprocessor 0 `UserLocal` (register 4, select 2; MD00090 Vol III Rev 6.02 §9.11, Table 9.19,
+  p.143): "a read-write register that is not interpreted by the hardware and conditionally readable
+  via the RDHWR instruction"; "For Release 6, this register is mandatory". Read/Write, reset state
+  "Undefined" (pinned to `0` at power-on; the Reset exception does not change it). Readable with
+  `rdhwr` register 29 (`ULR`). -/
+  cp0UserLocal : W32 := 0#32
+  /-- Coprocessor 0 `BadInstr` (register 8, select 1; MD00090 Vol III Rev 6.02 §9.25, Table 9.42,
+  p.179): "capture the most recent instruction which caused one of the following exceptions"
+  (Coprocessor Unusable, Reserved Instruction, Integer Overflow, Trap, System Call, Breakpoint,
+  Floating-Point, Address Error, ...); "not set by Interrupts". Read-only, "Release 6 - Required".
+  Written by `exceptionEntry`. Pinned to `0` at power-on. -/
+  cp0BadInstr : W32 := 0#32
+  /-- Coprocessor 0 `BadInstrP` (register 8, select 2; MD00090 Vol III Rev 6.02 §9.26, Table 9.43,
+  p.181): "contains the prior branch instruction, when the faulting instruction is in a branch delay
+  slot", updated for the same exceptions as `BadInstr`. Read-only, "Release 6 - Required". Written by
+  `exceptionEntry`. Pinned to `0` at power-on. -/
+  cp0BadInstrP : W32 := 0#32
+  /-- Coprocessor 0 `KScratch1..6` (register 31, selects 2..7; MD00090 Vol III Rev 6.02 §9.70,
+  Table 9.84, p.311): "read/write registers available for scratch pad storage by kernel mode
+  software", "Release 6 - Required". Index `k` is `KScratch(k+1)` at select `k + 2`. Reset state
+  "Undefined" (pinned to `0` at power-on; the Reset exception does not change them). -/
+  cp0KScratch : Fin 6 → W32 := fun _ => 0#32
+  /-- `Config5.SBRI` (register 16, select 5, bit 6; MD00090 Vol III Rev 6.02 §9.50, Table 9.69,
+  p.263): "SDBBP instruction Reserved Instruction control", Read/Write, reset state 0, "Required
+  (Release 6)". The model has no EJTAG and `SDBBP` is subsetted out (it raises Reserved Instruction
+  whatever this bit holds), so the bit is stored and read back with no other effect. -/
+  cp0Config5SBRI : Bool := false
+  -- END R6-2
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
@@ -329,8 +360,8 @@ def excCodeBp : W32 := 9
 /-- Reserved Instruction. -/
 def excCodeRI : W32 := 10
 /-- Coprocessor Unusable: a coprocessor-1 instruction with `Status.CU1 = 0`, a
-coprocessor-2 encoding, or a coprocessor-0 instruction outside Kernel Mode with
-`Status.CU0 = 0` (MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
+coprocessor-2 encoding, or a coprocessor-0 instruction outside Kernel Mode
+(MD00090 Vol III Rev 6.02 §6.2.22, p.100; Release 6 has no `CU0`). -/
 def excCodeCpU : W32 := 11
 /-- Integer Overflow (`add`/`sub`). -/
 def excCodeOv : W32 := 12
@@ -356,18 +387,22 @@ def statusImMask : W32 := 0xff00
 def statusBevMask : W32 := 0x00400000
 /-- `Status.CU1` (bit 29). -/
 def statusCu1Mask : W32 := 0x20000000
-/-- `Status.CU0` (bit 28): coprocessor 0 usable outside Kernel Mode
-(MD00090 Vol III Rev 6.02 Table 9.47, p.190: R/W, reset Undefined, "Required for
-all implemented coprocessors (Pre-Release 6)"). -/
+/-- `Status` bit 28. Before Release 6 it was `CU0` (coprocessor 0 usable outside Kernel Mode). In
+Release 6 the CU field is `CU3..CU1` (bits 31..29) and bit 28 is `RW`: "Read/write field. This bit
+can be written by software without side-effects. A use case is for the kernel to set this bit to
+signify that the exception condition is due to user code" (MD00090 Vol III Rev 6.02 Table 9.47,
+p.190, an image page read in the PDF; R/W, reset Undefined, "Required (Release 6)"). It is stored and
+read back and enables nothing (`cp0Usable`). -/
 def statusCu0Mask : W32 := 0x10000000
 /-- `Status.UM` (bit 4): base mode User when 1 (MD00090 Vol III Rev 6.02
 Table 9.47, p.195: R/W, reset Undefined, Required when Supervisor Mode is not
 implemented). -/
 def statusUmMask : W32 := 0x10
 /-- The `Status` bits `mtc0` can write: `IE`, `EXL`, `ERL`, `UM`, `IM7..IM0`,
-`BEV`, `CU0`, `CU1`. Every other bit reads as zero (bit 3, `R0`, "must be
+`BEV`, `RW` (bit 28, Release 6), `CU1`. Every other bit reads as zero (bit 3, `R0`, "must be
 ignored on write and read as zero" when Supervisor Mode is not implemented,
-Table 9.47 p.195). -/
+Table 9.47 p.195; `RP` (27) and `TS` (21) are reserved 0 in Release 6, p.190, p.193; `SR`/`NMI`:
+"For Release 6, hardware ignores a write of 1", p.193-194). -/
 def statusWriteMask : W32 := 0x3040ff17
 
 /-- `Cause.BD` (bit 31): the exception was taken in a branch delay slot. -/
@@ -434,8 +469,10 @@ IP bit the timer request is merged into (`IntCtl.IPTI = 7` pin, `Step.lean`, `ca
 def causeIp7Mask : W32 := 0x00008000
 
 /-- The bits of `HWREna` (CP0 7,0) that exist: bit `n` enables `rdhwr` register `n` for `n` =
-0 `CPUNum`, 1 `SYNCI_Step`, 2 `CC`, 3 `CCRes`. "If RDHWR register ‘n’ is not implemented, bit ‘n’ of
-this field returns a zero and is ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175):
-registers 4..31 are not implemented (4, 5 are Release 6; 6..28 reserved; 29 `ULR` needs the optional
-UserLocal register; 30, 31 implementation-dependent, none). -/
-def hwrenaWriteMask : W32 := 0x0000000F
+0 `CPUNum`, 1 `SYNCI_Step`, 2 `CC`, 3 `CCRes`, 5 `XNP` and 29 `ULR` (MD00090 Vol III Rev 6.02
+Table 9.40, p.176: 5 "Required (Release 6)"; 29: "In Release 6, the UserLocal register is
+required"). "If RDHWR register ‘n’ is not implemented, bit ‘n’ of this field returns a zero and is
+ignored on a write" (Table 9.39, p.175): 4 (`PerfCnt`, "Required if any PerfCnt register is
+implemented", none here: `Config1.PC = 0`), 6..28 (reserved) and 30, 31 (implementation-dependent,
+none) are not implemented. -/
+def hwrenaWriteMask : W32 := 0x2000002F

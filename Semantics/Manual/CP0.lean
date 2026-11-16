@@ -36,15 +36,22 @@ running in user mode" (Table 9.47, p.192, "Optional (Pre-Release 6)"). Not imple
 profile, so it reads 0 whatever the register holds ("If this bit is not implemented, it must be
 ignored on write and read as zero", p.192). -/
 def StatusRE (_a : Arch) : Bool := false
-/-- `StatusCU0` (bit 28). -/
-def StatusCU0 (a : Arch) : Bool := bit a.Status 28
+/-- `StatusCU0`: coprocessor 0 usable outside Kernel Mode. Release 6 has no such bit: the CU field is
+`CU3..CU1` (bits 31..29) and bit 28 is `RW`, "Read/write field. This bit can be written by software
+without side-effects" (Table 9.47, p.190, an image page read in the PDF; `CU0` there is "Required for
+all implemented coprocessors (Pre-Release 6)"). So `CU0` reads 0 on this profile whatever bit 28
+holds. -/
+def StatusCU0 (_a : Arch) : Bool := false
 /-- `StatusCU1` (bit 29). -/
 def StatusCU1 (a : Arch) : Bool := bit a.Status 29
 
-/-- **The R/W bits of Status** on this profile (Table 9.47, p.189-196): `CU1`, `CU0` (29, 28), `BEV`
-(22), `IM7..IM0` (15..8), `UM` (4), `ERL` (2), `EXL` (1), `IE` (0). `CU3`/`CU2` (no coprocessors 2,
-3), `RP`, `FR` (32-bit FPU, reads 0), `RE`, `MX`, `TS`, `SR`, `NMI`, `ASE`, `Impl` are not implemented:
-"returns zero on read ... ignored on write"; `R0` (3) reads 0. -/
+/-- **The R/W bits of Status** on this profile (Table 9.47, p.189-196): `CU1` (29), `RW` (28, Release
+6, p.190), `BEV` (22), `IM7..IM0` (15..8), `UM` (4), `ERL` (2), `EXL` (1), `IE` (0). `CU3`/`CU2` (no
+coprocessors 2, 3), `FR`, `MX`, `ASE`, `Impl` are not implemented: "returns zero on read ... ignored
+on write"; `RP` (27), `RE` (25) and `TS` (21) are reserved 0 in Release 6 (p.190, 192, 193); `SR`
+(20) and `NMI` (19): "For Release 6, hardware ignores a write of 1" (p.193-194), and neither a Soft
+Reset nor an NMI exists here, so they read 0; `R0` (3) reads 0.
+-- W5: `FR` (26) is read-only 1 with the 64-bit FPU of this profile (Table 9.47, p.191). -/
 def StatusWritable : W32 := bitsSet [0, 1, 2, 4, 22, 28, 29] ||| fieldOnes 15 8
 
 /-! ## Operating modes (§3.2-§3.4, p.21-22) -/
@@ -59,7 +66,8 @@ bits in the Status register are both 0." -/
 def UserMode (a : Arch) : Bool := StatusUM a && !StatusEXL a && !StatusERL a
 
 /-- **Coprocessor 0 is usable** (§3.5.3, p.23): "The processor is running in Kernel Mode or Debug
-Mode ... The CU0 bit in the Status register is 1." -/
+Mode ... The CU0 bit in the Status register is 1." Debug Mode is not implemented (no EJTAG) and
+`StatusCU0` reads 0 in Release 6, so this is Kernel Mode. -/
 def CP0Usable (a : Arch) : Bool := KernelMode a || StatusCU0 a
 
 /-! ## Cause (13, 0; §9.36, Table 9.52, p.209-212) -/
@@ -104,31 +112,66 @@ def ConfigRead (i : Impl) (a : Arch) : W32 :=
 /-! ## HWREna (7, 0; §9.23, Table 9.39, p.175) -/
 
 /-- **The R/W bits of HWREna**: one per implemented `RDHWR` register, 0..3 (`CPUNum`, `SYNCI_Step`,
-`CC`, `CCRes`); "Each bit in this field enables access by the RDHWR instruction to a particular
-hardware register"; unimplemented bits read 0 and ignore writes (Table 9.39, p.175). -/
-def HWREnaWritable : W32 := fieldOnes 3 0
+`CC`, `CCRes`), 5 (`XNP`, "Required (Release 6)") and 29 (`ULR`, "In Release 6, the UserLocal register
+is required") (Table 9.40, p.176); "Each bit in this field enables access by the RDHWR instruction to a
+particular hardware register"; unimplemented bits (4 `PerfCnt`: no performance counters; 6..28; 30,
+31) read 0 and ignore writes (Table 9.39, p.175). -/
+def HWREnaWritable : W32 := fieldOnes 3 0 ||| bitsSet [5, 29]
+
+/-! ## Config4, Config5 (16, 4 and 16, 5; §9.49, §9.50) -/
+
+/-- **Config5 as software reads it** (Table 9.69, p.259-264): the implementation's read-only fields
+with the R/W `SBRI` (bit 6). -/
+def Config5Read (i : Impl) (a : Arch) : W32 :=
+  i.Config5Fixed ||| (if a.Config5SBRI then 1#32 <<< 6 else 0#32)
+
+/-! ## LLAddr (17, 0; §9.52, Table 9.72, p.269-270) -/
+
+/-- **LLAddr as software reads it** (Table 9.72, p.270): `LLB` (bit 0) is the `LLbit` ("This field
+allows the LLbit to be software accessible"); `PAddr` (31..1) "encodes the physical address read by
+the most recent Load Linked instruction. The format of this register is implementation-dependent, and
+an implementation may implement as many of the bits or format the address in any way that it finds
+convenient", and "For the unimplemented address bits, writes are ignored and reads return zero". The
+profile implements none of the address bits (`modelImpl`'s choice is made here, in the spec: an
+implementation that implements some of them is outside this profile), so they read 0. -/
+def LLAddrRead (a : Arch) : W32 := if a.LLbit then 1#32 else 0#32
 
 /-! ## `CPR[0, reg, sel]` -/
 
 /-- **`IsCoprocessorRegisterImplemented(0, reg, sel)`** (MD00086 Vol II-A Rev 6.06, MTC0, p.290) on
-this profile: `HWREna` (7,0), `BadVAddr` (8,0), `Count` (9,0), `Compare` (11,0), `Status` (12,0),
-`IntCtl` (12,1), `SRSCtl` (12,2), `Cause` (13,0), `EPC` (14,0), `PRId` (15,0), `EBase` (15,1),
-`Config` (16,0), `Config1` (16,1), `Config2` (16,2), `Config3` (16,3), `ErrorEPC` (30,0). Config3
-is "Required if any optional feature described by this register is implemented: Release 2 of the
-Architecture, ..." (MD00090 Vol III Rev 6.02 §9.48, p.245) and Config2 is "Required if ... the
-Config3 register is required" (§9.47, p.241). Every other register is optional and absent
-(docs/spec/COMPLIANCE.md §A). -/
+this profile (MD00090 Vol III Rev 6.02 Table 9.1, p.111ff): `UserLocal` (4,2; "Release 6: Required",
+§9.11, p.143), `HWREna` (7,0), `BadVAddr` (8,0), `BadInstr` (8,1) and `BadInstrP` (8,2) ("Release 6 -
+Required", §9.25-9.26, p.179-181), `Count` (9,0), `Compare` (11,0), `Status` (12,0), `IntCtl` (12,1),
+`SRSCtl` (12,2), `Cause` (13,0), `EPC` (14,0), `PRId` (15,0), `EBase` (15,1), `Config` (16,0),
+`Config1`..`Config5` (16,1..5; Config4 and Config5 are required by `Config3.M`/`Config4.M` = 1 and
+"Required (Release 6)" fields), `LLAddr` (17,0; "Required in Release 6", §9.52, p.269), `ErrorEPC`
+(30,0), `KScratch1..6` (31,2..7; "Release 6 - Required", §9.70, p.311). The TLB registers of a Fixed
+Mapping MMU are not implemented ("For Release 6, writes to these registers are ignored, reads return 0
+as if the registers were Reserved for Architecture", Appendix A.1.3, p.317), nor is any register of a
+feature this profile does not have. -/
 def IsCoprocessorRegisterImplemented (reg sel : Nat) : Bool :=
   match reg, sel with
-  | 7, 0 | 8, 0 | 9, 0 | 11, 0 | 12, 0 | 12, 1 | 12, 2 | 13, 0 | 14, 0 | 15, 0 | 15, 1 | 16, 0
-  | 16, 1 | 16, 2 | 16, 3 | 30, 0 => true
+  | 4, 2 | 7, 0 | 8, 0 | 8, 1 | 8, 2 | 9, 0 | 11, 0 | 12, 0 | 12, 1 | 12, 2 | 13, 0 | 14, 0 | 15, 0
+  | 15, 1 | 16, 0 | 16, 1 | 16, 2 | 16, 3 | 16, 4 | 16, 5 | 17, 0 | 30, 0
+  | 31, 2 | 31, 3 | 31, 4 | 31, 5 | 31, 6 | 31, 7 => true
   | _, _ => false
+
+/-- A cacheability field written with `v`: "For Release 6, writes of unsupported values are
+ignored" (Table 9.64, p.233, 235). -/
+def CCAWrite (i : Impl) (old v : BitVec 3) : BitVec 3 := if i.CCASupported v then v else old
+
+/-- `KScratch` with register `k` replaced by `v`. -/
+def updateKScratch (f : Fin 6 → W32) (k : Fin 6) (v : W32) : Fin 6 → W32 :=
+  fun j => if j = k then v else f j
 
 /-- **`CPR[0, reg, sel] ← data`** for an implemented register, field by field: R/W fields take the
 written bits, read-only fields ignore the write (each register's field table). A write to `Compare`
-"as a side effect, clears the timer interrupt" (§9.30, p.187). -/
-def CPRWrite (reg sel : Nat) (data : W32) (a : Arch) : Arch :=
+"as a side effect, clears the timer interrupt" (§9.30, p.187). `Config.K23`/`KU`/`K0` ignore an
+unsupported value (`CCAWrite`). `LLAddr.LLB` "can be cleared by software but cannot be set" (Table
+9.72, p.270). `Config5`: only `SBRI` (bit 6) is R/W here. -/
+def CPRWrite (i : Impl) (reg sel : Nat) (data : W32) (a : Arch) : Arch :=
   match reg, sel with
+  | 4, 2 => { a with UserLocal := data }
   | 7, 0 => { a with HWREna := data &&& HWREnaWritable }
   | 9, 0 => { a with Count := data }
   | 11, 0 => { a with Compare := data, CauseTI := false }
@@ -136,16 +179,29 @@ def CPRWrite (reg sel : Nat) (data : W32) (a : Arch) : Arch :=
   | 13, 0 => { a with Cause := (a.Cause &&& ~~~CauseWritable) ||| (data &&& CauseWritable) }
   | 14, 0 => { a with EPC := data }
   | 15, 1 => { a with EBase := (1#32 <<< 31) ||| (data &&& fieldOnes 29 12) }
-  | 16, 0 => { a with ConfigK0 := data.extractLsb' 0 3, ConfigK23 := data.extractLsb' 28 3,
-                      ConfigKU := data.extractLsb' 25 3 }
+  | 16, 0 => { a with ConfigK0 := CCAWrite i a.ConfigK0 (data.extractLsb' 0 3),
+                      ConfigK23 := CCAWrite i a.ConfigK23 (data.extractLsb' 28 3),
+                      ConfigKU := CCAWrite i a.ConfigKU (data.extractLsb' 25 3) }
+  | 16, 5 => { a with Config5SBRI := bit data 6 }
+  | 17, 0 => { a with LLbit := a.LLbit && bit data 0 }
   | 30, 0 => { a with ErrorEPC := data }
-  | _, _ => a   -- BadVAddr, IntCtl, SRSCtl, PRId, Config1, Config2, Config3: read-only on this profile
+  | 31, 2 => { a with KScratch := updateKScratch a.KScratch 0 data }
+  | 31, 3 => { a with KScratch := updateKScratch a.KScratch 1 data }
+  | 31, 4 => { a with KScratch := updateKScratch a.KScratch 2 data }
+  | 31, 5 => { a with KScratch := updateKScratch a.KScratch 3 data }
+  | 31, 6 => { a with KScratch := updateKScratch a.KScratch 4 data }
+  | 31, 7 => { a with KScratch := updateKScratch a.KScratch 5 data }
+  -- BadVAddr, BadInstr, BadInstrP, IntCtl, SRSCtl, PRId, Config1..Config4: read-only on this profile
+  | _, _ => a
 
 /-- **The value of `CPR[0, reg, sel]`** for an implemented register. -/
 def CPRRead (i : Impl) (reg sel : Nat) (a : Arch) : W32 :=
   match reg, sel with
+  | 4, 2 => a.UserLocal
   | 7, 0 => a.HWREna
   | 8, 0 => a.BadVAddr
+  | 8, 1 => a.BadInstr
+  | 8, 2 => a.BadInstrP
   | 9, 0 => a.Count
   | 11, 0 => a.Compare
   | 12, 0 => a.Status
@@ -159,7 +215,16 @@ def CPRRead (i : Impl) (reg sel : Nat) (a : Arch) : W32 :=
   | 16, 1 => i.Config1
   | 16, 2 => i.Config2
   | 16, 3 => i.Config3
+  | 16, 4 => i.Config4
+  | 16, 5 => Config5Read i a
+  | 17, 0 => LLAddrRead a
   | 30, 0 => a.ErrorEPC
+  | 31, 2 => a.KScratch 0
+  | 31, 3 => a.KScratch 1
+  | 31, 4 => a.KScratch 2
+  | 31, 5 => a.KScratch 3
+  | 31, 6 => a.KScratch 4
+  | 31, 7 => a.KScratch 5
   | _, _ => 0#32
 
 end Manual

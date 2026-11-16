@@ -7,8 +7,8 @@ import Semantics.FpOps
 
 * `Impl` holds the **implementation-dependent constants and rates** that the manual leaves to the
   implementation but that are then fixed for that implementation (the rate of `Count`, `PRId`, the
-  read-only parts of `Config`, `Config1`, `Config2`, `Config3`, `IntCtl`, `SRSCtl`, `CCRes`, `SYNCI_Step`, whether `WAIT`
-  restarts on a request that is not enabled).
+  read-only parts of `Config`, `Config1`..`Config5`, `IntCtl`, `SRSCtl`, `CCRes`, `SYNCI_Step`, the
+  cacheability attributes `Config.K0`/`KU`/`K23` accept).
 * `Oracle` has **one field for each place where the manual allows several outcomes** (UNPREDICTABLE,
   UNDEFINED, "may succeed or may fail", "loaded, but not defined"). The spec takes an oracle as an
   argument; the manual's relation `Manual.Step` quantifies over all of them (`docs/MANUAL-SPEC.md`).
@@ -66,6 +66,19 @@ structure Impl where
   /-- `Config3` (16, 3; Vol III §9.48, Table 9.67, p.245-251): "All fields in the Config3 register
   are read-only" (p.245). -/
   Config3 : W32
+  -- BEGIN R6-2
+  /-- `Config4` (16, 4; Vol III §9.49, Table 9.68, p.253-258), read-only on this profile (its only
+  R/W field, the FTLB page size, needs an FTLB). -/
+  Config4 : W32
+  /-- The read-only part of `Config5` (16, 5; Vol III §9.50, Table 9.69, p.259-264): every bit but
+  the R/W `SBRI` (bit 6), which must be 0 here; the other R/W fields (`K`, `CV`, `MSAEn`, `UFE`,
+  `FRE`, `UFR`) belong to features this profile does not have and are 0 (`Impl.WF`). -/
+  Config5Fixed : W32
+  /-- The cacheability and coherency attributes `Config.K0`, `KU`, `K23` accept: "For Release 6,
+  writes of unsupported values are ignored" (Vol III Table 9.64, p.233, 235); which encodings are
+  supported is implementation-dependent beyond the "Required" 2 and 3 of Table 9.12 (p.133). -/
+  CCASupported : BitVec 3 → Bool
+  -- END R6-2
   /-- `IntCtl` (12, 1; Vol III §9.33, Table 9.48, p.199-201), read-only here; `VS` = 0 is required
   by `Impl.WF`. -/
   IntCtl : W32
@@ -76,10 +89,6 @@ structure Impl where
   CCRes : W32
   /-- `RDHWR` register 1, `SYNCI_Step` (RDHWR, Table 5.4, p.332). -/
   SYNCIStep : W32
-  /-- `WAIT` restarts the pipeline on a request that is pending and not masked out by `IM` even when
-  interrupts are not enabled (MD00086 Vol II-A Rev 6.06, WAIT, p.442: "It is implementation-dependent
-  whether the pipeline restarts when a non-enabled interrupt is requested"). -/
-  WaitRestartsOnNotEnabled : Bool
   -- 7B S2
   /-- `SYNCI` from User Mode with an effective address in kernel address space signals Address Error
   (AdEL): "An Address Error Exception (with cause code equal AdEL) may occur if the effective address
@@ -135,12 +144,6 @@ inductive AbsNegNaN where
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
 need it (later sub-waves add fields as they transcribe more pages). -/
 structure Oracle where
-  /-- `MTC0`/`MFC0` of a register `(rd, sel)` that coprocessor 0 does not contain: "Pre-Release 6:
-  The results are UNDEFINED if coprocessor 0 does not contain a register as specified by rd and sel"
-  (MD00086 Vol II-A Rev 6.06, MTC0, Restrictions, p.290; MFC0 p.266).
-  -- W2: the Release 6 reading (MFC0 p.266, MTC0 p.290: a reserved or unimplemented register reads 0,
-  -- writes are ignored) replaces this choice. -/
-  cp0Undefined : Arch → Instruction → Outcome
   /-- A store executed between `LL` and `SC` (by this processor): "A coherent store is executed
   between an LL and SC sequence on the same processor to the block of synchronizable physical memory
   containing the word (if Config5LLB=1; else whether such a store causes the SC to fail is not
@@ -226,6 +229,17 @@ structure Oracle where
   cvtQNaNToD : W32 → BitVec 64
   /-- The QNaN that `CVT.S.D` delivers for a QNaN operand (as `cvtQNaNToD`, §6.3.1.5, p.82). -/
   cvtQNaNToS : BitVec 64 → W32
+  -- BEGIN R6-2
+  /-- `BadInstr` after a synchronous exception without a valid instruction word: "When a synchronous
+  exception occurs for which there is no valid instruction word (for example TLB Refill - Instruction
+  Fetch), the value stored in BadInstr is UNPREDICTABLE" (MD00090 Vol III Rev 6.02 §9.25, p.179); on
+  this profile, an instruction fetch that signals Address Error. -/
+  badInstrNoWord : Arch → W32
+  /-- `BadInstrP` after a synchronous exception outside a branch delay slot: "When a synchronous
+  exception occurs and the faulting instruction is not in a branch delay slot, then the value stored
+  in BadInstrP is UNPREDICTABLE" (MD00090 Vol III Rev 6.02 §9.26, p.181). -/
+  badInstrP : Arch → W32
+  -- END R6-2
 
 /-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only, no
 caches and none of the features `Config3` describes; an `Impl` describes such a processor when:
@@ -238,13 +252,25 @@ caches and none of the features `Config3` describes; an `Impl` describes such a 
 * `IntCtl.VS = 0` (bits 9..5): "If neither EIC interrupt mode nor VI mode are implemented
   (Config3VEIC = 0 and Config3VInt = 0), this field is ignored on write and reads as zero" (Table
   9.48, p.201); `Config3.VEIC = Config3.VInt = 0` follows from the next item.
-* `Config3 = 0`: the profile is Release 6 (a release after Release 2), so Config3 exists ("Required if any optional feature
-  described by this register is implemented: Release 2 of the Architecture, ...", Vol III §9.48,
-  p.245), and every field of it flags a feature the spec does not have (Table 9.67, p.245-251:
-  Config4, CM GCR space, MSA, BadInstr/BadInstrP, Segment Control, page table walk, VZ, the MCU ASE,
-  microMIPS (`ISA`, `ISAOnExc`, `MMAR`), UserLocal, RI/XI, DSP, ContextConfig, IFlowtrace, XPA,
-  EIC and vectored interrupts, small pages, CDMM, MT, SmartMIPS, trace logic). Its fields are all
-  read-only (p.245), so `CPRWrite` ignores a write.
+* `Config3 = 0x8C00_3000`: the profile is Release 6, so Config3 exists ("Required if any optional
+  feature described by this register is implemented: Release 2 of the Architecture, ...", Vol III
+  §9.48, p.245) with the fields Release 6 fixes: `M` = 1 (Config4 present, p.245), `BP` = `BI` = 1
+  ("Release 6: BadInstrP/BadInstr is always implemented", p.246), `ULRI` = 1 ("Release 6: UserLocal is
+  always implemented", p.248), `RXI` = 1 ("Release 6: The RIE and XIE bits are always implemented",
+  p.248); every other field flags a feature the spec does not have (CM GCR space, MSA, Segment
+  Control, page table walk, VZ, the MCU ASE, microMIPS (`ISA`, `ISAOnExc`, `MMAR`), DSP,
+  ContextConfig, IFlowtrace, XPA, EIC and vectored interrupts, small pages, CDMM, MT, SmartMIPS, trace
+  logic) and is 0. Its fields are all read-only (p.245), so `CPRWrite` ignores a write.
+* `Config4 = 0x80FC_0000` (§9.49, Table 9.68, p.253-258): `M` = 1 (Config5 present), `KScrExist` =
+  `0xFC` ("For Release 6, bits 2-7 are always 1 because KScratch1-6 must be implemented", select 1
+  "preset to zero", select 0 zero without EJTAG, p.255), and no TLB fields (`IE`, `AE`, `VTLBSizeExt`,
+  FTLB: the Fixed Mapping MMU has no TLB).
+* `Config5Fixed = 0x0000_2010` (§9.50, Table 9.69, p.259-264): `XNP` = 1 (no LLX/SCX family, p.261),
+  `LLB` = 1 ("In Release 6, Config5LLB is read-only 1", p.264), `DEC` = 0 (little-endian only, p.261),
+  `L2C` = 0 (Config2 present), `M` = 0 (p.260); the R/W `SBRI` (bit 6) is state (`Arch.Config5SBRI`),
+  and the R/W fields of absent features (`K`, `CV`, `MSAEn`, `UFE`, `FRE`, `UFR`) are 0.
+* `CCASupported 2 = CCASupported 3 = true`: the two cacheability attributes Table 9.12 (Vol III p.133)
+  marks "Required" are accepted.
 * `Config2.M = 1` ("If the Config3 register is implemented, this bit should read as a 1", §9.47,
   Table 9.66, p.241; Config2 is "Required if ... the Config3 register is required", p.241), no level
   2 or 3 cache (`SL` = `TL` = 0, "No cache present", p.242-243), and the implementation-specific R/W
@@ -254,7 +280,12 @@ caches and none of the features `Config3` describes; an `Impl` describes such a 
   Table 9.65, p.237). -/
 def Impl.WF (i : Impl) : Prop :=
   i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5 ∧
-  i.Config3 = 0#32 ∧ i.Config2 &&& 0xF0F0F0F0#32 = 0x80000000#32 ∧ i.Config1.extractLsb' 31 1 = 1#1
+  i.Config3 = 0x8C003000#32 ∧ i.Config2 &&& 0xF0F0F0F0#32 = 0x80000000#32 ∧
+  i.Config1.extractLsb' 31 1 = 1#1 ∧
+  -- BEGIN R6-2
+  i.Config4 = 0x80FC0000#32 ∧ i.Config5Fixed = 0x00002010#32 ∧
+  i.CCASupported 2#3 = true ∧ i.CCASupported 3#3 = true
+  -- END R6-2
 
 instance (i : Impl) : Decidable i.WF := by unfold Impl.WF; infer_instance
 
@@ -288,21 +319,26 @@ def Impl.RecipAccurate (i : Impl) : Prop :=
 instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_0980`
 (`M = 1`, `BE = 0` little-endian, `AT = 0`, `AR = 2` Release 6, `MT = 3`; MD00090 Vol III Rev 6.02
 §9.45, Table 9.64, p.234: BE "0 Little endian", AR "2 Release 6"); `Config1 = 0x8000_0001` (`M = 1`, `FP = 1`);
-`Config2 = 0x8000_0000` (`M = 1`, no L2/L3 cache); `Config3 = 0`; `IntCtl`
-with `IPTI = 7` (`0xE000_0000`), `SRSCtl = 0`; `CCRes = 1`; `SYNCI_Step = 0`; `WAIT` restarts on any
-pending request not masked by `IM`. -/
+`Config2 = 0x8000_0000` (`M = 1`, no L2/L3 cache); `Config3 = 0x8C00_3000`, `Config4 = 0x80FC_0000`,
+`Config5` read-only part `0x0000_2010` (the Release 6 fields, `Impl.WF`); `IntCtl`
+with `IPTI = 7` (`0xE000_0000`), `SRSCtl = 0`; `CCRes = 1`; `SYNCI_Step = 0`; the cacheability
+attributes 2 and 3 only (the "Required" ones of Vol III Table 9.12, p.133). -/
 def modelImpl : Impl where
   CountIncrement := 1#32
   PRId := 0x00010000#32
   ConfigFixed := 0x80000980#32
   Config1 := 0x80000001#32
   Config2 := 0x80000000#32
-  Config3 := 0#32
+  Config3 := 0x8C003000#32
+  -- BEGIN R6-2
+  Config4 := 0x80FC0000#32
+  Config5Fixed := 0x00002010#32
+  CCASupported := fun v => v == 2#3 || v == 3#3
+  -- END R6-2
   IntCtl := 0xE0000000#32
   SRSCtl := 0#32
   CCRes := 1#32
   SYNCIStep := 0#32
-  WaitRestartsOnNotEnabled := true
   SynciAddressError := false   -- 7B S2: SPEC-NOTES §11
   -- 7B S4 FPU
   FIR := 0x00330000#32
@@ -319,13 +355,12 @@ def modelImpl : Impl where
     let r := Mips.Fp.f64Div e 0x3FF0000000000000#64 q.1
     (r.1, q.2.or r.2)
 
-/-- **The model's choices** (SPEC-NOTES §9): an `MTC0`/`MFC0` of
-a register coprocessor 0 does not contain signals Reserved Instruction; every store clears `LLbit`
+/-- **The model's choices** (SPEC-NOTES §9): every store clears `LLbit`
 (the `LLbit` pin); `Cause.CE` is loaded with 0 for every exception other than Coprocessor Unusable;
 a Reset keeps every register whose reset state is undefined, except `Config.K23 = Config.KU = 2` and
-`LLbit = 0` (SPEC-NOTES, Reset pins). -/
+`LLbit = 0` (SPEC-NOTES, Reset pins); `BadInstr` without an instruction word and `BadInstrP` outside a
+delay slot are 0. -/
 def modelOracle : Oracle where
-  cp0Undefined := fun _ _ => .signal .ReservedInstruction
   storeClearsLL := fun _ => true
   causeCE := fun _ _ => 0#2
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
@@ -362,6 +397,10 @@ def modelOracle : Oracle where
   absNegNaN := .A'
   cvtQNaNToD := fun x => (Mips.Fp.f32ToF64 x).1
   cvtQNaNToS := fun x => (Mips.Fp.f64ToF32 Mips.Fp.Env.RN x).1
+  -- BEGIN R6-2
+  badInstrNoWord := fun _ => 0#32
+  badInstrP := fun _ => 0#32
+  -- END R6-2
 
 /-- `modelImpl` is an implementation of this profile. -/
 theorem modelImpl_WF : modelImpl.WF := by decide

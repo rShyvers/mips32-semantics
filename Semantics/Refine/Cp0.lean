@@ -3,10 +3,10 @@ import Semantics.Refine.BridgeControl
 /-!
 # Refine.Cp0 — coprocessor 0 instructions against `execInstr`
 
-Sub-wave 7A proves the pilot `mtc0`: the Coprocessor Unusable check of the COP0 encoding space
-(MD00090 Vol III Rev 6.02 §6.2.22, p.100), each implemented register's write (`Manual.CPRWrite`
-against the model's arm) and the UNDEFINED case (`Oracle.cp0Undefined`, the model's Reserved
-Instruction).
+The Coprocessor Unusable check of the COP0 encoding space (MD00090 Vol III Rev 6.02 §6.2.22,
+p.100), then each register through the spec's field tables (`Manual.CPRRead`/`CPRWrite`) against the
+model's layout table (`cp0Layout`, `cp0Read`, `cp0Write`); a register neither implements reads 0
+and ignores writes on both sides (Release 6, MFC0 p.266, MTC0 p.290).
 -/
 
 namespace Refine
@@ -26,6 +26,38 @@ theorem mtc0_word (rt rd sel : W32) :
     rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
   simp [InCop0Space, InCop1Space, hop]
 
+-- BEGIN R6-2
+/-! ## The coprocessor 0 register file: the spec's field tables against the model's layout table -/
+
+/-- The registers the spec implements are the ones the model's layout names. -/
+theorem impl_eq_layout (r q : Nat) :
+    IsCoprocessorRegisterImplemented r q = (cp0Layout .r6 r q).isSome := by
+  unfold IsCoprocessorRegisterImplemented
+  split
+  all_goals first
+    | rfl
+    | (unfold cp0Layout; split <;> simp_all)
+
+theorem cprRead_userlocal (s : State) : CPRRead modelImpl 4 2 (abs s) = s.cp0UserLocal := rfl
+theorem cprRead_config4 (s : State) : CPRRead modelImpl 16 4 (abs s) = config4Value := rfl
+
+/-- `Config5` (16, 5): the fixed fields with `SBRI`. -/
+theorem cprRead_config5 (s : State) : CPRRead modelImpl 16 5 (abs s) = config5Value s := by
+  show Config5Read modelImpl (abs s) = config5Value s
+  simp only [Config5Read, config5Value, abs]
+  by_cases h : s.cp0Config5SBRI = true <;> simp only [h, ↓reduceIte] <;> decide
+
+/-- **MFC0's value of a register the layout names**: `CPRRead` is the model's `cp0Read`. -/
+theorem cprRead_layout (s : State) (r q : Nat) (c : Cp0Reg) (h : cp0Layout .r6 r q = some c) :
+    CPRRead modelImpl r q (abs s) = cp0Read s c := by
+  unfold cp0Layout at h
+  split at h <;> cases h <;>
+    first
+      | rfl
+      | exact cprRead_cause s
+      | exact cprRead_ebase s
+      | exact cprRead_config5 s
+
 theorem config_fields (v : W32) :
     v.extractLsb' 0 3 = v.setWidth 3 ∧ v.extractLsb' 28 3 = (v >>> 28).setWidth 3 ∧
       v.extractLsb' 25 3 = (v >>> 25).setWidth 3 := by
@@ -36,7 +68,30 @@ theorem ebase_write (v : W32) :
     (1#32 <<< 31) ||| (v &&& fieldOnes 29 12) = (v &&& ebaseWriteMask) ||| ebaseFixedBits := by
   rw [fieldOnes_29_12, BitVec.or_comm]; rfl
 
-/-- **MTC0 refines.** -/
+theorem bit_and_ne (v : W32) (i : Nat) (h : i < 32) : (v &&& BitVec.twoPow 32 i != 0#32) = bit v i := by
+  rw [and_twoPow_ne _ _ h]; rfl
+
+/-- **MTC0's write to a register the layout names**: `CPRWrite` is the model's `cp0Write`. -/
+theorem cprWrite_layout (s : State) (r q : Nat) (c : Cp0Reg) (v : W32)
+    (h : cp0Layout .r6 r q = some c) :
+    CPRWrite modelImpl r q v (abs s) = abs (cp0Write s v c) := by
+  obtain ⟨hk0, hk23, hku⟩ := config_fields v
+  have h6 : (v &&& 0x40#32 != 0#32) = bit v 6 := by
+    rw [show (0x40#32 : W32) = BitVec.twoPow 32 6 by decide]; exact bit_and_ne v 6 (by omega)
+  have h0 : (v &&& 1#32 != 0#32) = bit v 0 := by
+    rw [show (1#32 : W32) = BitVec.twoPow 32 0 by decide]; exact bit_and_ne v 0 (by omega)
+  unfold cp0Layout at h
+  split at h <;> cases h <;>
+    simp only [CPRWrite, cp0Write, statusWritable_eq, causeWritable_eq, hwrenaWritable_eq,
+      ebase_write, hk0, hk23, hku, h6, h0] <;>
+    first
+      | rfl
+      | (simp only [abs, updateKScratch]; rfl)
+-- END R6-2
+
+/-- **MTC0 refines** (Release 6): a register the spec does not implement ignores the write on both
+sides; an implemented one is written through its field table (`cprWrite_layout`); the UNDEFINED
+`EBase` write with `BEV = 0` proceeds under the model's choice (`Oracle.ebaseWriteBEV0`). -/
 theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
     (hw : enc (.mtc0 rt rd sel) = some w) :
     Execute modelCtx w (.mtc0 rt rd sel) (abs s) = some (abs (execInstr s (.mtc0 rt rd sel))) := by
@@ -47,78 +102,37 @@ theorem mtc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
     rw [this] at hw; exact (Option.some.inj hw).symm
   obtain ⟨hc0, hc1⟩ := mtc0_word rt rd sel
   rw [← hw'] at hc0 hc1
-  have hex : execInstr s (.mtc0 rt rd sel) =
-      (if (!cp0Usable s) = true then takeCop0Unusable s else execBody s (.mtc0 rt rd sel)) := by
-    have h1 : isBranchLike (.mtc0 rt rd sel) = false := rfl
-    have h2 : usesCop1 (.mtc0 rt rd sel) = false := rfl
-    have h3 : usesCop0 (.mtc0 rt rd sel) = true := rfl
-    unfold execInstr; rw [h1, h2, h3]; rfl
-  rw [hex]
-  have hcti : IsCTI (.mtc0 rt rd sel) = false := rfl
-  simp only [Execute, Execute.runOperation, hcti, hc1, hc0, Bool.false_and, Bool.false_eq_true, ite_false,
-    Bool.true_and, cp0usable_abs]
+  rw [execute_cop0 w _ s _ (.inl rfl) hc1 hc0 rfl, execInstr_cop0 s _ (.inl rfl) rfl rfl]
   cases hu : cp0Usable s
-  · simp only [Bool.not_false, ↓reduceIte]
-    rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
-      gep_eq s (.CoprocessorUnusable 0) (by intro h; cases h) (by intro u h; cases h; omega)]
-    rfl
-  · simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
-    have hop : Operation (.mtc0 rt rd sel) = some (Ops.MTC0 rt rd sel) := rfl
-    rw [hop]
-    have hb : execBody s (.mtc0 rt rd sel) =
-      (match rd.toNat, sel.toNat with
-      | 7, 0 => mkNext s { s with cp0HWREna := readReg s (regIdx rt) &&& hwrenaWriteMask }
-      | 8, 0 => mkNext s s
-      | 9, 0 => mkNext s { s with cp0Count := readReg s (regIdx rt) }
-      | 11, 0 => mkNext s { s with cp0Compare := readReg s (regIdx rt), cp0TimerInt := false }
-      | 12, 0 => mkNext s { s with cp0Status := readReg s (regIdx rt) &&& statusWriteMask }
-      | 12, 1 => mkNext s s
-      | 12, 2 => mkNext s s
-      | 13, 0 => mkNext s { s with cp0Cause :=
-                (s.cp0Cause &&& ~~~causeWriteMask) ||| (readReg s (regIdx rt) &&& causeWriteMask) }
-      | 14, 0 => mkNext s { s with cp0Epc := readReg s (regIdx rt) }
-      | 15, 0 => mkNext s s
-      | 15, 1 => mkNext s { s with cp0EBase :=
-                (readReg s (regIdx rt) &&& ebaseWriteMask) ||| ebaseFixedBits }
-      | 16, 0 => mkNext s { s with cp0ConfigK0 := (readReg s (regIdx rt)).setWidth 3,
-                                   cp0ConfigK23 := (readReg s (regIdx rt) >>> 28).setWidth 3,
-                                   cp0ConfigKU := (readReg s (regIdx rt) >>> 25).setWidth 3 }
-      | 16, 1 => mkNext s s
-      | 16, 2 => mkNext s s
-      | 16, 3 => mkNext s s
-      | 30, 0 => mkNext s { s with cp0ErrorEpc := readReg s (regIdx rt) }
-      | _, _ => takeException s excCodeRI) := rfl
-    rw [hb]; clear hb hex hw hw' hc0 hc1 hop hcti
+  · rfl
+  · simp only [↓reduceIte]
+    show _ = some (abs (mkNext s (cp0WriteAt s rd sel (readReg s (regIdx rt)))))
     simp only [Pseudo.run, Ops.MTC0, bind, GPR, readGPR_abs s h0, ← regIdx_eq_reg]
-    obtain ⟨hk0, hk23, hku⟩ := config_fields (readReg s (regIdx rt))
-    generalize readReg s (regIdx rt) = v at *
+    unfold cp0WriteAt
+    rw [show profile.release = .r6 from rfl]
+    generalize readReg s (regIdx rt) = v
     generalize rd.toNat = r
     generalize sel.toNat = q
-    by_cases hI : IsCoprocessorRegisterImplemented r q = true
-    · have hEB : ∀ a d, modelCtx.oracle.ebaseWriteBEV0 a d = .proceed := fun _ _ => rfl
-      simp only [hI, ↓reduceIte, Pseudo.get, Pseudo.oracle, hEB, unpredictableOr, ite_self,
-        Pseudo.modify, complete_plain]
-      split <;> simp only [IsCoprocessorRegisterImplemented] at hI <;>
-        first
-          | (simp only [CPRWrite, mkNext, statusWritable_eq, causeWritable_eq, hwrenaWritable_eq,
-              ebase_write, hk0, hk23, hku]
-             rw [abs_advance _ _ (by rfl)]; rfl)
-          | (exfalso; simp at hI)
-          | (exfalso; revert hI; split <;> simp_all)
-    · have hund : ∀ a i, modelCtx.oracle.cp0Undefined a i = .signal .ReservedInstruction :=
-        fun _ _ => rfl
-      simp only [hI, Bool.false_eq_true, ↓reduceIte, Pseudo.oracle, Pseudo.get, resolve, hund]
-      split
-      all_goals first
-        | (exfalso; apply hI; rfl)
-        | (show some (GeneralExceptionProcessing modelImpl modelOracle .ReservedInstruction (abs s)) = _
-           rw [gep_take s .ReservedInstruction rfl excCodeRI (by decide)])
+    have hI := impl_eq_layout r q
+    cases hl : cp0Layout .r6 r q with
+    | none =>
+      rw [hl] at hI
+      simp only [hI, Option.isSome_none, Bool.false_eq_true, ↓reduceIte, pure, complete_plain,
+        mkNext]
+      rw [abs_advance _ _ rfl]; rfl
+    | some c =>
+      rw [hl] at hI
+      have hEB : ∀ a d, modelCtx.oracle.ebaseWriteBEV0 a d = .proceed := fun _ _ => rfl
+      simp only [hI, Option.isSome_some, ↓reduceIte, Pseudo.get, Pseudo.oracle, Pseudo.impl, hEB,
+        unpredictableOr, ite_self, Pseudo.modify, complete_plain, mkNext,
+        show modelCtx.impl = modelImpl from rfl, cprWrite_layout s r q c v hl]
+      rw [abs_advance _ _ (by cases c <;> rfl)]
+      cases c <;> rfl
 
 -- 7C S3 control + system
 
-/-- **MFC0 refines.** Each implemented register's value is `CPRRead` (`cprRead_*`, one lemma per
-register); a register coprocessor 0 does not contain is UNDEFINED (`Oracle.cp0Undefined`, the
-model's Reserved Instruction). -/
+/-- **MFC0 refines** (Release 6): a register the spec does not implement reads 0 on both sides; an
+implemented one reads `CPRRead`, the model's `cp0Read` (`cprRead_layout`). -/
 theorem mfc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
     (hw : enc (.mfc0 rt rd sel) = some w) :
     Execute modelCtx w (.mfc0 rt rd sel) (abs s) = some (abs (execInstr s (.mfc0 rt rd sel))) := by
@@ -131,49 +145,23 @@ theorem mfc0_refines (s : State) (hg : Good s) (rt rd sel w : W32)
   cases hu : cp0Usable s
   · rfl
   · simp only [↓reduceIte]
-    have hb : execBody s (.mfc0 rt rd sel) =
-      (match rd.toNat, sel.toNat with
-      | 7, 0 => mkNext s (writeReg s (regIdx rt) s.cp0HWREna)
-      | 8, 0 => mkNext s (writeReg s (regIdx rt) s.cp0BadVAddr)
-      | 9, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Count)
-      | 11, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Compare)
-      | 12, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Status)
-      | 12, 1 => mkNext s (writeReg s (regIdx rt) intCtlValue)
-      | 12, 2 => mkNext s (writeReg s (regIdx rt) srsCtlValue)
-      | 13, 0 => mkNext s (writeReg s (regIdx rt) (causeValue s))
-      | 14, 0 => mkNext s (writeReg s (regIdx rt) s.cp0Epc)
-      | 15, 0 => mkNext s (writeReg s (regIdx rt) prIdValue)
-      | 15, 1 => mkNext s (writeReg s (regIdx rt) (ebaseValue s))
-      | 16, 0 => mkNext s (writeReg s (regIdx rt) (configValue s))
-      | 16, 1 => mkNext s (writeReg s (regIdx rt) config1Value)
-      | 16, 2 => mkNext s (writeReg s (regIdx rt) config2Value)
-      | 16, 3 => mkNext s (writeReg s (regIdx rt) config3Value)
-      | 30, 0 => mkNext s (writeReg s (regIdx rt) s.cp0ErrorEpc)
-      | _, _ => takeException s excCodeRI) := rfl
-    rw [hb]; clear hb hw hw' hc0 hc1
+    show _ = some (abs (mkNext s (writeReg s (regIdx rt) (cp0ReadAt s rd sel))))
     simp only [Pseudo.run, Ops.MFC0, bind, Pseudo.impl, Pseudo.get, ← regIdx_eq_reg,
       show modelCtx.impl = modelImpl from rfl]
+    unfold cp0ReadAt
+    rw [show profile.release = .r6 from rfl]
     generalize rd.toNat = r
     generalize sel.toNat = q
-    by_cases hI : IsCoprocessorRegisterImplemented r q = true
-    · simp only [hI, ↓reduceIte, setGPR]
-      split <;> simp only [IsCoprocessorRegisterImplemented] at hI <;>
-        first
-          | (simp only [cprRead_hwrena, cprRead_badvaddr, cprRead_count, cprRead_compare,
-              cprRead_status, cprRead_intctl, cprRead_srsctl, cprRead_cause, cprRead_epc, cprRead_prid,
-              cprRead_ebase, cprRead_config, cprRead_config1, cprRead_config2, cprRead_config3,
-              cprRead_errorepc]
-             exact complete_writeReg s hsz _ _)
-          | (exfalso; simp at hI)
-          | (exfalso; revert hI; split <;> simp_all)
-    · have hund : ∀ a i, modelCtx.oracle.cp0Undefined a i = .signal .ReservedInstruction :=
-        fun _ _ => rfl
-      simp only [hI, Bool.false_eq_true, ↓reduceIte, Pseudo.oracle, resolve, hund]
-      split
-      all_goals first
-        | (exfalso; apply hI; rfl)
-        | (show some (GeneralExceptionProcessing modelImpl modelOracle .ReservedInstruction (abs s)) = _
-           rw [gep_take s .ReservedInstruction rfl excCodeRI (by decide)])
+    have hI := impl_eq_layout r q
+    cases hl : cp0Layout .r6 r q with
+    | none =>
+      rw [hl] at hI
+      simp only [hI, Option.isSome_none, Bool.false_eq_true, ↓reduceIte, setGPR]
+      exact complete_writeReg s hsz _ _
+    | some c =>
+      rw [hl] at hI
+      simp only [hI, Option.isSome_some, ↓reduceIte, setGPR, cprRead_layout s r q c hl]
+      exact complete_writeReg s hsz _ _
 
 /-- `Status` with `IE` cleared/set, the manual's `1#32 <<< 0` against the model's mask. -/
 theorem ie_mask : (1#32 <<< 0 : W32) = statusIeMask := by decide

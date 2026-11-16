@@ -52,6 +52,13 @@ def abs (s : State) : Arch where
   HW := s.hwInt
   LowPower := s.standby
   BranchDelay := s.pendingBranch
+  -- BEGIN R6-2
+  UserLocal := s.cp0UserLocal
+  BadInstr := s.cp0BadInstr
+  BadInstrP := s.cp0BadInstrP
+  KScratch := s.cp0KScratch
+  Config5SBRI := s.cp0Config5SBRI
+  -- END R6-2
 
 /-- **The states the refinement is stated for**: both register files have 32 entries
 (`State.RegFilesWF`, preserved by `step`, `step_preserves_wellFormed`) and `$zero` reads 0 (preserved

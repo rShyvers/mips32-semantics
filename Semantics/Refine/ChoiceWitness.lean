@@ -41,13 +41,16 @@ structure WP where
   anr : AbsNegNaN := .A'
   qd : Bool := true
   qs : Bool := true
+  -- BEGIN R6-2
+  bnw : W32 := 0#32
+  bip : W32 := 0#32
+  -- END R6-2
 
 /-- UNPREDICTABLE / UNDEFINED operations resolved as Reserved Instruction. -/
 def sigRI : Outcome := .signal .ReservedInstruction
 
 /-- **The witness oracle** with value parameters `p` and `Cause.CE` constant `ce`. -/
 def wo (p : WP) (ce : BitVec 2) : Oracle where
-  cp0Undefined := fun _ _ => sigRI
   storeClearsLL := fun _ => p.sc
   causeCE := fun _ _ => ce
   resetUndefined := modelOracle.resetUndefined
@@ -64,10 +67,14 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   absNegNaN := p.anr
   cvtQNaNToD := fun _ => if p.qd then QA64 else QB64
   cvtQNaNToS := fun _ => if p.qs then QA32 else QB32
+  -- BEGIN R6-2
+  badInstrNoWord := fun _ => p.bnw
+  badInstrP := fun _ => p.bip
+  -- END R6-2
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split
@@ -109,6 +116,33 @@ theorem gep_CE (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch) (h
   apply BitVec.eq_of_getLsbD_eq; intro j hj
   have : j = 0 ∨ j = 1 := by omega
   rcases this with rfl | rfl <;> simp
+
+-- BEGIN R6-2
+/-- After the general exception processing for an exception other than the Interrupt outside a delay
+slot, `BadInstrP` is the oracle's (UNPREDICTABLE, MD00090 Vol III Rev 6.02 §9.26, p.181). -/
+theorem gep_badInstrP (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch)
+    (he : e ≠ .Interrupt) (hs : x.BranchDelay.isSome = false) :
+    (GeneralExceptionProcessing i (wo p ce) e x).BadInstrP = p.bip := by
+  have hs' : (AdditionalState e x).BranchDelay.isSome = false := by cases e <;> exact hs
+  simp only [GeneralExceptionProcessing, he, hs', ↓reduceIte, Bool.false_eq_true]
+  rfl
+
+/-- After the general exception processing for an exception other than the Interrupt from a state
+whose fetch fails, `BadInstr` is the oracle's (UNPREDICTABLE, MD00090 Vol III Rev 6.02 §9.25,
+p.179). -/
+theorem gep_badInstr (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch)
+    (he : e ≠ .Interrupt) (hf : FetchOK i x = false) :
+    (GeneralExceptionProcessing i (wo p ce) e x).BadInstr = p.bnw := by
+  simp only [GeneralExceptionProcessing, he, ↓reduceIte]
+  unfold FaultingInstructionWord
+  unfold FetchOK at hf
+  rw [show ({ impl := i, oracle := wo p ce } : Ctx) = ctxOf i (wo p ce) from rfl,
+    fetch_oracleFree (ctxOf i (wo p ce)) (ctxOf i modelOracle)]
+  revert hf
+  cases (InstructionFetch.run (ctxOf i modelOracle) { arch := x }).1 <;> intro hf
+  · cases hf
+  · rfl
+-- END R6-2
 
 /-! ## What two completed instructions are compared on -/
 

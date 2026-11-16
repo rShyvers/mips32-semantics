@@ -33,14 +33,15 @@ file proves:
 * **`rdhwr`**: `rdhwr_spec_raw`; the access rule (`rdhwr_reserved_unimplemented`,
   `rdhwr_reserved_sel`, `rdhwr_reserved_not_enabled`, `rdhwr_allowed`); the register values (`hwrValue_*`).
 
-## Theorems in this file (51)
+## Theorems in this file (54)
 
   `step_eq_timerTick_stepCore` `timerTick_count` `step_timer_match_sets_ti` `timerKept_advance`
   `countEnabled_exceptionEntry` `stepCore_timerKept` `writeMemWord_timerFields` `writeMemHalf_timerFields`
   `writeMemByte_timerFields` `execInstr_timerKept` `execute_timerKept` `step_count_advances`
   `step_count_stopped` `step_timerInt` `mtc0_count_spec` `mtc0_compare_clears_ti`
   `mtc0_compare_no_match_clears_ti` `causeValue_timer` `causeValue_no_timer` `rdhwr_spec_raw`
-  `hwrValue_cpuNum` `hwrValue_synciStep` `hwrValue_cc` `hwrValue_ccRes` `hwrValue_unimplemented`
+  `hwrValue_cpuNum` `hwrValue_synciStep` `hwrValue_cc` `hwrValue_ccRes` `hwrValue_xnp` `hwrValue_ulr`
+  `hwrValue_unimplemented` `cp0Layout_timer`
   `rdhwrAllowed_iff` `rdhwr_reserved_unimplemented` `rdhwr_reserved_sel` `rdhwr_reserved_not_enabled` `rdhwr_allowed`
   `rdhwr_cc_reads_count` `hwrena_write_masked` `resetException_timer` `advance_cp0Count`
   `advance_cp0Compare` `advance_cp0TimerInt` `advance_cp0Cause` `advance_hwInt` `mkNext_eq_advance`
@@ -214,6 +215,15 @@ macro "tk_simp" : tactic => `(tactic|
     writeReg_proj_cp0Cause, writeFpReg_timer, writeFpD_timer, writeMemByte_getD_timer,
     fpFinishS, fpFinishD, and_self, *])
 
+-- BEGIN R6-2
+/-- The timer registers `Count`, `Compare`, `Cause` sit at `(9, 0)`, `(11, 0)`, `(13, 0)` of the CP0
+layout and nowhere else (proof device for `execInstr_timerKept`). -/
+theorem cp0Layout_timer (n m : Nat) (r : Cp0Reg) (h : cp0Layout .r6 n m = some r)
+    (hr : r = .count ∨ r = .compare ∨ r = .cause) : m = 0 ∧ (n = 9 ∨ n = 11 ∨ n = 13) := by
+  unfold cp0Layout at h
+  split at h <;> (try simp only [Option.some.injEq] at h) <;> (try subst h) <;> simp_all
+-- END R6-2
+
 -- 119 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **No instruction other than `mtc0` to `Count`, `Compare` or `Cause` changes `Count`, `Compare`,
@@ -231,7 +241,8 @@ theorem execInstr_timerKept (s : State) (instr : Instruction) (hw : writesTimer 
       · cases instr <;> simp only [writesTimer] at hw <;> exec_unfold <;>
           repeat' (first | (tk_fwd; tk_simp; done) | split | (unfold fpFinishS; dsimp only) |
             (unfold fpThen; dsimp only) | (unfold fpFinishD; dsimp only) |
-            (simp [*] at hw; done))
+            (simp [*] at hw; done) |
+            (rename_i heq; have := cp0Layout_timer _ _ _ heq (by simp); simp_all; done))
 
 /-- **`execute` (fetch, decode, execute) keeps the timer state** unless the fetched instruction is
 an `mtc0` to `Count`, `Compare` or `Cause`. -/
@@ -397,13 +408,29 @@ theorem hwrValue_cc (s : State) : hwrValue s 2#32 = some s.cp0Count := rfl
 /-- `CCRes` (`rdhwr` register 3) is 1: `Count` advances once per step. -/
 theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 := rfl
 
-/-- Registers 4..31 are not implemented (`PerfCtr`, `XNP` are Release 6; 6..28 reserved; `ULR`
-needs the optional UserLocal register; 30, 31 implementation-dependent, none). -/
-theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) : hwrValue s rd = none := by
+-- BEGIN R6-2
+/-- `XNP` (`rdhwr` register 5) is `Config5.XNP` = 1: the paired LL/SC (LLX/SCX) family is not
+implemented (MD00086 Vol II-A Rev 6.06, RDHWR, p.333: "5: temp ← Config5XNP // Release 6"; MD00090
+Vol III Rev 6.02 Table 9.40, p.176, "Required (Release 6)"). -/
+theorem hwrValue_xnp (s : State) : hwrValue s 5#32 = some 1#32 := rfl
+
+/-- `ULR` (`rdhwr` register 29) is the `UserLocal` register (MD00086 Vol II-A Rev 6.06, RDHWR,
+p.333: "29: temp ← UserLocal"; MD00090 Vol III Rev 6.02 Table 9.40, p.176: "In Release 6, the
+UserLocal register is required"). -/
+theorem hwrValue_ulr (s : State) : hwrValue s 29#32 = some s.cp0UserLocal := rfl
+-- END R6-2
+
+/-- Registers 4, 6..28, 30 and 31 are not implemented: 4 `PerfCtr` ("Required if any PerfCnt
+register is implemented", none: `Config1.PC = 0`), 6..28 reserved ("Access results in a Reserved
+Instruction Exception"), 30, 31 implementation-dependent, none (MD00086 Vol II-A Rev 6.06, RDHWR,
+Table 5.4, p.332-333; MD00090 Vol III Rev 6.02 Table 9.40, p.176). Registers 5 and 29 are
+`hwrValue_xnp` and `hwrValue_ulr`. -/
+theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5)
+    (h29 : rd.toNat ≠ 29) : hwrValue s rd = none := by
   unfold hwrValue
   split <;> first | rfl | omega
 
-/-- The access rule as a formula: Coprocessor 0 enabled (Kernel Mode or `Status.CU0 = 1`), or bit
+/-- The access rule as a formula: Coprocessor 0 enabled (Kernel Mode), or bit
 `rd` of `HWREna` set. -/
 theorem rdhwrAllowed_iff (s : State) (rd : W32) :
     rdhwrAllowed s rd = true ↔ (cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) := by
@@ -413,9 +440,10 @@ theorem rdhwrAllowed_iff (s : State) (rd : W32) :
 (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Restrictions, p.333). -/
 theorem rdhwr_reserved_unimplemented (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
-    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
+    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5) (h29 : rd.toNat ≠ 29)
+    (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
-  rw [rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec, hwrValue_unimplemented s rd hrd]
+  rw [rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec, hwrValue_unimplemented s rd hrd h5 h29]
   split <;> rfl
 
 /-- **`rdhwr` with a nonzero `sel` raises Reserved Instruction** (Release 6: "when the 3-bit sel is
@@ -430,7 +458,7 @@ theorem rdhwr_reserved_sel (s : State) (w rt rd sel : W32)
   have h : (sel != 0#32) = true := by simpa using hsel
   rw [ite_of_pos h]
 
-/-- **`rdhwr` outside Kernel Mode with `Status.CU0 = 0` and the `HWREna` bit clear raises Reserved
+/-- **`rdhwr` outside Kernel Mode with the `HWREna` bit clear raises Reserved
 Instruction** (not Coprocessor Unusable): "Access to the specified hardware register is enabled if
 Coprocessor 0 is enabled, or if the corresponding bit is set in the HWREna register. If access is
 not allowed ... a Reserved Instruction Exception is signaled" (MD00086 Vol II-A Rev 6.06, RDHWR,
@@ -474,13 +502,14 @@ theorem rdhwr_cc_reads_count (s : State) (w rt : W32)
   rw [rdhwr_allowed s w rt 2#32 s.cp0Count hfetch hdecode hpb (hwrValue_cc s) hacc hexec]
   exact writeReg_reads_back s (regIdxSpec rt) s.cp0Count hrt hsize
 
-/-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 3..0 only**: the bits of the registers the model
-implements; "If RDHWR register ‘n’ is not implemented, bit ‘n’ of this field returns a zero and is
-ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39, p.175). -/
+/-- **`mtc0 $rt, $7` (`HWREna`) keeps bits 0..3, 5 and 29 only**: the bits of the `rdhwr` registers
+the model implements (0 `CPUNum`, 1 `SYNCI_Step`, 2 `CC`, 3 `CCRes`, 5 `XNP`, 29 `ULR`); "If RDHWR
+register ‘n’ is not implemented, bit ‘n’ of this field returns a zero and is ignored on a write"
+(MD00090 Vol III Rev 6.02 Table 9.39, p.175; Table 9.40, p.176). -/
 theorem hwrena_write_masked (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 7#32 0#32))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
-    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x0000000F#32 := by
+    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x2000002F#32 := by
   rw [mtc0_spec_raw s w rt 7#32 0#32 hfetch hdecode hpb hcp0 hexec]
   rfl
 
@@ -522,7 +551,17 @@ theorem resetException_timer (s : State) :
 #guard (let s := stepIn (prog1Spec (.rdhwr 8#32 2#32 0#32))
           { initialState textBase with cp0Status := statusUmMask, cp0HWREna := 5#32, cp0Count := 5#32 }
         readReg s 8 == 5#32 && s.pc == textBase + 4#32)
--- `rdhwr_reserved_unimplemented`: register 29 (ULR) in Kernel Mode.
-#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 29#32 0#32)) (initialState textBase)) == excCodeRI
+-- `rdhwr_reserved_unimplemented`: register 4 (PerfCtr) and 6 (reserved) in Kernel Mode.
+#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 4#32 0#32)) (initialState textBase)) == excCodeRI
+#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 6#32 0#32)) (initialState textBase)) == excCodeRI
+-- `hwrValue_ulr`: register 29 reads UserLocal from User Mode with HWREna bit 29 set.
+#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 29#32 0#32))
+          { initialState textBase with
+              cp0Status := statusUmMask
+              cp0HWREna := 0x20000000#32
+              cp0UserLocal := 0xCAFE#32 }
+        readReg s 8 == 0xCAFE#32 && s.pc == textBase + 4#32)
+-- `hwrValue_xnp`: register 5 reads 1.
+#guard readReg (stepIn (prog1Spec (.rdhwr 8#32 5#32 0#32)) (initialState textBase)) 8 == 1#32
 -- `rdhwr_reserved_sel`: `rdhwr $8, $2, 1` (sel = 1) is Reserved Instruction even in Kernel Mode.
 #guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 2#32 1#32)) (initialState textBase)) == excCodeRI

@@ -20,7 +20,9 @@ Sources (printed pages):
   -- the FPR file and FCSR below still describe the pre-Release 6 FR = 0 / legacy-NaN FPU.
 * CP0 registers: MD00090 Vol III Rev 6.02 chapter 9, by name (`Status` §9.32, `Cause` §9.36, `EPC`
   §9.38, `BadVAddr` §9.24, `ErrorEPC` §9.68, `EBase` §9.41, `Config` §9.45, `Count` §9.27,
-  `Compare` §9.30, `HWREna` §9.23).
+  `Compare` §9.30, `HWREna` §9.23; Release 6: `UserLocal` §9.11, `BadInstr` §9.25, `BadInstrP`
+  §9.26, `KScratch1..6` §9.70, `Config5.SBRI` §9.50; `LLAddr` §9.52 is `LLbit` plus an address
+  field this profile does not implement).
 
 The spec keeps a CP0 register as a whole word only where the manual's field table makes every bit
 either R/W or "0/ignored on write" under this profile; the reading of each field is in
@@ -107,5 +109,19 @@ structure Arch where
   automatically incremented by ... 4", Table 1.1, p.6). `isSome` is exactly "the instruction at
   `PC` is in a branch delay slot" (`InstructionInBranchDelaySlot`, Vol III §6.2.3, p.87). -/
   BranchDelay : Option W32
+  -- BEGIN R6-2
+  /-- CP0 `UserLocal` (4, 2; Vol III §9.11, Table 9.19, p.143). -/
+  UserLocal : W32
+  /-- CP0 `BadInstr` (8, 1; Vol III §9.25, Table 9.42, p.179). -/
+  BadInstr : W32
+  /-- CP0 `BadInstrP` (8, 2; Vol III §9.26, Table 9.43, p.181). -/
+  BadInstrP : W32
+  /-- CP0 `KScratch1..6` (31, 2..7; Vol III §9.70, Table 9.84, p.311): `KScratch k` is
+  `KScratch(k+1)` at select `k + 2`. -/
+  KScratch : Fin 6 → W32
+  /-- `Config5.SBRI` (16, 5, bit 6; Vol III §9.50, Table 9.69, p.263), the only R/W field of
+  `Config5` on this profile. -/
+  Config5SBRI : Bool
+  -- END R6-2
 
 end Manual

@@ -65,7 +65,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
-      (exceptionEntry s code ce).llBit = false ∧
+      (exceptionEntry s code ce).llBit = s.llBit ∧
       (exceptionEntry s code ce).cp0BadVAddr = s.cp0BadVAddr ∧
       (exceptionEntry s code ce).cp0ErrorEpc = s.cp0ErrorEpc ∧
       (exceptionEntry s code ce).cp0EBase = s.cp0EBase ∧
@@ -374,8 +374,11 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       let read (v : W32) : State :=
         { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
       match rd.toNat, sel.toNat with
+      | 4, 2 => read s.cp0UserLocal
       | 7, 0 => read s.cp0HWREna
       | 8, 0 => read s.cp0BadVAddr
+      | 8, 1 => read s.cp0BadInstr
+      | 8, 2 => read s.cp0BadInstrP
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
       | 12, 0 => read s.cp0Status
@@ -390,9 +393,18 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x80000001#32
       | 16, 2 => read 0x80000000#32
-      | 16, 3 => read 0#32
+      | 16, 3 => read 0x8C003000#32
+      | 16, 4 => read 0x80FC0000#32
+      | 16, 5 => read (0x00002010#32 ||| (if s.cp0Config5SBRI then 0x40#32 else 0#32))
+      | 17, 0 => read (if s.llBit then 1#32 else 0#32)
       | 30, 0 => read s.cp0ErrorEpc
-      | _, _ => takeException s excCodeRI) :=
+      | 31, 2 => read (s.cp0KScratch 0)
+      | 31, 3 => read (s.cp0KScratch 1)
+      | 31, 4 => read (s.cp0KScratch 2)
+      | 31, 5 => read (s.cp0KScratch 3)
+      | 31, 6 => read (s.cp0KScratch 4)
+      | 31, 7 => read (s.cp0KScratch 5)
+      | _, _ => read 0#32) :=
   _root_.mfc0_spec_raw s w rt rd sel hfetch hdecode hpb hcp0 hexec
 
 theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
@@ -400,39 +412,49 @@ theorem mtc0_spec_raw (s : State) (w rt rd sel : W32)
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match rd.toNat, sel.toNat with
+      | 4, 2 => { s with cp0UserLocal := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | 7, 0 =>
         { s with cp0HWREna := readReg s (regIdxSpec rt) &&& hwrenaWriteMask, pc := s.pc + 4#32 }
-      | 8, 0 => { s with pc := s.pc + 4#32 }
       | 9, 0 => { s with cp0Count := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
       | 11, 0 =>
         { s with cp0Compare := readReg s (regIdxSpec rt), cp0TimerInt := false, pc := s.pc + 4#32 }
       | 12, 0 =>
         { s with cp0Status := readReg s (regIdxSpec rt) &&& statusWriteMask, pc := s.pc + 4#32 }
-      | 12, 1 => { s with pc := s.pc + 4#32 }
-      | 12, 2 => { s with pc := s.pc + 4#32 }
       | 13, 0 =>
         { s with
               cp0Cause := (s.cp0Cause &&& ~~~causeWriteMask) |||
                 (readReg s (regIdxSpec rt) &&& causeWriteMask)
               pc := s.pc + 4#32 }
       | 14, 0 => { s with cp0Epc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
-      | 15, 0 => { s with pc := s.pc + 4#32 }
       | 15, 1 =>
         { s with
               cp0EBase := (readReg s (regIdxSpec rt) &&& 0x3ffff000#32) ||| 0x80000000#32
               pc := s.pc + 4#32 }
       | 16, 0 =>
         { s with
-              cp0ConfigK0 := (readReg s (regIdxSpec rt)).setWidth 3
-              cp0ConfigK23 := (readReg s (regIdxSpec rt) >>> 28).setWidth 3
-              cp0ConfigKU := (readReg s (regIdxSpec rt) >>> 25).setWidth 3
+              cp0ConfigK0 := ccaWrite s.cp0ConfigK0 ((readReg s (regIdxSpec rt)).setWidth 3)
+              cp0ConfigK23 := ccaWrite s.cp0ConfigK23 ((readReg s (regIdxSpec rt) >>> 28).setWidth 3)
+              cp0ConfigKU := ccaWrite s.cp0ConfigKU ((readReg s (regIdxSpec rt) >>> 25).setWidth 3)
               pc := s.pc + 4#32 }
-      | 16, 1 => { s with pc := s.pc + 4#32 }
-      | 16, 2 => { s with pc := s.pc + 4#32 }
-      | 16, 3 => { s with pc := s.pc + 4#32 }
+      | 16, 5 =>
+        { s with cp0Config5SBRI := readReg s (regIdxSpec rt) &&& 0x40#32 != 0#32, pc := s.pc + 4#32 }
+      | 17, 0 =>
+        { s with llBit := s.llBit && readReg s (regIdxSpec rt) &&& 1#32 != 0#32, pc := s.pc + 4#32 }
       | 30, 0 =>
         { s with cp0ErrorEpc := readReg s (regIdxSpec rt), pc := s.pc + 4#32 }
-      | _, _ => takeException s excCodeRI) :=
+      | 31, 2 => { s with cp0KScratch := fun j => if j = 0 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 3 => { s with cp0KScratch := fun j => if j = 1 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 4 => { s with cp0KScratch := fun j => if j = 2 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 5 => { s with cp0KScratch := fun j => if j = 3 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 6 => { s with cp0KScratch := fun j => if j = 4 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | 31, 7 => { s with cp0KScratch := fun j => if j = 5 then readReg s (regIdxSpec rt)
+                    else s.cp0KScratch j, pc := s.pc + 4#32 }
+      | _, _ => { s with pc := s.pc + 4#32 }) :=
   _root_.mtc0_spec_raw s w rt rd sel hfetch hdecode hpb hcp0 hexec
 
 theorem eret_spec_raw (s : State) (w : W32)
@@ -457,7 +479,7 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
   _root_.cp0_instruction_user_mode_unusable s w instr hfetch hdecode huses hnb hcu hexec
 
 theorem cp0Usable_false_iff (s : State) :
-    cp0Usable s = false ↔ (userMode s = true ∧ s.cp0Status &&& statusCu0Mask = 0#32) :=
+    cp0Usable s = false ↔ userMode s = true :=
   _root_.cp0Usable_false_iff s
 
 theorem userMode_iff (s : State) :
@@ -579,14 +601,16 @@ theorem hwrValue_cc (s : State) : hwrValue s 2#32 = some s.cp0Count :=
 theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 :=
   _root_.hwrValue_ccRes s
 
-theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) : hwrValue s rd = none :=
-  _root_.hwrValue_unimplemented s rd h
+theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5)
+    (h29 : rd.toNat ≠ 29) : hwrValue s rd = none :=
+  _root_.hwrValue_unimplemented s rd h h5 h29
 
 theorem rdhwr_reserved_unimplemented (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
-    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
+    (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (h5 : rd.toNat ≠ 5) (h29 : rd.toNat ≠ 29)
+    (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) :=
-  _root_.rdhwr_reserved_unimplemented s w rt rd sel hfetch hdecode hpb hrd hexec
+  _root_.rdhwr_reserved_unimplemented s w rt rd sel hfetch hdecode hpb hrd h5 h29 hexec
 
 theorem rdhwr_reserved_sel (s : State) (w rt rd sel : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
@@ -612,7 +636,7 @@ theorem rdhwr_allowed (s : State) (w rt rd v : W32)
 theorem hwrena_write_masked (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt 7#32 0#32))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
-    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x0000000F#32 :=
+    (step s).cp0HWREna = readReg s (regIdxSpec rt) &&& 0x2000002F#32 :=
   _root_.hwrena_write_masked s w rt hfetch hdecode hpb hcp0 hexec
 
 theorem resetException_timer (s : State) :
@@ -952,7 +976,7 @@ theorem step_hwInt (s : State) : (step s).hwInt = s.hwInt :=
 theorem wait_spec_raw (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with standby := true, pc := s.pc + 4#32 }) :=
+    step s = timerTick ({ s with standby := interruptRequests s == 0#32, pc := s.pc + 4#32 }) :=
   _root_.wait_spec_raw s w code hfetch hdecode hpb hcp0 hexec
 
 theorem step_standby_stays (s : State) (hsb : s.standby = true)
@@ -1323,5 +1347,59 @@ theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
 theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 32} {t1 t2 : Bool}
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 :=
   _root_.Mips.Fp.fcsrSpec_unique h1 h2
+
+-- BEGIN R6-2
+theorem exceptionEntry_badInstr (s : State) (code ce : W32) :
+    (exceptionEntry s code ce).cp0BadInstr = faultingInstr s ∧
+      (exceptionEntry s code ce).cp0BadInstrP =
+        (if s.pendingBranch.isSome then instrWordAt s (s.pc - 4#32) else 0#32) :=
+  _root_.exceptionEntry_badInstr s code ce
+
+theorem takeInterrupt_badInstr_unchanged (s : State) :
+    (takeInterrupt s).cp0BadInstr = s.cp0BadInstr ∧
+      (takeInterrupt s).cp0BadInstrP = s.cp0BadInstrP :=
+  _root_.takeInterrupt_badInstr_unchanged s
+
+theorem eretnc_spec_raw (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .eretnc)
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      if s.cp0Status &&& statusErlMask != 0#32 then
+        { s with pc := s.cp0ErrorEpc, cp0Status := s.cp0Status &&& ~~~statusErlMask }
+      else
+        { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask }) :=
+  _root_.eretnc_spec_raw s w hfetch hdecode hpb hcp0 hexec
+
+theorem sigrie_spec_raw (s : State) (w code : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sigrie code))
+    (hexec : executesInstr s = true) :
+    step s = timerTick (takeException s excCodeRI) :=
+  _root_.sigrie_spec_raw s w code hfetch hdecode hexec
+
+theorem cache_spec_raw (s : State) (w base op off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cache base op off))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      match translate s (readReg s (regIdxSpec base) + signExt9 off) with
+      | none => takeAddressException s excCodeAdEL (readReg s (regIdxSpec base) + signExt9 off)
+      | some _ => { s with pc := s.pc + 4#32 }) :=
+  _root_.cache_spec_raw s w base op off hfetch hdecode hpb hcp0 hexec
+
+theorem mfc0_unimplemented_reads_zero (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc0 rt rd sel))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true)
+    (hnone : cp0Layout .r6 rd.toNat sel.toNat = none) :
+    step s = timerTick
+      { (writeReg s (regIdxSpec rt) 0#32) with pc := (writeReg s (regIdxSpec rt) 0#32).pc + 4#32 } :=
+  _root_.mfc0_unimplemented_reads_zero s w rt rd sel hfetch hdecode hpb hcp0 hexec hnone
+
+theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mtc0 rt rd sel))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true)
+    (hnone : cp0Layout .r6 rd.toNat sel.toNat = none) :
+    step s = timerTick { s with pc := s.pc + 4#32 } :=
+  _root_.mtc0_unimplemented_ignored s w rt rd sel hfetch hdecode hpb hcp0 hexec hnone
+
+-- END R6-2
 
 end Trusted

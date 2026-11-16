@@ -56,20 +56,20 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
   all_goals (try simp only [Nat.reducePow, Nat.reduceAdd, and_false, not_false_eq_true] at *)
   all_goals (first | omega | decide)
 
-/-- The model's `cp0Undefined`, `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`
-outcomes do not name the state; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
+/-- The model's `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`
+outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are constants; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
 change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
   · intro a r v
     exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl⟩⟩, rfl⟩
+      rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
   · intro a fs t
     exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl⟩⟩, rfl⟩
+      rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
   · intros; trivial
   · intros; trivial
   · intros; trivial
@@ -89,8 +89,10 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intro _ _ _ _ _ _; trivial
   · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]
   · intro _ _ _ _ _ _; rfl
+  -- BadInstr / BadInstrP: constants
+  · intro _ _ _ _ _; rfl
+  · intro _ _ _ _ _; rfl
   -- UNDEFINED
-  · intros; trivial
   · intros; trivial
   -- QNaN
   · exact qnan32_to64
@@ -126,14 +128,34 @@ theorem fetch_oracleFree (c1 c2 : Ctx) (a : Arch) :
     rw [addr_ctx _ _ _ c1 c2]
     split <;> simp only [load_instr]
 
-theorem gep_cpu (i : Impl) (o₁ o₂ : Oracle) (u : Nat) (a : Arch) :
+/-- The faulting instruction word does not depend on the oracle where the fetch delivers a word. -/
+theorem faultingWord_oracleFree (i : Impl) (o₁ o₂ : Oracle) (a : Arch) (hf : FetchOK i a = true) :
+    FaultingInstructionWord i o₁ a = FaultingInstructionWord i o₂ a := by
+  unfold FaultingInstructionWord
+  unfold FetchOK at hf
+  rw [show ({ impl := i, oracle := o₁ } : Ctx) = ctxOf i o₁ from rfl,
+    show ({ impl := i, oracle := o₂ } : Ctx) = ctxOf i o₂ from rfl,
+    fetch_oracleFree (ctxOf i o₁) (ctxOf i modelOracle), fetch_oracleFree (ctxOf i o₂) (ctxOf i modelOracle)]
+  revert hf
+  cases (InstructionFetch.run (ctxOf i modelOracle) { arch := a }).1 <;> intro hf
+  · rfl
+  · cases hf
+
+/-- A Coprocessor Unusable exception in a delay slot from a state whose fetch delivers a word does
+not depend on the oracle (its `Cause.CE` is the unit; `BadInstrP` is the branch). -/
+theorem gep_cpu (i : Impl) (o₁ o₂ : Oracle) (u : Nat) (a : Arch) (hs : a.BranchDelay.isSome = true)
+    (hf : FetchOK i a = true) :
     GeneralExceptionProcessing i o₁ (.CoprocessorUnusable u) a =
-      GeneralExceptionProcessing i o₂ (.CoprocessorUnusable u) a := rfl
+      GeneralExceptionProcessing i o₂ (.CoprocessorUnusable u) a := by
+  have hw := faultingWord_oracleFree i o₁ o₂ a hf
+  simp only [GeneralExceptionProcessing, AdditionalState, FaultingCoprocessorNumber, hw, hs,
+    reduceCtorEq, ↓reduceIte]
 
 theorem execute_oracleFree (i : Impl) (o₁ o₂ : Oracle) (w : W32) (ins : Instruction) (a : Arch)
+    (hfa : FetchOK i a = true)
     (h : (!(IsCTI ins && a.BranchDelay.isSome) &&
-          (if InCop1Space w && !StatusCU1 a then true
-           else if InCop0Space w && !CP0Usable a then true
+          (if InCop1Space w && !StatusCU1 a then a.BranchDelay.isSome
+           else if InCop0Space w && !CP0Usable a then a.BranchDelay.isSome
            else
              !ConsultsOracle ins a &&
                match Operation ins with
@@ -141,7 +163,7 @@ theorem execute_oracleFree (i : Impl) (o₁ o₂ : Oracle) (w : W32) (ins : Inst
                | some op =>
                  match op.run (ctxOf i modelOracle) { arch := a } with
                  | (.ok (), _) => true
-                 | (.signal (.CoprocessorUnusable _), _) => true
+                 | (.signal (.CoprocessorUnusable _), g) => g.arch.BranchDelay.isSome && FetchOK i g.arch
                  | (.signal _, _) => false)) = true) :
     Execute (ctxOf i o₁) w ins a = Execute (ctxOf i o₂) w ins a := by
   have e1 := fun hh => operation_choiceFree ins a hh i o₁ modelOracle
@@ -175,10 +197,13 @@ theorem execute_oracleFree (i : Impl) (o₁ o₂ : Oracle) (w : W32) (ins : Inst
             · intro; rfl
             · cases e <;> intro h <;> first
                 | exact absurd h Bool.false_ne_true
-                | rfl
+                | (simp only [Bool.and_eq_true] at h
+                   exact congrArg some (gep_cpu i o₁ o₂ _ f.arch h.1 h.2))
         · simp at h
-      · rfl
-    · rfl
+      · simp only [Bool.not_false, Bool.true_and, Bool.false_eq_true, ite_true, ite_false] at h ⊢
+        exact congrArg some (gep_cpu i o₁ o₂ _ a h hfa)
+    · simp only [Bool.not_false, Bool.true_and, ite_true] at h ⊢
+      exact congrArg some (gep_cpu i o₁ o₂ _ a h hfa)
   · rw [hbc] at h; simp at h
 
 /-- **From a choice-free state, the instruction time does not depend on the oracle.** -/
@@ -198,30 +223,32 @@ theorem instructionTime_oracleFree (i : Impl) (dec : W32 → Option Instruction)
   unfold FetchExecute
   rw [fetch_oracleFree (ctxOf i o₁) (ctxOf i modelOracle), fetch_oracleFree (ctxOf i o₂) (ctxOf i modelOracle)]
   revert h
-  rcases InstructionFetch.run (ctxOf i modelOracle) { arch := a } with ⟨r, f⟩
+  rcases hR : InstructionFetch.run (ctxOf i modelOracle) { arch := a } with ⟨r, f⟩
   rcases r with w | e
-  · simp only
+  · have hfa : FetchOK i a = true := by unfold FetchOK; rw [hR]
+    simp only
     cases hd : dec w with
     | none =>
       intro h
       simp only
       by_cases hu : UnpredictableEncoding w = true
-      · simp only [hu, ite_true] at h ⊢
+      · simp only [hu, ite_true, Bool.and_eq_true] at h ⊢
+        obtain ⟨hc, hs⟩ := h
         congr 1
         unfold Unpredictable
         by_cases h1 : (InCop1Space w && !StatusCU1 a) = true
-        · simp only [h1, ite_true]; rfl
+        · simp only [h1, ite_true]; exact gep_cpu i o₁ o₂ _ a hs hfa
         · by_cases h0 : (InCop0Space w && !CP0Usable a) = true
-          · simp only [h1, h0, ite_true, Bool.false_eq_true, ite_false]; rfl
-          · simp only [h1, h0, Bool.or_self, Bool.false_eq_true] at h
+          · simp only [h1, h0, ite_true, Bool.false_eq_true, ite_false]; exact gep_cpu i o₁ o₂ _ a hs hfa
+          · simp only [h1, h0, Bool.or_self, Bool.false_eq_true] at hc
       · simp only [hu, Bool.false_eq_true, ite_false] at h ⊢
         revert h
         cases Undecodable w a <;> intro hc <;> first
           | exact absurd hc Bool.false_ne_true
-          | exact congrArg some (gep_cpu i o₁ o₂ _ a)
+          | exact congrArg some (gep_cpu i o₁ o₂ _ a hc hfa)
     | some ins =>
       intro h
-      exact execute_oracleFree i o₁ o₂ w ins a h
+      exact execute_oracleFree i o₁ o₂ w ins a hfa h
   · intro h; cases h
 
 /-- **The manual is deterministic at a choice-free state**: all valid resolutions of the choices

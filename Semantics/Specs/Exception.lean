@@ -7,11 +7,12 @@ What `exceptionEntry` / `takeException` / `takeAddressException` do, in each of 
 `Status.EXL` = 0/1, in a delay slot or not, `Status.BEV` (MD00090 "General Exception Processing",
 as cited in the theorems' docstrings). No theorem here assumes `s.pendingBranch = none`.
 
-## Theorems in this file (9)
+## Theorems in this file (12)
 
-  `exceptionEntry_always` `exceptionVector_reset` `exception_clears_llBit`
+  `exceptionEntry_always` `exceptionVector_reset` `exception_keeps_llBit`
   `exceptionEntry_exl0_not_in_delay_slot` `exceptionEntry_exl0_in_delay_slot` `exceptionEntry_exl1`
   `exceptionEntry_excCode` `exceptionEntry_ce` `exceptionEntry_cause_other_bits`
+  `exceptionEntry_badInstr` `exceptionEntry_badInstr_fetched` `takeInterrupt_badInstr_unchanged`
 -/
 
 set_option maxRecDepth 4000
@@ -27,11 +28,14 @@ cases `Status.EXL = 0/1` × in a delay slot / not, and with `Status.BEV`. -/
 status and the coprocessor number `ce`: `PC ←` the general vector (`EBase`'s
 base with offset `0x180` — `0x80000180` at reset — or `0xBFC00380` when
 `Status.BEV = 1`); `Status.EXL ← 1` (no other `Status` bit changes); **the
-pending branch is abandoned**; **`LLbit ← 0`** (MD00086 Rev 6.06 "SC",
-programming notes: "Exceptions between the LL and SC cause SC to fail");
-and nothing else outside `EPC`/`Cause` is touched — no general register,
-memory, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
-`EBase` or the LL address. -/
+pending branch is abandoned**; and nothing else outside `EPC`/`Cause` (and
+`BadInstr`/`BadInstrP`, `exceptionEntry_badInstr`) is touched — no general register,
+memory, FP register, `FCSR`, `LLbit`, `BadVAddr`, `ErrorEPC`, `EBase` or the LL address.
+**`LLbit` is unchanged**: exception entry does not clear it; the SC failure conditions list
+"An ERET instruction is executed. (Release 5 includes ERETNC, which will not cause the SC to
+fail.)" (MD00086 Vol II-A Rev 6.06, SC, p.347), so a handler that returns with `eret` makes the
+`sc` fail (`eret_clears_llBit`) and one that returns with `eretnc` does not (`eretnc_keeps_llBit`;
+ERETNC "will never cause the SC to fail", ERETNC, p.179). -/
 theorem exceptionEntry_always (s : State) (code ce : W32) :
     (exceptionEntry s code ce).pc =
         (if s.cp0Status &&& statusBevMask == 0#32 then
@@ -43,7 +47,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
-      (exceptionEntry s code ce).llBit = false ∧
+      (exceptionEntry s code ce).llBit = s.llBit ∧
       (exceptionEntry s code ce).cp0BadVAddr = s.cp0BadVAddr ∧
       (exceptionEntry s code ce).cp0ErrorEpc = s.cp0ErrorEpc ∧
       (exceptionEntry s code ce).cp0EBase = s.cp0EBase ∧
@@ -56,15 +60,48 @@ theorem exceptionVector_reset (s : State) (hbev : s.cp0Status &&& statusBevMask 
     (heb : s.cp0EBase = 0x80000000#32) : exceptionVector s = 0x80000180#32 := by
   simp [exceptionVector, ebaseValue, hbev, heb]; decide
 
-/-- **Every exception clears `LLbit`**, so an `sc` after any exception
-fails even if the handler returns without `eret` (MD00086 Rev 6.06 "SC",
-programming notes, p. 350: "Exceptions between the LL and SC cause SC to
-fail"). Stated for both exception forms `step` uses. -/
-theorem exception_clears_llBit (s s' : State) (code addr : W32)
+/-- **No exception changes `LLbit`** (MD00086 Vol II-A Rev 6.06, SC, p.347: the events that make
+an SC fail include "An ERET instruction is executed", not the exception itself; the return from the
+handler decides: `eret_clears_llBit`, `eretnc_keeps_llBit`). Stated for both exception forms `step`
+uses. -/
+theorem exception_keeps_llBit (s s' : State) (code addr : W32)
     (h : takeException s code = s' ∨
       takeAddressException s code addr = s') :
-    s'.llBit = false := by
+    s'.llBit = s.llBit := by
   rcases h with h | h <;> (have h := h; rw [← h]; rfl)
+
+-- BEGIN R6-2
+/-- **A synchronous exception records the faulting instruction in `BadInstr` and, in a delay slot,
+the branch in `BadInstrP`** (MD00090 Vol III Rev 6.02 §9.25, p.179: BadInstr is "Faulting
+instruction word", "only set by exceptions which are synchronous to an instruction"; §9.26, p.181:
+BadInstrP "contains the prior branch instruction, when the faulting instruction is in a branch delay
+slot"). `exceptionEntry` with its default `sync := true` is every exception the model raises but the
+Interrupt (`takeInterrupt_badInstr_unchanged`): `BadInstr ← faultingInstr s` (the word fetched at
+`pc`; 0 when that fetch fails, where "the value stored in BadInstr is UNPREDICTABLE", p.179, pin);
+`BadInstrP ←` the word at `pc - 4` (`instrWordAt`, the branch) in a delay slot, else 0 ("When a
+synchronous exception occurs and the faulting instruction is not in a branch delay slot, then the
+value stored in BadInstrP is UNPREDICTABLE", p.181, pin). -/
+theorem exceptionEntry_badInstr (s : State) (code ce : W32) :
+    (exceptionEntry s code ce).cp0BadInstr = faultingInstr s ∧
+      (exceptionEntry s code ce).cp0BadInstrP =
+        (if s.pendingBranch.isSome then instrWordAt s (s.pc - 4#32) else 0#32) :=
+  ⟨rfl, rfl⟩
+
+/-- Corollary of `exceptionEntry_badInstr`: when the instruction at `pc` was fetched (`readMemWord s
+s.pc = some w`, e.g. for every exception the instruction itself raises), `BadInstr` is that word. -/
+theorem exceptionEntry_badInstr_fetched (s : State) (code ce w : W32)
+    (hfetch : readMemWord s s.pc = some w) :
+    (exceptionEntry s code ce).cp0BadInstr = w := by
+  show (readMemWord s s.pc).getD 0#32 = w
+  rw [hfetch]; rfl
+
+/-- **An interrupt leaves `BadInstr` and `BadInstrP` unchanged** (MD00090 Vol III Rev 6.02 §9.25,
+p.179: "The BadInstr register is not set by Interrupts"; §9.26, p.181, the same for BadInstrP). -/
+theorem takeInterrupt_badInstr_unchanged (s : State) :
+    (takeInterrupt s).cp0BadInstr = s.cp0BadInstr ∧
+      (takeInterrupt s).cp0BadInstrP = s.cp0BadInstrP :=
+  ⟨rfl, rfl⟩
+-- END R6-2
 
 /-- **`EXL = 0`, not in a delay slot**: `EPC ← PC` (the faulting
 instruction), `Cause.BD ← 0`, `Cause.ExcCode ← code`, `Cause.CE ← ce`. -/
