@@ -8,7 +8,7 @@ import Semantics.Step
 import Semantics.Env
 
 /-!
-# DiffHarness — differential testing executable (Wave 3, DESIGN.md §2/§6)
+# DiffHarness — differential testing executable (Wave 3, docs/DESIGN.md §2/§6)
 
 Runs every `.asm` program in `Semantics/tests/corpus/` through both our `Step`
 simulator and a real MARS 4.5 process, and compares their observable output
@@ -171,7 +171,7 @@ def firstDivergence (a b : String) : Option Nat := Id.run do
         i := i + 1
   return none
 
-/-- Judge one program's outcome per the DESIGN.md/task rules:
+/-- Judge one program's outcome per the docs/DESIGN.md/task rules:
 - both "clean" (our `.exit` vs MARS not looking like an error): PASS iff the
   exact output strings match.
 - our unsupported-syscall halt vs MARS's runtime exception: PASS iff MARS
@@ -252,7 +252,7 @@ def main (args : List String) : IO UInt32 := do
     return 1
 
 -- ====================================================================
--- ## In-file tests (DESIGN.md §5 / CLAUDE.md §5)
+-- ## In-file tests (docs/DESIGN.md §5 / CLAUDE.md §5)
 --
 -- `#guard` checks that every corpus program (embedded here verbatim,
 -- duplicated from the files under `tests/corpus/` since compile-time

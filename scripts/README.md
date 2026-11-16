@@ -7,7 +7,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | `gate.sh` | Runs the 10 gate steps, prints `[n/10] name ... PASS/FAIL/SKIP (s)`, keeps logs in `.gate/logs/`, always writes `.gate/last-run.json`; on a full green run writes the stamp `.gate/green` (tree id of the exact verified content, timestamp, HEAD, toolchain, per-step results). |
 | `gate-commit.sh "<subject>" [body-file]` | Commits only if on a non-main branch, the stamp exists, and the current tree id equals the stamp. Stages `git add -A`, re-verifies the staged tree, commits with a `Gate:` trailer block and `Co-Authored-By` last. Never pushes. `--run` runs the gate first. |
 | `install-hooks.sh` | `git config core.hooksPath .githooks` for this clone (idempotent). The `pre-commit` hook then blocks any commit whose staged tree differs from the stamp. Bypass in an emergency: `git commit --no-verify`. |
-| `trace.py` | Generates `docs/TRACE.md` (`--check`: exit 1 on missing step arm / spec theorem / refinement theorem `Refine.<ctor>_refines` / sorry; the matrix has a Refinement column linking each constructor's `Refine.<ctor>_refines` in `Semantics/Refine/`; `--out FILE`; `--json FILE`). Also owns the generated coverage table in the root `README.md` (between `<!-- BEGIN GENERATED: trace.py --readme -->` and `<!-- END GENERATED -->`): `--readme` prints it, `--write-readme` rewrites the block, `--check-readme` exits 1 if the block differs from fresh output and writes nothing; a plain run that writes `docs/TRACE.md` (so `gate.sh --fix`) refreshes the block too. The test data scans `tests/corpus`, `tests/equiv`, `tests/asm` and `tests/oracle` (`oracle` is a separate column). |
+| `trace.py` | Generates `docs/TRACE.md` on the `documentation` branch (mounted at `docs/`; see the README) (`--check`: exit 1 on missing step arm / spec theorem / refinement theorem `Refine.<ctor>_refines` / sorry; the matrix has a Refinement column linking each constructor's `Refine.<ctor>_refines` in `Semantics/Refine/`; `--out FILE`; `--json FILE`). Also owns the generated coverage table in the root `README.md` (between `<!-- BEGIN GENERATED: trace.py --readme -->` and `<!-- END GENERATED -->`): `--readme` prints it, `--write-readme` rewrites the block, `--check-readme` exits 1 if the block differs from fresh output and writes nothing; a plain run that writes `docs/TRACE.md` refreshes the block too; `gate.sh --fix` runs `--write-readme`. The test data scans `tests/corpus`, `tests/equiv`, `tests/asm` and `tests/oracle` (`oracle` is a separate column). |
 | `gate-allow.txt` | Optional, absent by default. Lines `path:construct  # reason` allow a forbidden construct in one file. A line without a reason is an error. |
 
 ## Steps
@@ -21,7 +21,7 @@ Rule: every wave ends with a full gate run; only a fully green gate is committed
 | 5 | diffharness | `lake exe DiffHarness` exits 0, and `SUMMARY: all N corpus programs PASS` has N = number of `tests/corpus/*.asm`; java and `vendor/mars/Mars4_5.jar` required (missing = FAIL) |
 | 6 | equivharness | `lake exe EquivHarness` exits 0 with `SUMMARY: all N equivalence cases behaved as claimed`; this includes the manual-spec check (`Manual.InstructionTime` against `step` through `Refine.abs` on every state of every `tests/corpus` and `tests/oracle` program; any mismatch fails; a state where `InstructionTime` is `none` would be counted as skipped; since 7B no constructor lacks an Operation, so the count is 0) |
 | 7 | oracle | `scripts/oracle.py selftest`, then `oracle.py --asm` (QEMU 24Kf vs the model on `tests/oracle/*.asm` + the runnable `tests/asm/*.asm`) and `oracle.py --encodings` (our assembler vs llvm-mc) all exit 0: no undeclared mismatch, no stale declaration, no harness error; prints counts (tests / pass / declared QEMU deviations / known model bugs / skipped, encodings same / declared). `qemu-system-mips` or the LLVM tools missing = FAIL (exit 2), never a skip. Not in `--quick` |
-| 8 | trace | `trace.py --check` passes, regenerating TRACE.md matches the committed one (ignoring the `- git HEAD:` line), and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites both. The TRACE.md comparison needs the manual texts (its manual column), so it fails on a machine that has not run `docs/spec/manuals/fetch.sh` |
+| 8 | trace | `trace.py --check` passes (every constructor has a step arm, a primary spec theorem and `Refine.<ctor>_refines`; no spec theorem has sorry) and `trace.py --check-readme` passes (the README's generated coverage table is current); `--fix` rewrites the table. `docs/TRACE.md` is checked on the `documentation` branch (`docs/check.sh`), not here |
 | 9 | manuals | `mipsdoc.py selftest` passes; SKIP (not PASS) if the manual texts are absent; a SKIP in a full run makes the verdict RED |
 | 10 | hygiene | no conflict markers, no file >5 MB, no pdf to be committed; `git diff --check` is a warning only |
 
@@ -32,7 +32,7 @@ The stamp is written only if the tree id is unchanged between the start and the 
 ## Typical flow
 ```
 scripts/gate.sh --quick                 # while iterating: seconds, not a green gate
-scripts/gate.sh --fix                   # end of wave: full gate (minutes), regenerates TRACE.md
+scripts/gate.sh --fix                   # end of wave: full gate (minutes), regenerates the README coverage table
 scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, locally
 # or both at once: scripts/gate-commit.sh --run "Subject line"
 ```
@@ -45,7 +45,7 @@ scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, loc
 3. apt: `qemu-system-mips` and `poppler-utils` (`pdftotext`); **LLVM 21** (`llvm-21`, `lld-21`) from `apt.llvm.org`, with
    `ORACLE_LLVM_DIR=/usr/lib/llvm-21/bin` set for the job; the step fails unless `llvm-mc`, `ld.lld`, `llvm-objdump`, `llvm-objcopy` are there.
 4. `actions/cache` of `.lake` only (Lean packages and build products), keyed by `lake-manifest.json` and `lean-toolchain`; then `lake exe cache get`.
-5. `docs/spec/manuals/fetch.sh`: fetches the manuals into the runner workspace (fatal on failure; checks `SHA256SUMS`). The manual texts are
+5. `manuals/fetch.sh`: fetches the manuals into the runner workspace (fatal on failure; checks `SHA256SUMS`). The manual texts are
    derived from copyrighted PDFs: no cache path covers them and they are never uploaded.
 6. `scripts/gate.sh` (full run, all ten steps).
 7. Skip guard (`if: always()`): reads `.gate/last-run.json` and fails unless `full_run` is true, the verdict is `GREEN` and every one of the
@@ -55,13 +55,14 @@ scripts/gate-commit.sh "Subject line"   # commits exactly the verified tree, loc
 Missing java / qemu / LLVM already FAIL inside `gate.sh`. The `.gate/green` stamp written in CI is irrelevant; the job result is the verdict.
 
 ## Troubleshooting
-- "stale stamp" / hook blocks: something changed after the gate (even a whitespace edit or a regenerated TRACE.md). Re-run `scripts/gate.sh`.
+- "stale stamp" / hook blocks: something changed after the gate (even a whitespace edit or a regenerated README table). Re-run `scripts/gate.sh`.
 - "tree changed while the gate ran": another agent or editor wrote files during the run; re-run when the tree is quiet.
 - java missing / `Mars4_5.jar` missing: step 5 FAILs by design. Install a JRE; the jar lives in `vendor/mars/`.
 - Lock contention ("waiting for lock", hangs): another `lake` is running in the same tree. Wait, or gate from your own worktree
   (`git worktree add`, copy `.lake` in). `lake check` alone takes 2-5 min.
-- TRACE.md stale: `python3 scripts/trace.py` (or `gate.sh --fix`) and include it in the commit.
-- manuals SKIP: run `docs/spec/manuals/fetch.sh` (needs `pdftotext`); a SKIP makes a full run RED (no stamp).
+- README coverage table stale: `python3 scripts/trace.py --write-readme` (or `gate.sh --fix`) and include it in the commit.
+- Docs (the `documentation` branch at `docs/`) out of step: `docs/check.sh` there; it is not part of this gate.
+- manuals SKIP: run `manuals/fetch.sh` (needs `pdftotext`); a SKIP makes a full run RED (no stamp).
 - Reading failures: logs are `.gate/logs/NN-name.log`; `.gate/` is gitignored.
 
 

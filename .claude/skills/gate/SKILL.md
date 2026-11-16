@@ -8,7 +8,7 @@ description: Run the full verification gate and, only if it is fully green, comm
 Args: `$ARGUMENTS` is the commit subject (ask for one if empty; do not invent a vague one).
 
 1. Confirm you are not on `main`/`master` (`git branch --show-current`). If you are, stop and tell the owner.
-2. Run the FULL gate with TRACE regeneration, from the repo root:
+2. Run the FULL gate with README-table regeneration, from the repo root:
    `scripts/gate.sh --fix`
    It takes several minutes (`lake check` ~2-5 min). Do not run other `lake` jobs in the same tree meanwhile.
    Never pass `--allow-warnings` unless the owner explicitly said so in this conversation.

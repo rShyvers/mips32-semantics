@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """trace.py -- generate docs/TRACE.md, the instruction traceability matrix.
 
+docs/ is the `documentation` branch mounted as a worktree (git worktree add docs documentation); the code
+branch's gate runs only --check (code-side coverage) and --check-readme; docs/check.sh checks TRACE.md.
+
     python3 scripts/trace.py [--out PATH] [--json PATH] [--check]
     python3 scripts/trace.py --readme | --check-readme | --write-readme
     (a plain run that writes docs/TRACE.md also refreshes the README's generated block)
@@ -22,7 +25,7 @@ Heuristics at a glance
                  token of the constructor's docstring) that equals the
                  constructor name once dots are removed and case is ignored
                  (`cEqS` ~ `c.eq.s`).  Otherwise a camel-case split, marked '?'.
-  * manual     : docs/spec/manuals/mipsdoc.py (`resolve_insn`), Rev 6.06,
+  * manual     : manuals/mipsdoc.py (`resolve_insn`), Rev 6.06,
                  falling back to Rev 2.50 for instructions the newer manual
                  dropped.  Needs the gitignored .txt files (fetch.sh).
   * REF entry  : '###' heading naming the mnemonic > table row whose first
@@ -54,7 +57,7 @@ INSTR_LEAN = "Semantics/Instruction.lean"
 STEP_LEAN = "Semantics/Step.lean"
 ASM_LEAN = "Semantics/Asm.lean"
 REF_MD = "docs/spec/INSTRUCTION-REF.md"
-MANUAL_DIR = os.path.join(ROOT, "docs/spec/manuals")
+MANUAL_DIR = os.path.join(ROOT, "manuals")
 TEST_DIRS = ["tests/corpus", "tests/equiv", "tests/asm", "tests/oracle"]
 DIFF_DIR = "tests/corpus"          # the MARS differential corpus
 ORACLE_DIR = "tests/oracle"        # the QEMU differential oracle programs
@@ -677,8 +680,8 @@ def render(rows, theorems, have_manual):
          f"- git HEAD: `{head}`, working tree: {'dirty (%d changed paths)' % nchg if dirty else 'clean'}",
          f"- `{INSTR_LEAN}` (constructors, decode, encode), `{STEP_LEAN}` (step arms), `{ASM_LEAN}` (mnemonics)",
          f"- `{REF_MD}`; Semantics/Specs/**/*.lean ({len(spec_files())} files, {len(theorems)} theorems)",
-         "- Manual: MD00086 Vol II-A Rev 6.06 via `docs/spec/manuals/mipsdoc.py`"
-         + ("" if have_manual else " -- **manual not fetched** (run `docs/spec/manuals/fetch.sh`)"),
+         "- Manual: MD00086 Vol II-A Rev 6.06 via `manuals/mipsdoc.py`"
+         + ("" if have_manual else " -- **manual not fetched** (run `manuals/fetch.sh`)"),
          "- Tests: " + ", ".join(f"`{d}/*.asm`" for d in TEST_DIRS) + "; `#guard`/`example` statements in Semantics/*.lean and Semantics/Tests/*.lean",
          "", "## Summary", "", "| Measure | Count |", "|---|---|"]
     o += [f"| {k} | {v} |" for k, v in summarize(rows, theorems)]

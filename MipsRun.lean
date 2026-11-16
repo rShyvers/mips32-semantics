@@ -363,7 +363,7 @@ def main (args : List String) : IO UInt32 := do
       return 0
 
 -- ====================================================================
--- ## In-file tests (DESIGN.md §5 / CLAUDE.md §5)
+-- ## In-file tests (docs/DESIGN.md §5 / CLAUDE.md §5)
 --
 -- `#guard`-checked, hand-crafted `.asm` programs (inline string literals,
 -- in the style of `DiffHarness.lean`'s embedded corpus copies) exercising

@@ -1,6 +1,8 @@
 /.lake
-/docs/spec/manuals/*.pdf
-/docs/spec/manuals/*.txt
+/manuals/*.pdf
+/manuals/*.txt
+# the `documentation` branch, mounted as a worktree: git worktree add docs documentation
+/docs/
 /.claude/worktrees/
 /.gate/
 __pycache__/

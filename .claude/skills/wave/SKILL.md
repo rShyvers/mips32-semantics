@@ -27,7 +27,9 @@ commands run with observed results, open problems. "Report only what you ran."
 ## 4. Integrate and commit
 - Merge worktree branches yourself (no force, no history rewriting). Resolve conflicts by hand, then re-gate.
 - `/gate "<subject>"` -- `scripts/gate.sh --fix` then `scripts/gate-commit.sh`. Only a fully green gate is committed, locally.
-- Regenerate `docs/TRACE.md` (`--fix` does it) so it is part of the same commit.
+- `--fix` regenerates the README coverage table so it is part of the same commit.
+- Docs live on the `documentation` branch (mounted at `docs/`, its own worktree). After the code commit, update them there,
+  run `docs/check.sh --fix` and `docs/check.sh --sync`, and commit on that branch.
 - Never push, merge to main, or open a PR unless the owner asks.
 
 ## 5. Ledger

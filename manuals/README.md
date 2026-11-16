@@ -1,6 +1,6 @@
 # MIPS32 architecture manuals (primary sources)
 
-The specification in `docs/spec/` and the semantics in `Semantics/` are checked
+The documentation (the `documentation` branch, mounted at `docs/`) and the semantics in `Semantics/` are checked
 against these documents. Run `./fetch.sh` to download them; it verifies
 `SHA256SUMS` and, if `pdftotext` is installed, writes a searchable `.txt` next
 to each PDF.

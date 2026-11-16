@@ -5,7 +5,7 @@ Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals
 
 ## Target profile (do not drift)
 - Pre-Release-6 MIPS32, Release 2 feature set, big-endian, legacy FP (`FIR.Has2008=0`).
-- The latest manual revisions in `docs/spec/manuals/` (Vol I 6.01, Vol II-A 6.06, Vol III 6.02)
+- The latest manual revisions in `manuals/` (Vol I 6.01, Vol II-A 6.06, Vol III 6.02)
   are NORMATIVE, read for the pre-R6 wording. R6-only instructions/registers are out of scope.
 - MARS is only a differential oracle. When MARS and the architecture disagree, the architecture wins;
   record the divergence in `docs/spec/SPEC-NOTES.md`.
@@ -26,9 +26,9 @@ stripped) + manual-spec independence: `scripts/manual_independence.py` (token pr
 `scripts/ManualIndependence.lean` (walks the Lean environment from every `Manual.*` constant against an allow-list); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
 (needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness (incl. the manual-spec check: `Manual.InstructionTime` vs `step` through `Refine.abs`); 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
-(`trace.py --check`, `--check-readme`, `docs/TRACE.md` up to date); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
+(`trace.py --check`: every constructor has step arm, spec theorem, `_refines`; `--check-readme`); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
 - While iterating: `scripts/gate.sh --quick` (steps 1,8,9,10; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
-- Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates TRACE.md). Only a full green run
+- Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates the README coverage table). Only a full green run
   writes `.gate/green`, bound to the exact tree content.
 - Commit ONLY with `scripts/gate-commit.sh "<subject>" [body-file]` (or `--run`). Never `git commit` by hand,
   never `--no-verify`, never `--allow-warnings` unless the owner said so.
@@ -67,14 +67,20 @@ stripped) + manual-spec independence: `scripts/manual_independence.py` (token pr
 - Tests: in-build `#guard`/`example` in `Semantics/Tests/*.lean` (and in Specs); `tests/corpus` (vs MARS), `tests/equiv`, `tests/asm`
   (checked output), `tests/oracle/*.asm` + `encodings.list` (QEMU/LLVM oracle, directives below). Executables: `DiffHarness.lean`,
   `EquivHarness.lean`, `MipsRun.lean` (one .asm -> JSON; `--bare` = no hosted syscall services; `--reset` = start at the reset vector from `resetState`). `vendor/mars/` is the MARS jar only (source not vendored).
-- Docs: `README.md` (what is proved/tested/trusted; its coverage table is GENERATED), `DESIGN.md`, `docs/PROOF-NOTES.md` (reading order,
-  comparator arrangement), `docs/TRACE.md` (GENERATED), `docs/AUDIT.md`, `docs/spec/{INSTRUCTION-REF,SPEC-NOTES,MIPS-COVERAGE-GAPS}.md`,
-  `docs/spec/manuals/` (lookup tool `mipsdoc.py`, see its `AGENTS.md`). `scripts/` gate, oracle, trace (`scripts/README.md`).
+- This branch is the semantics: code, tests, gate, `README.md` (short; its coverage table is GENERATED), `manuals/` (lookup tool
+  `mipsdoc.py`, `fetch.sh`, see its `AGENTS.md`), `scripts/` gate, oracle, trace (`scripts/README.md`).
+- Docs live on the orphan branch `documentation`, mounted as a worktree at `docs/` (gitignored here):
+  `git worktree add docs documentation`. Paths such as `docs/spec/SPEC-NOTES.md` in code comments refer to it. It holds
+  `OVERVIEW.md` (what is proved/tested/trusted, limits), `DESIGN.md`, `MANUAL-SPEC.md`, `PROOF-NOTES.md` (reading order, comparator
+  arrangement), `TRACE.md` (GENERATED), `AUDIT.md`, `spec/{INSTRUCTION-REF,SPEC-NOTES,COMPLIANCE,MIPS-COVERAGE-GAPS}.md`,
+  `tools/compliance.py`. `docs/check.sh` checks it against the code (TRACE.md current, compliance check, no code change since
+  the commit in `docs/SYNC`); `--fix` regenerates TRACE.md, `--sync` records the code HEAD. Docs commits are made on that
+  branch after `docs/check.sh` passes; the code gate does not cover them. When code changes, update the docs in the same wave.
 - Trusted surface changes need explicit owner-visible mention: the model files, `comparator.json`, `lakefile.toml`, `Checked.lean`,
   the statements in `Statements.lean`, everything in `Semantics/Manual/` (incl. the `Choices.lean` pins), `Semantics/Refine/Defs.lean`,
   and `Semantics/FpOpsSpec.lean` (the IEEE/FP reference definitions the FP theorems are stated against).
 - Per-instruction `_spec_raw` theorems restate what `step` computes (proved by `rfl`-style scripts); they are NOT independent of
-  `Step.lean`. Do not describe them as a correctness proof (README, "What is proved, what is tested, what is trusted"). The independent correctness
+  `Step.lean`. Do not describe them as a correctness proof (`docs/OVERVIEW.md`, "What is proved, what is tested, what is trusted"). The independent correctness
   result is `step_eq_manual` (step refines the manual transcription in `Semantics/Manual/`, for every state satisfying `Refine.Inv`).
 
 ## Oracle directives (`# oracle: ...` comments in `tests/oracle/*.asm`; full table in `scripts/README.md`)
@@ -90,9 +96,9 @@ Details and pitfalls (matcher naming): `docs/PROOF-NOTES.md`, "The comparator ar
 ## Running things
 - Run a program: `lake exe MipsRun prog.asm` (JSON out). `lake exe DiffHarness` (needs java). `lake exe EquivHarness`.
 - Build: `lake build Semantics Checked DiffHarness EquivHarness MipsRun`. Check: `lake check`; `lake comparator`.
-- Traceability: `python3 scripts/trace.py` (writes docs/TRACE.md and the README coverage block), `--check`, `--readme`, `--check-readme`, `--out FILE`.
-- Manuals: `python3 docs/spec/manuals/mipsdoc.py insn NAME | section v3 "Cause Register" | search "..." | page v2 177`.
-  Texts are not committed; `docs/spec/manuals/fetch.sh` fetches them. See the `mips-manual` skill.
+- Traceability: `python3 scripts/trace.py` (writes docs/TRACE.md, needs the docs mount, and the README coverage block), `--check`, `--readme`, `--check-readme`, `--write-readme`, `--out FILE`.
+- Manuals: `python3 manuals/mipsdoc.py insn NAME | section v3 "Cause Register" | search "..." | page v2 177`.
+  Texts are not committed; `manuals/fetch.sh` fetches them. See the `mips-manual` skill.
 
 ## Concurrency (multi-agent waves)
 - One writer per file. State your file ownership at the start; everything else is read-only.
@@ -109,5 +115,5 @@ Details and pitfalls (matcher naming): `docs/PROOF-NOTES.md`, "The comparator ar
 4. `<ctor>_spec_raw` in the matching `Semantics/Specs/<Family>.lean`, proved with `step_spec`/`fp_step_spec`, no sorry.
 5. Assembler mnemonic in Asm.lean + a `#guard` in `Tests/AsmTests.lean` + a form in `tests/oracle/encodings.list`.
 6. INSTRUCTION-REF.md entry citing document+revision+section+printed page; SPEC-NOTES entry for any pin or divergence.
-7. A test: `tests/corpus` (MARS supports it) and/or a `tests/oracle` program.  8. `scripts/gate.sh --fix` (regenerates TRACE.md and the
-README table).  9. Full gate green. Recipe: the `new-instruction` skill.
+7. A test: `tests/corpus` (MARS supports it) and/or a `tests/oracle` program.  8. `scripts/gate.sh --fix` (regenerates the
+README table).  9. Full gate green; then the docs items (6, `docs/check.sh --fix`/`--sync`) on the `documentation` branch. Recipe: the `new-instruction` skill.

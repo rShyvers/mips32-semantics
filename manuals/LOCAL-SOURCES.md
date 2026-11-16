@@ -1,7 +1,7 @@
 # LOCAL-ONLY sources (copyrighted, not fetchable, never committed)
 
 These documents are used for verification but are not downloadable from a public mirror. The repo owner supplies
-them. The files are ignored by git (`/docs/spec/manuals/*.pdf`, `*.txt` in `/.gitignore`); never `git add`, upload or
+them. The files are ignored by git (`/manuals/*.pdf`, `*.txt` in `/.gitignore`); never `git add`, upload or
 quote them at length. Short quotes (a sentence or two) in citations are fine, as for the MIPS manuals.
 
 | File | Document | Revision | SHA-256 of the PDF |
@@ -13,7 +13,7 @@ The PDF is the owner's licensed copy of the published standard, unlike the publi
 
 ## Install
 
-1. Copy the licensed PDF to `docs/spec/manuals/IEEE-754-2019.pdf` and check `sha256sum IEEE-754-2019.pdf` against the
+1. Copy the licensed PDF to `manuals/IEEE-754-2019.pdf` and check `sha256sum IEEE-754-2019.pdf` against the
    table (a different hash means a different file or edition: the page numbers in citations may not match).
 2. Extract the text exactly as `fetch.sh` does for the MIPS manuals:
    `pdftotext -layout IEEE-754-2019.pdf IEEE-754-2019.txt`, then drop the per-page license-stamp footer lines

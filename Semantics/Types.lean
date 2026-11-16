@@ -4,7 +4,7 @@ import Semantics.Word
 /-!
 # Types — core simulator datatypes
 
-Foundation module (DESIGN.md §3): `Program` (assembler output), `State` (the processor),
+Foundation module (docs/DESIGN.md §3): `Program` (assembler output), `State` (the processor),
 instruction-word constructors, and constants. Depends only on `Word`.
 -/
 

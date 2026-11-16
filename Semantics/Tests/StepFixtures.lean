@@ -8,7 +8,7 @@ Formerly `section TestHelpers` of `Semantics/Step.lean` (there `private`; here i
 `namespace StepTest`, opened by each test file).
 
 
-Per DESIGN.md §5 / CLAUDE.md §5: pure arithmetic helpers (no `Program` or
+Per docs/DESIGN.md §5 / CLAUDE.md §5: pure arithmetic helpers (no `Program` or
 `State.physMem` HashMap access) are checked with `by decide`/`by rfl`. Anything
 that steps touches `State.physMem` (`Std.HashMap`), which is `cbv_opaque` and not
 kernel-reducible, so *every* stepping check uses `#guard` (compiled evaluation).

@@ -8,7 +8,7 @@ it. `Semantics/FpOpsCorrect*.lean` proves that the rounding core of `FpOps.lean`
 (`Mips.Fp.Format.roundCore`) and the arithmetic built on it meet these definitions. The definitions
 are written from the manual and the IEEE standard it references, **not** from `roundCore`. Where the text
 below cites "IEEE Std 754-2019", the clause was looked up in the owner's licensed copy (local-only, see
-`docs/spec/manuals/LOCAL-SOURCES.md`; `mipsdoc.py section ieee X`) and the behaviour checked against it
+`manuals/LOCAL-SOURCES.md`; `mipsdoc.py section ieee X`) and the behaviour checked against it
 (table in SPEC-NOTES §9 item 30). The MIPS manual names IEEE 754-1985, whose text is not available here, so
 the citations say "verified against 2019" and nothing about 1985:
 

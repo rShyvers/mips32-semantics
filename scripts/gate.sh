@@ -392,32 +392,26 @@ step_oracle() {
 step_trace() {
   local log=$1 tmp rc
   [ -f scripts/trace.py ] || { echo "scripts/trace.py missing"; NOTE="trace.py missing"; return 1; }
-  # --out always goes to a temp file so a check never rewrites docs/TRACE.md.
+  # --out goes to a temp file: the full matrix (docs/TRACE.md) lives on the `documentation` branch and is
+  # checked there (docs/check.sh); this step checks the code-side coverage and the README's generated table.
   tmp=$(mktemp)
   python3 scripts/trace.py --check --out "$tmp" && python3 scripts/trace.py --check-readme
   rc=$?
+  rm -f "$tmp"
   X_CONSTR=$(sed -n 's/^constructors: \([0-9]*\).*/\1/p' "$log" | head -1)
   X_THEOREMS=$(sed -n 's/^spec theorems.*: \([0-9]*\) \/ [0-9]*.*/\1/p' "$log" | head -1)
-  if [ $rc -ne 0 ]; then rm -f "$tmp"; NOTE="trace.py --check failed (missing step arm / spec theorem / sorry)"; return 1; fi
-  if [ ! -f docs/TRACE.md ]; then rm -f "$tmp"; echo "docs/TRACE.md missing; run: python3 scripts/trace.py"; NOTE="docs/TRACE.md missing"; return 1; fi
-  if diff <(grep -v '^- git HEAD:' docs/TRACE.md) <(grep -v '^- git HEAD:' "$tmp") >"$log.diff"; then
-    rm -f "$tmp" "$log.diff"
-    NOTE="${X_CONSTR:-?} constructors, ${X_THEOREMS:-?} spec theorems, TRACE.md current"
-    return 0
-  fi
-  head -12 "$log.diff" | cut -c1-160; rm -f "$tmp"
-  echo "docs/TRACE.md is stale: run 'python3 scripts/trace.py' (or gate.sh --fix) and include it"
-  NOTE="docs/TRACE.md out of date"
-  return 1
+  if [ $rc -ne 0 ]; then NOTE="trace.py --check failed (missing step arm / spec theorem / refinement / sorry, or README table stale)"; return 1; fi
+  NOTE="${X_CONSTR:-?} constructors, ${X_THEOREMS:-?} spec theorems, README table current"
+  return 0
 }
 
 step_manuals() {
   local log=$1
-  [ -f docs/spec/manuals/mipsdoc.py ] || { NOTE="mipsdoc.py missing"; return 1; }
-  python3 docs/spec/manuals/mipsdoc.py selftest
+  [ -f manuals/mipsdoc.py ] || { NOTE="mipsdoc.py missing"; return 1; }
+  python3 manuals/mipsdoc.py selftest
   local rc=$?
   [ $rc -eq 0 ] || { NOTE="mipsdoc.py selftest exit $rc"; return 1; }
-  if grep -q '^SKIP:' "$log"; then NOTE="manual texts absent (run docs/spec/manuals/fetch.sh)"; return 2; fi
+  if grep -q '^SKIP:' "$log"; then NOTE="manual texts absent (run manuals/fetch.sh)"; return 2; fi
   NOTE="$(tail -1 "$log")"
 }
 
@@ -452,8 +446,8 @@ if [ $FULL = 0 ]; then
   echo "== gate: PARTIAL run (--quick/--from/--only). This is NOT a green gate; no stamp will be written. =="
 fi
 [ $FIX = 1 ] && [ "${SEL[8]}" = 1 ] && {
-  python3 scripts/trace.py > "$LOGDIR/00-fix-trace.log" 2>&1 \
-    && echo "gate: --fix regenerated docs/TRACE.md" || echo "gate: --fix: trace.py failed, see $LOGDIR/00-fix-trace.log"
+  python3 scripts/trace.py --write-readme > "$LOGDIR/00-fix-trace.log" 2>&1 \
+    && echo "gate: --fix regenerated the README coverage table" || echo "gate: --fix: trace.py failed, see $LOGDIR/00-fix-trace.log"
 }
 TREE0=$(current_tree) || TREE0=""
 declare -a RES SECS NOTES

@@ -33,11 +33,11 @@ the matching `Semantics/Tests/*.lean`, `INSTRUCTION-REF.md`, one new test progra
 5. `Semantics/Asm.lean`: add `("mnemonic", opcode/funct, .form)` to the matching table (`rTable`, `iTable`, `bTable`, `cop1Table`, ...) or a dedicated
    parser case if the operand shape is new. Add a `#guard` in `Semantics/Tests/AsmTests.lean` and a form line in `tests/oracle/encodings.list`
    (`oracle.py --encodings` checks it against `llvm-mc`; every constructor's mnemonic must be listed).
-6. `docs/spec/INSTRUCTION-REF.md`: a `### mnemonic (FORM)` section (and a row in the summary table) with Lean names, Pre-R6 semantics, exceptions, and a
+6. On the `documentation` branch (mounted at `docs/`; `git worktree add docs documentation`), `docs/spec/INSTRUCTION-REF.md`: a `### mnemonic (FORM)` section (and a row in the summary table) with Lean names, Pre-R6 semantics, exceptions, and a
    citation (document+revision+section+printed page). Pins and divergences go in `docs/spec/SPEC-NOTES.md`; remove the item from `MIPS-COVERAGE-GAPS.md`.
 7. Tests, in this order of preference: a `tests/oracle/<name>.asm` program (QEMU 24Kf compares final registers/memory/CP0; directives `# oracle: ...`,
    see `scripts/README.md`; a QEMU difference from the manual is a declared `expect-deviation` with a citation, never a silent mismatch); and, if MARS
    supports the instruction, `tests/corpus/<name>.asm` (print observable results with syscalls 1/11/10; `lake exe DiffHarness`).
-8. `scripts/gate.sh --fix` (regenerates `docs/TRACE.md` and the README coverage table), then check the instruction's row in `docs/TRACE.md`: manual page,
-   REF entry, decode, encode, step arm, spec theorem, tests.
-9. `/gate "<subject>"`. Done only when the full gate is green.
+8. `scripts/gate.sh --fix` (regenerates the README coverage table); then `docs/check.sh --fix` (regenerates `docs/TRACE.md`) and check the
+   instruction's row in `docs/TRACE.md`: manual page, REF entry, decode, encode, step arm, spec theorem, tests.
+9. `/gate "<subject>"`. Done only when the full gate is green. Then `docs/check.sh --sync` and commit the docs on the `documentation` branch.

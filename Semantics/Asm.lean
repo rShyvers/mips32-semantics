@@ -202,7 +202,7 @@ floating point is involved. String literals take the escapes listed at
 MARS's `la` pseudo-op has many address-forms (`la $t,100($t2)`,
 `la $t,label+100000($t2)`, a `COMPACT` single-instruction form when the
 resolved address fits 16 bits, etc. — see `PseudoOps.txt` lines 249-258).
-Per DESIGN.md §4 ("`la` = `li` of a label address"), this assembler supports
+Per docs/DESIGN.md §4 ("`la` = `li` of a label address"), this assembler supports
 exactly `la $rt, label` and `la $rt, label±const`. It always emits the
 general two-instruction `lui $at,hi16 ; ori $rt,$at,lo16` expansion (the
 same one MARS uses for non-compact `la`/large `li`), whatever the resolved

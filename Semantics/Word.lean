@@ -1,7 +1,7 @@
 /-!
 # Word — 32-bit word type and bit-level helpers
 
-Foundation module (DESIGN.md §3). `BitVec 32` is provided by Lean core
+Foundation module (docs/DESIGN.md §3). `BitVec 32` is provided by Lean core
 (`Init.Data.BitVec`), which is always in scope, so no extra imports are needed.
 -/
 

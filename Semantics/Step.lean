@@ -10,7 +10,7 @@ import Semantics.FpOps
 
 `step` executes one instruction; `run` is `step` iterated with a fuel bound
 and nothing else. Ground truth: the latest manual revisions in
-`docs/spec/manuals/` are normative, read for the pre-Release-6 wording
+`manuals/` are normative, read for the pre-Release-6 wording
 (MD00082 Vol I-A Rev 6.01, MD00086 Vol II-A Rev 6.06, MD00090 Vol III
 Rev 6.02; see CLAUDE.md), summarised per instruction in
 `docs/spec/INSTRUCTION-REF.md`. Comments below that cite "MD00086 Rev 2.50"

@@ -16,7 +16,7 @@ without saying so explicitly. Never delete a theorem or test silently. Manual cl
 Workflow:
 1. Reproduce the goal state with a narrow `lake env lean Semantics/...` or `lake build <module>` in your own tree (never in a tree another
    agent is building: lock contention).
-2. Iterate with `scripts/gate.sh --quick` (forbidden constructs, TRACE, manuals, hygiene) plus targeted builds.
+2. Iterate with `scripts/gate.sh --quick` (forbidden constructs, trace coverage, manuals, hygiene) plus targeted builds.
 3. Before reporting, run the FULL gate: `scripts/gate.sh --fix`. Do not commit; the orchestrator commits through `scripts/gate-commit.sh`.
    `lake check` takes minutes; run the gate once, not repeatedly.
 

@@ -6,7 +6,7 @@ import Semantics.Types
 
 Depends only on `Word` and `Types`. Ground truth for every encoding below is
 `docs/spec/INSTRUCTION-REF.md`, which summarises the manuals; the latest
-revisions in `docs/spec/manuals/` are normative, read for the pre-Release-6
+revisions in `manuals/` are normative, read for the pre-Release-6
 wording (MD00086 Vol II-A Rev 6.06; see CLAUDE.md). Comments below that cite
 "MD00086 Rev 2.50" with a table or page number are historical citations of
 that older revision.

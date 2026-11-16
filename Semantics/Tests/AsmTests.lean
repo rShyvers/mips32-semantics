@@ -12,7 +12,7 @@ Moved verbatim out of `Semantics/Asm.lean` (reviewability restructuring): the de
 -- stuck on the underlying imperative array operations — confirmed against
 -- a minimal `Std.HashMap Nat Nat` repro), so `by decide`/`by rfl` are not
 -- usable for any `Program`-valued assertion in this Lean/Std version.
--- `#guard` (compiled evaluation) is explicitly sanctioned by DESIGN.md §5
+-- `#guard` (compiled evaluation) is explicitly sanctioned by docs/DESIGN.md §5
 -- and works correctly here; all checks below use it.
 
 -- A `.text` program mixing `add`/`addi`/`beq`/`jal` with labels.

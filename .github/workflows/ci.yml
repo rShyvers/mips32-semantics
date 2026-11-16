@@ -12,7 +12,7 @@ on:
 # are absent) still exits 0. The last step below therefore reads .gate/last-run.json and fails unless the run was
 # a full run and every one of the ten steps is PASS. Missing java / qemu / LLVM already FAIL inside gate.sh.
 #
-# The manual texts (docs/spec/manuals/*.pdf, *.txt) are derived from copyrighted PDFs. They are fetched into the
+# The manual texts (manuals/*.pdf, *.txt) are derived from copyrighted PDFs. They are fetched into the
 # runner workspace on every run, are never cached (no actions/cache path covers them), and are never uploaded:
 # only .gate/last-run.json (step names, statuses, counts) is uploaded, not the step logs, which can quote them.
 
@@ -62,7 +62,7 @@ jobs:
       - name: Fetch the mathlib build cache
         run: lake exe cache get
       - name: Fetch the manuals into the workspace (fatal on failure; checks SHA256SUMS; never cached or uploaded)
-        run: docs/spec/manuals/fetch.sh
+        run: manuals/fetch.sh
       - name: Gate (forbidden, build, check, comparator, DiffHarness, EquivHarness, oracle, trace, manuals, hygiene)
         run: scripts/gate.sh
       - name: Require a full run with every step PASS (a SKIP is not green)
