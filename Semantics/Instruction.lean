@@ -19,9 +19,7 @@ function per major opcode group (`decodeSpecial`, `decodeRegimm`, `decodeSpecial
 the sub-tables: "6Rm and 6R instructions signal a Reserved Instruction exception when executed by a
 Release 6 implementation. If the encoding has been used for a new instruction or coprocessor, the
 unusable exception takes priority", MD00086 Vol II-A Rev 6.06 Table A.1, p.451) does not decode
-(`step` raises Reserved Instruction, or Coprocessor Unusable in a coprocessor's space). Encodings
-Release 6 reuses for instructions a later wave of this project adds are marked `-- W<n>:` at the
-place they will be decoded; until then they do not decode either.
+(`step` raises Reserved Instruction, or Coprocessor Unusable in a coprocessor's space).
 
 All instruction variants carry their **raw** field values as `W32`s (not yet sign/zero-extended);
 `Step.lean` (`Semantics/Exec/*`) applies the extensions each instruction's semantics require. This
@@ -90,10 +88,7 @@ inductive Instruction where
   | srl  (rd rt shamt : W32)
   /-- `$rd = $rt >> shamt`, arithmetic/sign-fill (opcode 0, funct 0x03). -/
   | sra  (rd rt shamt : W32)
-  -- R-type variable shift (opcode 0; shamt field unused/fixed 0). MIPS32
-  -- v1.x addition: compilers emit these (not `sll`/`srl`/`sra`) whenever
-  -- the shift amount is a runtime value rather than a compile-time
-  -- constant (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4).
+  -- R-type variable shift (SPECIAL; the `sa` field is 0): SLLV p.377, SRLV p.386, SRAV p.384.
   /-- `$rd = $rt << ($rs & 0x1f)`, logical, shift amount from a register's
   low 5 bits (opcode 0, funct 0x04). MIPS32. -/
   | sllv (rd rt rs : W32)
@@ -103,20 +98,15 @@ inductive Instruction where
   /-- `$rd = $rt >> ($rs & 0x1f)`, arithmetic/sign-fill, shift amount from a
   register's low 5 bits (opcode 0, funct 0x07). MIPS32. -/
   | srav (rd rt rs : W32)
-  -- R-type rotate (MIPS32r2; docs/spec/MIPS-COVERAGE-GAPS.md §3.4). Real
-  -- MIPS32r2 overloads `srl`'s opcode-0/funct-0x02 encoding: the `rs` field
-  -- (normally unused/fixed 0 for the plain shift-by-constant format) is set
-  -- to 0x01 to select rotate instead of shift. Likewise `srlv`'s
-  -- opcode-0/funct-0x06 encoding is overloaded via the (normally
-  -- unused/fixed 0) `shamt` field set to 0x01. These are new decode/encode
-  -- branches alongside the existing `srl`/`srlv` ones, not replacements.
+  -- R-type rotate: ROTR is SRL's encoding (funct 0x02) with bit 21 (`R`, the low bit of the `rs`
+  -- field) set; ROTRV is SRLV's (funct 0x06) with bit 6 (`R`, the low bit of `sa`) set (ROTR p.339,
+  -- ROTRV p.340).
   /-- `$rd = $rt` rotated right by the constant `sa` (0-31) bits -- bits
   shifted off the bottom wrap around to the top, unlike `srl`'s zero-fill
-  (opcode 0, funct 0x02, `rs` field = 0x01). MIPS32r2. -/
+  (opcode 0, funct 0x02, `rs` field = 0x01; ROTR, p.339). -/
   | rotr (rd rt sa : W32)
   /-- `$rd = $rt` rotated right by `$rs & 0x1f` bits, rotate amount from a
-  register's low 5 bits (opcode 0, funct 0x06, `shamt` field = 0x01).
-  MIPS32r2. -/
+  register's low 5 bits (opcode 0, funct 0x06, `shamt` field = 0x01; ROTRV, p.340). -/
   | rotrv (rd rt rs : W32)
   -- R-type jump register. Release 6 has one register jump, JALR: "Release 6: JR is defined to be
   -- JALR with the destination register specifier rd set to 0 ... The pre-Release 6 instruction
@@ -140,42 +130,32 @@ inductive Instruction where
   /-- `$rd = ` the number of leading zero bits in `$rs`, counted from the MSB
   (32 if `$rs` is all-zero) (SPECIAL, `rt` = 0, `sa` = 1, funct 0x10; CLZ p.135). -/
   | clz (rs rd : W32)
-  -- R-type SPECIAL3 BSHFL sign-extend (MIPS32r2). `rs` is unused/fixed 0;
-  -- `funct` is 0x20 for the whole BSHFL sub-op family, and the shamt-position
-  -- 5-bit sub-field (not a real shift amount here) selects which one.
+  -- R-type SPECIAL3 BSHFL sign-extend (funct 0x20): `rs` is 0 and the `sa`-position sub-field
+  -- selects the operation.
   /-- `$rd = sign-extend($rt[7:0])` to 32 bits (SPECIAL3 opcode 0x1f,
-  funct 0x20, sub-field 0x10). MIPS32r2. -/
+  funct 0x20, sub-field 0x10; SEB, p.365). -/
   | seb (rd rt : W32)
   /-- `$rd = sign-extend($rt[15:0])` to 32 bits (SPECIAL3 opcode 0x1f,
-  funct 0x20, sub-field 0x18). MIPS32r2. -/
+  funct 0x20, sub-field 0x18; SEH, p.366). -/
   | seh (rd rt : W32)
   /-- "Word Swap Bytes Within Halfwords": swaps the byte order *within* each
   16-bit half of `$rt` independently (byte 0 <-> 1, byte 2 <-> 3), leaving
   the two halfwords in their original word positions -- **not** a full
   32-bit byte-reverse (that needs `wsbh` followed by `rotr` by 16)
   (SPECIAL3 opcode 0x1f, funct 0x20, sub-field 0x02 -- same BSHFL funct
-  family as `seb`/`seh`, distinguished by the sub-field like they are).
-  MIPS32r2. -/
+  family as `seb`/`seh`, distinguished by the sub-field like they are; WSBH, p.445). -/
   | wsbh (rd rt : W32)
-  -- R-type SPECIAL3 bitfield extract/insert (MIPS32r2;
-  -- docs/spec/MIPS-COVERAGE-GAPS.md section 3.4). Both `pos` and `size` are
-  -- small compile-time constants (0-31) encoded directly in the
-  -- instruction word, not register values. Real constraint `pos + size <=
-  -- 32` is architecturally UNPREDICTABLE if violated; this model makes no
-  -- special case for it (SPEC-NOTES precedent: just compute what the
-  -- bit masking implies). The raw encoding packs `pos` into the `shamt`
-  -- field (bits 10..6) for both instructions, but the `rd`-position field
-  -- (bits 15..11) differs: for `ext` it holds `size - 1` ("msbd"); for
-  -- `ins` it holds `pos + size - 1` ("msb") -- these are genuinely
-  -- different fields in the real MIPS32 ISA (MD00086 section 3.2), not a
-  -- typo. `decode`/`encode` below do the +-1 arithmetic so `Step.lean`
-  -- only ever sees the semantic `pos`/`size` pair.
+  -- R-type SPECIAL3 bitfield extract/insert (EXT p.183-184, INS p.192-193). `pos` (`lsb`) is
+  -- the `sa` field (bits 10..6) of both; the `rd`-position field (bits 15..11) holds
+  -- `msbd = size - 1` for EXT and `msb = pos + size - 1` for INS. `decode`/`encode` do the ±1
+  -- arithmetic, so the constructors carry `pos`/`size`; the UNPREDICTABLE field combinations do
+  -- not decode (`decodeSpecial3`).
   /-- `$rt = zero-extend($rs[pos+size-1 .. pos])`, extracting a `size`-bit
-  field starting at bit `pos` (SPECIAL3 opcode 0x1f, funct 0x00). MIPS32r2. -/
+  field starting at bit `pos` (SPECIAL3 opcode 0x1f, funct 0x00; EXT, p.183). -/
   | ext (rt rs pos size : W32)
   /-- Inserts the low `size` bits of `$rs` into `$rt` starting at bit `pos`;
   bits of `$rt` outside `[pos+size-1 .. pos]` are left unchanged (SPECIAL3
-  opcode 0x1f, funct 0x04). MIPS32r2. -/
+  opcode 0x1f, funct 0x04; INS, p.192). -/
   | ins (rt rs pos size : W32)
   -- SPECIAL3 RDHWR: read a hardware register (`HWREna`-gated).
   /-- Read Hardware Register: `$rt = HWR[rd, sel]` (SPECIAL3 opcode 0x1f, funct 0x3b, `rs` = 0,
@@ -263,8 +243,8 @@ inductive Instruction where
   | lhu (rs rt imm : W32)
   /-- `MEM16[$rs + offset] = $rt[15:0]`, halfword-aligned (opcode 0x29). -/
   | sh  (rs rt imm : W32)
-  /-- `MEM8[$rs + offset] = $rt[7:0]`, no alignment requirement (opcode 0x28;
-  MD00086 Rev 2.50 "SB"). -/
+  /-- `MEM8[$rs + offset] = $rt[7:0]`, no alignment requirement (opcode 0x28; MD00086 Vol II-A
+  Rev 6.06, SB, p.344). -/
   | sb  (rs rt imm : W32)
   /-- `$rt = MEM32[$rs + offset]`, word-aligned, and sets `State.llBit` (MD00086 Vol II-A Rev
   6.06, LL, p.223). Release 6 encoding: SPECIAL3, `base` = bits 25..21, `rt`, a **9-bit** signed
@@ -288,11 +268,8 @@ inductive Instruction where
   | blez (rs imm : W32)
   /-- `if $rs > 0 then PC = PC_next + (sext16(imm) << 2)` (opcode 0x07). -/
   | bgtz (rs imm : W32)
-  -- I-type REGIMM zero-comparison branches (MIPS32 ISA; opcode 0x01). All
-  -- four share this one opcode; the `rt` field (not a separate opcode)
-  -- selects which instruction it is (ground truth: MD00086 Rev 2.50 §3.2,
-  -- Table 3-2, p. 25; see docs/spec/INSTRUCTION-REF.md for the full
-  -- citation). Same `rs, offset` field shape as `blez`/`bgtz`.
+  -- I-type REGIMM zero-comparison branches (opcode 0x01): the `rt` field selects the instruction
+  -- (Table A.4, p.452). BLTZ (p.97) and BGEZ (p.75) have the `rs, offset` shape of `blez`/`bgtz`.
   /-- `if $rs < 0 then PC = PC_next + (sext16(imm) << 2)`, signed
   (opcode 0x01, `rt` field = 0x00 `BLTZ`). -/
   | bltz (rs imm : W32)
@@ -310,12 +287,8 @@ inductive Instruction where
   BAL special case of BGEZAL, but removes all other instances of BGEZAL. BGEZAL with rs any register
   other than GPR[0] is required to signal a Reserved Instruction exception" (p.50). -/
   | bal (imm : W32)
-  -- Instruction-cache synchronize hint (real MIPS32 ISA, MIPS32r2; see
-  -- `docs/spec/MIPS-COVERAGE-GAPS.md` section 3.7). Shares REGIMM's opcode 0x01
-  -- with the branch/trap-immediate families above, selected the same way
-  -- (by the `rt` field, here fixed to `0x1f`), but its remaining operands
-  -- (`rs`, `imm`) are an address computation like `lw`/`sw`/`blez`, not a
-  -- branch target or trap comparand.
+  -- Instruction-cache synchronize hint (REGIMM, `rt` = 0x1f; SYNCI p.412-414): `rs`, `imm` form an
+  -- address as in `lw`/`sw`.
   /-- Hint to flush the instruction cache at `$rs + sext16(offset)`, for
   self-modifying code / JIT compilers (opcode 0x01 REGIMM, `rt` field =
   `0x1f` `SYNCI`). This simulator has no instruction-cache model, so
@@ -400,11 +373,11 @@ inductive Instruction where
   | mfc1 (rt fs : W32)
   /-- `FPR[fs] = $rt` raw word (COP1, `rs` = `MT` = 0x04). -/
   | mtc1 (rt fs : W32)
-  /-- `$rt = ` high word of the double in `fs`, i.e. `FPR[fs+1]` (COP1, `rs` =
-  `MFH` = 0x03; Release 2). -/
+  /-- `$rt = FPR[fs]63..32`, the high word of the 64-bit FPR `fs` (COP1, `rs` = `MFH` = 0x03;
+  MD00086 Vol II-A Rev 6.06, MFHC1, p.271). -/
   | mfhc1 (rt fs : W32)
-  /-- High word of the double in `fs` (`FPR[fs+1]`) `= $rt` (COP1, `rs` =
-  `MTH` = 0x07; Release 2). -/
+  /-- The high word of the 64-bit FPR `fs` `= $rt`, the low word unchanged (COP1, `rs` = `MTH` =
+  0x07; MD00086 Vol II-A Rev 6.06, MTHC1, p.295). -/
   | mthc1 (rt fs : W32)
   /-- `$rt = FP_Control[fs]` (COP1, `rs` = `CF` = 0x02): FIR 0, FCCR 25,
   FEXR 26, FENR 28, FCSR 31. -/
@@ -967,48 +940,67 @@ def decodeCop0 (w : W32) : Option Instruction :=
   | 0x0e => decodeIf (z shamt && z (functOf w)) (.wrpgpr rd rt)
   | _ => none
 
-/-- The Release 6 COP1 functions of one format (S or D) that take `fd, fs, ft`, or `fd, fs` with
-`ft = 0` (`unary`). -/
-structure R6Cop1Fmt where
+/-- **The COP1 instructions of one format** (`S`, `fmt` = 0x10, or `D`, `fmt` = 0x11): the
+constructor of each operation of the S and D function tables (Tables A.15/A.16, p.456-457); the
+conversions CVT.S.fmt (`100000`, p.159) and CVT.D.fmt (`100001`, p.153) exist for one of the two
+formats each. The arithmetic, SEL, MADDF/MSUBF and MIN/MAX
+families take `fd, fs, ft`, the others `fd, fs`. -/
+structure Cop1Fmt where
+  add : W32 → W32 → W32 → Instruction
+  sub : W32 → W32 → W32 → Instruction
+  mul : W32 → W32 → W32 → Instruction
+  div : W32 → W32 → W32 → Instruction
+  sqrt : W32 → W32 → Instruction
+  abs : W32 → W32 → Instruction
+  mov : W32 → W32 → Instruction
+  neg : W32 → W32 → Instruction
+  roundL : W32 → W32 → Instruction
+  truncL : W32 → W32 → Instruction
+  ceilL : W32 → W32 → Instruction
+  floorL : W32 → W32 → Instruction
+  roundW : W32 → W32 → Instruction
+  truncW : W32 → W32 → Instruction
+  ceilW : W32 → W32 → Instruction
+  floorW : W32 → W32 → Instruction
+  recip : W32 → W32 → Instruction
+  rsqrt : W32 → W32 → Instruction
+  cvtW : W32 → W32 → Instruction
+  cvtL : W32 → W32 → Instruction
+  /-- CVT.S.fmt (function `100000`), which format D has (CVT.S.D) and S does not. -/
+  cvtS : Option (W32 → W32 → Instruction)
+  /-- CVT.D.fmt (function `100001`), which format S has (CVT.D.S) and D does not. -/
+  cvtD : Option (W32 → W32 → Instruction)
   sel : W32 → W32 → W32 → Instruction
   seleqz : W32 → W32 → W32 → Instruction
   selnez : W32 → W32 → W32 → Instruction
   maddf : W32 → W32 → W32 → Instruction
   msubf : W32 → W32 → W32 → Instruction
+  rint : W32 → W32 → Instruction
+  cls : W32 → W32 → Instruction
   min : W32 → W32 → W32 → Instruction
   mina : W32 → W32 → W32 → Instruction
   max : W32 → W32 → W32 → Instruction
   maxa : W32 → W32 → W32 → Instruction
-  rint : W32 → W32 → Instruction
-  cls : W32 → W32 → Instruction
 
-/-- Format S. -/
-def decodeR6FmtS : R6Cop1Fmt :=
-  { sel := .selS, seleqz := .seleqzS, selnez := .selnezS, maddf := .maddfS, msubf := .msubfS,
-    min := .minS, mina := .minaS, max := .maxS, maxa := .maxaS, rint := .rintS, cls := .classS }
+/-- Format S (`fmt` = 0x10): the instructions `decodeCop1Fmt decodeFmtS` emits. -/
+def decodeFmtS : Cop1Fmt :=
+  { add := .addS, sub := .subS, mul := .mulS, div := .divS, sqrt := .sqrtS, abs := .absS,
+    mov := .movS, neg := .negS, roundL := .roundLS, truncL := .truncLS, ceilL := .ceilLS,
+    floorL := .floorLS, roundW := .roundWS, truncW := .truncWS, ceilW := .ceilWS,
+    floorW := .floorWS, recip := .recipS, rsqrt := .rsqrtS, cvtW := .cvtWS, cvtL := .cvtLS,
+    cvtS := none, cvtD := some .cvtDS,
+    sel := .selS, seleqz := .seleqzS, selnez := .selnezS, maddf := .maddfS, msubf := .msubfS,
+    rint := .rintS, cls := .classS, min := .minS, mina := .minaS, max := .maxS, maxa := .maxaS }
 
-/-- Format D. -/
-def decodeR6FmtD : R6Cop1Fmt :=
-  { sel := .selD, seleqz := .seleqzD, selnez := .selnezD, maddf := .maddfD, msubf := .msubfD,
-    min := .minD, mina := .minaD, max := .maxD, maxa := .maxaD, rint := .rintD, cls := .classD }
-
-/-- The Release 6 functions of `fmt = S`/`D` (Table A.15, p.456; the MIN/MINA/MAX/MAXA values of
-the page diagrams, p.262; SEL p.368, SELEQZ/SELNEZ p.371, MADDF/MSUBF p.259, RINT p.337 and CLASS
-p.132 with `ft = 00000`), keyed by the function field `f`; `fd` = `sa`, `fs` = `rd`, `ft` = `rt`. -/
-def decodeR6Fmt (t : R6Cop1Fmt) (f : Nat) (fd fs ft : W32) : Option Instruction :=
-  match f with
-  | 0x10 => some (t.sel fd fs ft)
-  | 0x14 => some (t.seleqz fd fs ft)
-  | 0x17 => some (t.selnez fd fs ft)
-  | 0x18 => some (t.maddf fd fs ft)
-  | 0x19 => some (t.msubf fd fs ft)
-  | 0x1a => decodeIf (ft == 0#32) (t.rint fd fs)
-  | 0x1b => decodeIf (ft == 0#32) (t.cls fd fs)
-  | 0x1c => some (t.min fd fs ft)
-  | 0x1d => some (t.mina fd fs ft)
-  | 0x1e => some (t.max fd fs ft)
-  | 0x1f => some (t.maxa fd fs ft)
-  | _ => none
+/-- Format D (`fmt` = 0x11): the instructions `decodeCop1Fmt decodeFmtD` emits. -/
+def decodeFmtD : Cop1Fmt :=
+  { add := .addD, sub := .subD, mul := .mulD, div := .divD, sqrt := .sqrtD, abs := .absD,
+    mov := .movD, neg := .negD, roundL := .roundLD, truncL := .truncLD, ceilL := .ceilLD,
+    floorL := .floorLD, roundW := .roundWD, truncW := .truncWD, ceilW := .ceilWD,
+    floorW := .floorWD, recip := .recipD, rsqrt := .rsqrtD, cvtW := .cvtWD, cvtL := .cvtLD,
+    cvtS := some .cvtSD, cvtD := none,
+    sel := .selD, seleqz := .seleqzD, selnez := .selnezD, maddf := .maddfD, msubf := .msubfD,
+    rint := .rintD, cls := .classD, min := .minD, mina := .minaD, max := .maxD, maxa := .maxaD }
 
 /-- The `condn` values of CMP.condn.fmt that are instructions (MD00086 Vol II-A Rev 6.06, Table A.17,
 p.457: functions `000000`-`001111` and `010001`-`010011`, `011001`-`011011`; "All encodings of the
@@ -1019,72 +1011,55 @@ def cmpCondns : List Nat := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1
 /-- Whether `c` is one of `cmpCondns`. -/
 def cmpCondnOK (c : W32) : Bool := cmpCondns.contains c.toNat
 
-/-- **COP1** `fmt = S` (`rs` = 0x10), keyed by `funct` (Table A.15, p.456). Fields: `ft` = `rt`,
-`fs` = `rd`, `fd` = `sa`; unary operations require `ft = 0`. Release 6 removed MOVCF (0x11),
-MOVZ/MOVN (0x12/0x13) and C.cond.fmt (0x30-0x3f).
-Release 6 adds SEL 0x10, SELEQZ 0x14, SELNEZ 0x17, MADDF 0x18, MSUBF 0x19, RINT 0x1a and CLASS 0x1b
-(`ft = 0`), MIN 0x1c, MINA 0x1d, MAX 0x1e, MAXA 0x1f (`decodeR6Fmt`). The function values of MIN/MINA/
-MAX/MAXA are those of the instruction page's diagrams (MAX.fmt, p.262: MIN `011100`, MINA `011101`,
-MAX `011110`, MAXA `011111`); Table A.15 (p.456) prints MIN, MAX, MINA, MAXA in that order instead. -/
-def decodeCop1S (w : W32) : Option Instruction :=
-  let rt := rtOf w
-  let rd := rdOf w
-  let shamt := shamtOf w
-  let z (x : W32) : Bool := x == 0#32
+/-- **COP1** `fmt = S` (`rs` = 0x10, Table A.15, p.456) and `fmt = D` (`rs` = 0x11, Table A.16,
+p.457): one table keyed by `funct`, instantiated per format by `t`. Fields: `ft` = `rt`, `fs` = `rd`,
+`fd` = `sa`; the operations with no `ft` operand require `ft = 0`. Release 6 removed MOVCF (0x11),
+MOVZ/MOVN (0x12/0x13) and C.cond.fmt (0x30-0x3f), and adds SEL 0x10, SELEQZ 0x14, SELNEZ 0x17,
+MADDF 0x18, MSUBF 0x19, RINT 0x1a and CLASS 0x1b (`ft = 0`), MIN 0x1c, MINA 0x1d, MAX 0x1e, MAXA 0x1f
+(SEL p.368, SELEQZ/SELNEZ p.371, MADDF/MSUBF p.259, RINT p.337, CLASS p.132). The function values
+of MIN/MINA/MAX/MAXA are those of the instruction page's diagrams (MAX.fmt, p.262: MIN `011100`, MINA
+`011101`, MAX `011110`, MAXA `011111`); Table A.15 (p.456) prints MIN, MAX, MINA, MAXA in that order
+instead. -/
+def decodeCop1Fmt (t : Cop1Fmt) (w : W32) : Option Instruction :=
+  let ft := rtOf w
+  let fs := rdOf w
+  let fd := shamtOf w
+  let unary (mk : W32 → W32 → Instruction) : Option Instruction := decodeIf (ft == 0#32) (mk fd fs)
   match (functOf w).toNat with
-  | 0x00 => some (.addS shamt rd rt)
-  | 0x01 => some (.subS shamt rd rt)
-  | 0x02 => some (.mulS shamt rd rt)
-  | 0x03 => some (.divS shamt rd rt)
-  | 0x04 => decodeIf (z rt) (.sqrtS shamt rd)
-  | 0x05 => decodeIf (z rt) (.absS shamt rd)
-  | 0x06 => decodeIf (z rt) (.movS shamt rd)
-  | 0x07 => decodeIf (z rt) (.negS shamt rd)
-  | 0x0c => decodeIf (z rt) (.roundWS shamt rd)
-  | 0x0d => decodeIf (z rt) (.truncWS shamt rd)
-  | 0x0e => decodeIf (z rt) (.ceilWS shamt rd)
-  | 0x0f => decodeIf (z rt) (.floorWS shamt rd)
-  | 0x15 => decodeIf (z rt) (.recipS shamt rd)
-  | 0x16 => decodeIf (z rt) (.rsqrtS shamt rd)
-  | 0x21 => decodeIf (z rt) (.cvtDS shamt rd)
-  | 0x24 => decodeIf (z rt) (.cvtWS shamt rd)
-  | 0x08 => decodeIf (z rt) (.roundLS shamt rd)
-  | 0x09 => decodeIf (z rt) (.truncLS shamt rd)
-  | 0x0a => decodeIf (z rt) (.ceilLS shamt rd)
-  | 0x0b => decodeIf (z rt) (.floorLS shamt rd)
-  | 0x25 => decodeIf (z rt) (.cvtLS shamt rd)
-  | f => decodeR6Fmt decodeR6FmtS f shamt rd rt
-
-/-- **COP1** `fmt = D` (`rs` = 0x11), keyed by `funct` (Table A.16, p.457); as `decodeCop1S`, with
-the same Release 6 functions (`decodeR6Fmt`). -/
-def decodeCop1D (w : W32) : Option Instruction :=
-  let rt := rtOf w
-  let rd := rdOf w
-  let shamt := shamtOf w
-  let z (x : W32) : Bool := x == 0#32
-  match (functOf w).toNat with
-  | 0x00 => some (.addD shamt rd rt)
-  | 0x01 => some (.subD shamt rd rt)
-  | 0x02 => some (.mulD shamt rd rt)
-  | 0x03 => some (.divD shamt rd rt)
-  | 0x04 => decodeIf (z rt) (.sqrtD shamt rd)
-  | 0x05 => decodeIf (z rt) (.absD shamt rd)
-  | 0x06 => decodeIf (z rt) (.movD shamt rd)
-  | 0x07 => decodeIf (z rt) (.negD shamt rd)
-  | 0x0c => decodeIf (z rt) (.roundWD shamt rd)
-  | 0x0d => decodeIf (z rt) (.truncWD shamt rd)
-  | 0x0e => decodeIf (z rt) (.ceilWD shamt rd)
-  | 0x0f => decodeIf (z rt) (.floorWD shamt rd)
-  | 0x15 => decodeIf (z rt) (.recipD shamt rd)
-  | 0x16 => decodeIf (z rt) (.rsqrtD shamt rd)
-  | 0x20 => decodeIf (z rt) (.cvtSD shamt rd)
-  | 0x24 => decodeIf (z rt) (.cvtWD shamt rd)
-  | 0x08 => decodeIf (z rt) (.roundLD shamt rd)
-  | 0x09 => decodeIf (z rt) (.truncLD shamt rd)
-  | 0x0a => decodeIf (z rt) (.ceilLD shamt rd)
-  | 0x0b => decodeIf (z rt) (.floorLD shamt rd)
-  | 0x25 => decodeIf (z rt) (.cvtLD shamt rd)
-  | f => decodeR6Fmt decodeR6FmtD f shamt rd rt
+  | 0x00 => some (t.add fd fs ft)
+  | 0x01 => some (t.sub fd fs ft)
+  | 0x02 => some (t.mul fd fs ft)
+  | 0x03 => some (t.div fd fs ft)
+  | 0x04 => unary t.sqrt
+  | 0x05 => unary t.abs
+  | 0x06 => unary t.mov
+  | 0x07 => unary t.neg
+  | 0x08 => unary t.roundL
+  | 0x09 => unary t.truncL
+  | 0x0a => unary t.ceilL
+  | 0x0b => unary t.floorL
+  | 0x0c => unary t.roundW
+  | 0x0d => unary t.truncW
+  | 0x0e => unary t.ceilW
+  | 0x0f => unary t.floorW
+  | 0x10 => some (t.sel fd fs ft)
+  | 0x14 => some (t.seleqz fd fs ft)
+  | 0x15 => unary t.recip
+  | 0x16 => unary t.rsqrt
+  | 0x17 => some (t.selnez fd fs ft)
+  | 0x18 => some (t.maddf fd fs ft)
+  | 0x19 => some (t.msubf fd fs ft)
+  | 0x1a => unary t.rint
+  | 0x1b => unary t.cls
+  | 0x1c => some (t.min fd fs ft)
+  | 0x1d => some (t.mina fd fs ft)
+  | 0x1e => some (t.max fd fs ft)
+  | 0x1f => some (t.maxa fd fs ft)
+  | 0x20 => t.cvtS.bind unary
+  | 0x21 => t.cvtD.bind unary
+  | 0x24 => unary t.cvtW
+  | 0x25 => unary t.cvtL
+  | _ => none
 
 /-- **COP1** (opcode 0x11), keyed by `rs` (Table A.14, p.456). Release 6 removed BC1 (`rs` =
 0x08: BC1F/BC1T/BC1FL/BC1TL).
@@ -1105,8 +1080,8 @@ def decodeCop1 (w : W32) : Option Instruction :=
   | 0x07 => decodeIf (z shamt && z (functOf w)) (.mthc1 rt rd)
   | 0x02 => decodeIf (z shamt && z (functOf w)) (.cfc1 rt rd)
   | 0x06 => decodeIf (z shamt && z (functOf w)) (.ctc1 rt rd)
-  | 0x10 => decodeCop1S w
-  | 0x11 => decodeCop1D w
+  | 0x10 => decodeCop1Fmt decodeFmtS w
+  | 0x11 => decodeCop1Fmt decodeFmtD w
   | 0x14 =>  -- fmt = W
     match (functOf w).toNat with
     | 0x20 => decodeIf (z rt) (.cvtSW shamt rd)
@@ -1232,6 +1207,12 @@ canonical encoding of an instruction of this profile's release (`step` then rais
 Instruction or Coprocessor Unusable). -/
 def decode (w : W32) : Option Instruction := decodeFor profile.release w
 
+/-- A COP1 register-format word (opcode COP1 = 0x11): `fmt` in the `rs` position (bits 25..21),
+`ft` in `rt`, `fs` in `rd`, `fd` in `sa`, then the function field (Tables A.14-A.17, p.456-457). The
+moves `mfc1`, `mtc1`, ... use it with `rt` and `fs` in the `ft`/`fs` positions and `fd = 0`.
+Reducible, so the field lemmas about `x ||| mkRT ..` apply to it unchanged. -/
+abbrev cop1R (fmt ft fs fd funct : W32) : W32 := (0x11#32 <<< 26) ||| mkRT fmt ft fs fd funct
+
 /-- Encode an `Instruction` back into its raw 32-bit word: the canonical
 encoding, with every reserved/don't-care field zero. `decode (encode i) =
 some i` for well-formed `i` (fields in range); see
@@ -1255,13 +1236,12 @@ def encode (i : Instruction) : W32 :=
   | .sllv rd rt rs => mkRT rs rt rd 0#32 0x04#32
   | .srlv rd rt rs => mkRT rs rt rd 0#32 0x06#32
   | .srav rd rt rs => mkRT rs rt rd 0#32 0x07#32
-  -- Rotate (MIPS32r2): `rs`/`shamt` field overloading, per the `.rotr`/
-  -- `.rotrv` docstrings.
+  -- Rotate: the `R` bit (bit 21 of ROTR, bit 6 of ROTRV) set in SRL's/SRLV's encoding.
   | .rotr  rd rt sa => mkRT 0x01#32 rt rd sa 0x02#32
   | .rotrv rd rt rs => mkRT rs rt rd 0x01#32 0x06#32
   | .jalr rs rd => mkRT rs 0#32 rd 0#32 0x09#32
   | .jalrHb rs rd => mkRT rs 0#32 rd 16#32 0x09#32
-  -- SPECIAL2: duplicate rd into the rt-position field per the real encoding.
+  -- CLO/CLZ (Release 6): SPECIAL, `rt` = 0, `sa` = 00001 (CLO p.134, CLZ p.135).
   | .clo rs rd => mkRT rs 0#32 rd 1#32 0x11#32
   | .clz rs rd => mkRT rs 0#32 rd 1#32 0x10#32
   -- SPECIAL3 BSHFL: rs fixed 0, shamt-position field selects seb/seh/wsbh.
@@ -1327,9 +1307,7 @@ def encode (i : Instruction) : W32 :=
   | .tltu rs rt code => mkTrap rs rt code 0x33#32
   | .tgeu rs rt code => mkTrap rs rt code 0x31#32
   | .break code => mkCode20 code 0x0d#32
-  -- sync: no stored `stype` field, so this always encodes `stype = 0`
-  -- (the default "complete barrier"), same simplification as `break`'s
-  -- unmodeled "code" field.
+  -- sync: `stype` in bits 10..6 (SYNC p.407).
   | .sync stype => mkRT 0#32 0#32 0#32 stype 0x0f#32
   | .pref rs hint imm => (0x1f#32 <<< 26) ||| mkOff9 rs hint imm 0x35#32
   -- Coprocessor 0 (CP0). Same opcode-OR convention as the COP1 cases below.
@@ -1341,53 +1319,51 @@ def encode (i : Instruction) : W32 :=
   | .wait code => mkWait 0x10#32 1#32 code 0x20#32
   | .rdpgpr rd rt => (0x10#32 <<< 26) ||| mkRT 0x0a#32 rt rd 0#32 0#32
   | .wrpgpr rd rt => (0x10#32 <<< 26) ||| mkRT 0x0e#32 rt rd 0#32 0#32
-  -- Coprocessor 1 (FPU). `mkRT` leaves the opcode field 0 (correct for
-  -- plain R-type), so the COP1 cases OR in opcode 0x11 explicitly, the same
-  -- way `.j`/`.jal` OR in their opcode over `mkJT`'s target-only field.
-  | .mfc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x00#32 rt fs 0#32 0#32
-  | .mtc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x04#32 rt fs 0#32 0#32
-  | .mfhc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x03#32 rt fs 0#32 0#32
-  | .mthc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x07#32 rt fs 0#32 0#32
-  | .cfc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x02#32 rt fs 0#32 0#32
-  | .ctc1 rt fs => (0x11#32 <<< 26) ||| mkRT 0x06#32 rt fs 0#32 0#32
+  -- Coprocessor 1 (FPU): `cop1R fmt ft fs fd funct` (the moves: `cop1R sub rt fs 0 0`).
+  | .mfc1 rt fs => cop1R 0x00#32 rt fs 0#32 0#32
+  | .mtc1 rt fs => cop1R 0x04#32 rt fs 0#32 0#32
+  | .mfhc1 rt fs => cop1R 0x03#32 rt fs 0#32 0#32
+  | .mthc1 rt fs => cop1R 0x07#32 rt fs 0#32 0#32
+  | .cfc1 rt fs => cop1R 0x02#32 rt fs 0#32 0#32
+  | .ctc1 rt fs => cop1R 0x06#32 rt fs 0#32 0#32
   | .lwc1 rs ft imm => mkIT 0x31#32 rs ft imm
   | .swc1 rs ft imm => mkIT 0x39#32 rs ft imm
   | .ldc1 rs ft imm => mkIT 0x35#32 rs ft imm
   | .sdc1 rs ft imm => mkIT 0x3d#32 rs ft imm
-  | .addS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x00#32
-  | .subS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x01#32
-  | .mulS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x02#32
-  | .divS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x03#32
-  | .sqrtS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x04#32
-  | .absS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x05#32
-  | .movS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x06#32
-  | .negS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x07#32
-  | .recipS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x15#32
-  | .rsqrtS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x16#32
-  | .roundWS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0c#32
-  | .truncWS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0d#32
-  | .ceilWS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0e#32
-  | .floorWS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0f#32
-  | .cvtWS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x24#32
-  | .addD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x00#32
-  | .subD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x01#32
-  | .mulD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x02#32
-  | .divD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x03#32
-  | .sqrtD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x04#32
-  | .absD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x05#32
-  | .movD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x06#32
-  | .negD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x07#32
-  | .recipD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x15#32
-  | .rsqrtD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x16#32
-  | .roundWD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0c#32
-  | .truncWD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0d#32
-  | .ceilWD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0e#32
-  | .floorWD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0f#32
-  | .cvtWD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x24#32
-  | .cvtDS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x21#32
-  | .cvtSD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x20#32
-  | .cvtSW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x20#32
-  | .cvtDW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x21#32
+  | .addS fd fs ft => cop1R 0x10#32 ft fs fd 0x00#32
+  | .subS fd fs ft => cop1R 0x10#32 ft fs fd 0x01#32
+  | .mulS fd fs ft => cop1R 0x10#32 ft fs fd 0x02#32
+  | .divS fd fs ft => cop1R 0x10#32 ft fs fd 0x03#32
+  | .sqrtS fd fs => cop1R 0x10#32 0#32 fs fd 0x04#32
+  | .absS fd fs => cop1R 0x10#32 0#32 fs fd 0x05#32
+  | .movS fd fs => cop1R 0x10#32 0#32 fs fd 0x06#32
+  | .negS fd fs => cop1R 0x10#32 0#32 fs fd 0x07#32
+  | .recipS fd fs => cop1R 0x10#32 0#32 fs fd 0x15#32
+  | .rsqrtS fd fs => cop1R 0x10#32 0#32 fs fd 0x16#32
+  | .roundWS fd fs => cop1R 0x10#32 0#32 fs fd 0x0c#32
+  | .truncWS fd fs => cop1R 0x10#32 0#32 fs fd 0x0d#32
+  | .ceilWS fd fs => cop1R 0x10#32 0#32 fs fd 0x0e#32
+  | .floorWS fd fs => cop1R 0x10#32 0#32 fs fd 0x0f#32
+  | .cvtWS fd fs => cop1R 0x10#32 0#32 fs fd 0x24#32
+  | .addD fd fs ft => cop1R 0x11#32 ft fs fd 0x00#32
+  | .subD fd fs ft => cop1R 0x11#32 ft fs fd 0x01#32
+  | .mulD fd fs ft => cop1R 0x11#32 ft fs fd 0x02#32
+  | .divD fd fs ft => cop1R 0x11#32 ft fs fd 0x03#32
+  | .sqrtD fd fs => cop1R 0x11#32 0#32 fs fd 0x04#32
+  | .absD fd fs => cop1R 0x11#32 0#32 fs fd 0x05#32
+  | .movD fd fs => cop1R 0x11#32 0#32 fs fd 0x06#32
+  | .negD fd fs => cop1R 0x11#32 0#32 fs fd 0x07#32
+  | .recipD fd fs => cop1R 0x11#32 0#32 fs fd 0x15#32
+  | .rsqrtD fd fs => cop1R 0x11#32 0#32 fs fd 0x16#32
+  | .roundWD fd fs => cop1R 0x11#32 0#32 fs fd 0x0c#32
+  | .truncWD fd fs => cop1R 0x11#32 0#32 fs fd 0x0d#32
+  | .ceilWD fd fs => cop1R 0x11#32 0#32 fs fd 0x0e#32
+  | .floorWD fd fs => cop1R 0x11#32 0#32 fs fd 0x0f#32
+  | .cvtWD fd fs => cop1R 0x11#32 0#32 fs fd 0x24#32
+  | .cvtDS fd fs => cop1R 0x10#32 0#32 fs fd 0x21#32
+  | .cvtSD fd fs => cop1R 0x11#32 0#32 fs fd 0x20#32
+  | .cvtSW fd fs => cop1R 0x14#32 0#32 fs fd 0x20#32
+  | .cvtDW fd fs => cop1R 0x14#32 0#32 fs fd 0x21#32
   | .eretnc => (0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 1#32 0x18#32
   | .sigrie code => mkIT 0x01#32 0#32 0x17#32 code
   | .cache base op off => (0x1f#32 <<< 26) ||| mkOff9 base op off 0x25#32
@@ -1416,43 +1392,43 @@ def encode (i : Instruction) : W32 :=
   | .bnvc rs rt off => mkIT 0x18#32 rs rt off
   | .jic rt off => mkIT 0x36#32 0#32 rt off
   | .jialc rt off => mkIT 0x3e#32 0#32 rt off
-  | .cvtLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x25#32
-  | .cvtLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x25#32
-  | .roundLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x08#32
-  | .roundLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x08#32
-  | .truncLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x09#32
-  | .truncLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x09#32
-  | .ceilLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0a#32
-  | .ceilLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0a#32
-  | .floorLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0b#32
-  | .floorLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0b#32
-  | .cvtSL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x20#32
-  | .cvtDL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x21#32
-  | .cmpS cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x14#32 ft fs fd cond
-  | .cmpD cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x15#32 ft fs fd cond
+  | .cvtLS fd fs => cop1R 0x10#32 0#32 fs fd 0x25#32
+  | .cvtLD fd fs => cop1R 0x11#32 0#32 fs fd 0x25#32
+  | .roundLS fd fs => cop1R 0x10#32 0#32 fs fd 0x08#32
+  | .roundLD fd fs => cop1R 0x11#32 0#32 fs fd 0x08#32
+  | .truncLS fd fs => cop1R 0x10#32 0#32 fs fd 0x09#32
+  | .truncLD fd fs => cop1R 0x11#32 0#32 fs fd 0x09#32
+  | .ceilLS fd fs => cop1R 0x10#32 0#32 fs fd 0x0a#32
+  | .ceilLD fd fs => cop1R 0x11#32 0#32 fs fd 0x0a#32
+  | .floorLS fd fs => cop1R 0x10#32 0#32 fs fd 0x0b#32
+  | .floorLD fd fs => cop1R 0x11#32 0#32 fs fd 0x0b#32
+  | .cvtSL fd fs => cop1R 0x15#32 0#32 fs fd 0x20#32
+  | .cvtDL fd fs => cop1R 0x15#32 0#32 fs fd 0x21#32
+  | .cmpS cond fd fs ft => cop1R 0x14#32 ft fs fd cond
+  | .cmpD cond fd fs ft => cop1R 0x15#32 ft fs fd cond
   | .bc1eqz ft off => mkIT 0x11#32 0x09#32 ft off
   | .bc1nez ft off => mkIT 0x11#32 0x0d#32 ft off
-  | .selS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x10#32
-  | .selD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x10#32
-  | .seleqzS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x14#32
-  | .seleqzD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x14#32
-  | .selnezS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x17#32
-  | .selnezD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x17#32
-  | .maddfS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x18#32
-  | .maddfD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x18#32
-  | .msubfS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x19#32
-  | .msubfD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x19#32
-  | .rintS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x1a#32
-  | .rintD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x1a#32
-  | .classS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x1b#32
-  | .classD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x1b#32
-  | .minS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1c#32
-  | .minD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1c#32
-  | .minaS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1d#32
-  | .minaD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1d#32
-  | .maxS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1e#32
-  | .maxD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1e#32
-  | .maxaS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1f#32
-  | .maxaD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1f#32
+  | .selS fd fs ft => cop1R 0x10#32 ft fs fd 0x10#32
+  | .selD fd fs ft => cop1R 0x11#32 ft fs fd 0x10#32
+  | .seleqzS fd fs ft => cop1R 0x10#32 ft fs fd 0x14#32
+  | .seleqzD fd fs ft => cop1R 0x11#32 ft fs fd 0x14#32
+  | .selnezS fd fs ft => cop1R 0x10#32 ft fs fd 0x17#32
+  | .selnezD fd fs ft => cop1R 0x11#32 ft fs fd 0x17#32
+  | .maddfS fd fs ft => cop1R 0x10#32 ft fs fd 0x18#32
+  | .maddfD fd fs ft => cop1R 0x11#32 ft fs fd 0x18#32
+  | .msubfS fd fs ft => cop1R 0x10#32 ft fs fd 0x19#32
+  | .msubfD fd fs ft => cop1R 0x11#32 ft fs fd 0x19#32
+  | .rintS fd fs => cop1R 0x10#32 0#32 fs fd 0x1a#32
+  | .rintD fd fs => cop1R 0x11#32 0#32 fs fd 0x1a#32
+  | .classS fd fs => cop1R 0x10#32 0#32 fs fd 0x1b#32
+  | .classD fd fs => cop1R 0x11#32 0#32 fs fd 0x1b#32
+  | .minS fd fs ft => cop1R 0x10#32 ft fs fd 0x1c#32
+  | .minD fd fs ft => cop1R 0x11#32 ft fs fd 0x1c#32
+  | .minaS fd fs ft => cop1R 0x10#32 ft fs fd 0x1d#32
+  | .minaD fd fs ft => cop1R 0x11#32 ft fs fd 0x1d#32
+  | .maxS fd fs ft => cop1R 0x10#32 ft fs fd 0x1e#32
+  | .maxD fd fs ft => cop1R 0x11#32 ft fs fd 0x1e#32
+  | .maxaS fd fs ft => cop1R 0x10#32 ft fs fd 0x1f#32
+  | .maxaD fd fs ft => cop1R 0x11#32 ft fs fd 0x1f#32
   | .dvp rt => (0x10#32 <<< 26) ||| mkRT 0x0b#32 rt 0#32 0#32 0x24#32
   | .evp rt => (0x10#32 <<< 26) ||| mkRT 0x0b#32 rt 0#32 0#32 0x04#32

@@ -37,56 +37,43 @@ def fp2 (mk : (fd fs : W32) → Instruction) : Enc := fun c ops =>
   | [d, s] => do pure (mk (← fpr c d) (← fpr c s))
   | _ => badShape c "fd, fs"
 
-/-- The per-format operations, for one format suffix (`s` or `d`). -/
+/-- One FP format for the assembler: its mnemonic suffix and the model's constructors of that format
+(`Cop1Fmt`, the same record the decoder's per-format table `decodeCop1Fmt` uses). -/
 structure FmtOps where
   sfx : String
-  add : W32 → W32 → W32 → Instruction
-  sub : W32 → W32 → W32 → Instruction
-  mul : W32 → W32 → W32 → Instruction
-  div : W32 → W32 → W32 → Instruction
-  sqrt : W32 → W32 → Instruction
-  abs : W32 → W32 → Instruction
-  mov : W32 → W32 → Instruction
-  neg : W32 → W32 → Instruction
-  recip : W32 → W32 → Instruction
-  rsqrt : W32 → W32 → Instruction
-  roundW : W32 → W32 → Instruction
-  truncW : W32 → W32 → Instruction
-  ceilW : W32 → W32 → Instruction
-  floorW : W32 → W32 → Instruction
-  cvtW : W32 → W32 → Instruction
+  ops : Cop1Fmt
 
-/-- The table rows of one format. -/
+/-- The table rows of one format: `<op>.<sfx>` for every per-format operation (MD00086 Vol II-A
+Rev 6.06: the arithmetic, unary and conversion pages of each `.fmt` instruction; CVT.L.fmt p.154,
+ROUND.L.fmt p.341, TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185; SEL.fmt p.368,
+SELEQZ.fmt/SELNEZ.fmt p.371, MADDF.fmt/MSUBF.fmt p.259, MAX/MIN/MAXA/MINA.fmt p.262, CLASS.fmt
+p.132, RINT.fmt p.337; CVT.S.fmt p.159 and CVT.D.fmt p.153 for the format that has them). -/
 def fmtRows (f : FmtOps) : EncTable :=
-  [ ("add." ++ f.sfx, fp3 f.add), ("sub." ++ f.sfx, fp3 f.sub),
-    ("mul." ++ f.sfx, fp3 f.mul), ("div." ++ f.sfx, fp3 f.div),
-    ("sqrt." ++ f.sfx, fp2 f.sqrt), ("abs." ++ f.sfx, fp2 f.abs),
-    ("mov." ++ f.sfx, fp2 f.mov), ("neg." ++ f.sfx, fp2 f.neg),
-    ("recip." ++ f.sfx, fp2 f.recip), ("rsqrt." ++ f.sfx, fp2 f.rsqrt),
-    ("round.w." ++ f.sfx, fp2 f.roundW), ("trunc.w." ++ f.sfx, fp2 f.truncW),
-    ("ceil.w." ++ f.sfx, fp2 f.ceilW), ("floor.w." ++ f.sfx, fp2 f.floorW),
-    ("cvt.w." ++ f.sfx, fp2 f.cvtW) ]
+  let o := f.ops
+  let n (m : String) : String := m ++ "." ++ f.sfx
+  [ (n "add", fp3 o.add), (n "sub", fp3 o.sub), (n "mul", fp3 o.mul), (n "div", fp3 o.div),
+    (n "sqrt", fp2 o.sqrt), (n "abs", fp2 o.abs), (n "mov", fp2 o.mov), (n "neg", fp2 o.neg),
+    (n "recip", fp2 o.recip), (n "rsqrt", fp2 o.rsqrt),
+    (n "round.w", fp2 o.roundW), (n "trunc.w", fp2 o.truncW), (n "ceil.w", fp2 o.ceilW),
+    (n "floor.w", fp2 o.floorW), (n "cvt.w", fp2 o.cvtW),
+    (n "round.l", fp2 o.roundL), (n "trunc.l", fp2 o.truncL), (n "ceil.l", fp2 o.ceilL),
+    (n "floor.l", fp2 o.floorL), (n "cvt.l", fp2 o.cvtL),
+    (n "sel", fp3 o.sel), (n "seleqz", fp3 o.seleqz), (n "selnez", fp3 o.selnez),
+    (n "maddf", fp3 o.maddf), (n "msubf", fp3 o.msubf),
+    (n "max", fp3 o.max), (n "min", fp3 o.min), (n "maxa", fp3 o.maxa), (n "mina", fp3 o.mina),
+    (n "class", fp2 o.cls), (n "rint", fp2 o.rint) ] ++
+  (o.cvtS.toList.map fun mk => (n "cvt.s", fp2 mk)) ++
+  (o.cvtD.toList.map fun mk => (n "cvt.d", fp2 mk))
 
 /-- Format S. -/
-def opsS : FmtOps :=
-  { sfx := "s", add := .addS, sub := .subS, mul := .mulS, div := .divS, sqrt := .sqrtS,
-    abs := .absS, mov := .movS, neg := .negS, recip := .recipS, rsqrt := .rsqrtS,
-    roundW := .roundWS, truncW := .truncWS, ceilW := .ceilWS, floorW := .floorWS, cvtW := .cvtWS }
+def opsS : FmtOps := { sfx := "s", ops := decodeFmtS }
 
 /-- Format D. -/
-def opsD : FmtOps :=
-  { sfx := "d", add := .addD, sub := .subD, mul := .mulD, div := .divD, sqrt := .sqrtD,
-    abs := .absD, mov := .movD, neg := .negD, recip := .recipD, rsqrt := .rsqrtD,
-    roundW := .roundWD, truncW := .truncWD, ceilW := .ceilWD, floorW := .floorWD, cvtW := .cvtWD }
+def opsD : FmtOps := { sfx := "d", ops := decodeFmtD }
 
-/-- The longword (L) conversions (MD00086 Vol II-A Rev 6.06: CVT.L.fmt p.154, ROUND.L.fmt p.341,
-TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185, CVT.S.fmt p.159, CVT.D.fmt p.153). -/
-def longRows : EncTable :=
-  [ ("cvt.l.s", fp2 .cvtLS), ("cvt.l.d", fp2 .cvtLD),
-    ("round.l.s", fp2 .roundLS), ("round.l.d", fp2 .roundLD),
-    ("trunc.l.s", fp2 .truncLS), ("trunc.l.d", fp2 .truncLD),
-    ("ceil.l.s", fp2 .ceilLS), ("ceil.l.d", fp2 .ceilLD),
-    ("floor.l.s", fp2 .floorLS), ("floor.l.d", fp2 .floorLD),
+/-- The conversions from W and L (CVT.S.fmt p.159, CVT.D.fmt p.153). -/
+def fromIntRows : EncTable :=
+  [ ("cvt.s.w", fp2 .cvtSW), ("cvt.d.w", fp2 .cvtDW),
     ("cvt.s.l", fp2 .cvtSL), ("cvt.d.l", fp2 .cvtDL) ]
 
 /-- `ft, target` (BC1EQZ, BC1NEZ): an FPR and a 16-bit branch offset, as `brRs`. -/
@@ -109,20 +96,6 @@ def cmpRows : EncTable :=
     [("cmp." ++ n ++ ".s", fp3 (.cmpS (BitVec.ofNat 32 k))),
      ("cmp." ++ n ++ ".d", fp3 (.cmpD (BitVec.ofNat 32 k)))]
 
-/-- The other Release 6 FP instructions (BC1EQZ BC1NEZ p.54, SEL.fmt p.368, SELEQZ.fmt/SELNEZ.fmt
-p.371, MADDF.fmt/MSUBF.fmt p.259, MAX/MIN/MAXA/MINA.fmt p.262, CLASS.fmt p.132, RINT.fmt p.337). -/
-def r6FpRows : EncTable :=
-  [ ("bc1eqz", brFt .bc1eqz), ("bc1nez", brFt .bc1nez),
-    ("sel.s", fp3 .selS), ("sel.d", fp3 .selD),
-    ("seleqz.s", fp3 .seleqzS), ("seleqz.d", fp3 .seleqzD),
-    ("selnez.s", fp3 .selnezS), ("selnez.d", fp3 .selnezD),
-    ("maddf.s", fp3 .maddfS), ("maddf.d", fp3 .maddfD),
-    ("msubf.s", fp3 .msubfS), ("msubf.d", fp3 .msubfD),
-    ("max.s", fp3 .maxS), ("max.d", fp3 .maxD), ("min.s", fp3 .minS), ("min.d", fp3 .minD),
-    ("maxa.s", fp3 .maxaS), ("maxa.d", fp3 .maxaD), ("mina.s", fp3 .minaS), ("mina.d", fp3 .minaD),
-    ("class.s", fp2 .classS), ("class.d", fp2 .classD),
-    ("rint.s", fp2 .rintS), ("rint.d", fp2 .rintD) ]
-
 /-- The FPU instructions. -/
 def fpuTable : EncTable :=
   [ ("mfc1",  gprCop fpr .mfc1),
@@ -135,10 +108,8 @@ def fpuTable : EncTable :=
     ("swc1",  memOp 16 fpr .swc1),
     ("ldc1",  memOp 16 fpr .ldc1),
     ("sdc1",  memOp 16 fpr .sdc1),
-    ("cvt.d.s", fp2 .cvtDS),
-    ("cvt.s.d", fp2 .cvtSD),
-    ("cvt.s.w", fp2 .cvtSW),
-    ("cvt.d.w", fp2 .cvtDW) ] ++ fmtRows opsS ++ fmtRows opsD ++ longRows ++ r6FpRows ++ cmpRows
+    ("bc1eqz", brFt .bc1eqz),   -- BC1EQZ BC1NEZ, p.54
+    ("bc1nez", brFt .bc1nez) ] ++ fmtRows opsS ++ fmtRows opsD ++ fromIntRows ++ cmpRows
 
 
 end Asm

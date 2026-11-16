@@ -33,7 +33,7 @@ public API is `assemble`; the pieces live in `Semantics/Asm/`:
 | `Asm/Layout` | segments, data directives (byte order of `profile`), the two passes |
 
 **Encodings.** Every table entry produces an `Instruction` and the word is the model's `encode`,
-so the assembler emits exactly the Release 6 encodings of the 119 constructors of
+so the assembler emits exactly the Release 6 encodings of the 203 constructors of
 `Instruction.lean` (MD00086 Vol II-A Rev 6.06). Instructions Release 6 removed (MOVN/MOVZ,
 MULT/DIV/MFHI/..., the SPECIAL2 MUL/MADD family, ADDI, LWL/LWR/SWL/SWR, branch-likely, BLTZAL/
 BGEZAL with `rs ≠ 0`, the trap-immediates, the COP1X and FP condition-code instructions) are
