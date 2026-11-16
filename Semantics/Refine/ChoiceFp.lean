@@ -31,7 +31,6 @@ def QA32 : W32 := 0x7FC00001#32
 def QB32 : W32 := 0x7FC00002#32
 
 theorem QA64_ne_QB64 : QA64 ≠ QB64 := by decide
-theorem QA32_ne_QB32 : QA32 ≠ QB32 := by decide
 
 theorem QA64_q : isQNaN64 QA64 = true := by decide
 theorem QB64_q : isQNaN64 QB64 = true := by decide
@@ -60,34 +59,6 @@ theorem FPResult_eq {α} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
         BitVec.extractLsb' 7 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12)) != 0#5) = true
   · simp only [hc, ↓reduceIte]
   · simp only [hc, ↓reduceIte, Bool.false_eq_true]; rfl
-
-theorem m63_bit (k : Nat) : (63#32).getLsbD k = decide (k < 6) := by
-  by_cases h : k < 6
-  · rcases (by omega : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5) with h|h|h|h|h|h <;> subst h <;> decide
-  · simp only [h, decide_false, BitVec.getLsbD_ofNat]
-    have : 63 < 2 ^ k := Nat.lt_of_lt_of_le (by decide : 63 < 2 ^ 6) (Nat.pow_le_pow_right (by decide) (by omega))
-    simp [Nat.testBit_lt_two_pow this]
-
-/-- A second Cause write replaces the first. -/
-theorem fpc_fpc (F : W32) (m fl : Mips.Fp.Flags) : fpc (fpc F m) fl = fpc F fl := by
-  unfold fpc
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, BitVec.getLsbD_not, BitVec.getLsbD_shiftLeft,
-    BitVec.getLsbD_setWidth, hi, decide_true, Bool.true_and, m63_bit]
-  by_cases h : i < 12
-  · simp [h]
-  · by_cases h2 : i < 18
-    · simp [h, show i - 12 < 6 by omega]
-    · simp [h, show ¬ (i - 12 < 6) by omega, BitVec.getLsbD_of_ge m.toBits (i - 12) (by omega),
-        BitVec.getLsbD_of_ge fl.toBits (i - 12) (by omega)]
-
-theorem fpf_fpc (F : W32) (m fl : Mips.Fp.Flags) : fpf (fpc F m) fl = fpf F fl := by
-  unfold fpf; rw [fpc_fpc]
-
-/-- The exceptions of the multiply joined with an Invalid add. -/
-theorem inv_or_true (s : Bool) :
-    (({ invalid := s } : Mips.Fp.Flags).or { invalid := true }) = { invalid := true } := by
-  cases s <;> rfl
 
 theorem inv_toBits (s : Bool) : (({ invalid := s } : Mips.Fp.Flags).toBits) = if s then 16#5 else 0#5 := by
   cases s <;> rfl
@@ -126,9 +97,6 @@ theorem trapC_eq (G : W32) (fl : Mips.Fp.Flags) :
 theorem trapC_fpf (F : W32) (m fl : Mips.Fp.Flags) : trapC (fpf F m) fl = trapC F fl := by
   simp only [trapC_eq, fpf_ext7]
 
-theorem trapC_fpc (F : W32) (m fl : Mips.Fp.Flags) : trapC (fpc F m) fl = trapC F fl := by
-  simp only [trapC_eq, fpc_ext7]
-
 theorem fpf_fpf (F : W32) (s : Bool) (fl : Mips.Fp.Flags) (h : (bit F 6 || fl.invalid) = true) :
     fpf (fpf F { invalid := s }) fl = fpf (fpf F { invalid := false }) fl := by
   have hb := toBits_b4 fl
@@ -144,33 +112,5 @@ theorem fpf_fpf (F : W32) (s : Bool) (fl : Mips.Fp.Flags) (h : (bit F 6 || fl.in
       generalize fl.toBits.getLsbD (j - 12) = b2
       generalize fl.toBits.getLsbD (j - 2) = b3
       revert b1 b2 b3; revert h6; revert hj; revert j; decide
-
-/-- The union with an Invalid set of conditions absorbs a later Invalid. -/
-theorem or_inv_absorb (m : Flags) (hm : m.invalid = true) (s : Bool) : m.or { invalid := s } = m := by
-  obtain ⟨a, b, c, d, f⟩ := m
-  simp only at hm; subst hm
-  simp [Flags.or]
-
-theorem trapC_en (F : W32) (h : bit F 11 = true) : trapC F { invalid := true } = true := by
-  rw [trapC_eq, inv_toBits]
-  simp only [↓reduceIte, bne_iff_ne, ne_eq]
-  intro he
-  simp only [bit] at h
-  have h4 : (16#5 &&& BitVec.extractLsb' 7 5 F).getLsbD 4 = true := by
-    simp [BitVec.getLsbD_and, BitVec.getLsbD_extractLsb', h]
-  rw [he] at h4; simp at h4
-
-theorem toBits_b4e (f : Flags) : f.toBits[4] = f.invalid := by
-  obtain ⟨a, b, c, d, e⟩ := f; cases a <;> cases b <;> cases c <;> cases d <;> cases e <;> decide
-
-theorem bit6_fpf (G : W32) (fl : Flags) : bit (fpf G fl) 6 = (bit G 6 || fl.invalid) := by
-  have hb := toBits_b4e fl
-  simp only [fpf, fpc, bit]
-  simp [BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, hb]
-
-theorem bit16_fpf (G : W32) (fl : Flags) : bit (fpf G fl) 16 = fl.invalid := by
-  have hb := toBits_b4e fl
-  simp only [fpf, fpc, bit]
-  simp [BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, hb]
 
 end Refine

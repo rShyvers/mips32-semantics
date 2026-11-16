@@ -130,21 +130,12 @@ theorem runAbs_FPResult {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : �
 
 /-! ## Stores -/
 
-theorem regIdx_add_one (f : W32) : regIdx (f + 1#32) = reg f + 1 := by
-  rw [regIdx_eq_reg]; unfold reg; apply Fin.ext
-  simp only [Fin.val_add, BitVec.toNat_add, BitVec.toNat_ofNat]
-  omega
-
 theorem runAbs_store32 (s : State) (hfsz : s.fpRegs.size = 32) (fd v : W32) :
     runAbs (StoreFPR32 (reg fd) v) s = some (abs (mkNext s (writeFpReg s (regIdx fd) v))) := by
   unfold runAbs
   simp only [Pseudo.run, StoreFPR32]
   rw [complete_plain, mkNext, abs_advance _ _ (by rfl), abs_writeFpReg _ _ _ hfsz, regIdx_eq_reg]
   rfl
-
-theorem writeFpReg_size (s : State) (i : Fin 32) (v : W32) :
-    (writeFpReg s i v).fpRegs.size = s.fpRegs.size := by
-  unfold writeFpReg writeFpReg64; simp
 
 theorem abs_writeFpD (s : State) (hfsz : s.fpRegs.size = 32) (fd : W32) (v : BitVec 64) :
     abs (writeFpD s fd v) = { abs s with FPR := update (abs s).FPR (reg fd) v } := by
@@ -196,30 +187,7 @@ theorem readFpReg_eq (s : State) (i : Fin 32) : readFpReg s i = (readFpReg64 s i
 theorem readFpD_abs (s : State) (f : W32) : readFpD s f = (abs s).FPR (reg f) := by
   unfold readFpD; rw [regIdx_eq_reg]; rfl
 
-/-! ## The environment of a later operation
-
-`IEEE.env` reads `RM`, `Enables` and `FS`; an operation's FCSR update writes only `Cause` and
-`Flags`, so a later operation of the same instruction runs in the environment of the first. -/
-
-theorem envOf_raiseFlags (F : W32) (f : Mips.Fp.Flags) :
-    Mips.Fp.envOf (Mips.Fp.raiseFlags F f) = Mips.Fp.envOf F := by
-  have h1 : (Mips.Fp.raiseFlags F f).extractLsb' 0 2 = F.extractLsb' 0 2 := by
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp only [Mips.Fp.raiseFlags, Mips.Fp.fcsrCauseMask, BitVec.getLsbD_extractLsb',
-      BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_not, BitVec.getLsbD_shiftLeft]
-    rcases i with _|_|i <;> simp <;> omega
-  have h2 : (Mips.Fp.raiseFlags F f).extractLsb' 7 5 = F.extractLsb' 7 5 := by
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp only [Mips.Fp.raiseFlags, Mips.Fp.fcsrCauseMask, BitVec.getLsbD_extractLsb',
-      BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_not, BitVec.getLsbD_shiftLeft]
-    rcases i with _|_|_|_|_|i <;> simp <;> omega
-  have h3 : (Mips.Fp.raiseFlags F f).getLsbD 24 = F.getLsbD 24 := by
-    simp [Mips.Fp.raiseFlags, Mips.Fp.fcsrCauseMask]
-  simp only [Mips.Fp.envOf, Mips.Fp.getRM, Mips.Fp.getEnables, Mips.Fp.getFS, h1, h2, h3]
-
-theorem fpEnv_raiseFlags (s : State) (f : Mips.Fp.Flags) :
-    fpEnv { s with fcsr := Mips.Fp.raiseFlags s.fcsr f } = fpEnv s :=
-  envOf_raiseFlags s.fcsr f
+/-! ## The FP environment: `IEEE.env` (`RM`, `Enables`, `FS`) of `abs s` is the model's `fpEnv` -/
 
 theorem env_abs (s : State) : IEEE.env (abs s) = fpEnv s := rfl
 
@@ -231,6 +199,29 @@ theorem cop1_rFormat {i : Instruction} {w : W32} (op rs rt rd sa fn : W32)
     InCop1Space w = true ∧ InCop0Space w = false := by
   rw [he] at hw; cases hw
   subst hop; simp [InCop1Space, InCop0Space, opcode_rFormat]
+
+/-! ## The shape of an FP refinement proof -/
+
+set_option hygiene false in
+/-- **`fp_refine fin fd => tac`**: the refinement proof of a COP1 R-format instruction whose model arm
+stores one FP result into `FPR[fd]`. It expects the binders `s hg w hw` of `<ctor>_refines` in scope
+and runs, in order:
+1. `cop1_rFormat`: the word `w` is in the COP1 space and not in the COP0 space (`h1`, `h0`);
+2. `execute_cop1`: `Execute` is the Operation run on `abs s` (`runAbs`), against the model's
+   `execBody` (the Coprocessor Unusable case is handled there);
+3. `fin s hfsz fd` is the model's arm: `runAbs_finS`/`runAbs_finD` (`FPResult`, then a 32/64-bit
+   store; the model's `fpFinishS`/`fpFinishD`) or `runAbs_store32`/`runAbs_store64` (a plain store).
+   Its operand is found by unification with `execBody s i`, i.e. by unfolding the model's arm;
+4. `runAbs_congr`: what is left is `Ops.<OP> … = <fin's Operation> …` on `abs s`, closed by `tac`.
+Fails if any step does not apply or `tac` leaves a goal (a `fin` of the wrong shape typically fails
+step 3 by exhausting the heartbeat limit while unfolding `execBody`). -/
+macro "fp_refine " fin:ident fd:term:max " => " tac:tacticSeq : tactic => `(tactic| (
+  obtain ⟨-, hfsz, -⟩ := hg
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
+  refine execute_cop1 s w _ _ rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
+  refine (runAbs_congr _ _ s ?_).trans (($fin s hfsz $fd _).trans rfl)
+  ($tac)
+  done))
 
 /-! ## NaN classes -/
 
@@ -257,19 +248,6 @@ theorem isNaN64_split (x : BitVec 64) :
   · rfl
   · rfl
   · omega
-
-theorem snan_not_qnan32 (x : W32) (h : Mips.Fp.isSNaN32 x = true) : Mips.Fp.isQNaN32 x = false := by
-  unfold Mips.Fp.isSNaN32 Mips.Fp.Format.isSNaN at h
-  unfold Mips.Fp.isQNaN32 Mips.Fp.Format.isQNaN
-  simp only [Bool.and_eq_true, beq_iff_eq] at h
-  rw [h.1, h.2]; rfl
-
-theorem snan_not_qnan64 (x : BitVec 64) (h : Mips.Fp.isSNaN64 x = true) :
-    Mips.Fp.isQNaN64 x = false := by
-  unfold Mips.Fp.isSNaN64 Mips.Fp.Format.isSNaN at h
-  unfold Mips.Fp.isQNaN64 Mips.Fp.Format.isQNaN
-  simp only [Bool.and_eq_true, beq_iff_eq] at h
-  rw [h.1, h.2]; rfl
 
 /-! ## ABS / NEG (non-arithmetic, `FCSR.ABS2008 = 1`): the model's core functions are the spec's -/
 

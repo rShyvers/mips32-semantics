@@ -5,14 +5,16 @@ import Semantics.Refine.ChoiceFp
 
 `operation_choiceFree`: when `Manual.ConsultsOracle ins a = false`, the Operation of `ins` run from `a`
 gives the same result (value, exception and state) under any two oracles. For the constructors
-whose Operation reads no oracle field this is definitional (`rfl`); for those that read one
-(`cf_<ctor>`) the proof splits on the conditions the Operation tests (`case_ite`), rewrites the
+whose Operation reads no oracle field this is definitional (`rfl`); for those that read one the
+proof (`ofree`) unfolds the Operation, splits on the conditions it tests (`case_ite`), rewrites the
 oracle-reading primitives to their oracle-free form under the hypotheses (`LoadMemory_free`,
 `StoreMemory_free` while `LLbit = 0`, `cvtDS_free` away from a quiet NaN), and closes with `rfl`.
-R6-5: every Operation that stores a 32-bit result into an FPR reads `fprUpper` and is always a row
-(its `cf_<ctor>` is the contradiction of the hypothesis). `LL` and `SC` set
+Every Operation that stores a 32-bit result into an FPR reads `fprUpper` and is always a row
+(the hypothesis is the contradiction `true = false`). The constructors whose proof differs have their
+own `cf_<ctor>`, which `operation_choiceFree` picks by name (`apply_ctor_lemma`): `LL` and `SC` set
 `LLbit` after their memory access, so their `loadClearsLL`/`storeClearsLL` choice never shows
-(`LoadMemory_any`, `StoreMemory_any`).
+(`LoadMemory_any`, `StoreMemory_any`); `CFC1`/`CTC1` case on the control register; the divisions
+write the oracle's value only to `GPR[0]` (`cf_divResult`).
 -/
 
 namespace Refine
@@ -163,54 +165,6 @@ macro "ofree" : tactic => `(tactic| (
   (try ofree_simp)
   repeat' (first | with_reducible rfl | (case_ite <;> (try ofree_simp)) | rfl)))
 
-theorem cf_lw (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lw base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LW base rt off (ctxOf i o₁) { arch := a } = Ops.LW base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LW]; ofree
-
-theorem cf_sw (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sw base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SW base rt off (ctxOf i o₁) { arch := a } = Ops.SW base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SW]; ofree
-
-theorem cf_mtc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mtc0 rt rd sel) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MTC0 rt rd sel (ctxOf i o₁) { arch := a } = Ops.MTC0 rt rd sel (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MTC0]; ofree
-
-theorem cf_jalr (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalr rs rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.JALR rs rd (ctxOf i o₁) { arch := a } = Ops.JALR rs rd (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.JALR]; ofree
-
-theorem cf_jalrHb (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalrHb rs rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.JALR_HB rs rd (ctxOf i o₁) { arch := a } = Ops.JALR_HB rs rd (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.JALR_HB]; ofree
-
-theorem cf_mfc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mfc0 rt rd sel) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MFC0 rt rd sel (ctxOf i o₁) { arch := a } = Ops.MFC0 rt rd sel (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MFC0]; ofree
-
-theorem cf_lb (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lb base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LB base rt off (ctxOf i o₁) { arch := a } = Ops.LB base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LB]; ofree
-
-theorem cf_lbu (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lbu base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LBU base rt off (ctxOf i o₁) { arch := a } = Ops.LBU base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LBU]; ofree
-
-theorem cf_lh (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lh base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LH base rt off (ctxOf i o₁) { arch := a } = Ops.LH base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LH]; ofree
-
-theorem cf_lhu (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lhu base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LHU base rt off (ctxOf i o₁) { arch := a } = Ops.LHU base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LHU]; ofree
-
-theorem cf_sb (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sb base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SB base rt off (ctxOf i o₁) { arch := a } = Ops.SB base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SB]; ofree
-
-theorem cf_sh (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sh base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SH base rt off (ctxOf i o₁) { arch := a } = Ops.SH base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SH]; ofree
-
 theorem cf_ll (base rt off : W32) (a : Arch) (h : ConsultsOracle (.ll base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.LL base rt off (ctxOf i o₁) { arch := a } = Ops.LL base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.LL]; ofree_ll
@@ -218,14 +172,6 @@ theorem cf_ll (base rt off : W32) (a : Arch) (h : ConsultsOracle (.ll base rt of
 theorem cf_sc (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sc base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.SC base rt off (ctxOf i o₁) { arch := a } = Ops.SC base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SC]; ofree_ll
-
-theorem cf_mfhc1 (rt fs : W32) (a : Arch) (_h : ConsultsOracle (.mfhc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MFHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MFHC1 rt fs (ctxOf i o₂) { arch := a } := by
-  simp only [Ops.MFHC1]; ofree
-
-theorem cf_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MTHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MTHC1 rt fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MTHC1]; ofree
 
 theorem cf_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = false) (i : Impl)
     (o₁ o₂ : Oracle) :
@@ -265,114 +211,6 @@ theorem cf_ctc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.ctc1 rt fs) a = f
     Bool.false_eq_true, ite_false]
   ccheck
 
-theorem cf_lwc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.lwc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LWC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.LWC1 rs ft imm (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_swc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.swc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SWC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.SWC1 rs ft imm (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SWC1]; ofree
-
-theorem cf_ldc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.ldc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LDC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.LDC1 rs ft imm (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LDC1]; ofree
-
-theorem cf_sdc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.sdc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SDC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.SDC1 rs ft imm (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SDC1]; ofree
-
-theorem cf_absS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.absS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.ABS_S fd fs (ctxOf i o₁) { arch := a } = Ops.ABS_S fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_negS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.negS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NEG_S fd fs (ctxOf i o₁) { arch := a } = Ops.NEG_S fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_addD (fd fs ft : W32) (a : Arch) (h : ConsultsOracle (.addD fd fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.ADD_D fd fs ft (ctxOf i o₁) { arch := a } = Ops.ADD_D fd fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.ADD_D]; ofree
-
-theorem cf_subD (fd fs ft : W32) (a : Arch) (h : ConsultsOracle (.subD fd fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SUB_D fd fs ft (ctxOf i o₁) { arch := a } = Ops.SUB_D fd fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SUB_D]; ofree
-
-theorem cf_mulD (fd fs ft : W32) (a : Arch) (h : ConsultsOracle (.mulD fd fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MUL_D fd fs ft (ctxOf i o₁) { arch := a } = Ops.MUL_D fd fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MUL_D]; ofree
-
-theorem cf_divD (fd fs ft : W32) (a : Arch) (h : ConsultsOracle (.divD fd fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.DIV_D fd fs ft (ctxOf i o₁) { arch := a } = Ops.DIV_D fd fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.DIV_D]; ofree
-
-theorem cf_sqrtD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.sqrtD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SQRT_D fd fs (ctxOf i o₁) { arch := a } = Ops.SQRT_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SQRT_D]; ofree
-
-theorem cf_absD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.absD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.ABS_D fd fs (ctxOf i o₁) { arch := a } = Ops.ABS_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.ABS_D]; ofree
-
-theorem cf_movD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.movD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MOV_D fd fs (ctxOf i o₁) { arch := a } = Ops.MOV_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MOV_D]; ofree
-
-theorem cf_negD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.negD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NEG_D fd fs (ctxOf i o₁) { arch := a } = Ops.NEG_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NEG_D]; ofree
-
-theorem cf_recipD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.recipD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.RECIP_D fd fs (ctxOf i o₁) { arch := a } = Ops.RECIP_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.RECIP_D]; ofree
-
-theorem cf_rsqrtD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.rsqrtD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.RSQRT_D fd fs (ctxOf i o₁) { arch := a } = Ops.RSQRT_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.RSQRT_D]; ofree
-
-theorem cf_roundWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.roundWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.ROUND_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.ROUND_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_truncWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.truncWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.TRUNC_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.TRUNC_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_ceilWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.ceilWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.CEIL_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.CEIL_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_floorWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.floorWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.FLOOR_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.FLOOR_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_cvtWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.CVT_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_cvtDS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtDS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.CVT_D_S fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_D_S fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CVT_D_S]; ofree
-
-theorem cf_cvtDW (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtDW fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.CVT_D_W fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_D_W fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CVT_D_W]; ofree
-
-theorem cf_cvtSD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtSD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.CVT_S_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_S_D fd fs (ctxOf i o₂) { arch := a } := by
-  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
-
-theorem cf_ext (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ext rt rs pos size) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.EXT rt rs pos size (ctxOf i o₁) { arch := a } = Ops.EXT rt rs pos size (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.EXT]; ofree
-
-theorem cf_ins (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ins rt rs pos size) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.INS rt rs pos size (ctxOf i o₁) { arch := a } = Ops.INS rt rs pos size (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.INS]; ofree
-
-theorem cf_lwpc (rs off : W32) (a : Arch) (h : ConsultsOracle (.lwpc rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LWPC rs off (ctxOf i o₁) { arch := a } = Ops.LWPC rs off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LWPC, bind, PC]; ofree
-
 /-- A zero divisor writes the oracle's value to `GPR[rd]`, which has no effect for `rd = 0`; otherwise
 the Operation reads no oracle field. -/
 theorem cf_divResult (j : Instruction) (rs rd : W32) (zero : Bool) (v : W32) (a : Arch)
@@ -408,30 +246,37 @@ theorem cf_modu (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.modu rs rt rd)
   simp only [Ops.MODU, bind, GPR]
   exact cf_divResult _ rs rd _ _ a h i o₁ o₂
 
-theorem cf_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BLEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BLEZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BLEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
-theorem cf_bgezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BGEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BGEZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BGEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
-theorem cf_bgtzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgtzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BGTZALC rt off (ctxOf i o₁) { arch := a } = Ops.BGTZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BGTZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
-theorem cf_bltzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bltzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BLTZALC rt off (ctxOf i o₁) { arch := a } = Ops.BLTZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BLTZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
-theorem cf_beqzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.beqzalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BEQZALC rt off (ctxOf i o₁) { arch := a } = Ops.BEQZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BEQZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
-theorem cf_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BNEZALC rt off (ctxOf i o₁) { arch := a } = Ops.BNEZALC rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BNEZALC, Ops.BZALC, Ops.CompactIf, Ops.ForbiddenSlot]; ofree
-
+set_option linter.unusedSimpArgs false in
+/-- **`unfold_ops`**: unfold the Operation (`Ops.<NAME>`, with the compact-branch helpers and `PC`) at
+the head of an `operation_choiceFree` goal; fails if none of them occurs. -/
+macro "unfold_ops" : tactic => `(tactic| simp only [
+      Ops.ABS_D, Ops.ABS_S, Ops.ADD, Ops.ADDIU, Ops.ADDU, Ops.ADD_D, Ops.ADD_S, Ops.AND,
+      Ops.ANDI, Ops.AUI, Ops.BAL, Ops.BEQ, Ops.BGEZ, Ops.BGTZ, Ops.BLEZ, Ops.BLTZ, Ops.BNE,
+      Ops.BREAK, Ops.CEIL_W_D, Ops.CEIL_W_S, Ops.CLO, Ops.CLZ, Ops.CVT_D_S,
+      Ops.CVT_D_W, Ops.CVT_S_D, Ops.CVT_S_W, Ops.CVT_W_D, Ops.CVT_W_S, Ops.DI, Ops.DIV_D,
+      Ops.DIV_S, Ops.EI, Ops.ERET, Ops.EXT, Ops.FLOOR_W_D, Ops.FLOOR_W_S, Ops.INS, Ops.J,
+      Ops.JAL, Ops.JALR, Ops.JALR_HB, Ops.LB, Ops.LBU, Ops.LDC1, Ops.LH, Ops.LHU,
+      Ops.LW, Ops.LWC1, Ops.MFC0, Ops.MFC1, Ops.MFHC1, Ops.MOV_D, Ops.MOV_S, Ops.MTC0, Ops.MTC1,
+      Ops.MTHC1, Ops.MUL_D, Ops.MUL_S, Ops.NAL, Ops.NEG_D, Ops.NEG_S, Ops.NOR, Ops.OR, Ops.ORI,
+      Ops.PAUSE, Ops.PREF, Ops.RDPGPR, Ops.RECIP_D, Ops.RECIP_S, Ops.ROTR, Ops.ROTRV,
+      Ops.ROUND_W_D, Ops.ROUND_W_S, Ops.RSQRT_D, Ops.RSQRT_S, Ops.SB, Ops.SDC1, Ops.SEB,
+      Ops.SEH, Ops.SH, Ops.SLL, Ops.SLLV, Ops.SLT, Ops.SLTI, Ops.SLTIU, Ops.SLTU, Ops.SQRT_D,
+      Ops.SQRT_S, Ops.SRA, Ops.SRAV, Ops.SRL, Ops.SRLV, Ops.SUB, Ops.SUBU, Ops.SUB_D, Ops.SUB_S,
+      Ops.SW, Ops.SWC1, Ops.SYNC, Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TGE, Ops.TGEU, Ops.TLT,
+      Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
+      Ops.XORI, Ops.ERETNC, Ops.SIGRIE, Ops.CACHE,
+      Ops.MUL, Ops.MUH, Ops.MULU, Ops.MUHU, Ops.SELEQZ, Ops.SELNEZ, Ops.LSA, Ops.ALIGN, Ops.BITSWAP,
+      Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, Ops.LWPC, bind, PC,
+      Ops.ROUND_L_S, Ops.ROUND_L_D, Ops.TRUNC_L_S, Ops.TRUNC_L_D, Ops.CEIL_L_S, Ops.CEIL_L_D,
+      Ops.FLOOR_L_S, Ops.FLOOR_L_D, Ops.CVT_L_S, Ops.CVT_L_D, Ops.CVT_S_L, Ops.CVT_D_L,
+      -- the compact branches
+      Ops.BC, Ops.BALC, Ops.BEQC, Ops.BNEC, Ops.BLTC, Ops.BGEC, Ops.BLTUC, Ops.BGEUC, Ops.BLEZC,
+      Ops.BGEZC, Ops.BGTZC, Ops.BLTZC, Ops.BEQZC, Ops.BNEZC, Ops.BOVC, Ops.BNVC, Ops.JIC, Ops.JIALC,
+      Ops.BLEZALC, Ops.BGEZALC, Ops.BGTZALC, Ops.BLTZALC, Ops.BEQZALC, Ops.BNEZALC, Ops.BZALC,
+      Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow,
+      -- the 64-bit FP results and the FP branches (the 32-bit results are rows)
+      Ops.CMP_D, Ops.BC1EQZ, Ops.BC1NEZ, Ops.SEL_D, Ops.SELEQZ_D, Ops.SELNEZ_D, Ops.MADDF_D,
+      Ops.MINMAX_D, Ops.CLASS_D, Ops.RINT_D])
 
 set_option maxHeartbeats 1000000 in
 set_option linter.unusedSimpArgs false in
@@ -441,111 +286,24 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
     (Operation ins).map (fun p => p.run (ctxOf i o₁) { arch := a }) =
       (Operation ins).map (fun p => p.run (ctxOf i o₂) { arch := a }) := by
   cases ins <;> simp only [Operation, Option.map_some, Option.some.injEq, Pseudo.run]
-  case lw base rt off => exact cf_lw base rt off a h i o₁ o₂
-  case sw base rt off => exact cf_sw base rt off a h i o₁ o₂
-  case mtc0 rt rd sel => exact cf_mtc0 rt rd sel a h i o₁ o₂
-  case jalr rs rd => exact cf_jalr rs rd a h i o₁ o₂
-  case jalrHb rs rd => exact cf_jalrHb rs rd a h i o₁ o₂
-  case mfc0 rt rd sel => exact cf_mfc0 rt rd sel a h i o₁ o₂
-  case lb base rt off => exact cf_lb base rt off a h i o₁ o₂
-  case lbu base rt off => exact cf_lbu base rt off a h i o₁ o₂
-  case lh base rt off => exact cf_lh base rt off a h i o₁ o₂
-  case lhu base rt off => exact cf_lhu base rt off a h i o₁ o₂
-  case sb base rt off => exact cf_sb base rt off a h i o₁ o₂
-  case sh base rt off => exact cf_sh base rt off a h i o₁ o₂
-  case ll base rt off => exact cf_ll base rt off a h i o₁ o₂
-  case sc base rt off => exact cf_sc base rt off a h i o₁ o₂
-  case mfhc1 rt fs => exact cf_mfhc1 rt fs a h i o₁ o₂
-  case mthc1 rt fs => exact cf_mthc1 rt fs a h i o₁ o₂
-  case cfc1 rt fs => exact cf_cfc1 rt fs a h i o₁ o₂
-  case ctc1 rt fs => exact cf_ctc1 rt fs a h i o₁ o₂
-  case lwc1 rs ft imm => exact cf_lwc1 rs ft imm a h i o₁ o₂
-  case swc1 rs ft imm => exact cf_swc1 rs ft imm a h i o₁ o₂
-  case ldc1 rs ft imm => exact cf_ldc1 rs ft imm a h i o₁ o₂
-  case sdc1 rs ft imm => exact cf_sdc1 rs ft imm a h i o₁ o₂
-  case absS fd fs => exact cf_absS fd fs a h i o₁ o₂
-  case negS fd fs => exact cf_negS fd fs a h i o₁ o₂
-  case addD fd fs ft => exact cf_addD fd fs ft a h i o₁ o₂
-  case subD fd fs ft => exact cf_subD fd fs ft a h i o₁ o₂
-  case mulD fd fs ft => exact cf_mulD fd fs ft a h i o₁ o₂
-  case divD fd fs ft => exact cf_divD fd fs ft a h i o₁ o₂
-  case sqrtD fd fs => exact cf_sqrtD fd fs a h i o₁ o₂
-  case absD fd fs => exact cf_absD fd fs a h i o₁ o₂
-  case movD fd fs => exact cf_movD fd fs a h i o₁ o₂
-  case negD fd fs => exact cf_negD fd fs a h i o₁ o₂
-  case recipD fd fs => exact cf_recipD fd fs a h i o₁ o₂
-  case rsqrtD fd fs => exact cf_rsqrtD fd fs a h i o₁ o₂
-  case roundWD fd fs => exact cf_roundWD fd fs a h i o₁ o₂
-  case truncWD fd fs => exact cf_truncWD fd fs a h i o₁ o₂
-  case ceilWD fd fs => exact cf_ceilWD fd fs a h i o₁ o₂
-  case floorWD fd fs => exact cf_floorWD fd fs a h i o₁ o₂
-  case cvtWD fd fs => exact cf_cvtWD fd fs a h i o₁ o₂
-  case cvtDS fd fs => exact cf_cvtDS fd fs a h i o₁ o₂
-  case cvtDW fd fs => exact cf_cvtDW fd fs a h i o₁ o₂
-  case cvtSD fd fs => exact cf_cvtSD fd fs a h i o₁ o₂
-  case ext rt rs pos size => exact cf_ext rt rs pos size a h i o₁ o₂
-  case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
-  case lwpc rs off => exact cf_lwpc rs off a h i o₁ o₂
-  case div rs rt rd => exact cf_div rs rt rd a h i o₁ o₂
-  case mod rs rt rd => exact cf_mod rs rt rd a h i o₁ o₂
-  case divu rs rt rd => exact cf_divu rs rt rd a h i o₁ o₂
-  case modu rs rt rd => exact cf_modu rs rt rd a h i o₁ o₂
-  case blezalc rt off => exact cf_blezalc rt off a h i o₁ o₂
-  case bgezalc rt off => exact cf_bgezalc rt off a h i o₁ o₂
-  case bgtzalc rt off => exact cf_bgtzalc rt off a h i o₁ o₂
-  case bltzalc rt off => exact cf_bltzalc rt off a h i o₁ o₂
-  case beqzalc rt off => exact cf_beqzalc rt off a h i o₁ o₂
-  case bnezalc rt off => exact cf_bnezalc rt off a h i o₁ o₂
-  case bc off => simp only [Ops.BC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case balc off => simp only [Ops.BALC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case beqc rs rt off => simp only [Ops.BEQC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bnec rs rt off => simp only [Ops.BNEC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bltc rs rt off => simp only [Ops.BLTC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bgec rs rt off => simp only [Ops.BGEC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bltuc rs rt off => simp only [Ops.BLTUC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bgeuc rs rt off => simp only [Ops.BGEUC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case blezc rt off => simp only [Ops.BLEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bgezc rt off => simp only [Ops.BGEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bgtzc rt off => simp only [Ops.BGTZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bltzc rt off => simp only [Ops.BLTZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case beqzc rs off => simp only [Ops.BEQZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bnezc rs off => simp only [Ops.BNEZC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bovc rs rt off => simp only [Ops.BOVC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case bnvc rs rt off => simp only [Ops.BNVC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case jic rt off => simp only [Ops.JIC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
-  case jialc rt off => simp only [Ops.JIALC, Ops.CompactIf, Ops.ForbiddenSlot, Ops.SumOverflow]; ofree
   case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; split <;> rfl)
-  all_goals first
-    | (cases h; done)  -- R6-5: the rows that are always `true`
+  -- The Operations that read an oracle field away from their rows (memory: `loadClearsLL` /
+  -- `storeClearsLL` while `LLbit = 0`; `CVT.D.S` away from a quiet NaN; the UNPREDICTABLE operands
+  -- of `MFC0`/`MTC0`, `EXT`/`INS`, `JALR`, the compact branches): unfold, split and rewrite (`ofree`).
+  case lw | sw | lb | lbu | lh | lhu | sb | sh | swc1 | ldc1 | sdc1 | lwpc | mfc0 | mtc0 | mfhc1
+    | mthc1 | jalr | jalrHb | ext | ins | addD | subD | mulD | divD | sqrtD | absD | movD | negD
+    | recipD | rsqrtD | cvtDS | cvtDW | blezalc | bgezalc | bgtzalc | bltzalc | beqzalc | bnezalc
+    | bc | balc | beqc | bnec | bltc | bgec | bltuc | bgeuc | blezc | bgezc | bgtzc | bltzc | beqzc
+    | bnezc | bovc | bnvc | jic | jialc =>
+    cf_pre h; unfold_ops; ofree
+  -- The constructors with their own `cf_<ctor>` (LL/SC, CFC1/CTC1, the divisions) use it. Every other
+  -- one is a row (`h` is `true = false`: the 32-bit FPR results) or definitional (`rfl`), or else
+  -- one generic unfolding.
+  all_goals apply_ctor_lemma "cf_" "" at h else first
+    | (cases h; done)
     | rfl
-    | (simp only [
-      Ops.ABS_D, Ops.ABS_S, Ops.ADD, Ops.ADDIU, Ops.ADDU, Ops.ADD_D, Ops.ADD_S, Ops.AND,
-      Ops.ANDI, Ops.AUI, Ops.BAL, Ops.BEQ, Ops.BGEZ, Ops.BGTZ, Ops.BLEZ, Ops.BLTZ, Ops.BNE,
-      Ops.BREAK, Ops.CEIL_W_D, Ops.CEIL_W_S, Ops.CFC1, Ops.CLO, Ops.CLZ, Ops.CTC1, Ops.CVT_D_S,
-      Ops.CVT_D_W, Ops.CVT_S_D, Ops.CVT_S_W, Ops.CVT_W_D, Ops.CVT_W_S, Ops.DI, Ops.DIV_D,
-      Ops.DIV_S, Ops.EI, Ops.ERET, Ops.EXT, Ops.FLOOR_W_D, Ops.FLOOR_W_S, Ops.INS, Ops.J,
-      Ops.JAL, Ops.JALR, Ops.JALR_HB, Ops.LB, Ops.LBU, Ops.LDC1, Ops.LH, Ops.LHU, Ops.LL,
-      Ops.LW, Ops.LWC1, Ops.MFC0, Ops.MFC1, Ops.MFHC1, Ops.MOV_D, Ops.MOV_S, Ops.MTC0, Ops.MTC1,
-      Ops.MTHC1, Ops.MUL_D, Ops.MUL_S, Ops.NAL, Ops.NEG_D, Ops.NEG_S, Ops.NOR, Ops.OR, Ops.ORI,
-      Ops.PAUSE, Ops.PREF, Ops.RDHWR, Ops.RDPGPR, Ops.RECIP_D, Ops.RECIP_S, Ops.ROTR, Ops.ROTRV,
-      Ops.ROUND_W_D, Ops.ROUND_W_S, Ops.RSQRT_D, Ops.RSQRT_S, Ops.SB, Ops.SC, Ops.SDC1, Ops.SEB,
-      Ops.SEH, Ops.SH, Ops.SLL, Ops.SLLV, Ops.SLT, Ops.SLTI, Ops.SLTIU, Ops.SLTU, Ops.SQRT_D,
-      Ops.SQRT_S, Ops.SRA, Ops.SRAV, Ops.SRL, Ops.SRLV, Ops.SUB, Ops.SUBU, Ops.SUB_D, Ops.SUB_S,
-      Ops.SW, Ops.SWC1, Ops.SYNC, Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TGE, Ops.TGEU, Ops.TLT,
-      Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
-      Ops.XORI,
-      Ops.ERETNC, Ops.SIGRIE, Ops.CACHE,
-      -- R6-4
-      Ops.MUL, Ops.MUH, Ops.MULU, Ops.MUHU, Ops.SELEQZ, Ops.SELNEZ, Ops.LSA, Ops.ALIGN, Ops.BITSWAP,
-      Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC,
-      -- R6-5
-      Ops.ROUND_L_S, Ops.ROUND_L_D, Ops.TRUNC_L_S, Ops.TRUNC_L_D, Ops.CEIL_L_S, Ops.CEIL_L_D,
-      Ops.FLOOR_L_S, Ops.FLOOR_L_D, Ops.CVT_L_S, Ops.CVT_L_D, Ops.CVT_S_L, Ops.CVT_D_L,
-      -- R6-6B (the 64-bit results and the branches; the 32-bit results are rows)
-      Ops.CMP_D, Ops.BC1EQZ, Ops.BC1NEZ, Ops.SEL_D, Ops.SELEQZ_D, Ops.SELNEZ_D, Ops.MADDF_D,
-      Ops.MINMAX_D, Ops.CLASS_D, Ops.RINT_D]
-       ofree)
+    | (unfold_ops; ofree)
 
 end Refine
