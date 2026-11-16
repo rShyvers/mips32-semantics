@@ -37,7 +37,7 @@ place, is at the code repository's tag `mips32r2-final`.
   per opcode group, each a table keyed by the field the manual's opcode tables key on (MD00086 Vol II-A Rev 6.06,
   Table A.2 and the sub-tables of Appendix A, p.451 onwards): `decodePrimary` (opcode), `decodeSpecial` (`funct`),
   `decodeRegimm` (`rt`), `decodeSpecial3` (`funct`, with BSHFL), `decodeCop0` (`CO`, then `funct` or `rs`),
-  `decodeCop1` (`rs`, with `decodeCop1S`/`decodeCop1D` keyed by `funct`) and the shared helpers for the compact-branch
+  `decodeCop1` (`rs`; the S and D formats share `decodeCop1Fmt`, keyed by `funct` over a per-format record `Cop1Fmt` with the rows `decodeFmtS`/`decodeFmtD`, `Instruction.lean`) and the shared helpers for the compact-branch
   encodings that reuse one opcode for several instructions told apart by `rs`/`rt` (Table A.26, p.464). A sibling
   table for another release reuses or replaces each function. The encodings Release 6 removes ("6R"/"6Rm", Table A.1,
   p.451) do not decode: `step` raises Reserved Instruction (Coprocessor Unusable in an unusable coprocessor's space).

@@ -189,7 +189,7 @@ transcription, or in what is trusted below. Limits, stated plainly:
   the theorem; `inv_load` only says the loader's start state satisfies the invariant.
 
 **(c) The per-instruction `_spec_raw` theorems restate the implementation.** There is one for each of the 203
-constructors (`python3 scripts/trace.py` reports 750 spec theorems in all of `Semantics/Specs`, none with `sorry`). Almost all are proved by unfolding `step` and closing with `rfl`
+constructors (`python3 scripts/trace.py` reports 748 spec theorems in all of `Semantics/Specs`, none with `sorry`). Almost all are proved by unfolding `step` and closing with `rfl`
 (`step_spec`/`fp_step_spec`/`cp0_step_spec` in `Semantics/Specs/Tactics.lean`); a few have explicit
 proofs (`break_spec_raw`, `syscall_spec_raw`; `ext_spec_raw` and `ins_spec_raw` are derived from `ext_spec_fields`/`ins_spec_fields` and the
 `decode` field ranges of `decode_wellFormed`; `sll`/`srl`/`sra`/`rotr` rewrite `shamt` to `shamt % 32` first), and each states what `step` computes for that

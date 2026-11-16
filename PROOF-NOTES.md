@@ -179,6 +179,8 @@ Trusted surface per wave (`Statements.lean` theorem count, checked from the comm
 Gate record at R6-7 (merge 63e01a2): corpus 29 programs vs MARS, 7 equivalence cases, 184 QEMU/LLVM oracle tests, 203 constructors
 and 750 spec theorems traced, axioms `propext`, `Quot.sound`, `Classical.choice`, 0 warnings.
 
+Optimization pass (merge 4f6e449, cleanup 2348026; no statement changed, no trusted theorem added): about 2,000 lines fewer. The 203 `instrRefines_*` wrappers became the tactic `apply_ctor_lemma` (`Refine/Instr.lean`); 47 `cf_*` and 58 `rw_*` lemmas went to generic dispatch (`cf_<ctor>` remain only for `LL`, `SC`, `CFC1`, `CTC1`, `DIV`/`MOD`/`DIVU`/`MODU`); `fp_refine` (`Refine/BridgeFpu.lean`) and `cb_refine` (`Refine/CompactBranch.lean`) factor the FP and compact-branch refinements; `decodeCop1S`/`decodeCop1D` merged into `decodeCop1Fmt` over the record `Cop1Fmt`; about 50 dead lemmas/defs removed (model `causeIpMask`, `isKseg0`, `Mips.Fp.accFlags`, `fcsrReservedMask`; trusted `run_bind`, `OpStep`, all unused). Gate at 2348026: 203 constructors, 748 spec theorems, 221 statements, 184 oracle tests.
+
 # History of the Release 2 model (tag `mips32r2-final`)
 
 Waves 1-12b built the pre-Release-6 model. The text below is kept as written (apart from this heading): theorem names, statement counts
@@ -532,14 +534,14 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
 * **Duplicates resolved (no statement lost).** `BridgeMem` now imports `BridgeIntAlu`/`BridgeControl` and no longer
   restates `execInstr_body` and `writeReg_pc` (identical statements there); its `complete_writeReg` (without `some`) is
   renamed `complete_writeReg_eq` (`BridgeControl.complete_writeReg` keeps its name). `BridgeFpuMove` imports `BridgeFpu`
-  and no longer restates `writeFpReg_size`, `readFpD_abs`, `valueFPR64_model`, `storeFPR64_model` (identical statements)
+  and no longer restates `writeFpReg_size` (since removed as dead), `readFpD_abs`, `valueFPR64_model`, `storeFPR64_model` (identical statements)
   and `abs_writeFpD` (same statement, binders in another order; the one use was adapted). Its definition
   `FcsrReservedZero` (`s.fcsr.extractLsb' 18 5 = 0#5`) is replaced by the invariant's (`Refine/Defs.lean`) and the lemma
   `fcsrReservedZero_extract`, so `cfc1_refines` takes the invariant's `FcsrReservedZero`.
+* **Proof tactics (after the optimization pass).** `apply_ctor_lemma` (`Refine/Instr.lean`) applies a per-constructor lemma by name (`_refines`, `cf_`, `rw_`); `fp_refine` (`Refine/BridgeFpu.lean`) is the common shape of the 66 FP R-format `_refines` (COP1 space, `execute_cop1`, the model's finishing arm, `runAbs_congr`, then a per-instruction closer); `cb_refine` (`Refine/CompactBranch.lean`) is the same for the compact branches.
 * **`Refine/Defs.lean` (new, definitions only):** `memOf`, `abs`, `Good` (moved from `Abs.lean`), `FcsrReservedZero`,
   `StatusImplemented` (moved from `Invariant.lean`), `Inv` (moved from `Instr.lean`). The challenge module imports it.
-* **`Refine/Instr.lean`:** `instrRefines_<ctor>` for all 183 constructors (generated, constructor order) and
-  `allInstrRefines : ∀ i, InstrRefines i`. Removed with the hypothesis they existed for: `Covered`,
+* **`Refine/Instr.lean`:** `allInstrRefines : ∀ i, InstrRefines i` (`instrRefines_<ctor>` wrappers were generated here at first; the optimization pass replaced them: `cases i`, then the tactic `apply_ctor_lemma "" "_refines"` applies `Refine.<ctor>_refines` found by the constructor name and takes its premises from the hypotheses; a constructor without that theorem fails the build with the theorem's name). Removed with the hypothesis the wrappers existed for: `Covered`,
   `instrRefines_covered`, `PendingRefines`, `allInstrRefines_of`, and `step_eq_manual_of` (`Refine/Step.lean`; its body
   is now `step_eq_manual`'s). `execute_abs` and `stepCore_abs` lost their `hI` hypothesis.
 * **Unconditional:** `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `step_unique_of_choiceFree` lost
@@ -557,7 +559,7 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
 * **`Manual.ChoiceFree` exact** (`Manual/Relation.lean`, spec). `OracleFreeOp` is replaced by `ConsultsOracle ins a`,
   which says per Operation whether it reaches an oracle choice whose value can change the result; an UNPREDICTABLE
   encoding whose coprocessor-usability check fires first is choice-free. Proof: `Refine/ChoicePoints.lean` (new):
-  `operation_choiceFree` for all 183 constructors (113 by `rfl`; 70 by `cf_<ctor>`, a meta tactic `case_ite` that
+  `operation_choiceFree` for all constructors (at the time 113 by `rfl`; 70 by `cf_<ctor>`; now by one generic dispatch, with `cf_<ctor>` only for the oracle-reading instructions whose proof differs: `cf_ll`, `cf_sc`, `cf_cfc1`, `cf_ctc1`, `cf_div`/`cf_mod`/`cf_divu`/`cf_modu` via `cf_divResult`, picked by name with `apply_ctor_lemma "cf_" ""`; the generic proof `ofree` uses a meta tactic `case_ite` that
   splits on the closed `if`s of the goal, and oracle-free rewrites of `LoadMemory`/`StoreMemory` while `LLbit = 0`,
   `ValueFPR64`/`StoreFPR64` on even registers, `signOp`/`cvt` away from a quiet NaN; `env_fpResult`: `FPResult`
   leaves RM/Enables/FS alone). `Refine/Determinism.lean` uses it in `execute_oracleFree`; `operation_oracleFree`
@@ -585,12 +587,11 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
 * **Witnesses** (`Refine/ChoiceWitness.lean`): the family `wo p ce` (operations → Reserved Instruction, values
   constant, `Cause.CE = ce`), `wo_valid`. The two `ce` differ from each other and from `Cause.CE` of the state
   (`ceA`, `ceB`), so no lemma "Operations do not read `causeCE`" is needed. Each `ConsultsOracle` row
-  (`rw_<ctor>`, 68 constructors, `Refine/ChoiceRows{,Fp,Fma}.lean`) proves `RunP` for two witnesses by unfolding
-  the Operation and splitting its `if`s (`runp`, `runp_fp`; `runp_fe` keeps `FPResult` as one `if` on `trapC`).
+  (`rw_<ctor>`, found by name with `apply_ctor_lemma "rw_" ""` in `choiceFree_exact`; only the instructions that need their own proof have one, the rest are covered by the shared row lemmas such as `row_load`/`row_store`; `Refine/ChoiceRows{,Fp,Fma}.lean`) proves `RunP` for two witnesses by unfolding
+  the Operation and splitting its `if`s (the `runp` tactic and its FP variants).
   FP facts in `Refine/ChoiceFp.lean` (NaN branch of the core, `Dist`, FCSR algebra).
 * **Spec change (`Manual/Relation.lean`, `ConsultsOracle`), three rows made exact:** `MFHC1` (`&& reg rt != 0`),
-  `C.cond.D` (`CmpAbsorbs`), `MADD.D`/`MSUB.D` (`MaddAbsorbs`). Soundness re-proved: `cf_mfhc1`, `cf_cCondD`,
-  `cf_maddD`, `cf_msubD` (`Refine/ChoicePoints.lean`, which now imports `Refine/ChoiceFp.lean`). Details and citations:
+  `C.cond.D` (`CmpAbsorbs`), `MADD.D`/`MSUB.D` (`MaddAbsorbs`). Soundness re-proved in `Refine/ChoicePoints.lean` (which imports `Refine/ChoiceFp.lean`; the per-row `cf_<ctor>` lemmas written then were later removed in the optimization pass, these rows now go through the generic proof). Details and citations:
   `docs/MANUAL-SPEC.md` I.7.
 * **Not done:** `RSQRT.fmt`'s 2-ULP bound and `RECIP.fmt` against the exact result (no error bound for the core's
   rounding exists to build on). `Impl.Valid` unchanged.
@@ -647,7 +648,7 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
   `ExactSpec`, `WidenSpec`, `FromIntSpec`, `IsInt`/`IsEvenInt`/`ToWordSpec` (CVT.W p.160, ROUND.W p.342, TRUNC.W
   p.441, CEIL.W p.128, FLOOR.W p.186), `Relation`/`cmpRel`, `condTable` (the 16 rows of Tables 3.1/3.2, p.111-112),
   `condHolds`, `CompareSpec` (p.110-113), `flagBit`, `FcsrSpec` (§6.7.1 p.99, CheckFPException p.23), `FpOutcome`,
-  `OpStep`, `OpThen`, `MaddSpec` (MADD p.256, MSUB p.287, NMADD p.308, NMSUB p.310). Each is a `match` on the
+  `MaddSpec` (MADD p.256, MSUB p.287, NMADD p.308, NMSUB p.310). Each is a `match` on the
   operands' `datum`, so the cases are exhaustive by construction. New pin: SPEC-NOTES §9 item 30 (signs of exact zero
   results, where the manuals are silent: IEEE 754-1985 §6.3, named by MD00082 p.77; verified against IEEE Std 754-2019 §6.3 p.50 and §5.4.1 p.33 (the owner's local-only copy, `manuals/LOCAL-SOURCES.md`, `mipsdoc.py section ieee 6.3`; table in SPEC-NOTES §9 item 30) and earlier against the public P754 Draft 1.2.5 §8.3 p.44).
 * **Proof structure (9 new files, each < 10 s by `lake env lean`; no Mathlib).** `Special` (classes ↔ the model's
@@ -659,8 +660,7 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
   `convert_spec`, `roundSpec_exact`, `convert_exact`, `ofInt_spec`), `Compare` (`magN` strictly increasing: the
   sign-magnitude keys order the values; `relation_spec`; `compare_spec`), `Fcsr` (`fpUpdate_bit` for all 32 bits,
   `fpUpdate_spec`, `fcsrSpec_unique`), `IEEE` (the `BitVec` statements; `CVT.D.W` exactness `ofInt64_exact`;
-  `ABS`/`NEG` via `and_top`/`xor_top`), `Step` (`two_steps*`/`three_steps*`: a chain of `fpThen` is a chain of
-  `OpStep`; the eight `*_separate` theorems from the `*_spec_raw` of `Specs/FpuArith.lean`).
+  `ABS`/`NEG` via `and_top`/`xor_top`), `Step` (`two_steps*`/`three_steps*`: a chain of `fpThen`; the eight `*_separate` theorems from the `*_spec_raw` of `Specs/FpuArith.lean`).
 * **Trusted surface 175 → 211** (Statements, StatementsProofs, `comparator.json`): `newQNaN_binary32`,
   `newQNaN_binary64`, `nanResult_first`, `f32Add_spec`, `f32Sub_spec`, `f32Mul_spec`, `f32Div_spec`,
   `f32Sqrt_spec`, `f64Add_spec`, `f64Sub_spec`, `f64Mul_spec`, `f64Div_spec`, `f64Sqrt_spec`, `f64ToF32_spec`,
@@ -692,7 +692,7 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
   `Statements.lean` updated. No model change.
 * **B1/B2, model fix (`Step.lean`, multiply-add family):** the FCSR of `MADD/MSUB/NMADD/NMSUB.fmt` is per
   instruction: each operation (multiply, add/subtract, negate) is rounded and trap-checked with Cause = the
-  union of the conditions so far (`fpStep`, `Mips.Fp.setCause`, `Mips.Fp.accFlags`), Flags |= the union only
+  union of the conditions so far (`fpStep`, `Mips.Fp.setCause`; `Mips.Fp.accFlags` has since been removed as unused), Flags |= the union only
   when no operation traps (`fpFinishS/D`). Citations: MADD.fmt p.256 / MSUB.fmt p.287 / NMADD.fmt p.308 /
   NMSUB.fmt p.310 (MD00086 Vol II-A Rev 6.06: "The Cause bits are ORed into the Flag bits if no exception is
   taken"); MD00082 Vol I-A Rev 6.01 Table 6.8 `Cause` p.94, §6.7.1 p.99. Transcription: `Manual.FPCheck` (Cause +
@@ -702,9 +702,9 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
   `finishS_outcome`, `finishD_outcome`), `FpOpsCorrectFcsr` (`setCause_bit`, `fpeEnabled_setCause`,
   `fpUpdate_setCause`, `setCause_setCause`, `fpUpdate_of_enabled`, `Flags.none_or`), `Refine/BridgeFpu`
   (`FPCheck_run`, `runAbs_FPCheck`), `Refine/FpuArith` (the eight `*_refines` re-proved), `Refine/ChoiceFp`
-  (`FPCheck_eq`, `fpc_fpc`, `fpf_fpc`, `trapC_fpc`, `mul_inv_q`, `or_inv_absorb`, `inv_or_true`),
+  (`FPCheck_eq`, `mul_inv_q`; `fpc_fpc`, `fpf_fpc`, `trapC_fpc`, `or_inv_absorb`, `inv_or_true` were removed in the optimization pass),
   `Manual.MaddAbsorbs` changed (first corner now needs `fr` a signaling NaN; second corner added: `fs`, `ft`
-  even, `fr` odd, Invalid product), `cf_maddD/cf_msubD` re-proved, the NMADD/NMSUB choice rows now separate the
+  even, `fr` odd, Invalid product), the `cf_` lemmas of MADD.D/MSUB.D re-proved (later removed, see above), the NMADD/NMSUB choice rows now separate the
   readings `A`/`A'` by the result's sign (`row_AA'S`, `row_AA'D`) since Invalid of the negate no longer tells
   `A` from `B` when an earlier operation raised it. Trusted statements restated (definition `MaddSpec`
   changed, text unchanged): `maddS_separate` … `nmsubD_separate` (8); docstrings updated.

@@ -32,18 +32,19 @@ file lists and statement counts are those of that model.
 | `Manual/Encoding.lean` | the format diagrams: `fld`, `rFormat`, `iFormat`, `off9Format`, `sa2Format`, `pc19Format`, `encIf`, `enc` (every constructor), `CmpCondnOK`, `opcode`, `InCop0Space`/`InCop1Space`/`InCop2Space`, `UnpredictableEncoding` |
 | `Manual/Decode.lean` | the spec's own decoder `Decode`/`decodeDiagram` from `enc` (not the model's `decode`) |
 | `Manual/Ops/*.lean` (21 files) | one `def` per manual page: `IntArith`, `Shift`, `BitOps`, `Immediate`, `PcRel`, `Memory`, `Atomic`, `Trap`, `Syscall`, `Branch`, `CompactBranch`, `Jump`, `Cp0`, `System`, `VP` (DVP/EVP), `FpuArith`, `FpuConvert`, `FpuMemory`, `FpuMove`, `FpuControl`, `FpuR6` |
+| proof tactics | `apply_ctor_lemma "pre" "suf"` (`Refine/Instr.lean`: applies `Refine.<pre><ctor><suf>` for the constructor in the goal); `fp_refine fin fd => tac` (`Refine/BridgeFpu.lean`: the shape of the refinement of a COP1 R-format instruction storing one FP result); `cb_refine i word op => fin` (`Refine/CompactBranch.lean`: the shape of a compact branch's refinement) |
 | `Manual/Operation.lean` | `Operation : Instruction → Option (Pseudo Unit)`, one line per constructor |
 | `Manual/Cycle.lean` | `IsCTI`, `DecoderSound`, `Execute`, `Undecodable`, `Unpredictable`, `FetchExecute`, `InstructionTime` |
 | `Manual/Relation.lean` | `UnpredictableLimits`, `UndefinedOutcomeValid`, `NIValue`/`NIOutcome`, `QNaNValid`, `Oracle.Valid`, `Step`, `InstructionTimes`, `CTC1Unpredictable`, `ConsultsOracle`, `ChoiceFree` (exact) |
 | `Refine/Defs.lean` | definitions only (trusted): `memOf`, `abs`, `Good`, `FcsrReservedZero`, `StatusImplemented`, `Inv` |
 | `Refine/Abs`, `Bridge`, `BridgeIntAlu`, `BridgeBits`, `BridgeControl`, `BridgeMem`, `BridgeFpu`, `BridgeFpuMove`, `Fetch` | the plumbing: `abs_*` projections, constants, format lemmas, `execute_run`, FPR/FCSR bridges |
 | `Refine/<Family>.lean` | `<ctor>_refines`, one per constructor (203): `IntArith`, `Shift`, `BitOps`, `Immediate`, `PcRel`, `Memory`, `Atomic`, `Trap`, `Syscall`, `Branch`, `CompactBranch`, `Jump`, `Cp0`, `System`, `FpuArith`, `FpuConvert`, `FpuMemory`, `FpuMove`, `FpuControl`, `FpuR6` |
-| `Refine/Instr.lean` | `InstrRefines`, `instrRefines_<ctor>`, `allInstrRefines` |
+| `Refine/Instr.lean` | `InstrRefines`, the tactic `apply_ctor_lemma` (applies `<ctor>_refines`, `cf_<ctor>`, `rw_<ctor>` by constructor name), `allInstrRefines` |
 | `Refine/Cycle.lean`, `Decode.lean`, `DecodeDiagram.lean`, `DecodeBridge.lean`, `Invariant.lean` | the non-instruction paths (timer, interrupt, standby, fetch error, undecodable word), `decoderSound_decode`, the decoder agreement theorems, preservation of `Inv` |
 | `Refine/Step.lean` | TOP: `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv` |
 | `Refine/Determinism.lean` | `modelOracle_valid`, `manual_step_deterministic`, `step_unique_of_choiceFree`, `interrupt_choice_exists` |
-| `Refine/ChoicePoints.lean` | `operation_choiceFree` and the `cf_<ctor>` lemmas (56) |
-| `Refine/ChoiceFp.lean`, `ChoiceWitness.lean`, `ChoiceRows.lean`, `ChoiceRowsFp.lean`, `ChoiceExact.lean` | the other direction: the `rw_<ctor>` row lemmas, `choiceFree_exact`, `choiceFree_iff` |
+| `Refine/ChoicePoints.lean` | `operation_choiceFree` (generic dispatch) and the `cf_<ctor>` lemmas of the oracle-reading instructions (`cf_ll`, `cf_sc`, `cf_cfc1`, `cf_ctc1`, `cf_div`, `cf_mod`, `cf_divu`, `cf_modu`, `cf_divResult`) |
+| `Refine/ChoiceFp.lean`, `ChoiceWitness.lean`, `ChoiceRows.lean`, `ChoiceRowsFp.lean`, `ChoiceExact.lean` | the other direction: the `rw_<ctor>` row lemmas (found by `apply_ctor_lemma`), `choiceFree_exact`, `choiceFree_iff` |
 | `Refine/ImplValid.lean` | `modelImpl_valid` |
 
 **Independence rule.** `scripts/manual_independence.py` (gate step 1, token pre-check) and `scripts/manual_deps.py`
@@ -379,8 +380,7 @@ The independent review of 7B led to these changes (details and citations in `doc
    `enc i = some w` from `decode_enc`.
 3. **Unconditional top theorems (7D part 2).** In part 1, `step_eq_manual` and its corollaries took
    `PendingRefines` (the per-instruction refinement of the constructors not yet merged) as a
-   hypothesis. Part 2 merged the memory and FPU groups, generated `instrRefines_<ctor>` for all 183
-   constructors and proved `allInstrRefines : ∀ i, InstrRefines i`; `Covered`, `instrRefines_covered`,
+   hypothesis. Part 2 merged the memory and FPU groups, proved `allInstrRefines : ∀ i, InstrRefines i`; (the `instrRefines_<ctor>` wrappers it generated were later replaced by the `apply_ctor_lemma` dispatch); `Covered`, `instrRefines_covered`,
    `PendingRefines`, `allInstrRefines_of` and `step_eq_manual_of` were removed (the hypothesis is gone,
    nothing else in the statements changed).
 4. **`ChoiceFree`** (exact since wave 8, see I.6): `false` at an interrupt and at every exception other
@@ -400,8 +400,8 @@ zero, `MUL`, an odd FPR read or written as a double on the path the Operation ta
 of `ABS`/`NEG`/`CVT.D.S`/`CVT.S.D`, a quiet-NaN sum in `NMADD`/`NMSUB`, `CFC1` of a missing register into
 `rt ≠ 0`, the UNPREDICTABLE arms of `CTC1`/`EXT`/`INS`, branch-and-link with `rs = 31`, `JALR`/`JALR.HB`
 with `rs = rd`, `MFC0`/`MTC0` of a missing register and an `EBase` write with `BEV = 0`. Where it is
-`false` the Operation's run is the same under every oracle (`Refine.operation_choiceFree`, all 183
-constructors: 113 by `rfl`, 70 by the `cf_<ctor>` lemmas of `Refine/ChoicePoints.lean`). `ChoiceFree`
+`false` the Operation's run is the same under every oracle (`Refine.operation_choiceFree`, all
+constructors, by one generic proof, with `cf_<ctor>` lemmas only for the oracle-reading instructions whose proof differs, `Refine/ChoicePoints.lean`). `ChoiceFree`
 uses it in place of `OracleFreeOp`; an UNPREDICTABLE encoding whose coprocessor-usability check fires
 first is now choice-free (the Coprocessor Unusable exception is determined). The other direction is
 proved for the `Cause.CE` choice (`gep_causeCE_choice`, `interrupt_choice_exists`) and argued per row
@@ -469,7 +469,7 @@ memory). This avoids a lemma "no Operation reads `causeCE`". Per row (`rw_<ctor>
 | `MOV.D`, `MOVF/MOVT/MOVN/MOVZ.D` | two quiet NaNs | `FPR` pair of `fd` |
 | `CVT.D.S`/`CVT.S.D` quiet NaN | the two QNaNs of each field | `FPR` |
 | `C.cond.D` | signaling NaN; quiet NaN (`cond3 = 0`) or +1.0 (`cond3 = 1`) | Invalid |
-| `MADD.D`/`MSUB.D` | five cases (`rw_maddD`) | the result, Invalid, a trap, or the Invalid Flag (bit 6) |
+| `MADD.D`/`MSUB.D` | five cases (the row lemmas of `Refine/ChoiceRowsFp.lean`/`ChoiceRowsFma.lean`, picked by `apply_ctor_lemma "rw_" ""`) | the result, Invalid, a trap, or the Invalid Flag (bit 6) |
 
 The other cases of `ChoiceFree` (interrupt: `interrupt_choice_exists`; fetch error, undecodable word,
 UNPREDICTABLE encoding, CTI in a delay slot, an Operation that signals with `ConsultsOracle = false`
@@ -478,7 +478,7 @@ witnesses.
 
 **`ConsultsOracle` rows changed (spec, `Manual/Relation.lean`).** The proof found three rows that were
 `true` where no oracle can change the result; each is now exact and soundness was re-proved
-(`cf_mfhc1`, `cf_cCondD`, `cf_maddD`, `cf_msubD` in `Refine/ChoicePoints.lean`):
+(proved in `Refine/ChoicePoints.lean`; `cf_mfhc1` was removed in the optimization pass, the rows are now covered by the generic dispatch of `operation_choiceFree`):
 1. `MFHC1 rt, fs`: was `OddFPR fs`, now `OddFPR fs && reg rt != 0` (the value goes to `GPR[0]`).
 2. `C.cond.D cond cc fs ft`: was `OddFPR fs || OddFPR ft`; now `false` also when exactly one register is
    odd and the other operand `y` satisfies `CmpAbsorbs cond y` (`y` a signaling NaN, or a quiet NaN with
