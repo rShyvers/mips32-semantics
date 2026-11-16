@@ -33,7 +33,7 @@ example : mkJT (0x3ffffff#32) = 0x3ffffff#32 := by decide
 def sampleState : State :=
   { pc := textBase
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
-    fpRegs := Array.replicate 32 (0#32)
+    fpRegs := Array.replicate 32 (0#64)
     fcsr := 0#32
     physMem := ∅
     cp0Status := 0#32
@@ -44,7 +44,7 @@ example : sampleState.pc = textBase := by decide
 example : sampleState.regs.size = 32 := by decide
 example : sampleState.regs[29]! = spInit := by decide
 example : sampleState.fpRegs.size = 32 := by decide
-example : sampleState.fpRegs[0]! = 0#32 := by decide
+example : sampleState.fpRegs[0]! = 0#64 := by decide
 example : sampleState.fcsr = 0#32 := by decide
 #guard sampleState.pc = textBase
 #guard sampleState.regs.size = 32

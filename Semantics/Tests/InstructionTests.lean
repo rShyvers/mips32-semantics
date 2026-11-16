@@ -407,8 +407,8 @@ example : decode (encode (.sc 29#32 8#32 0x100#32)) = some (.sc 29#32 8#32 0x100
 -- opcodes 0x16/0x17 (pre-Release 6 blezl/bgtzl) and 0x12/0x13 (COP2, COP1X) do not decode
 -- (W3: Release 6 reuses 0x16/0x17 for the compact branches, B<cond>C p.82).
 #guard decode (mkIT 0x12#32 0#32 0#32 0#32) = none
--- Removed in Release 6 (decodes to `none`): opcode 0x13 (COP1X): funct 0x05 `luxc1` / 0x0d `suxc1` (UNPREDICTABLE with
--- FR = 0) and the paired-single functs are not modeled
+-- Removed in Release 6 (decodes to `none`): opcode 0x13 (COP1X): funct 0x05 `luxc1` / 0x0d `suxc1` and
+-- the paired-single functs
 #guard decode (mkIT 0x13#32 0#32 0#32 0x05#32) = none
 #guard decode (mkIT 0x13#32 0#32 0#32 0x0d#32) = none
 #guard decode (mkIT 0x13#32 0#32 0#32 0x26#32) = none
@@ -596,6 +596,48 @@ example : decode 0x4620208d#32 = some (.truncWD 2#32 4#32) := by decide
 example : decode 0x4620208e#32 = some (.ceilWD 2#32 4#32) := by decide
 example : decode 0x4620208f#32 = some (.floorWD 2#32 4#32) := by decide
 example : decode 0x7c810835#32 = some (.pref 4#32 1#32 16#32) := by decide         -- pref 1,16($4)
+-- BEGIN R6-5 (C): longword conversions (words from llvm-mc-21 -mcpu=mips32r6), decode and round trip
+example : decode 0x460020a5#32 = some (.cvtLS 2#32 4#32) := by decide  -- cvt.l.s $f2,$f4
+example : encode (.cvtLS 2#32 4#32) = 0x460020a5#32 := by decide
+example : decode (encode (.cvtLS 31#32 17#32)) = some (.cvtLS 31#32 17#32) := by decide
+example : decode 0x462020a5#32 = some (.cvtLD 2#32 4#32) := by decide  -- cvt.l.d $f2,$f4
+example : encode (.cvtLD 2#32 4#32) = 0x462020a5#32 := by decide
+example : decode (encode (.cvtLD 31#32 17#32)) = some (.cvtLD 31#32 17#32) := by decide
+example : decode 0x46002088#32 = some (.roundLS 2#32 4#32) := by decide  -- round.l.s $f2,$f4
+example : encode (.roundLS 2#32 4#32) = 0x46002088#32 := by decide
+example : decode (encode (.roundLS 31#32 17#32)) = some (.roundLS 31#32 17#32) := by decide
+example : decode 0x46202088#32 = some (.roundLD 2#32 4#32) := by decide  -- round.l.d $f2,$f4
+example : encode (.roundLD 2#32 4#32) = 0x46202088#32 := by decide
+example : decode (encode (.roundLD 31#32 17#32)) = some (.roundLD 31#32 17#32) := by decide
+example : decode 0x46002089#32 = some (.truncLS 2#32 4#32) := by decide  -- trunc.l.s $f2,$f4
+example : encode (.truncLS 2#32 4#32) = 0x46002089#32 := by decide
+example : decode (encode (.truncLS 31#32 17#32)) = some (.truncLS 31#32 17#32) := by decide
+example : decode 0x46202089#32 = some (.truncLD 2#32 4#32) := by decide  -- trunc.l.d $f2,$f4
+example : encode (.truncLD 2#32 4#32) = 0x46202089#32 := by decide
+example : decode (encode (.truncLD 31#32 17#32)) = some (.truncLD 31#32 17#32) := by decide
+example : decode 0x4600208a#32 = some (.ceilLS 2#32 4#32) := by decide  -- ceil.l.s $f2,$f4
+example : encode (.ceilLS 2#32 4#32) = 0x4600208a#32 := by decide
+example : decode (encode (.ceilLS 31#32 17#32)) = some (.ceilLS 31#32 17#32) := by decide
+example : decode 0x4620208a#32 = some (.ceilLD 2#32 4#32) := by decide  -- ceil.l.d $f2,$f4
+example : encode (.ceilLD 2#32 4#32) = 0x4620208a#32 := by decide
+example : decode (encode (.ceilLD 31#32 17#32)) = some (.ceilLD 31#32 17#32) := by decide
+example : decode 0x4600208b#32 = some (.floorLS 2#32 4#32) := by decide  -- floor.l.s $f2,$f4
+example : encode (.floorLS 2#32 4#32) = 0x4600208b#32 := by decide
+example : decode (encode (.floorLS 31#32 17#32)) = some (.floorLS 31#32 17#32) := by decide
+example : decode 0x4620208b#32 = some (.floorLD 2#32 4#32) := by decide  -- floor.l.d $f2,$f4
+example : encode (.floorLD 2#32 4#32) = 0x4620208b#32 := by decide
+example : decode (encode (.floorLD 31#32 17#32)) = some (.floorLD 31#32 17#32) := by decide
+example : decode 0x46a020a0#32 = some (.cvtSL 2#32 4#32) := by decide  -- cvt.s.l $f2,$f4
+example : encode (.cvtSL 2#32 4#32) = 0x46a020a0#32 := by decide
+example : decode (encode (.cvtSL 31#32 17#32)) = some (.cvtSL 31#32 17#32) := by decide
+example : decode 0x46a020a1#32 = some (.cvtDL 2#32 4#32) := by decide  -- cvt.d.l $f2,$f4
+example : encode (.cvtDL 2#32 4#32) = 0x46a020a1#32 := by decide
+example : decode (encode (.cvtDL 31#32 17#32)) = some (.cvtDL 31#32 17#32) := by decide
+-- the L format is not defined for the arithmetic operations or for CVT.W/CVT.L: reserved
+example : decode 0x46a02080#32 = none := by decide  -- add.l (fmt L, funct ADD)
+example : decode 0x46a020a4#32 = none := by decide  -- cvt.w.l
+example : decode 0x46a020a5#32 = none := by decide  -- cvt.l.l
+-- END R6-5 (C)
 example : encode (.pref 4#32 1#32 16#32) = 0x7c810835#32 := by decide
 example : decode 0xcc810010#32 = none := by decide                                 -- pre-R6 PREF (0x33)
 example : decode 0x41606000#32 = some (.di 0#32) := by decide                      -- di
@@ -626,10 +668,10 @@ example : decode (encode (.mthc1 8#32 4#32)) = some (.mthc1 8#32 4#32) := by dec
 example : decode (encode (.recipD 2#32 4#32)) = some (.recipD 2#32 4#32) := by decide
 example : decode (encode (.rsqrtS 2#32 4#32)) = some (.rsqrtS 2#32 4#32) := by decide
 example : decode (encode (.floorWD 2#32 4#32)) = some (.floorWD 2#32 4#32) := by decide
--- L-format conversions (fmt = L = 0x15, and cvt.l/round.l… functs) are not modeled
-example : decode 0x46a02020#32 = none := by decide                                 -- cvt.s.l
-example : decode 0x46002025#32 = none := by decide                                 -- cvt.l.s
-example : decode 0x46002008#32 = none := by decide                                 -- round.l.s
+-- L-format conversions (fmt = L = 0x15, and cvt.l/round.l… functs) are modeled since R6-5
+example : decode 0x46a02020#32 = some (.cvtSL 0#32 4#32) := by decide              -- cvt.s.l $f0,$f4
+example : decode 0x46002025#32 = some (.cvtLS 0#32 4#32) := by decide              -- cvt.l.s $f0,$f4
+example : decode 0x46002008#32 = some (.roundLS 0#32 4#32) := by decide            -- round.l.s $f0,$f4
 -- paired-single (fmt = PS = 0x16) is not modeled
 example : decode 0x46c62000#32 = none := by decide                                 -- add.ps
 

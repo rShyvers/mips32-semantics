@@ -41,7 +41,8 @@ cause data loss"): `UndefinedOutcomeValid` (with the `HW` clause above).
 The value fields that are not UNPREDICTABLE results are not restricted: `causeCE` ("The CE field is
 loaded, but not defined", Vol III §6.2.3, p.87), `storeClearsLL`/`loadClearsLL` ("success is not
 predictable", SC p.347-348). The UNPREDICTABLE values `badInstrNoWord` and `badInstrP` (Vol III §9.25,
-p.179; §9.26, p.181) are restricted by `NIValue`. The QNaN fields must give a QNaN ("a QNaN operand causes an arithmetic
+p.179; §9.26, p.181) and the upper half of an FPR after a 32-bit result (`fprUpper`, MD00082 Vol I-A
+Rev 6.01 §6.6.2, p.98) are restricted by `NIValue`. The QNaN fields must give a QNaN ("a QNaN operand causes an arithmetic
 operation to supply a QNaN result", MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82; `QNaNValid`); "When
 possible, this QNaN result is one of the operand QNaN values" is not formalized (a single QNaN is not a
 double). A Reset leaves memory and the input lines alone ("only the following registers have defined
@@ -155,19 +156,17 @@ UNDEFINED outcome and no Reset changes the interrupt inputs `HW` (the `HW` claus
 def Oracle.Valid (o : Oracle) : Prop :=
   -- restrictions 2 and 3 on every UNPREDICTABLE operation
   (∀ a i, OutcomeValid a (o.jalrRsIsRd a i)) ∧
-  (∀ a r v, OutcomeValid a (o.fprOddWrite a r v)) ∧
   (∀ a fs t, OutcomeValid a (o.ctc1Unpredictable a fs t)) ∧
   (∀ a, OutcomeValid a (o.extOutOfRange a)) ∧
   (∀ a, OutcomeValid a (o.insLsbAboveMsb a)) ∧
   (∀ a w, OutcomeValid a (o.unpredictableEncoding a w)) ∧
   -- restriction 1 on every UNPREDICTABLE operation and value
   (∀ i, NIOutcome (o.jalrRsIsRd · i)) ∧
-  (∀ r v, NIOutcome (o.fprOddWrite · r v)) ∧
   (∀ fs t, NIOutcome (o.ctc1Unpredictable · fs t)) ∧
   NIOutcome o.extOutOfRange ∧
   NIOutcome o.insLsbAboveMsb ∧
   (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
-  (∀ r, NIValue (o.fprOddRead · r)) ∧
+  (∀ r, NIValue (o.fprUpper · r)) ∧  -- R6-5
   (∀ fs, NIValue (o.cfc1Unpredictable · fs)) ∧
   -- BEGIN R6-2
   NIValue o.badInstrNoWord ∧ NIValue o.badInstrP ∧
@@ -193,21 +192,16 @@ def InstructionTimes (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) 
 
 /-! ## Choice points -/
 
-/-- `fpr` names an odd FPR: `ValueFPR(fpr, D)` is `UNPREDICTABLE` and `StoreFPR(fpr, D, value)` is
-UNPREDICTABLE with the 32-bit FPR model (MD00086 Vol II-A Rev 6.06, Figures 2.22, 2.23, p.22-23). -/
-def OddFPR (fpr : W32) : Bool := bit (BitVec.ofNat 5 (reg fpr).val) 0
-
-/-- The doubleword `ValueFPR(fpr, D)` reads for an even `fpr` (Figure 2.22, p.22). -/
-def FPRPair (a : Arch) (fpr : W32) : BitVec 64 := a.FPR (reg fpr + 1) ++ a.FPR (reg fpr)
-
 /-- `CTC1 rt, fs` with `temp = GPR[rt]` takes one of the `UNPREDICTABLE` arms of its Operation
-(MD00086 Vol II-A Rev 6.06, CTC1, p.150). -/
+(MD00086 Vol II-A Rev 6.06, CTC1, p.150; Release 6: `fs` = 5, 6 "if ConfigAR ≤ 2 then UNPREDICTABLE",
+and the other registers that do not exist signal Reserved Instruction). -/
 def CTC1Unpredictable (fs temp : W32) : Bool :=
-  if fs == 25#32 then bits temp 31 8 != 0#24
+  if fs == 5#32 || fs == 6#32 then true
+  else if fs == 25#32 then bits temp 31 8 != 0#24
   else if fs == 26#32 then bits temp 31 18 != 0#14 || bits temp 11 7 != 0#5 || bits temp 2 0 != 0#3
   else if fs == 28#32 then bits temp 31 12 != 0#20 || bits temp 6 3 != 0#4
   else if fs == 31#32 then bits temp 22 18 != 0#5
-  else true
+  else false
 
 /-- **The Operation of `ins`, run from `a`, reaches an oracle choice whose value can change the
 result** (exact, provided the Operation does not signal before reaching it; an Operation that signals
@@ -217,26 +211,24 @@ is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the o
   the choice is whether `LLbit` becomes 0. Not `LL` and `SC`, which set `LLbit` themselves afterwards;
 * `DIV`/`MOD`/`DIVU`/`MODU` with a zero divisor (`divByZero`), unless `rd = 0` (the value is written
   to `GPR[0]`, which has no effect);
-* an odd FPR read or written as a double (`fprOddRead`, `fprOddWrite`), on the path the Operation
-  takes;
-* `CFC1` of a register that does not exist (`cfc1Unpredictable`), unless `rt = 0` (the value is
-  written to `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
+* every store of a 32-bit result into an FPR (`fprUpper`: the upper half of the 64-bit FPR is
+  UNPREDICTABLE, MD00082 Vol I-A Rev 6.01 §6.6.2, p.98): `LWC1`, `MTC1`, `MOV.S`, `ABS.S`, `NEG.S`
+  and every operation with an S or W result;
+* `CFC1` of `FRE` (`fs` = 5, `cfc1Unpredictable`), unless `rt = 0` (the value is written to
+  `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
 * `MTC0` of a different Exception Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
 * `EXT`/`INS` with an UNPREDICTABLE field combination; `JALR`/`JALR.HB` with `rs = rd`;
-* `ABS.fmt`/`NEG.fmt` of a quiet NaN (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN
-  (`cvtQNaNToD`, `cvtQNaNToS`).
+* `CVT.D.S` of a quiet NaN (`cvtQNaNToD`; `CVT.S.D` has an S result, a row already).
 
-`MFHC1` with `rt = 0` is not a row: the odd-register value is written to `GPR[0]`, which has no effect
-(wave 9). (Release 6 removed the instructions of the former rows `DIV`/`DIVU`/`MUL` (HI/LO), the
+(Release 6 removed the instructions of the former rows `DIV`/`DIVU`/`MUL` (HI/LO), the
 branch-and-link with `rs = 31`, `NMADD`/`NMSUB`, `MADD.D`/`MSUB.D`, `C.cond.D`, `MOVF.D`/`MOVT.D`/
-`MOVN.D`/`MOVZ.D` and the indexed FP loads and stores.)
--- W5: the odd-FPR rows go with the 64-bit FPU (`Status.FR = 1`). -/
+`MOVN.D`/`MOVZ.D` and the indexed FP loads and stores; the 64-bit FPU of Release 6 (`Status.FR = 1`)
+removed the odd-register rows of the 32-bit FPU and `ABS2008 = 1` the `ABS`/`NEG` QNaN reading.) -/
 def ConsultsOracle : Instruction → Arch → Bool
   | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a
-  | .lwc1 .., a | .sb .., a | .sh .., a | .sw .., a | .swc1 .., a => a.LLbit
-  | .ldc1 _ ft _, a | .sdc1 _ ft _, a => a.LLbit || OddFPR ft
-  | .cfc1 rt fs, _ =>
-    !(fs == 0#32 || fs == 25#32 || fs == 26#32 || fs == 28#32 || fs == 31#32) && reg rt != 0
+  | .sb .., a | .sh .., a | .sw .., a | .swc1 .., a => a.LLbit
+  | .ldc1 .., a | .sdc1 .., a => a.LLbit
+  | .cfc1 rt fs, _ => fs == 5#32 && reg rt != 0
   | .ctc1 rt fs, a => CTC1Unpredictable fs (low (readGPR a (reg rt)) 32)
   | .mtc0 rt rd sel, a =>
     rd.toNat == 15 && sel.toNat == 1 && !StatusBEV a &&
@@ -244,19 +236,14 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
   | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
   | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
-  | .absS _ fs, a | .negS _ fs, a => Mips.Fp.isQNaN32 (a.FPR (reg fs))
-  | .absD fd fs, a | .negD fd fs, a =>
-    OddFPR fs || OddFPR fd || Mips.Fp.isQNaN64 (FPRPair a fs)
-  | .addD fd fs ft, _ | .subD fd fs ft, _ | .mulD fd fs ft, _ | .divD fd fs ft, _ =>
-    OddFPR fs || OddFPR ft || OddFPR fd
-  | .sqrtD fd fs, _ | .recipD fd fs, _ | .rsqrtD fd fs, _ | .movD fd fs, _ => OddFPR fs || OddFPR fd
-  | .roundWD _ fs, _ | .truncWD _ fs, _ | .ceilWD _ fs, _ | .floorWD _ fs, _ | .cvtWD _ fs, _ =>
-    OddFPR fs
-  | .cvtDS fd fs, a => OddFPR fd || Mips.Fp.isQNaN32 (a.FPR (reg fs))
-  | .cvtDW fd _, _ => OddFPR fd
-  | .cvtSD _ fs, a => OddFPR fs || Mips.Fp.isQNaN64 (FPRPair a fs)
-  | .mfhc1 rt fs, _ => OddFPR fs && reg rt != 0
-  | .mthc1 _ fs, _ => OddFPR fs
+  -- BEGIN R6-5: a 32-bit result stored into a 64-bit FPR (`fprUpper`)
+  | .lwc1 .., _ | .mtc1 .., _ | .movS .., _ | .absS .., _ | .negS .., _
+  | .addS .., _ | .subS .., _ | .mulS .., _ | .divS .., _ | .sqrtS .., _ | .recipS .., _
+  | .rsqrtS .., _ | .roundWS .., _ | .truncWS .., _ | .ceilWS .., _ | .floorWS .., _ | .cvtWS .., _
+  | .roundWD .., _ | .truncWD .., _ | .ceilWD .., _ | .floorWD .., _ | .cvtWD .., _
+  | .cvtSD .., _ | .cvtSW .., _ | .cvtSL .., _ => true
+  | .cvtDS _ fs, a => Mips.Fp.isQNaN32 ((a.FPR (reg fs)).extractLsb' 0 32)
+  -- END R6-5
   -- BEGIN R6-4
   | .lwpc .., a => a.LLbit
   | .div _ rt rd, a | .mod _ rt rd, a | .divu _ rt rd, a | .modu _ rt rd, a =>

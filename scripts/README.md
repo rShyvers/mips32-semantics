@@ -71,8 +71,9 @@ Missing java / qemu / LLVM already FAIL inside `gate.sh`. The `.gate/green` stam
 A second oracle next to MARS. It runs **the same machine code at the same addresses** on `qemu-system-mipsel` (`-M malta -cpu mips32r6-generic`,
 little-endian MIPS32 Release 6: Status.FR = 1, FCSR.NAN2008 = ABS2008 = 1, hardware misaligned loads/stores) and on the Lean model, then compares the
 final architectural state. Unlike MARS it handles the Release 6 encodings (AUI, NAL/BAL, PAUSE, SPECIAL3 LL/SC/PREF, RDHWR sel, CLO/CLZ),
-rotr/rotrv/seb/seh/wsbh/ext/ins, sync/synci, cfc1/ctc1 and delay-slot/exception semantics. The model's FPU is still FR = 0 with the legacy NaN
-encoding until wave W5: those differences are declared per field as `known-model-bug ... W5` (see "Model-bug triage").
+rotr/rotrv/seb/seh/wsbh/ext/ins, sync/synci, cfc1/ctc1 and delay-slot/exception semantics. The model's FPU is the Release 6 one
+(wave R6-5: 64-bit FPRs, FCSR.NAN2008 = ABS2008 = 1, 2008 NaN/conversion results, the L format, Release 6 CFC1/CTC1), so FP programs compare directly. Known QEMU differences
+are declared as `expect-deviation` (e.g. FIR bit 29 FREP, CFC1/CTC1 of a register that does not exist, FS = 1 flushing, Underflow traps).
 
 ```
 python3 scripts/oracle.py                 # all tests/oracle/*.asm; exit 1 iff any FAIL
@@ -163,8 +164,7 @@ It prints `N tests: P pass, D declared QEMU deviations, K known model bugs, S sk
 ### Model-bug triage (`known-model-bug`)
 `# oracle: known-model-bug <field> <manual citation> <one-line description>` marks a mismatch where the MODEL is wrong per the manual and is not fixed yet (the gate cannot be red for it, but it must stay visible).
 It is reported in its own section (`KNOWN-MODEL-BUG`), counted separately in the SUMMARY, does not fail the run, and FAILs if the mismatch stops occurring (so the directive must be deleted when the bug is fixed).
-After the Release 6 retarget (wave W1) they mark the waves still to come: `W5` (FPU: Status.FR = 1, FCSR.NAN2008/ABS2008 = 1, 2008 NaN/conversion results);
-the `W2` ones (privileged architecture) were fixed in wave R6-2. `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
+After the Release 6 retarget the declarations marked the waves still to come; all of them are fixed (privileged architecture in wave R6-2, the FPU in wave R6-5), so none is currently declared. `grep -n known-model-bug tests/oracle/*.asm scripts/oracle.py` lists them.
 
 ### Programs of `tests/asm`
 `--asm` also runs the `tests/asm/*.asm` programs (names `asm/NAME`), using sidecar directives kept in `oracle.py` (`ASM_DIRECTIVES`; the programs are not edited because EquivHarness reads them).

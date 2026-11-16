@@ -1,10 +1,7 @@
 # Status.EXL = 1 when an exception occurs: EPC/BD not overwritten, handler still runs at 0x80000180;
 # eret clears EXL (Status.ERL = 0) and jumps to EPC; the handler points EPC at `after`.
 # MD00090 Vol III Rev 6.02 "General Exception Processing"; MD00086 Vol II-A Rev 6.06 ERET p.177-178.
-# oracle: expect gpr:s0=0x20000002 gpr:s1=0x00000020 gpr:s2=0x1234
-# oracle: known-model-bug gpr:t1 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug gpr:s0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug gpr:s1 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
+# oracle: expect gpr:s0=0x24000002 gpr:s1=0x00000024 gpr:s2=0x1234
 .ktext
 mfc0 $s2, $14            # EPC as seen by the handler (still 0x1234: not updated while EXL=1)
 mfc0 $s0, $12            # Status inside the handler: EXL=1

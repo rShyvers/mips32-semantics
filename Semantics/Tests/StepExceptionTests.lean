@@ -120,8 +120,9 @@ private def vectorHandlerProg : Program :=
 -- ### Coprocessor 0 (CP0): mfc0/mtc0/eret/wait (docs/spec/MIPS-COVERAGE-GAPS.md
 -- §3.10A)
 
--- mfc0 reads back Status/Cause/EPC, selected by `rd` (12/13/14).
-#guard nextRegEq (hstep (prog1 (.mfc0 8#32 12#32 0#32)) { regs0 with cp0Status := 0x2#32 }) 8 0x2#32
+-- mfc0 reads back Status/Cause/EPC, selected by `rd` (12/13/14). Status reads with the read-only
+-- `FR = 1` (bit 26: 64-bit FPU, Release 6; `statusValue`).
+#guard nextRegEq (hstep (prog1 (.mfc0 8#32 12#32 0#32)) { regs0 with cp0Status := 0x2#32 }) 8 0x04000002#32
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 13#32 0#32)) { regs0 with cp0Cause := 0x34#32 }) 8 0x34#32
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 14#32 0#32)) { regs0 with cp0Epc := 0x3000#32 }) 8 0x3000#32
 
@@ -218,7 +219,7 @@ private def vectorHandlerProg : Program :=
 -- mask (Status: 0xabcd &&& 0x3040ff17; Cause: 0xabcd &&& 0x00800300; EPC: all).
 #guard (match stepState (prog1 (.mtc0 8#32 12#32 0#32)) (setRegs regs0 [(8, 0xabcd#32)]) with
         | some s' => nextRegEq (hstep (progAt kText (.mfc0 9#32 12#32 0#32)) { s' with pc := kText }) 9
-            0xab05#32  -- ERL is now 1: the second instruction runs from kseg0 (kText)
+            0x0400ab05#32  -- ERL is now 1; FR reads 1: the second instruction runs from kseg0 (kText)
         | none => false)
 #guard (match stepState (prog1 (.mtc0 8#32 13#32 0#32)) (setRegs regs0 [(8, 0xabcd#32)]) with
         | some s' => nextRegEq (hstep (prog1 (.mfc0 9#32 13#32 0#32)) { s' with pc := textBase }) 9
@@ -464,12 +465,12 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
           { regs0 with cp0EBase := 0x80012000#32, cp0Status := statusBevMask } with
         | .next s => s.pc == 0xbfc00380#32
         | .halt _ => false)
--- di / ei: $rt receives the old Status; IE is cleared / set
+-- di / ei: $rt receives the old Status (as read: FR = 1); IE is cleared / set
 #guard (match hstep (prog1 (.di 9#32)) { regs0 with cp0Status := 0x2000ff01#32 } with
-        | .next s => readReg s 9 == 0x2000ff01#32 && s.cp0Status == 0x2000ff00#32
+        | .next s => readReg s 9 == 0x2400ff01#32 && s.cp0Status == 0x2000ff00#32
         | .halt _ => false)
 #guard (match hstep (prog1 (.ei 9#32)) regs0 with
-        | .next s => readReg s 9 == 0x20000000#32 && s.cp0Status == 0x20000001#32
+        | .next s => readReg s 9 == 0x24000000#32 && s.cp0Status == 0x20000001#32
         | .halt _ => false)
 #guard (match hstep (prog1 (.ei 0#32)) regs0 with
         | .next s => readReg s 0 == 0#32 && s.cp0Status == 0x20000001#32
@@ -536,12 +537,12 @@ private def cp0Unusable (s : State) : Bool :=
         causeExcCode s == excCodeCpU && s.cp0Cause &&& causeCeMask == 0#32 && readReg s 8 == 0#32)
 -- UM = 1 with EXL = 1 or ERL = 1 is Kernel Mode: CP0 usable.
 #guard (let s := step1 (.mfc0 8#32 12#32 0#32) { userSt with cp0Status := 0x20000012#32 }
-        readReg s 8 == 0x20000012#32 && s.pc == textBase + 4#32)
+        readReg s 8 == 0x24000012#32 && s.pc == textBase + 4#32)
 -- (with ERL = 1 the instruction runs from kseg0: executing from kuseg with ERL = 1 is UNDEFINED,
 -- MD00090 Vol III Rev 6.02 §A.1.2, p.316)
 #guard (let s := step (loadImage (progAt kText (.mfc0 8#32 12#32 0#32))
           { userSt with cp0Status := 0x20000014#32, pc := kText })
-        readReg s 8 == 0x20000014#32 && s.pc == kText + 4#32)
+        readReg s 8 == 0x24000014#32 && s.pc == kText + 4#32)
 -- `eret` in a delay slot is Reserved Instruction in User Mode too (pin; delay-slot check first).
 #guard causeExcCode (step1 .eret { userSt with pendingBranch := some 0x400100#32 }) == excCodeRI
 -- Any exception from User Mode enters Kernel Mode, UM still 1.

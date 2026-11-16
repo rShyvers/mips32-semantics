@@ -36,7 +36,7 @@ theorem beq_refines (s : State) (hg : Good s) (rs rt off w : W32)
     rw [hex]
     simp only [Pseudo.run, Ops.BEQ, bind, GPR, PC, readGPR_abs s h0, ← regIdx_eq_reg, branch_offset]
     cases readReg s (regIdx rs) == readReg s (regIdx rt) <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 -- 7C S3 control + system
 
@@ -50,7 +50,7 @@ theorem bne_refines (s : State) (hg : Good s) (rs rt off w : W32)
     else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 off <<< 2)) }) =>
     simp only [Pseudo.run, Ops.BNE, bind, GPR, PC, readGPR_abs s h0, ← regIdx_eq_reg, branch_offset, bne]
     cases readReg s (regIdx rs) == readReg s (regIdx rt) <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **BLEZ refines.** -/
 theorem blez_refines (s : State) (hg : Good s) (rs off w : W32)
@@ -64,7 +64,7 @@ theorem blez_refines (s : State) (hg : Good s) (rs off w : W32)
       sle_zero]
     by_cases hc : asSigned (readReg s (regIdx rs)) ≤ 0 <;>
       simp only [hc, decide_true, decide_false, ↓reduceIte, Bool.false_eq_true] <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **BGTZ refines.** -/
 theorem bgtz_refines (s : State) (hg : Good s) (rs off w : W32)
@@ -78,7 +78,7 @@ theorem bgtz_refines (s : State) (hg : Good s) (rs off w : W32)
       zero_slt]
     by_cases hc : 0 < asSigned (readReg s (regIdx rs)) <;>
       simp only [hc, decide_true, decide_false, ↓reduceIte, Bool.false_eq_true] <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **BLTZ refines.** -/
 theorem bltz_refines (s : State) (hg : Good s) (rs off w : W32)
@@ -92,7 +92,7 @@ theorem bltz_refines (s : State) (hg : Good s) (rs off w : W32)
       slt_zero]
     by_cases hc : asSigned (readReg s (regIdx rs)) < 0 <;>
       simp only [hc, decide_true, decide_false, ↓reduceIte, Bool.false_eq_true] <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **BGEZ refines.** -/
 theorem bgez_refines (s : State) (hg : Good s) (rs off w : W32)
@@ -106,7 +106,7 @@ theorem bgez_refines (s : State) (hg : Good s) (rs off w : W32)
       zero_sle]
     by_cases hc : 0 ≤ asSigned (readReg s (regIdx rs)) <;>
       simp only [hc, decide_true, decide_false, ↓reduceIte, Bool.false_eq_true] <;>
-      simp [I1, Complete, abs, readReg, readFpReg]
+      simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **NAL refines** (Release 6): the link `GPR[31] ← PC + 8`, and the delay slot of a not-taken
 branch on both sides (`pendingBranch = some (pc + 8)`, `Delay.fallThrough`). -/
@@ -117,7 +117,7 @@ theorem nal_refines (s : State) (hg : Good s) (off w : W32)
     { writeReg s 31 (s.pc + 8#32) with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) } =>
     simp only [Pseudo.run, Ops.NAL, bind, PC, setGPR]
     simp only [abs_pc_pb, abs_writeReg _ _ _ hsz]
-    simp [I1, Complete, writeGPR, abs, readReg, readFpReg]
+    simp [I1, Complete, writeGPR, abs, readReg, readFpReg64]
 
 /-- **BAL refines** (Release 6): the link `GPR[31] ← PC + 8` and the jump to `PC + 4 + offset`. -/
 theorem bal_refines (s : State) (hg : Good s) (off w : W32)
@@ -128,6 +128,6 @@ theorem bal_refines (s : State) (hg : Good s) (off w : W32)
         pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 off <<< 2)) } =>
     simp only [Pseudo.run, Ops.BAL, bind, PC, setGPR, branch_offset]
     simp only [abs_pc_pb, abs_writeReg _ _ _ hsz, pc_add_eight]
-    simp [I1, Complete, writeGPR, abs, readReg, readFpReg]
+    simp [I1, Complete, writeGPR, abs, readReg, readFpReg64]
 
 end Refine

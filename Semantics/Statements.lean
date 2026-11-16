@@ -605,7 +605,7 @@ Proved in `Semantics/Specs/` — Cp0.lean. -/
 
 /-- **`mfc0` reads CP0 register `(rd, sel)` into GPR `$rt`** (Release 6, MD00086 Vol II-A Rev
 6.06, MFC0, p.266: "Reading a reserved register or a register that is not implemented for the current
-core configuration returns 0"): `(4,2)` UserLocal (§9.11, p.143), `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(8,1)` BadInstr, `(8,2)` BadInstrP (§9.25-9.26, p.179-181), `(12,0)` Status,
+core configuration returns 0"): `(4,2)` UserLocal (§9.11, p.143), `(7,0)` HWREna, `(8,0)` BadVAddr, `(9,0)` Count, `(11,0)` Compare, `(8,1)` BadInstr, `(8,2)` BadInstrP (§9.25-9.26, p.179-181), `(12,0)` Status (with the read-only `FR = 1`, §9.32, p.191: `statusValue`),
 `(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, MD00090 Vol III Rev 6.02
 Table 9.48, p.199-201), `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)` PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1
 (reads `0x8000_0001`: `M = 1`, `FP = 1`, Table 9.65, p.237-240), `(16,2)` Config2 (reads `0x8000_0000`:
@@ -635,7 +635,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 8, 2 => read s.cp0BadInstrP
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
-      | 12, 0 => read s.cp0Status
+      | 12, 0 => read (statusValue s)
       | 12, 1 => read 0xE0000000#32
       | 12, 2 => read 0#32
       | 13, 0 => read (s.cp0Cause ||| (s.hwInt.setWidth 32 <<< 10) |||
@@ -836,7 +836,7 @@ theorem resetState_spec :
     configValue resetState = 0xA4000982#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
-    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
+    resetState.fpRegs = Array.replicate 32 0#64 ∧ resetState.fcsr = 0#32 ∧
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 := by
   sorry
@@ -1079,12 +1079,13 @@ theorem addD_spec_raw (s : State) (w fd fs ft : W32)
   sorry
 
 /-- **`cvt.w.s`** converts to a 32-bit word rounding **per FCSR.RM**
-(MD00086 Vol II-A Rev 6.06, CVT.W.fmt, p.160): `Mips.Fp.f32ToW32 (getRM fcsr)` -/
+(MD00086 Vol II-A Rev 6.06, CVT.W.fmt, p.160), the operand flushed per FCSR.FS:
+`Mips.Fp.f32ToW32 (getRM fcsr) (getFS fcsr)` -/
 theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtWS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs)))) := by
+      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (Mips.Fp.getFS s.fcsr) (readFpReg s (regIdx fs)))) := by
   sorry
 
 /-- **`mfc1`**: `$rt ← FPR[fs]`, raw bits -/
@@ -1115,42 +1116,44 @@ theorem lwc1_misaligned_spec (s : State) (w rs ft imm : W32)
     step s = timerTick (takeAddressException s excCodeAdEL (readReg s (regIdx rs) + signExt16 imm)) := by
   sorry
 
-/-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25),
-FEXR (26), FENR (28), FCSR (31); any other number reads 0 (pin for UNPREDICTABLE)
-(MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
+/-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25, reads 0:
+the FCCs are reserved in Release 6), FEXR (26), FENR (28), FCSR (31, with the read-only `ABS2008` =
+`NAN2008` = 1); `FRE` (5) reads `UNPREDICTABLE`, pinned to 0; every other number (`UFR`/`UNFR` 1, 4
+included) raises Reserved Instruction ("In Release 6 and later, a Reserved Instruction exception
+occurs if fs specifies a register that does not exist", MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 }) := by
+      match Mips.Fp.readControl s.fcsr fs.toNat with
+      | some v => { (writeReg s (regIdx rt) v) with pc := (writeReg s (regIdx rt) v).pc + 4#32 }
+      | none => takeException s excCodeRI) := by
   sorry
 
 /-- **`ctc1`**: FP control register `fs ← $rt` through `Mips.Fp.writeControl`, then
 `CheckFPException`: if the new FCSR has a Cause bit whose Enable is set, or Cause.E, the
-Floating Point exception is taken **with the register already written**. A register
-number the manual leaves UNPREDICTABLE is not written (pin), and the `CheckFPException()` that
-follows the UNPREDICTABLE arm still runs on the unchanged FCSR
+Floating Point exception is taken **with the register already written**. FIR (0), `UFR`/`UNFR`
+(1, 4), every register that does not exist ("Release 6 traps") and `FRE`/`NFRE` (5, 6, UNPREDICTABLE,
+pinned) raise Reserved Instruction; a write to FCCR (25) changes nothing (FCC bits reserved)
 (MD00086 Vol II-A Rev 6.06, CTC1, p.149-151) -/
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ctc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none =>
-        if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE
-        else { s with pc := s.pc + 4#32 }
+      | none => takeException s excCodeRI
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
         else { s with fcsr := f, pc := s.pc + 4#32 }) := by
   sorry
 
 /-- **FCSR round trip through `ctc1 $rt, $31` / `cfc1 $rt, $31`.** Writing `v`
-to control register 31 makes FCSR `v` with the reserved bits 22..18 cleared
-(`Mips.Fp.fcsrWritableMask`), and reading register 31 of that FCSR returns
-exactly that value. -/
+to control register 31 stores `v` restricted to the writable bits (`Mips.Fp.fcsrWritableMask`: FS,
+Cause, Enables, Flags, RM), and reading register 31 of that FCSR returns that value with the
+read-only `ABS2008 = NAN2008 = 1` (`Mips.Fp.fcsr2008Bits`; MD00082 Vol I-A Rev 6.01 Table 6.8, p.93-94). -/
 theorem fcsr_ctc1_cfc1_roundtrip (fcsr v : W32) :
     ∃ f, Mips.Fp.writeControl fcsr 31 v = some f ∧ f = v &&& Mips.Fp.fcsrWritableMask ∧
-      Mips.Fp.readControl f 31 = some (v &&& Mips.Fp.fcsrWritableMask) := by
+      Mips.Fp.readControl f 31 = some ((v &&& Mips.Fp.fcsrWritableMask) ||| Mips.Fp.fcsr2008Bits) := by
   sorry
 
 /-! ## Address translation: the Fixed Mapping MMU, and the loader
@@ -1901,121 +1904,136 @@ theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64}
 /-! ## Wave 11: every FP operand, the conversions, the compares, the FCSR
 
 The reference definitions extend `Semantics/FpOpsSpec.lean` (definitions only, written from MD00082
-Vol I-A Rev 6.01 ch.6 with `FIR.Has2008 = 0` and the MD00086 Vol II-A Rev 6.06 instruction pages):
+Vol I-A Rev 6.01 ch.6 read for Release 6, `FCSR.NAN2008 = ABS2008 = 1`, and the MD00086 Vol II-A Rev
+6.06 instruction pages): the operand of each operation as flushed under FCSR.FS (`FlushedIn`),
 the classes of an encoding (`Format.datum`, `IsSNaN`/`IsQNaN`, Table 6.2), the new QNaN (Table 6.3),
 the NaN rule (`NaNResult`, §6.3.1.4-5), the signaled exceptions (`Signaled`, §6.7.2.3/5/6), rounding
 under the whole FCSR including flush to zero (`RoundEnvSpec`, §6.7.2.4), each operation on every
 operand (`AddSpec`, `MulSpec`, `DivSpec`, `SqrtSpec`, `SignOpSpec`, `ConvertSpec`, `WidenSpec`,
-`FromIntSpec`, `ExactSpec`, `ToWordSpec`, `CompareSpec` with the 16-row `condTable`), the FCSR
+`FromIntSpec`, `ExactSpec`, `ToWordSpec`, `ToLongSpec`, `CompareSpec` with the 16-row `condTable`), the FCSR
 update (`FcsrSpec`, §6.7.1, CheckFPException). (The pre-Release 6 multiply-add family and its
 reference definition `MaddSpec` were removed with the instructions in Release 6.) -/
 
-/-- **Table 6.3 (MD00082 Vol I-A Rev 6.01 p.82), single**: the reference `Format.newQNaN` is `0x7fbf ffff`. -/
-theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FBFFFFF := by
+/-- **Table 6.3 (MD00082 Vol I-A Rev 6.01 p.82, `FCSR.NAN2008 = 1`), single**: the reference `Format.newQNaN` is
+`0x7fc0 0000`. -/
+theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FC00000 := by
   sorry
 
-/-- **Table 6.3, double**: the reference `Format.newQNaN` is `0x7ff7 ffff ffff ffff`. -/
-theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF7FFFFFFFFFFFF := by
+/-- **Table 6.3, double**: the reference `Format.newQNaN` is `0x7ff8 0000 0000 0000`. -/
+theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF8000000000000 := by
   sorry
 
-/-- **The NaN pin** (SPEC-NOTES §9 item 13): with a quiet NaN among the operands the model returns the
-first one in operand order. `NaNResult` allows any operand QNaN; this names the model's choice. -/
+/-- **The NaN pin, quiet operands** (SPEC-NOTES §9 item 13): with no signaling NaN and a quiet NaN among
+the operands the model returns the first quiet one in operand order. `NaNResult` allows any passed
+operand; this names the model's choice. -/
 theorem nanResult_first (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (hs : ops.find? (fun x => f.isSNaN x) = none)
     (h : ops.find? (fun x => f.isQNaN x) = some q) : f.nanResult ops = q := by
   sorry
 
+/-- **The NaN pin, signaling operand** (SPEC-NOTES §9 item 13): with a signaling NaN among the operands
+the model returns the first one in operand order, made quiet ("If the chosen input is a SNAN, the only
+change is to set the leftmost/most-significant mantissa bit", MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.83).
+`NaNResult` allows any passed operand or the new QNaN; this names the model's choice. -/
+theorem nanResult_first_snan (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (h : ops.find? (fun x => f.isSNaN x) = some q) : f.nanResult ops = f.quiet q := by
+  sorry
+
 /-- **`ADD.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e false a.toNat b.toNat
-      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
+    Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
   sorry
 
 /-- **`SUB.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e true a.toNat b.toNat
-      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
+    Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
   sorry
 
 /-- **`MUL.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.MulSpec e a.toNat b.toNat
-      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
+    Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
   sorry
 
 /-- **`DIV.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.DivSpec e a.toNat b.toNat
-      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
+    Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
   sorry
 
 /-- **`SQRT.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
-    Mips.Fp.binary32.SqrtSpec e a.toNat
+    Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
       ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) := by
   sorry
 
 /-- **`ADD.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e false a.toNat b.toNat
-      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
+    Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
   sorry
 
 /-- **`SUB.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e true a.toNat b.toNat
-      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
+    Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
   sorry
 
 /-- **`MUL.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.MulSpec e a.toNat b.toNat
-      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
+    Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
   sorry
 
 /-- **`DIV.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.DivSpec e a.toNat b.toNat
-      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
+    Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
   sorry
 
 /-- **`SQRT.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
-encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), the
-result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
+encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
+operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`). -/
 theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
-    Mips.Fp.binary64.SqrtSpec e a.toNat
+    Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
       ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) := by
   sorry
 
-/-- **`CVT.S.D` on every operand** (MD00086 p.159): `Mips.Fp.Format.ConvertSpec` (SNaN: Invalid and the
-new QNaN; QNaN: a QNaN, no exception; ±∞, ±0 kept; otherwise rounded under FCSR.RM/Enables/FS). -/
+/-- **`CVT.S.D` on every operand** (MD00086 p.159), the operand flushed under FS:
+`Mips.Fp.Format.ConvertSpec` (a NaN: a QNaN, Invalid iff it was signaling; ±∞, ±0 kept; otherwise
+rounded under FCSR.RM/Enables/FS). -/
 theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
-    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e x.toNat
+    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
+      (Mips.Fp.binary64.FlushedIn e.flush x.toNat)
       ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) := by
   sorry
 
-/-- **`CVT.D.S` on every operand** (MD00086 p.153, "always exact"): `Mips.Fp.Format.WidenSpec` — a
-finite operand gives the double of the same value and sign, no exception. -/
-theorem f32ToF64_spec (x : BitVec 32) :
-    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 x.toNat
-      ((Mips.Fp.f32ToF64 x).1.toNat, (Mips.Fp.f32ToF64 x).2) := by
+/-- **`CVT.D.S` on every operand** (MD00086 p.153, "always exact"), the operand flushed when `fl`
+(FCSR.FS): `Mips.Fp.Format.WidenSpec` — a finite operand gives the double of the same value and sign,
+no exception. -/
+theorem f32ToF64_spec (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat)
+      ((Mips.Fp.f32ToF64 fl x).1.toNat, (Mips.Fp.f32ToF64 fl x).2) := by
   sorry
 
 /-- **`CVT.S.W` on every word** (MD00086 p.159): `0 ↦ +0`, otherwise the integer rounded under the FCSR
@@ -2032,20 +2050,57 @@ theorem w32ToF64_spec (x : BitVec 32) :
   sorry
 
 /-- **`CVT.W.S`, `ROUND/TRUNC/CEIL/FLOOR.W.S`** in every direction `rm`, on every operand (MD00086
-p.160, p.342, p.441, p.128, p.186): `Mips.Fp.Format.ToWordSpec` — NaN, ±∞ and values rounding
-outside `[-2^31, 2^31-1]` give `2^31-1` with Invalid only; otherwise the value correctly rounded to
-an integer in direction `rm` (ties to even), Inexact iff not exact. -/
-theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 32) :
-    Mips.Fp.binary32.ToWordSpec rm x.toNat (Mips.Fp.f32ToW32 rm x) := by
+p.160, p.342, p.441, p.128, p.186), the operand flushed when `fl` (FCSR.FS):
+`Mips.Fp.Format.ToWordSpec` — a NaN gives 0, `+∞` and values rounding above `2^31-1` give `2^31-1`,
+`-∞` and values rounding below `-2^31` give `-2^31`, with Invalid only (Table 6.3, p.82, `FCSR.NAN2008
+= 1`); otherwise the value correctly rounded to an integer in direction `rm` (ties to even), Inexact iff
+not exact. -/
+theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW32 rm fl x) := by
   sorry
 
 /-- **`CVT.W.D`, `ROUND/TRUNC/CEIL/FLOOR.W.D`** in every direction `rm`, on every operand (MD00086
-p.160, p.342, p.441, p.128, p.186): `Mips.Fp.Format.ToWordSpec` — NaN, ±∞ and values rounding
-outside `[-2^31, 2^31-1]` give `2^31-1` with Invalid only; otherwise the value correctly rounded to
-an integer in direction `rm` (ties to even), Inexact iff not exact. -/
-theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 64) :
-    Mips.Fp.binary64.ToWordSpec rm x.toNat (Mips.Fp.f64ToW32 rm x) := by
+p.160, p.342, p.441, p.128, p.186), the operand flushed when `fl` (FCSR.FS):
+`Mips.Fp.Format.ToWordSpec` — a NaN gives 0, `+∞` and values rounding above `2^31-1` give `2^31-1`,
+`-∞` and values rounding below `-2^31` give `-2^31`, with Invalid only (Table 6.3, p.82, `FCSR.NAN2008
+= 1`); otherwise the value correctly rounded to an integer in direction `rm` (ties to even), Inexact iff
+not exact. -/
+theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
+    Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW32 rm fl x) := by
   sorry
+
+-- BEGIN R6-5
+
+/-- **`CVT.L.S`, `ROUND/TRUNC/CEIL/FLOOR.L.S`** in every direction `rm`, on every operand, the
+operand flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154, ROUND.L p.341, TRUNC.L p.440,
+CEIL.L p.127, FLOOR.L p.185): `Mips.Fp.Format.ToLongSpec` — a NaN gives 0, a value too big (or `+∞`)
+`2^63 - 1`, too small (or `-∞`) `-2^63`, with Invalid only (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82);
+otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact. -/
+theorem f32ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW64 rm fl x) := by
+  sorry
+
+/-- **`CVT.L.D`, `ROUND/TRUNC/CEIL/FLOOR.L.D`** in every direction `rm`, on every operand, the
+operand flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154, ROUND.L p.341, TRUNC.L p.440,
+CEIL.L p.127, FLOOR.L p.185): `Mips.Fp.Format.ToLongSpec` — a NaN gives 0, a value too big (or `+∞`)
+`2^63 - 1`, too small (or `-∞`) `-2^63`, with Invalid only (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82);
+otherwise the value correctly rounded to an integer in direction `rm`, Inexact iff not exact. -/
+theorem f64ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
+    Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW64 rm fl x) := by
+  sorry
+
+/-- **`CVT.S.L` on every longword** (MD00086 Vol II-A Rev 6.06, CVT.S.fmt p.159): `0 ↦ +0`,
+otherwise the integer rounded under the FCSR environment (`Mips.Fp.Format.FromIntSpec`). -/
+theorem w64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.binary32.FromIntSpec e x.toInt ((Mips.Fp.w64ToF32 e x).1.toNat, (Mips.Fp.w64ToF32 e x).2) := by
+  sorry
+
+/-- **`CVT.D.L` on every longword** (MD00086 Vol II-A Rev 6.06, CVT.D.fmt p.153): `0 ↦ +0`,
+otherwise the integer rounded under the FCSR environment (`Mips.Fp.Format.FromIntSpec`). -/
+theorem w64ToF64_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.binary64.FromIntSpec e x.toInt ((Mips.Fp.w64ToF64 e x).1.toNat, (Mips.Fp.w64ToF64 e x).2) := by
+  sorry
+-- END R6-5
 
 /-- **Tables 3.1/3.2 are the Operation's predicate** (MD00086 C.cond.fmt p.111-113): for every
 condition field and relation, `(cond2 and less) or (cond1 and equal) or (cond0 and unordered)` is the
@@ -2070,32 +2125,28 @@ theorem f64Compare_spec (cond : BitVec 4) (a b : BitVec 64) :
     Mips.Fp.binary64.CompareSpec cond a.toNat b.toNat (Mips.Fp.f64Compare cond a b) := by
   sorry
 
-/-- **`ABS.S`** (MD00086 ABS.fmt p.32, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
-SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
-SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+/-- **`ABS.S`** (MD00086 ABS.fmt p.32, `FCSR.ABS2008 = 1`, non-arithmetic):
+`Mips.Fp.Format.SignOpSpec` — the operand with its sign bit changed, NaNs included; no exception. -/
 theorem f32Abs_spec (x : BitVec 32) :
-    Mips.Fp.binary32.SignOpSpec true x.toNat ((Mips.Fp.f32Abs x).1.toNat, (Mips.Fp.f32Abs x).2) := by
+    Mips.Fp.binary32.SignOpSpec true x.toNat (Mips.Fp.f32Abs x).toNat := by
   sorry
 
-/-- **`NEG.S`** (MD00086 NEG.fmt p.307, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
-SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
-SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+/-- **`NEG.S`** (MD00086 NEG.fmt p.307, `FCSR.ABS2008 = 1`, non-arithmetic):
+`Mips.Fp.Format.SignOpSpec` — the operand with its sign bit changed, NaNs included; no exception. -/
 theorem f32Neg_spec (x : BitVec 32) :
-    Mips.Fp.binary32.SignOpSpec false x.toNat ((Mips.Fp.f32Neg x).1.toNat, (Mips.Fp.f32Neg x).2) := by
+    Mips.Fp.binary32.SignOpSpec false x.toNat (Mips.Fp.f32Neg x).toNat := by
   sorry
 
-/-- **`ABS.D`** (MD00086 ABS.fmt p.32, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
-SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
-SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+/-- **`ABS.D`** (MD00086 ABS.fmt p.32, `FCSR.ABS2008 = 1`, non-arithmetic):
+`Mips.Fp.Format.SignOpSpec` — the operand with its sign bit changed, NaNs included; no exception. -/
 theorem f64Abs_spec (x : BitVec 64) :
-    Mips.Fp.binary64.SignOpSpec true x.toNat ((Mips.Fp.f64Abs x).1.toNat, (Mips.Fp.f64Abs x).2) := by
+    Mips.Fp.binary64.SignOpSpec true x.toNat (Mips.Fp.f64Abs x).toNat := by
   sorry
 
-/-- **`NEG.D`** (MD00086 NEG.fmt p.307, `FIR.Has2008 = 0`, arithmetic): `Mips.Fp.Format.SignOpSpec` —
-SNaN: Invalid, the new QNaN; QNaN: Invalid, the operand with its sign bit changed (reading A′,
-SPEC-NOTES §9 item 21); otherwise the sign bit changed, no exception. -/
+/-- **`NEG.D`** (MD00086 NEG.fmt p.307, `FCSR.ABS2008 = 1`, non-arithmetic):
+`Mips.Fp.Format.SignOpSpec` — the operand with its sign bit changed, NaNs included; no exception. -/
 theorem f64Neg_spec (x : BitVec 64) :
-    Mips.Fp.binary64.SignOpSpec false x.toNat ((Mips.Fp.f64Neg x).1.toNat, (Mips.Fp.f64Neg x).2) := by
+    Mips.Fp.binary64.SignOpSpec false x.toNat (Mips.Fp.f64Neg x).toNat := by
   sorry
 
 /-- **The FCSR update of an FP operation** (MD00082 Vol I-A Rev 6.01 §6.7.1 p.99; CheckFPException,

@@ -83,7 +83,7 @@ theorem fpCompletesS_trap (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Fl
   refine ⟨?_, rfl, rfl, rfl, rfl, rfl⟩
   rw [exceptionEntry_excCode]; decide
 
-/-- The FP trap, for a double result: neither register of the pair is written. -/
+/-- The FP trap, for a 64-bit result: `FPR[fd]` is not written. -/
 theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags)
     (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
     (h : fpCompletesD s fd r = s') :
@@ -98,7 +98,7 @@ theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Fl
   rw [exceptionEntry_excCode]; decide
 
 /-- **No trap: result bits and FCSR.** When no enabled exception was raised,
-the instruction completes: `FPR[fd]` holds exactly the result bits (given a
+the instruction completes: the low 32 bits of `FPR[fd]` hold exactly the result bits (given a
 32-entry FP register file), FCSR is `raiseFlags` of the old FCSR (Cause =
 this operation's exceptions, Flags accumulated), and `pc` advances. -/
 theorem fpCompletesS_ok (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags)
@@ -115,11 +115,12 @@ theorem fpCompletesS_ok (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flag
   exact writeFpReg_reads_back s (regIdx fd) r.1 hsize
 
 /-- An operation that raises no exception never traps, and leaves
-FCSR.Flags, the condition codes, the enables and the rounding mode alone
-(it clears FCSR.Cause). -/
+FCSR.Flags, the enables and the rounding mode alone
+(it clears FCSR.Cause); the result goes to the low 32 bits of `FPR[fd]`, the upper half kept. -/
 theorem fpCompletesS_exact (s : State) (fd : W32) (v : BitVec 32) :
     fpCompletesS s fd (v, Mips.Fp.Flags.none) =
-      { s with fpRegs := s.fpRegs.set! (regIdx fd).val v,
+      { s with fpRegs := s.fpRegs.set! (regIdx fd).val ((readFpReg64 s (regIdx fd)).extractLsb' 32 32 ++ v),
                  fcsr := Mips.Fp.raiseFlags s.fcsr Mips.Fp.Flags.none, pc := s.pc + 4#32 } := by
   unfold fpCompletesS
   rw [ite_of_neg (by simp [Mips.Fp.fpeEnabled_none])]
+  rfl

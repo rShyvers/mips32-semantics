@@ -86,7 +86,7 @@ theorem resetState_spec :
     configValue resetState = 0xA4000982#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
-    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
+    resetState.fpRegs = Array.replicate 32 0#64 ∧ resetState.fcsr = 0#32 ∧
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 := by
   decide

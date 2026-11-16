@@ -7,7 +7,8 @@ import Semantics.Manual.FPU
 `MOVZ.fmt`, `MOVF`, `MOVT`). "The move is non-arithmetic; it causes no IEEE 754 exceptions, and the FCSR Cause and FCSR
 Flags fields are not modified" (MOV.fmt, p.275), so no `FPResult`. The `PS` format is not in the
 profile (SPEC-NOTES §9 item 13).
--- W5: these pages are transcribed for the pre-Release 6 32-bit FPU (`Status.FR = 0`).
+Transcribed for the Release 6 64-bit FPU (`Status.FR = 1`): a 32-bit value is the low half of a
+64-bit FPR (`ValueFPR32`/`StoreFPR32`), `MFHC1`/`MTHC1` read and write bits 63..32 of `FPR[fs]`.
 -/
 
 namespace Manual.Ops
@@ -41,8 +42,8 @@ def MTC1 (rt fs : W32) : Pseudo Unit := do
 data <- ValueFPR(fs, UNINTERPRETED_DOUBLEWORD)63..32
 GPR[rt] <- data
 ```
-Restrictions: "The results are UNPREDICTABLE if StatusFR = 0 and fs is odd" (`ValueFPR64`, the
-oracle). -/
+Restrictions: "The results are UNPREDICTABLE if StatusFR = 0 and fs is odd" (`Status.FR` reads 1
+here). -/
 def MFHC1 (rt fs : W32) : Pseudo Unit := do
   -- data <- ValueFPR(fs, UNINTERPRETED_DOUBLEWORD)63..32
   let data := bits (← ValueFPR64 (reg fs)) 63 32
@@ -55,7 +56,8 @@ newdata <- GPR[rt]
 olddata <- ValueFPR(fs, UNINTERPRETED_DOUBLEWORD)31..0
 StoreFPR(fs, UNINTERPRETED_DOUBLEWORD, newdata || olddata)
 ```
-Restrictions: "The results are UNPREDICTABLE if StatusFR = 0 and fs is odd" (the oracle). -/
+Restrictions: "The results are UNPREDICTABLE if StatusFR = 0 and fs is odd" (`Status.FR` reads 1
+here). -/
 def MTHC1 (rt fs : W32) : Pseudo Unit := do
   -- newdata <- GPR[rt]
   let newdata ← GPR (reg rt)

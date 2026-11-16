@@ -27,9 +27,6 @@ ctc1 $t8, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 0($s7)
 sw $t1, 4($s7)
 li $t8, 0x01000000
@@ -37,9 +34,6 @@ ctc1 $t8, $31
 mul.s $f6, $f8, $f10
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 8($s7)
 sw $t1, 12($s7)
 li $t8, 0x01000001
@@ -47,9 +41,6 @@ ctc1 $t8, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 16($s7)
 sw $t1, 20($s7)
 li $t8, 0x01000001
@@ -57,9 +48,6 @@ ctc1 $t8, $31
 mul.s $f6, $f8, $f10
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 24($s7)
 sw $t1, 28($s7)
 li $t8, 0x01000002
@@ -67,9 +55,6 @@ ctc1 $t8, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 32($s7)
 sw $t1, 36($s7)
 li $t8, 0x01000002
@@ -77,9 +62,6 @@ ctc1 $t8, $31
 mul.s $f6, $f8, $f10
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 40($s7)
 sw $t1, 44($s7)
 li $t8, 0x01000003
@@ -87,9 +69,6 @@ ctc1 $t8, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 48($s7)
 sw $t1, 52($s7)
 li $t8, 0x01000003
@@ -97,9 +76,6 @@ ctc1 $t8, $31
 mul.s $f6, $f8, $f10
 mfc1 $t0, $f6
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 sw $t0, 56($s7)
 sw $t1, 60($s7)
 move $t0, $zero

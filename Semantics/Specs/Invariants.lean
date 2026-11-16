@@ -73,7 +73,7 @@ theorem writeReg_regs_zero (s : State) (i : Fin 32) (v : W32) :
 theorem writeFpReg_regs (s : State) (i : Fin 32) (v : W32) :
     (writeFpReg s i v).regs = s.regs := rfl
 
-/-- `Step.lean`'s `writeFpD` (two `writeFpReg` calls) only touches
+/-- `writeFpD` (one 64-bit `writeFpReg64`) only touches
 `fpRegs`. -/
 theorem writeFpD_regs (s : State) (f : W32) (v : BitVec 64) :
     (writeFpD s f v).regs = s.regs := rfl

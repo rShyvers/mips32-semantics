@@ -37,8 +37,7 @@ structure WP where
   lc : Bool := false
   sc : Bool := true
   cf : W32 := 0#32
-  rd : BitVec 64 := QA64
-  anr : AbsNegNaN := .A'
+  up : W32 := 0#32  -- R6-5: `fprUpper`
   qd : Bool := true
   qs : Bool := true
   -- BEGIN R6-2
@@ -56,8 +55,7 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   causeCE := fun _ _ => ce
   resetUndefined := modelOracle.resetUndefined
   jalrRsIsRd := fun _ _ => sigRI
-  fprOddRead := fun _ _ => p.rd
-  fprOddWrite := fun _ _ _ => sigRI
+  fprUpper := fun _ _ => p.up  -- R6-5
   cfc1Unpredictable := fun _ _ => p.cf
   ctc1Unpredictable := fun _ _ _ => sigRI
   extOutOfRange := fun _ => sigRI
@@ -65,7 +63,6 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   unpredictableEncoding := fun _ _ => sigRI
   ebaseWriteBEV0 := fun _ _ => sigRI
   loadClearsLL := fun _ => p.lc
-  absNegNaN := p.anr
   cvtQNaNToD := fun _ => if p.qd then QA64 else QB64
   cvtQNaNToS := fun _ => if p.qs then QA32 else QB32
   -- BEGIN R6-2
@@ -76,7 +73,7 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split
@@ -149,7 +146,7 @@ theorem gep_badInstr (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Ar
 /-! ## What two completed instructions are compared on -/
 
 /-- The parts of the state the rows compare. -/
-def Obs (x : Arch) : Bool × (Fin 32 → W32) × (Fin 32 → W32) × W32 × (PAddr → UInt8) :=
+def Obs (x : Arch) : Bool × (Fin 32 → W32) × (Fin 32 → BitVec 64) × W32 × (PAddr → UInt8) :=
   (x.LLbit, x.GPR, x.FPR, x.FCSR, x.Mem)
 
 theorem obs_timerTick (i : Impl) (x : Arch) : Obs (TimerTick i x) = Obs x := rfl

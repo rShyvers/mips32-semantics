@@ -174,6 +174,10 @@ theorem writeGPR_status (a : Arch) (i : Fin 32) (v x : W32) :
 theorem abs_status (s : State) (x : W32) : abs { s with cp0Status := x } = { abs s with Status := x } :=
   rfl
 
+-- R6-5: `Status` as read has `FR = 1` (`StatusRead`, the model's `statusValue`).
+theorem statusRead_abs (s : State) : StatusRead (abs s) = statusValue s := by
+  simp only [StatusRead, StatusFR, statusValue, statusFrMask, ite_true]; rfl
+
 /-- **DI refines.** -/
 theorem di_refines (s : State) (hg : Good s) (rt w : W32) (hw : enc (.di rt) = some w) :
     Execute modelCtx w (.di rt) (abs s) = some (abs (execInstr s (.di rt))) := by
@@ -187,11 +191,12 @@ theorem di_refines (s : State) (hg : Good s) (rt w : W32) (hw : enc (.di rt) = s
   · rfl
   · simp only [↓reduceIte]
     show _ = some (abs (mkNext s (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask }
-      (regIdx rt) s.cp0Status)))
-    simp only [Pseudo.run, Ops.DI, bind, Pseudo.get, setGPR, Pseudo.modify, ← regIdx_eq_reg]
-    show some (Complete (abs s) { arch := { writeGPR (abs s) (regIdx rt) s.cp0Status with
-      Status := (writeGPR (abs s) (regIdx rt) s.cp0Status).Status &&& ~~~(1#32 <<< 0) } }) = _
-    have : (writeGPR (abs s) (regIdx rt) s.cp0Status).Status = s.cp0Status := by
+      (regIdx rt) (statusValue s))))
+    simp only [Pseudo.run, Ops.DI, bind, Pseudo.get, setGPR, Pseudo.modify, ← regIdx_eq_reg,
+      statusRead_abs]
+    show some (Complete (abs s) { arch := { writeGPR (abs s) (regIdx rt) (statusValue s) with
+      Status := (writeGPR (abs s) (regIdx rt) (statusValue s)).Status &&& ~~~(1#32 <<< 0) } }) = _
+    have : (writeGPR (abs s) (regIdx rt) (statusValue s)).Status = s.cp0Status := by
       unfold writeGPR; split <;> rfl
     rw [this, writeGPR_status, ie_mask, ← abs_status]
     exact complete_writeReg' s { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } hsz rfl rfl _ _
@@ -209,11 +214,12 @@ theorem ei_refines (s : State) (hg : Good s) (rt w : W32) (hw : enc (.ei rt) = s
   · rfl
   · simp only [↓reduceIte]
     show _ = some (abs (mkNext s (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask }
-      (regIdx rt) s.cp0Status)))
-    simp only [Pseudo.run, Ops.EI, bind, Pseudo.get, setGPR, Pseudo.modify, ← regIdx_eq_reg]
-    show some (Complete (abs s) { arch := { writeGPR (abs s) (regIdx rt) s.cp0Status with
-      Status := (writeGPR (abs s) (regIdx rt) s.cp0Status).Status ||| (1#32 <<< 0) } }) = _
-    have : (writeGPR (abs s) (regIdx rt) s.cp0Status).Status = s.cp0Status := by
+      (regIdx rt) (statusValue s))))
+    simp only [Pseudo.run, Ops.EI, bind, Pseudo.get, setGPR, Pseudo.modify, ← regIdx_eq_reg,
+      statusRead_abs]
+    show some (Complete (abs s) { arch := { writeGPR (abs s) (regIdx rt) (statusValue s) with
+      Status := (writeGPR (abs s) (regIdx rt) (statusValue s)).Status ||| (1#32 <<< 0) } }) = _
+    have : (writeGPR (abs s) (regIdx rt) (statusValue s)).Status = s.cp0Status := by
       unfold writeGPR; split <;> rfl
     rw [this, writeGPR_status, ie_mask, ← abs_status]
     exact complete_writeReg' s { s with cp0Status := s.cp0Status ||| statusIeMask } hsz rfl rfl _ _

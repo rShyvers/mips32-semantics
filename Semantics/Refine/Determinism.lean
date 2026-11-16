@@ -22,11 +22,13 @@ open Manual
 
 /-! ## The model's choices are valid -/
 
+set_option linter.unusedSimpArgs false in
 /-- A quiet NaN widened by the IEEE core (`CVT.D.S`) is a quiet NaN. -/
 theorem qnan32_to64 (x : BitVec 32) (h : Mips.Fp.isQNaN32 x = true) :
-    Mips.Fp.isQNaN64 (Mips.Fp.f32ToF64 x).1 = true := by
+    Mips.Fp.isQNaN64 (Mips.Fp.f32ToF64 false x).1 = true := by
   open Mips.Fp in
-  simp only [isQNaN32, isQNaN64, f32ToF64, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
+  simp only [isQNaN32, isQNaN64, f32ToF64, Format.flushIn, Bool.false_and, Bool.false_eq_true, ite_false,
+    Format.quiet, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
     Format.isSNaN, Format.expField, Format.fracField, Format.expMax, Format.pack, Format.signBit,
     Format.defaultQNaN, binary32, binary64, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h ⊢
   have hx := x.isLt
@@ -39,11 +41,15 @@ theorem qnan32_to64 (x : BitVec 32) (h : Mips.Fp.isQNaN32 x = true) :
   all_goals (try simp only [Nat.reducePow, Nat.reduceAdd, and_false, not_false_eq_true] at *)
   all_goals (first | omega | decide)
 
+set_option linter.unusedSimpArgs false in
 /-- A quiet NaN narrowed by the IEEE core (`CVT.S.D`) is a quiet NaN. -/
 theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = true) :
     Mips.Fp.isQNaN32 (Mips.Fp.f64ToF32 e x).1 = true := by
+  have hn : Mips.Fp.binary64.isNaN x.toNat = true := by
+    revert h; simp only [Mips.Fp.isQNaN64, Mips.Fp.Format.isQNaN, Bool.and_eq_true]; exact fun h => h.1
+  simp only [Mips.Fp.f64ToF32, Mips.Fp.Format.flushIn_of_isNaN _ e.flush _ (by decide) hn]
   open Mips.Fp in
-  simp only [isQNaN32, isQNaN64, f64ToF32, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
+  simp only [isQNaN32, isQNaN64, Format.quiet, Format.convert, Format.convertNaN, Format.isQNaN, Format.isNaN,
     Format.isSNaN, Format.expField, Format.fracField, Format.expMax, Format.pack, Format.signBit,
     Format.defaultQNaN, binary32, binary64, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at h ⊢
   have hx := x.isLt
@@ -57,37 +63,39 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
   all_goals (first | omega | decide)
 
 /-- The model's `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`
-outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are constants; its `divByZero` value does not name the state; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
-change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
+outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are constants; its `divByZero` value does not name the state; its `fprUpper` value
+is a function of the FPRs (accessible); its `.arbitrary` outcomes (`ctc1Unpredictable`) change `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
-  · intro a r v
-    exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
   · intro a fs t
-    exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
+    simp only [modelOracle]
+    repeat' split
+    all_goals first
+      | trivial
+      | exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+          rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
   · intros; trivial
   · intros; trivial
   · intros; trivial
   -- restriction 1
   · intro _ _ _ _ _ _; trivial
-  · intro r v a b _ _ hab
-    obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
-    refine ⟨h1, h2, ?_, h4, h5, h6, h7, h8, h9, h10⟩
-    show update (update a.FPR r _) (r + 1) _ = update (update b.FPR r _) (r + 1) _
-    rw [h3]
   · intro fs t a b _ _ hab
     obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
-    refine ⟨h1, h2, h3, ?_, h5, h6, h7, h8, h9, h10⟩
-    simp only [h4]
+    simp only [modelOracle]
+    repeat' split
+    all_goals first
+      | exact hab
+      | exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
+      | (refine ⟨h1, h2, h3, ?_, h5, h6, h7, h8, h9, h10⟩; simp only [h4])
+      | trivial
+      | rfl
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _ _; trivial
-  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]
+  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]  -- R6-5: `fprUpper`
   · intro _ _ _ _ _ _; rfl
   -- BadInstr / BadInstrP: constants
   · intro _ _ _ _ _; rfl

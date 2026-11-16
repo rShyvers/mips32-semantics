@@ -157,7 +157,7 @@ theorem pause_refines (s : State) (w : W32) (hw : enc .pause = some w) :
       exact congrArg some (complete_nop s)
     · simp only [↓reduceIte, complete_plain, mkNext]
       rw [abs_advance _ _ (by rfl)]
-      simp [hpb, hl, abs, readReg, readFpReg]
+      simp [hpb, hl, abs, readReg, readFpReg64]
 
 /-- **ERET refines**: Reserved Instruction in a delay slot (Release 6), Coprocessor
 Unusable without CP0 access, else `PC ← ErrorEPC` and `ERL ← 0` (ERL = 1) or `PC ← EPC` and `EXL ← 0`,
@@ -180,8 +180,8 @@ theorem eret_refines (s : State) (w : W32) (hw : enc .eret = some w) :
       simp only [Pseudo.run, Ops.ERET, bind, Pseudo.get, Pseudo.modify, setPC, pure, erl_abs]
       unfold erlSet
       cases (s.cp0Status &&& statusErlMask != 0#32)
-      · simp [Complete, abs, hpb, readReg, readFpReg, statusExlMask]
-      · simp [Complete, abs, hpb, readReg, readFpReg, statusErlMask]
+      · simp [Complete, abs, hpb, readReg, readFpReg64, statusExlMask]
+      · simp [Complete, abs, hpb, readReg, readFpReg64, statusErlMask]
 
 -- BEGIN R6-2
 /-- **ERETNC refines** (MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180): Reserved Instruction in a delay
@@ -206,8 +206,8 @@ theorem eretnc_refines (s : State) (w : W32) (hw : enc .eretnc = some w) :
       simp only [Pseudo.run, Ops.ERETNC, bind, Pseudo.get, Pseudo.modify, setPC, pure, erl_abs]
       unfold erlSet
       cases (s.cp0Status &&& statusErlMask != 0#32)
-      · simp [Complete, abs, hpb, readReg, readFpReg, statusExlMask]
-      · simp [Complete, abs, hpb, readReg, readFpReg, statusErlMask]
+      · simp [Complete, abs, hpb, readReg, readFpReg64, statusExlMask]
+      · simp [Complete, abs, hpb, readReg, readFpReg64, statusErlMask]
 
 /-- **CACHE refines** (MD00086 Vol II-A Rev 6.06, CACHE, p.114-119): Coprocessor Unusable without CP0
 access; else the address translation of `GPR[base] + sign_extend(offset)` (an Address Error, AdEL,

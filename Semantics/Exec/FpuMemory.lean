@@ -24,9 +24,9 @@ def execFpuMemory (s : State) : Instruction → Option State
   -- EffectiveAddress2..0 ≠ 0 (not doubleword-aligned)" (MD00086 Vol II-A
   -- Rev 6.06, LDC1 p.215, SDC1 p.362). The two words of the doubleword are in the byte order of
   -- `profile` (LDC1 p.215: `paddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)`, `memdoubleword ←
-  -- memmsw || memlsw`): little-endian, the word at `addr` is the low half (`FPR[ft]`) and the word
-  -- at `addr + 4` the high half (`FPR[ft+1]`); big-endian the other way round.
-  -- W5: with `Status.FR = 1` the doubleword is one 64-bit FPR.
+  -- memmsw || memlsw`): little-endian, the word at `addr` is the low half (bits 31..0 of `FPR[ft]`)
+  -- and the word at `addr + 4` the high half (bits 63..32); big-endian the other way round. With
+  -- `Status.FR = 1` the doubleword is one 64-bit FPR (`StoreFPR(ft, UNINTERPRETED_DOUBLEWORD, ...)`).
   | .ldc1 rs ft imm => some <|
     let addr := readReg s (regIdx rs) + signExt16 imm
     if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdEL addr
@@ -35,12 +35,14 @@ def execFpuMemory (s : State) : Instruction → Option State
     | some w0, some w1 =>
       let lo := if profile.bigEndianMem then w1 else w0
       let hi := if profile.bigEndianMem then w0 else w1
-      mkNext s (writeFpReg (writeFpReg s (regIdx ft) lo) (regIdx (ft + 1#32)) hi)
+      mkNext s (writeFpD s ft (hi ++ lo))
     | _, _ => takeAddressException s excCodeAdEL addr
   | .sdc1 rs ft imm => some <|
     let addr := readReg s (regIdx rs) + signExt16 imm
-    let w0 := if profile.bigEndianMem then readFpReg s (regIdx (ft + 1#32)) else readFpReg s (regIdx ft)
-    let w1 := if profile.bigEndianMem then readFpReg s (regIdx ft) else readFpReg s (regIdx (ft + 1#32))
+    let lo := (readFpD s ft).extractLsb' 0 32
+    let hi := (readFpD s ft).extractLsb' 32 32
+    let w0 := if profile.bigEndianMem then hi else lo
+    let w1 := if profile.bigEndianMem then lo else hi
     if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdES addr
     else
     match writeMemWord s addr w0 with

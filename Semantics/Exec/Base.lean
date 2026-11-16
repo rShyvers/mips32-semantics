@@ -297,6 +297,10 @@ def usesCop1 (instr : Instruction) : Bool :=
   | .addD _ _ _ | .subD _ _ _ | .mulD _ _ _ | .divD _ _ _
   | .sqrtD _ _ | .absD _ _ | .movD _ _ | .negD _ _ | .recipD _ _ | .rsqrtD _ _
   | .roundWD _ _ | .truncWD _ _ | .ceilWD _ _ | .floorWD _ _ | .cvtWD _ _ | .cvtSD _ _ => true
+  -- BEGIN R6-5
+  | .cvtLS _ _ | .cvtLD _ _ | .roundLS _ _ | .roundLD _ _ | .truncLS _ _ | .truncLD _ _
+  | .ceilLS _ _ | .ceilLD _ _ | .floorLS _ _ | .floorLD _ _ | .cvtSL _ _ | .cvtDL _ _ => true
+  -- END R6-5
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 1's encoding space: opcode COP1
@@ -323,19 +327,17 @@ def isCop2Word (w : W32) : Bool :=
 def fpEnv (s : State) : Mips.Fp.Env := Mips.Fp.envOf s.fcsr
 
 
-/-- The double in the FPR pair named by `f` (its low register): the 32-bit
-FPU register model with `Status.FR = 0` (MD00082 Vol I-A Rev 6.01 §6.4.1,
-p.84): `FPR[f]` holds the low word, `FPR[f+1]` the high word. An odd `f` is
-UNPREDICTABLE in the architecture; the pair `(f, f+1 mod 32)` is used
-regardless (pin). -/
+-- BEGIN R6-5
+/-- The double (or longword) in the FPR named by `f`: the whole 64-bit register (`ValueFPR(fpr,
+D)` with `FR = 1`, MD00086 Vol II-A Rev 6.06, Figure 2.22, p.22: "valueFPR ← FPR[fpr]"). -/
 def readFpD (s : State) (f : W32) : BitVec 64 :=
-  readFpReg s (regIdx (f + 1#32)) ++ readFpReg s (regIdx f)
+  readFpReg64 s (regIdx f)
 
-/-- Write the double `v` into the FPR pair named by `f` (low word to
-`FPR[f]`, high word to `FPR[f+1]`). -/
+/-- Write the double (or longword) `v` into the FPR named by `f` (`StoreFPR(fpr, D, value)` with
+`FR = 1`, Figure 2.23, p.23: "FPR[fpr] ← value"). -/
 def writeFpD (s : State) (f : W32) (v : BitVec 64) : State :=
-  writeFpReg (writeFpReg s (regIdx f) (v.extractLsb' 0 32)) (regIdx (f + 1#32))
-    (v.extractLsb' 32 32)
+  writeFpReg64 s (regIdx f) v
+-- END R6-5
 
 /-- Complete an FP instruction that computed the 32-bit result `r.1` (a
 single, or a word fixed-point value) for `FPR[fd]` and raised the IEEE
@@ -349,7 +351,7 @@ def fpFinishS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : State :=
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE
   else mkNext s (writeFpReg { s with fcsr := u.1 } (regIdx fd) r.1)
 
-/-- As `fpFinishS`, for a 64-bit (double) result written to the pair `fd`. -/
+/-- As `fpFinishS`, for a 64-bit (double or longword) result written to `FPR[fd]`. -/
 def fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   let u := Mips.Fp.fpUpdate s.fcsr r.2
   if u.2 then takeException { s with fcsr := u.1 } excCodeFPE

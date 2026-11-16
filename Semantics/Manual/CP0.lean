@@ -44,14 +44,24 @@ holds. -/
 def StatusCU0 (_a : Arch) : Bool := false
 /-- `StatusCU1` (bit 29). -/
 def StatusCU1 (a : Arch) : Bool := bit a.Status 29
+-- BEGIN R6-5
+/-- `StatusFR` (bit 26; Table 9.47, p.191): "This bit must be ignored on write and read as 1 for an
+implementation of Release 6 of the Architecture (and subsequent releases) in which a 64-bit
+floating-point unit is implemented" — this profile's FPU (`Manual.FP32RegistersMode`). It is not
+held in `Arch.Status` (a write ignores it); `StatusRead` adds it. -/
+def StatusFR (_a : Arch) : Bool := true
+
+/-- **Status as read**: the stored bits and `FR` (bit 26). -/
+def StatusRead (a : Arch) : W32 := a.Status ||| (if StatusFR a then 1#32 <<< 26 else 0#32)
+-- END R6-5
 
 /-- **The R/W bits of Status** on this profile (Table 9.47, p.189-196): `CU1` (29), `RW` (28, Release
 6, p.190), `BEV` (22), `IM7..IM0` (15..8), `UM` (4), `ERL` (2), `EXL` (1), `IE` (0). `CU3`/`CU2` (no
 coprocessors 2, 3), `FR`, `MX`, `ASE`, `Impl` are not implemented: "returns zero on read ... ignored
 on write"; `RP` (27), `RE` (25) and `TS` (21) are reserved 0 in Release 6 (p.190, 192, 193); `SR`
 (20) and `NMI` (19): "For Release 6, hardware ignores a write of 1" (p.193-194), and neither a Soft
-Reset nor an NMI exists here, so they read 0; `R0` (3) reads 0.
--- W5: `FR` (26) is read-only 1 with the 64-bit FPU of this profile (Table 9.47, p.191). -/
+Reset nor an NMI exists here, so they read 0; `R0` (3) reads 0. `FR` (26) is read-only 1 with the
+64-bit FPU of this profile (p.191, `StatusFR`, added on read by `StatusRead`). -/
 def StatusWritable : W32 := bitsSet [0, 1, 2, 4, 22, 28, 29] ||| fieldOnes 15 8
 
 /-! ## Operating modes (§3.2-§3.4, p.21-22) -/
@@ -204,7 +214,7 @@ def CPRRead (i : Impl) (reg sel : Nat) (a : Arch) : W32 :=
   | 8, 2 => a.BadInstrP
   | 9, 0 => a.Count
   | 11, 0 => a.Compare
-  | 12, 0 => a.Status
+  | 12, 0 => StatusRead a  -- R6-5
   | 12, 1 => i.IntCtl
   | 12, 2 => i.SRSCtl
   | 13, 0 => CauseRead i a

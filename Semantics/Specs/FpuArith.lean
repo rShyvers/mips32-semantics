@@ -22,9 +22,10 @@ Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 
   `rsqrtD_spec_raw` `absD_spec_raw` `negD_spec_raw`
 -/
 
--- W5: these statements describe the pre-Release 6 FPU (`Status.FR = 0` register pairs for
--- doubles, legacy NaN encoding and non-2008 ABS/NEG, `FIR.Has2008 = 0`); the Release 6 target
--- profile (CLAUDE.md: `FR = 1`, `FCSR.NAN2008 = ABS2008 = 1`) is implemented by W5.
+/-! Release 6 FPU (`Status.FR = 1`, `FCSR.NAN2008 = ABS2008 = 1`): a single result is written to the low
+32 bits of the 64-bit `FPR[fd]` (`fpCompletesS`), a double result to the whole register
+(`fpCompletesD`); NaNs follow IEEE 754-2008 (`Mips.Fp`); `abs`/`neg` are non-arithmetic (sign bit
+only, FCSR untouched). -/
 
 set_option maxRecDepth 4000
 
@@ -105,22 +106,26 @@ theorem rsqrtS_spec_raw (s : State) (w fd fs : W32)
       fpCompletesS s fd (Mips.Fp.f32Rsqrt (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
-/-- **`abs.s`**: `Mips.Fp.f32Abs` of the operand, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, ABS.fmt, p.32). Arithmetic (`FIR.Has2008 = 0`): any NaN operand signals Invalid Operation. -/
+/-- **`abs.s`**: `Mips.Fp.f32Abs` of the operand, the sign bit cleared, written to `FPR[fd]`
+(low 32 bits; the upper half kept) and `pc` advances. Non-arithmetic (`FCSR.ABS2008 = 1`): NaNs are treated like
+numbers, no IEEE exception is signaled and FCSR (Cause, Flags) is not modified
+(MD00086 Vol II-A Rev 6.06, ABS.fmt, p.32). -/
 theorem absS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.absS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd (Mips.Fp.f32Abs (readFpReg s (regIdx fs)))) := by
+      { (writeFpReg s (regIdx fd) (Mips.Fp.f32Abs (readFpReg s (regIdx fs)))) with pc := s.pc + 4#32 }) := by
   fp_step_spec
 
-/-- **`neg.s`**: `Mips.Fp.f32Neg` of the operand, completing per `fpCompletesS`
-(MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307). Arithmetic (`FIR.Has2008 = 0`): any NaN operand signals Invalid Operation. -/
+/-- **`neg.s`**: `Mips.Fp.f32Neg` of the operand, the sign bit flipped, written to `FPR[fd]`
+(low 32 bits; the upper half kept) and `pc` advances. Non-arithmetic (`FCSR.ABS2008 = 1`): NaNs are treated like
+numbers, no IEEE exception is signaled and FCSR (Cause, Flags) is not modified
+(MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307). -/
 theorem negS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.negS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) := by
+      { (writeFpReg s (regIdx fd) (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) with pc := s.pc + 4#32 }) := by
   fp_step_spec
 
 /-- **`add.d`: `fd ← fs + ft`**, double precision: the result bits and exceptions are
@@ -198,20 +203,24 @@ theorem rsqrtD_spec_raw (s : State) (w fd fs : W32)
       fpCompletesD s fd (Mips.Fp.f64Rsqrt (Mips.Fp.envOf s.fcsr) (readFpD s fs))) := by
   fp_step_spec
 
-/-- **`abs.d`**: `Mips.Fp.f64Abs` of the operand, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, ABS.fmt, p.32). Arithmetic (`FIR.Has2008 = 0`): any NaN operand signals Invalid Operation. -/
+/-- **`abs.d`**: `Mips.Fp.f64Abs` of the operand, the sign bit cleared, written to `FPR[fd]`
+and `pc` advances. Non-arithmetic (`FCSR.ABS2008 = 1`): NaNs are treated like
+numbers, no IEEE exception is signaled and FCSR (Cause, Flags) is not modified
+(MD00086 Vol II-A Rev 6.06, ABS.fmt, p.32). -/
 theorem absD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.absD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd (Mips.Fp.f64Abs (readFpD s fs))) := by
+      { (writeFpD s fd (Mips.Fp.f64Abs (readFpD s fs))) with pc := s.pc + 4#32 }) := by
   fp_step_spec
 
-/-- **`neg.d`**: `Mips.Fp.f64Neg` of the operand, completing per `fpCompletesD`
-(MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307). Arithmetic (`FIR.Has2008 = 0`): any NaN operand signals Invalid Operation. -/
+/-- **`neg.d`**: `Mips.Fp.f64Neg` of the operand, the sign bit flipped, written to `FPR[fd]`
+and `pc` advances. Non-arithmetic (`FCSR.ABS2008 = 1`): NaNs are treated like
+numbers, no IEEE exception is signaled and FCSR (Cause, Flags) is not modified
+(MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307). -/
 theorem negD_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.negD fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesD s fd (Mips.Fp.f64Neg (readFpD s fs))) := by
+      { (writeFpD s fd (Mips.Fp.f64Neg (readFpD s fs))) with pc := s.pc + 4#32 }) := by
   fp_step_spec

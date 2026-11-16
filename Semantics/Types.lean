@@ -87,24 +87,28 @@ structure State where
   pc : W32
   /-- General-purpose registers, size 32; index = register number. -/
   regs : Array W32
+  -- BEGIN R6-5
   /-- Coprocessor-1 (FPU) registers `$f0`..`$f31`, size 32; index = FP
-  register number. Each holds a raw 32-bit pattern (same raw-bit-pattern
-  storage convention as `regs`): an IEEE-754 single, or one half of a double.
-  Double-precision values occupy an even/odd register pair (`$fN` = low word,
-  `$f(N+1)` = high word; the 32-bit FPU register model, `Status.FR = 0`:
-  MD00082 Vol I-A Rev 6.01 §6.4.1, p.84). All arithmetic is done on these bit
+  register number. Each holds a raw **64-bit** pattern (same raw-bit-pattern
+  storage convention as `regs`): the 64-bit FPU of Release 6 (`Status.FR = 1`,
+  read-only: "Release 6 disallows bi-modal support", MD00090 Vol III Rev 6.02
+  §9.32, Table 9.47, p.191; MD00082 Vol I-A Rev 6.01 §6.4.1, p.84). A single or
+  a word is the low 32 bits (`readFpReg`); a 32-bit write leaves the upper 32 bits
+  UNPREDICTABLE (Vol I-A §6.6.2, p.98), pinned to unchanged (`writeFpReg`). A
+  double or a longword is the whole register. All arithmetic is done on these bit
   patterns by `Semantics/FpOps.lean`; no host float is involved. -/
-  fpRegs : Array W32
+  fpRegs : Array (BitVec 64)
   /-- The Floating Point Control and Status Register (FCSR, CP1 control
   register 31; MD00082 Vol I-A Rev 6.01 §6.5.4, Figure 6.14 / Table 6.8,
-  p.92-95), as a raw word with the layout and accessors of `Mips.Fp`
-  (`Semantics/FpOps.lean` §9): the eight condition codes `FCC7..1` (bits
-  31..25) and `FCC0` (bit 23), `FS` (24), `Cause` (17..12, `E V Z O U I`),
-  `Enables` (11..7), `Flags` (6..2), `RM` (1..0). Bits 22..18 (`Impl`, the
-  reserved bit 20, and `ABS2008`/`NAN2008`, which do not exist because
-  `FIR.Has2008 = 0`) read as zero and ignore writes. `FCCR`/`FEXR`/`FENR` are
-  views of this one register (`cfc1`/`ctc1`). -/
+  p.92-95), the **writable fields** only, with the layout and accessors of `Mips.Fp`
+  (`Semantics/FpOps.lean` §9): `FS` (24), `Cause` (17..12, `E V Z O U I`),
+  `Enables` (11..7), `Flags` (6..2), `RM` (1..0). The other bits are 0: the Release 6
+  reserved FCC bits (31..25, 23), `Impl` (22..21, not implemented), bit 20; the read-only
+  `ABS2008` (19) and `NAN2008` (18), which read 1 in Release 6, are added when the
+  register is read (`Mips.Fp.readFCSR`). `FEXR`/`FENR` are views of this one register
+  (`cfc1`/`ctc1`). -/
   fcsr : W32
+  -- END R6-5
   /-- **Physical memory**: byte-addressable and sparse, keyed by the **physical** address. Every
   processor access (instruction fetch, loads, stores) reaches it through the Fixed Mapping MMU
   (`State.lean`, `translate`), so one physical byte can have several virtual names (kseg0 and
@@ -404,6 +408,14 @@ ignored on write and read as zero" when Supervisor Mode is not implemented,
 Table 9.47 p.195; `RP` (27) and `TS` (21) are reserved 0 in Release 6, p.190, p.193; `SR`/`NMI`:
 "For Release 6, hardware ignores a write of 1", p.193-194). -/
 def statusWriteMask : W32 := 0x3040ff17
+
+-- BEGIN R6-5
+/-- `Status.FR` (bit 26): read-only 1 with the 64-bit FPU of this profile ("This bit must be
+ignored on write and read as 1 for an implementation of Release 6 ... in which a 64-bit
+floating-point unit is implemented", MD00090 Vol III Rev 6.02 §9.32, Table 9.47, p.191). It is not
+stored in `State.cp0Status`; every read of `Status` adds it (`statusValue`). -/
+def statusFrMask : W32 := 0x04000000
+-- END R6-5
 
 /-- `Cause.BD` (bit 31): the exception was taken in a branch delay slot. -/
 def causeBdMask : W32 := 0x80000000

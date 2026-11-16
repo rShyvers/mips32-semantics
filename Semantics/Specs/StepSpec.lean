@@ -115,11 +115,11 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Operating modes | `Mode.lean` | `userMode_iff`, `cp0Usable_false_iff`, `exceptionEntry_enters_kernel_mode`, `exception_from_user_mode_enters_kernel_mode`, `eret_to_user_mode` |
 | Reset, boot convention | `Reset.lean` | `resetException_spec`, `resetException_keeps`, `resetState_spec`, `hostedStart_is_reset_then_boot` |
 | FPU, common | `FpuCommon.lean` | `fp_coprocessor_unusable`; `fpCompletes*_trap` / `_ok` |
-| FPU moves | `FpuMove.lean` | statements (FCSR untouched) |
-| FPU control registers | `FpuControl.lean` | `cfc1`/`ctc1` statements; `fcsr_ctc1_cfc1_roundtrip` |
-| FPU loads / stores | `FpuMemory.lean` | alignment and the register pair used for doubles |
-| FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies |
-| FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses |
+| FPU moves | `FpuMove.lean` | statements (FCSR untouched); 64-bit FPRs: `mfhc1`/`mthc1` on bits 63..32 of the same register |
+| FPU control registers | `FpuControl.lean` | `cfc1`/`ctc1` statements (Reserved Instruction for registers that do not exist); `fcsr_ctc1_cfc1_roundtrip` (`ABS2008`/`NAN2008` read 1) |
+| FPU loads / stores | `FpuMemory.lean` | alignment; `ldc1`/`sdc1` move one whole 64-bit FPR, `lwc1` keeps the upper half |
+| FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies; `abs`/`neg` non-arithmetic (FCSR untouched) |
+| FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses, the FCSR.FS flush flag; the longword (L) conversions |
 
 <!-- BEGIN R6-2 -->
 Release 6 privileged architecture (Wave R6-2): the CP0 layout table (`Cp0.lean`: `cp0ReadAt_eq`,

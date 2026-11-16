@@ -1,7 +1,7 @@
 import Semantics.Word
 
 /-!
-# FpOps — pure bit-level IEEE-754 helpers for the MIPS32r2 FPU (COP1)
+# FpOps — pure bit-level IEEE-754 helpers for the MIPS32 Release 6 FPU (COP1)
 
 Everything in this file is a *total, kernel-reducible* function over
 `BitVec 32` / `BitVec 64` (internally: over `Nat`/`Int`, whose arithmetic the
@@ -16,14 +16,14 @@ model is these definitions.
 |---|---|---|
 | §1 | `Flags`, `RoundingMode` | MD00082 Vol I, FPU chapter: FCSR `RM`, `Flags` |
 | §2 | exact values, `roundToInt` | IEEE-754 rounding-direction attributes |
-| §3 | formats, unpacking, classification, legacy NaN encoding | MD00082 Vol I, "Formats" / QNaN-SNaN encoding (pre-NAN2008) |
+| §3 | formats, unpacking, classification, IEEE 754-2008 NaN encoding | MD00082 Vol I, "Formats" / QNaN-SNaN encoding (`FCSR.NAN2008 = 1`) |
 | §4 | correctly rounded packing (`Format.round`) | IEEE-754 §4, §7.4, §7.5 |
-| §5 | float → word (`f32ToW32`, `f64ToW32`) | MD00086 `CVT.W.fmt`, `ROUND.W.fmt`, `TRUNC.W.fmt`, `CEIL.W.fmt`, `FLOOR.W.fmt` |
-| §6 | format conversions (`f32ToF64`, `f64ToF32`, `w32ToF32`, `w32ToF64`) | MD00086 `CVT.D.fmt`, `CVT.S.fmt` |
-| §7 | NaN policy, `abs`/`neg` | MD00086 `ABS.fmt`, `NEG.fmt`; MD00082 default QNaN |
+| §5 | float → word / longword (`f32ToW32`, `f64ToW32`, `f32ToW64`, `f64ToW64`) | MD00086 `CVT.W.fmt`, `CVT.L.fmt`, `ROUND/TRUNC/CEIL/FLOOR.W.fmt` and `.L.fmt` |
+| §6 | format conversions (`f32ToF64`, `f64ToF32`, `w32ToF32`, `w32ToF64`, `w64ToF32`, `w64ToF64`) | MD00086 `CVT.D.fmt`, `CVT.S.fmt` |
+| §7 | NaN policy, `abs`/`neg` (non-arithmetic, `FCSR.ABS2008 = 1`) | MD00086 `ABS.fmt`, `NEG.fmt`; MD00082 default QNaN |
 | §8 | comparison | MD00086 `C.cond.fmt` |
 | §9 | FCSR and the `CFC1`/`CTC1` control-register views | MD00086 `CFC1`, `CTC1`; MD00082 Vol I FCSR/FIR/FCCR/FEXR/FENR |
-| §9a | arithmetic: `add`/`sub`/`mul`/`div`/`sqrt`, multiply-add family, `recip`/`rsqrt` (exact result, one rounding; NaN rules) | MD00082 Vol I §6.3, §6.7; MD00086 `ADD.fmt` … `MADD.fmt` |
+| §9a | arithmetic: `add`/`sub`/`mul`/`div`/`sqrt`, `recip`/`rsqrt` (exact result, one rounding; NaN rules; input flushing) | MD00082 Vol I §6.3, §6.7; MD00086 `ADD.fmt` … `RSQRT.fmt` |
 
 Kernel-checked facts about these definitions (formerly §10) are in
 `Semantics/FpOpsFacts.lean`; the differential tests against Lean's
@@ -31,9 +31,10 @@ Kernel-checked facts about these definitions (formerly §10) are in
 
 Conventions:
 
-* NaN encoding is the MIPS32r2 **legacy** one (FCSR.NAN2008 = 0): a NaN whose
-  fraction MSB is **1 is signaling**, **0 is quiet**.  The default generated
-  QNaN is `0x7FBFFFFF` / `0x7FF7FFFF_FFFFFFFF`.
+* NaN encoding is the IEEE 754-2008 one of Release 6 (`FCSR.NAN2008 = 1`, read-only 1 in
+  Release 6, MD00082 Vol I-A Rev 6.01 Table 6.8, p.94): a NaN whose fraction MSB is **1 is
+  quiet**, **0 is signaling**.  The default generated QNaN is `0x7FC00000` /
+  `0x7FF80000_00000000` (Table 6.3, p.82, column `FCSR.NAN2008 = 1`).
 * Tininess (for the Underflow flag) is detected **after rounding**, and
   Underflow is flagged only when the result is also inexact (the untrapped
   IEEE default).
@@ -243,9 +244,9 @@ def inf (f : Format) (sign : Bool) : Nat := f.pack sign f.expMax 0
 def maxFinite (f : Format) (sign : Bool) : Nat :=
   f.pack sign (f.expMax - 1) (2 ^ f.fracBits - 1)
 
-/-- The MIPS32r2 legacy default quiet NaN (MD00082 Vol I): positive, exponent
-all ones, fraction `0111…1`: `0x7FBFFFFF` / `0x7FF7FFFF_FFFFFFFF`. -/
-def defaultQNaN (f : Format) : Nat := f.pack false f.expMax (2 ^ (f.fracBits - 1) - 1)
+/-- The default quiet NaN with `FCSR.NAN2008 = 1` (MD00082 Vol I-A Rev 6.01 §6.3.1.5, Table 6.3,
+p.82): positive, exponent all ones, fraction `100…0`: `0x7FC00000` / `0x7FF80000_00000000`. -/
+def defaultQNaN (f : Format) : Nat := f.pack false f.expMax (2 ^ (f.fracBits - 1))
 
 /-- NaN: exponent all ones, fraction nonzero. -/
 def isNaN (f : Format) (n : Nat) : Bool := f.expField n == f.expMax && f.fracField n != 0
@@ -262,13 +263,22 @@ def isSubnormal (f : Format) (n : Nat) : Bool := f.expField n == 0 && f.fracFiel
 /-- Zero, subnormal or normal. -/
 def isFinite (f : Format) (n : Nat) : Bool := f.expField n != f.expMax
 
-/-- Legacy-encoding signaling NaN: a NaN whose fraction MSB is **1**. -/
+/-- IEEE 754-2008 signaling NaN (`FCSR.NAN2008 = 1`): a NaN whose fraction MSB is **0**
+(MD00082 Vol I-A Rev 6.01 Table 6.8, `NAN2008`, p.94: "a signaling NaN is encoded with the first
+bit of the fraction field being 0"). -/
 def isSNaN (f : Format) (n : Nat) : Bool :=
+  f.isNaN n && f.fracField n / 2 ^ (f.fracBits - 1) == 0
+
+/-- IEEE 754-2008 quiet NaN: a NaN whose fraction MSB is **1** ("a quiet NaN is encoded with the
+first bit of the fraction being 1", Table 6.8, p.94). -/
+def isQNaN (f : Format) (n : Nat) : Bool :=
   f.isNaN n && f.fracField n / 2 ^ (f.fracBits - 1) == 1
 
-/-- Legacy-encoding quiet NaN: a NaN whose fraction MSB is **0**. -/
-def isQNaN (f : Format) (n : Nat) : Bool :=
-  f.isNaN n && f.fracField n / 2 ^ (f.fracBits - 1) == 0
+/-- A NaN made quiet: the fraction MSB set, every other bit kept ("If the chosen input is a SNAN, the
+only change is to set the leftmost/most-significant mantissa bit", MD00082 Vol I-A Rev 6.01
+§6.3.1.5, p.83). A quiet NaN is returned unchanged. -/
+def quiet (f : Format) (n : Nat) : Nat :=
+  if f.fracField n / 2 ^ (f.fracBits - 1) == 1 then n else n + 2 ^ (f.fracBits - 1)
 
 /-- The exact value of a **finite** datum.  (For Inf/NaN patterns the result
 is the value the pattern would have if its exponent were an ordinary one; no
@@ -279,6 +289,14 @@ def toExact (f : Format) (n : Nat) : Exact :=
   else
     ⟨f.signBit n, f.fracField n + 2 ^ f.fracBits,
       (f.expField n : Int) - (f.bias : Int) - (f.fracBits : Int)⟩
+
+/-- **An input operand under `FCSR.FS`** (`fl`): with `FS = 1` "As of Release 5, every input
+subnormal value is replaced with zero of the same sign" (MD00082 Vol I-A Rev 6.01 Table 6.8, `FS`,
+p.93; Release 6 is later than Release 5, so this is required); otherwise the operand unchanged.
+Applied to every floating-point operand of an arithmetic operation or conversion (not to the
+non-arithmetic `MOV`, `ABS`, `NEG`, which only copy or change the sign bit). -/
+def flushIn (f : Format) (fl : Bool) (n : Nat) : Nat :=
+  if fl && f.isSubnormal n then f.zero (f.signBit n) else n
 
 /-! ## §4  Correctly rounded packing -/
 
@@ -412,22 +430,24 @@ def ofInt (f : Format) (e : Env) (i : Int) : Nat × Flags :=
   f.roundEnv e ⟨decide (i < 0), i.natAbs, 0⟩
 
 /-- NaN operand of a format conversion (MD00082 Vol I-A Rev 6.01 §6.3.1.4,
-§6.3.1.5, p.81-82). A signaling NaN signals Invalid Operation and the default
-result is a new QNaN (Table 6.3, p.82). A quiet NaN is propagated: "Propagation
-of the diagnostic information requires information contained in a QNaN to be
-preserved through arithmetic operations and floating-point format
-conversions" — the sign and the most significant fraction bits are kept
-(widening appends zeros, narrowing drops low bits). If narrowing leaves a zero
-fraction — the pattern would be an infinity, so "no input operand QNaN value
-can be copied" — the destination's default QNaN is supplied (model pin). The
-fraction MSB is preserved either way, so the result is again quiet. -/
+§6.3.1.5, p.81-83). The operand is propagated: "Propagation of the diagnostic
+information requires information contained in a QNaN to be preserved through
+arithmetic operations and floating-point format conversions", and with
+`FCSR.NAN2008 = 1` "the mantissa portion of the input NAN operand is preserved
+as much as possible" (p.82-83): the sign and the most significant fraction bits
+are kept (widening appends zeros, narrowing drops low bits), and the fraction
+MSB is set (`quiet`: "If the chosen input is a SNAN, the only change is to set
+the leftmost/most-significant mantissa bit", p.83), so the result is a quiet
+NaN even when narrowing drops every set bit. A signaling NaN signals Invalid
+Operation (§6.3.1.4, p.81). Model pin (SPEC-NOTES): the operand is passed for a
+signaling NaN too (the alternative is the new QNaN of Table 6.3); it is what
+QEMU `mips32r6-generic` does. -/
 def convertNaN (src dst : Format) (n : Nat) : Nat × Flags :=
-  if src.isSNaN n then (dst.defaultQNaN, Flags.invalidOnly) else
   let frac :=
     if src.fracBits ≤ dst.fracBits then src.fracField n * 2 ^ (dst.fracBits - src.fracBits)
     else src.fracField n / 2 ^ (src.fracBits - dst.fracBits)
-  if frac = 0 then (dst.defaultQNaN, Flags.none)
-  else (dst.pack (src.signBit n) dst.expMax frac, Flags.none)
+  (dst.quiet (dst.pack (src.signBit n) dst.expMax frac),
+    if src.isSNaN n then Flags.invalidOnly else Flags.none)
 
 /-- Convert between formats: NaN per `convertNaN`, ±∞ ↦ ±∞, otherwise
 correctly rounded under `e`. -/
@@ -436,21 +456,37 @@ def convert (src dst : Format) (e : Env) (n : Nat) : Nat × Flags :=
   else if src.isInf n then (dst.inf (src.signBit n), Flags.none)
   else dst.roundEnv e (src.toExact n)
 
-/-! ## §5  Float → 32-bit word (generic) -/
+/-! ## §5  Float → fixed point (word, longword; generic) -/
 
-/-- MD00086 `CVT.W.fmt` / `ROUND.W.fmt` / `TRUNC.W.fmt` / `CEIL.W.fmt` /
-`FLOOR.W.fmt`: round to a signed 32-bit integer in direction `rm`.
+/-- The largest `w`-bit two's complement integer `2^(w-1) - 1`. -/
+def fixedMax (w : Nat) : BitVec w := BitVec.ofNat w (2 ^ (w - 1) - 1)
 
-If the source is NaN or ±∞, or the *rounded* result is outside
-`[−2^31, 2^31 − 1]`, the result is `0x7FFFFFFF` (2^31 − 1) and Invalid
-Operation is raised.  Otherwise the rounded integer is returned, with Inexact
-raised iff the source was not already an integer. -/
-def toW32 (f : Format) (rm : RoundingMode) (n : Nat) : BitVec 32 × Flags :=
-  if f.isNaN n || f.isInf n then (0x7FFFFFFF#32, Flags.invalidOnly) else
+/-- The smallest `w`-bit two's complement integer `-2^(w-1)`. -/
+def fixedMin (w : Nat) : BitVec w := BitVec.ofNat w (2 ^ (w - 1))
+
+/-- MD00086 `CVT.W.fmt` / `CVT.L.fmt` / `ROUND`, `TRUNC`, `CEIL`, `FLOOR` `.W.fmt` / `.L.fmt`:
+round to a signed `w`-bit integer (`w` = 32 for W, 64 for L) in direction `rm`.
+
+"When the source value is Infinity, NaN, or rounds to an integer outside the range -2^31 to
+2^31-1, the result cannot be represented correctly, an IEEE Invalid Operation condition exists";
+with `FCSR.NAN2008 = 1` the default result is 0 for a NaN, `2^(w-1) - 1` for a value (or `+∞`) too
+big and `-2^(w-1)` for a value (or `-∞`) too small (MD00082 Vol I-A Rev 6.01 §6.3.1.5, Table 6.3,
+p.82, column `FCSR.NAN2008 = 1`). Otherwise the rounded integer is returned, with Inexact raised
+iff the source was not already an integer. -/
+def toFixed (f : Format) (w : Nat) (rm : RoundingMode) (n : Nat) : BitVec w × Flags :=
+  if f.isNaN n then (0#w, Flags.invalidOnly)
+  else if f.isInf n then (if f.signBit n then fixedMin w else fixedMax w, Flags.invalidOnly) else
   let v := f.toExact n
   let i := roundToInt rm v
-  if i < -2147483648 || 2147483647 < i then (0x7FFFFFFF#32, Flags.invalidOnly)
-  else (BitVec.ofInt 32 i, if v.isIntegral then Flags.none else Flags.inexactOnly)
+  if i < -((2 ^ (w - 1) : Nat) : Int) then (fixedMin w, Flags.invalidOnly)
+  else if ((2 ^ (w - 1) - 1 : Nat) : Int) < i then (fixedMax w, Flags.invalidOnly)
+  else (BitVec.ofInt w i, if v.isIntegral then Flags.none else Flags.inexactOnly)
+
+/-- Round to a signed 32-bit word (`toFixed` with `w = 32`). -/
+def toW32 (f : Format) (rm : RoundingMode) (n : Nat) : BitVec 32 × Flags := f.toFixed 32 rm n
+
+/-- Round to a signed 64-bit longword (`toFixed` with `w = 64`). -/
+def toW64 (f : Format) (rm : RoundingMode) (n : Nat) : BitVec 64 × Flags := f.toFixed 64 rm n
 
 /-- Total order key of a non-NaN datum: sign-magnitude as an integer
 (−0 and +0 both map to 0; ±∞ sort outside all finite values). -/
@@ -476,9 +512,9 @@ def isInf32 (x : BitVec 32) : Bool := binary32.isInf x.toNat
 def isZero32 (x : BitVec 32) : Bool := binary32.isZero x.toNat
 /-- Subnormal. -/
 def isSubnormal32 (x : BitVec 32) : Bool := binary32.isSubnormal x.toNat
-/-- Legacy quiet NaN (fraction MSB, bit 22, is 0). -/
+/-- Quiet NaN (fraction MSB, bit 22, is 1; `FCSR.NAN2008 = 1`). -/
 def isQNaN32 (x : BitVec 32) : Bool := binary32.isQNaN x.toNat
-/-- Legacy signaling NaN (fraction MSB, bit 22, is 1). -/
+/-- Signaling NaN (fraction MSB, bit 22, is 0; `FCSR.NAN2008 = 1`). -/
 def isSNaN32 (x : BitVec 32) : Bool := binary32.isSNaN x.toNat
 /-- Exact value of a finite single. -/
 def toExact32 (x : BitVec 32) : Exact := binary32.toExact x.toNat
@@ -499,9 +535,9 @@ def isInf64 (x : BitVec 64) : Bool := binary64.isInf x.toNat
 def isZero64 (x : BitVec 64) : Bool := binary64.isZero x.toNat
 /-- Subnormal. -/
 def isSubnormal64 (x : BitVec 64) : Bool := binary64.isSubnormal x.toNat
-/-- Legacy quiet NaN (fraction MSB, bit 51, is 0). -/
+/-- Quiet NaN (fraction MSB, bit 51, is 1; `FCSR.NAN2008 = 1`). -/
 def isQNaN64 (x : BitVec 64) : Bool := binary64.isQNaN x.toNat
-/-- Legacy signaling NaN (fraction MSB, bit 51, is 1). -/
+/-- Signaling NaN (fraction MSB, bit 51, is 0; `FCSR.NAN2008 = 1`). -/
 def isSNaN64 (x : BitVec 64) : Bool := binary64.isSNaN x.toNat
 /-- Exact value of a finite double. -/
 def toExact64 (x : BitVec 64) : Exact := binary64.toExact x.toNat
@@ -510,30 +546,39 @@ def toExact64 (x : BitVec 64) : Exact := binary64.toExact x.toNat
 
 /-- Single → signed 32-bit word, rounding in direction `rm`
 (MD00086: `ROUND.W.S` = `.RN`, `TRUNC.W.S` = `.RZ`, `CEIL.W.S` = `.RP`,
-`FLOOR.W.S` = `.RM`, `CVT.W.S` = the current FCSR.RM).  See `Format.toW32`. -/
-def f32ToW32 (rm : RoundingMode) (x : BitVec 32) : BitVec 32 × Flags :=
-  binary32.toW32 rm x.toNat
+`FLOOR.W.S` = `.RM`, `CVT.W.S` = the current FCSR.RM), the operand flushed when
+`fl` (FCSR.FS, `Format.flushIn`).  See `Format.toW32`. -/
+def f32ToW32 (rm : RoundingMode) (fl : Bool) (x : BitVec 32) : BitVec 32 × Flags :=
+  binary32.toW32 rm (binary32.flushIn fl x.toNat)
 
 /-- Double → signed 32-bit word (`ROUND/TRUNC/CEIL/FLOOR/CVT.W.D`).
 See `Format.toW32`. -/
-def f64ToW32 (rm : RoundingMode) (x : BitVec 64) : BitVec 32 × Flags :=
-  binary64.toW32 rm x.toNat
+def f64ToW32 (rm : RoundingMode) (fl : Bool) (x : BitVec 64) : BitVec 32 × Flags :=
+  binary64.toW32 rm (binary64.flushIn fl x.toNat)
+
+/-- Single → signed 64-bit longword (`ROUND/TRUNC/CEIL/FLOOR/CVT.L.S`). See `Format.toFixed`. -/
+def f32ToW64 (rm : RoundingMode) (fl : Bool) (x : BitVec 32) : BitVec 64 × Flags :=
+  binary32.toW64 rm (binary32.flushIn fl x.toNat)
+
+/-- Double → signed 64-bit longword (`ROUND/TRUNC/CEIL/FLOOR/CVT.L.D`). See `Format.toFixed`. -/
+def f64ToW64 (rm : RoundingMode) (fl : Bool) (x : BitVec 64) : BitVec 64 × Flags :=
+  binary64.toW64 rm (binary64.flushIn fl x.toNat)
 
 /-! ## §6  Format conversions -/
 
 /-- `CVT.D.S`: single → double.  Exact for every non-NaN input (no rounding
-mode needed); NaN per `Format.convertNaN` (QNaN payload widened, SNaN ↦
-`defaultQNaN64` with Invalid). -/
-def f32ToF64 (x : BitVec 32) : BitVec 64 × Flags :=
-  let r := Format.convert binary32 binary64 Env.RN x.toNat
+mode needed); the operand flushed when `fl` (FCSR.FS, `Format.flushIn`); NaN per
+`Format.convertNaN` (payload widened and made quiet; Invalid for a signaling NaN). -/
+def f32ToF64 (fl : Bool) (x : BitVec 32) : BitVec 64 × Flags :=
+  let r := Format.convert binary32 binary64 Env.RN (binary32.flushIn fl x.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 
 /-- `CVT.S.D`: double → single, correctly rounded under `e`, with
-Overflow / Underflow / Inexact (see `Format.roundCore`); NaN per
-`Format.convertNaN` (QNaN payload truncated, SNaN ↦ `defaultQNaN32` with
-Invalid). -/
+Overflow / Underflow / Inexact (see `Format.roundCore`); the operand flushed under
+`e.flush` (`Format.flushIn`); NaN per `Format.convertNaN` (payload truncated and
+made quiet; Invalid for a signaling NaN). -/
 def f64ToF32 (e : Env) (x : BitVec 64) : BitVec 32 × Flags :=
-  let r := Format.convert binary64 binary32 e x.toNat
+  let r := Format.convert binary64 binary32 e (binary64.flushIn e.flush x.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 
 /-- `CVT.S.W`: signed 32-bit word → single, correctly rounded under `e`
@@ -546,55 +591,50 @@ def w32ToF32 (e : Env) (x : BitVec 32) : BitVec 32 × Flags :=
 def w32ToF64 (x : BitVec 32) : BitVec 64 :=
   BitVec.ofNat 64 (binary64.ofInt Env.RN x.toInt).1
 
+/-- `CVT.S.L`: signed 64-bit longword → single, correctly rounded under `e` (MD00086 Vol II-A Rev
+6.06, CVT.S.fmt, p.159: "rounded according to the current rounding mode in FCSR"). -/
+def w64ToF32 (e : Env) (x : BitVec 64) : BitVec 32 × Flags :=
+  let r := binary32.ofInt e x.toInt
+  (BitVec.ofNat 32 r.1, r.2)
+
+/-- `CVT.D.L`: signed 64-bit longword → double, correctly rounded under `e` (MD00086 Vol II-A Rev
+6.06, CVT.D.fmt, p.153: "converted to a value in double floating point format and rounded according
+to the current rounding mode in FCSR"; only for S and W is it "always exact"). -/
+def w64ToF64 (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
+  let r := binary64.ofInt e x.toInt
+  (BitVec.ofNat 64 r.1, r.2)
+
 /-! ## §7  NaN policy, `abs` and `neg` -/
 
-/-- MIPS32r2 legacy default single QNaN (MD00082 Vol I). -/
-def defaultQNaN32 : BitVec 32 := 0x7FBFFFFF#32
+/-- The default single QNaN with `FCSR.NAN2008 = 1`, `0x7FC00000` (MD00082 Vol I-A Rev 6.01
+Table 6.3, p.82). -/
+def defaultQNaN32 : BitVec 32 := 0x7FC00000#32
 
-/-- MIPS32r2 legacy default double QNaN (MD00082 Vol I). -/
-def defaultQNaN64 : BitVec 64 := 0x7FF7FFFFFFFFFFFF#64
+/-- The default double QNaN with `FCSR.NAN2008 = 1`, `0x7FF80000_00000000` (Table 6.3, p.82). -/
+def defaultQNaN64 : BitVec 64 := 0x7FF8000000000000#64
 
-/-- Map every NaN pattern to `defaultQNaN32`; leave everything else alone.
-Intended for the outputs of host-`Float32` arithmetic, whose generated NaN
-(`0x7FC00000`) is a *signaling* pattern in the legacy encoding. -/
+/-- Map every NaN pattern to `defaultQNaN32`; leave everything else alone. -/
 def canonNaN32 (x : BitVec 32) : BitVec 32 := if isNaN32 x then defaultQNaN32 else x
 
 /-- Map every NaN pattern to `defaultQNaN64`; leave everything else alone. -/
 def canonNaN64 (x : BitVec 64) : BitVec 64 := if isNaN64 x then defaultQNaN64 else x
 
-/-- `ABS.S`. With `FIR.Has2008 = 0` "this operation is arithmetic. For this
-case, any NaN operand signals invalid operation" (MD00086 Vol II-A Rev 6.06,
-ABS.fmt, p.32). A signaling NaN gives the default QNaN ("An SNaN is never
-produced as a result value", MD00082 Vol I-A Rev 6.01 §6.3.1.4, p.81; Table
-6.3, p.82). A quiet NaN operand: Invalid, and the untrapped result is the
-operand with the sign bit cleared, as for any other operand (reading A′ of
-SPEC-NOTES §9 item 21; `Manual.Oracle.absNegNaN`). Otherwise the sign bit is
-cleared. -/
-def f32Abs (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then
-    (if isQNaN32 x then x &&& 0x7FFFFFFF#32 else defaultQNaN32, Flags.invalidOnly)
-  else (x &&& 0x7FFFFFFF#32, Flags.none)
+/-- `ABS.S` with `FCSR.ABS2008 = 1` (read-only 1 in Release 6, MD00082 Vol I-A Rev 6.01 Table 6.8,
+p.93): "this operation is non-arithmetic. For this case, both regular floating point numbers and
+NAN values are treated alike, only the sign bit is affected by this instruction. No IEEE exception
+can be generated for this case, and the FCSRCause and FCSRFlags fields are not modified" (MD00086
+Vol II-A Rev 6.06, ABS.fmt, p.32): the sign bit cleared. -/
+def f32Abs (x : BitVec 32) : BitVec 32 := x &&& 0x7FFFFFFF#32
 
-/-- `NEG.S` (arithmetic, as `f32Abs`; MD00086 Vol II-A Rev 6.06, NEG.fmt,
-p.307: "The value is negated by changing the sign bit value"): any NaN signals
-Invalid (a quiet NaN operand gives the operand with the sign bit flipped,
-reading A′; signaling ↦ default QNaN); otherwise flip the sign bit. -/
-def f32Neg (x : BitVec 32) : BitVec 32 × Flags :=
-  if isNaN32 x then
-    (if isQNaN32 x then x ^^^ 0x80000000#32 else defaultQNaN32, Flags.invalidOnly)
-  else (x ^^^ 0x80000000#32, Flags.none)
+/-- `NEG.S` with `FCSR.ABS2008 = 1`: non-arithmetic as `f32Abs` (NEG.fmt, p.307: "The value is
+negated by changing the sign bit value"): the sign bit flipped. -/
+def f32Neg (x : BitVec 32) : BitVec 32 := x ^^^ 0x80000000#32
 
 /-- `ABS.D`: as `f32Abs`, for doubles. -/
-def f64Abs (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then
-    (if isQNaN64 x then x &&& 0x7FFFFFFFFFFFFFFF#64 else defaultQNaN64, Flags.invalidOnly)
-  else (x &&& 0x7FFFFFFFFFFFFFFF#64, Flags.none)
+def f64Abs (x : BitVec 64) : BitVec 64 := x &&& 0x7FFFFFFFFFFFFFFF#64
 
 /-- `NEG.D`: as `f32Neg`, for doubles. -/
-def f64Neg (x : BitVec 64) : BitVec 64 × Flags :=
-  if isNaN64 x then
-    (if isQNaN64 x then x ^^^ 0x8000000000000000#64 else defaultQNaN64, Flags.invalidOnly)
-  else (x ^^^ 0x8000000000000000#64, Flags.none)
+def f64Neg (x : BitVec 64) : BitVec 64 := x ^^^ 0x8000000000000000#64
 
 /-! ## §8  Comparison (MD00086 `C.cond.fmt`) -/
 
@@ -732,15 +772,18 @@ end Cond
 The FCSR is modelled as a plain `BitVec 32` with the MD00082 Vol I layout:
 
 ```
- 31..25   24  23   22..18   17..12    11..7     6..2    1..0
- FCC7..1  FS  FCC0   0      Cause     Enables   Flags   RM
-                            E V Z O U I  V Z O U I  V Z O U I
-                           17 …      12  11 …    7  6 …    2
+ 31..25   24  23   22..21  20  19       18       17..12    11..7     6..2    1..0
+   0      FS   0    Impl    0  ABS2008  NAN2008  Cause     Enables   Flags   RM
+                                                 E V Z O U I  V Z O U I  V Z O U I
 ```
 
-Bits 22..18 are treated as reserved: they read as zero and ignore writes
-(in Release 2 bits 22/21 are the optional implementation-dependent FN/FO
-flush controls, and 20..18 are reserved). -/
+MD00082 Vol I-A Rev 6.01 §6.5.4, Figure 6.14 / Table 6.8, p.92-94, read for Release 6: the FCC
+bits 31..25, 23 are "R0 ... Reserved (Release 6)" (p.92); `Impl` (22..21) is not implemented ("If
+these bits are not implemented, they must be ignored on write and read as zero", p.93); bit 20
+"Reserved for future use; reads as zero"; `ABS2008` (19) and `NAN2008` (18) are read-only, "1
+(Release 6)" (p.93-94). The model's `State.fcsr` holds the writable fields only (`RM`, `Flags`,
+`Enables`, `Cause`, `FS`; `fcsrWritableMask`); `readFCSR` adds the read-only ones bits
+(`fcsr2008Bits`). -/
 
 /-- FCSR.RM field mask (bits 1..0). -/
 def fcsrRMMask : BitVec 32 := 0x00000003#32
@@ -750,25 +793,16 @@ def fcsrFlagsMask : BitVec 32 := 0x0000007C#32
 def fcsrEnablesMask : BitVec 32 := 0x00000F80#32
 /-- FCSR.Cause field mask (bits 17..12, including E = bit 17). -/
 def fcsrCauseMask : BitVec 32 := 0x0003F000#32
-/-- FCSR reserved bits 22..18. -/
-def fcsrReservedMask : BitVec 32 := 0x007C0000#32
+/-- The FCSR bits that are not writable on this profile: 31..25, 23 (the Release 6 reserved FCC
+bits), 22..18 (`Impl`, bit 20, `ABS2008`, `NAN2008`). -/
+def fcsrReservedMask : BitVec 32 := 0xFEFC0000#32
 /-- FCSR.FS (flush to zero), bit 24. -/
 def fcsrFSMask : BitVec 32 := 0x01000000#32
-/-- FCSR condition codes: FCC0 = bit 23, FCC1..7 = bits 25..31. -/
-def fcsrFCCMask : BitVec 32 := 0xFE800000#32
-/-- Every writable (non-reserved) FCSR bit. -/
-def fcsrWritableMask : BitVec 32 := 0xFF83FFFF#32
-
-/-- FCSR bit position of condition code `cc`: FCC0 is bit 23, FCC`n`
-(1 ≤ n ≤ 7) is bit 24 + n. -/
-def ccBit (cc : Fin 8) : Nat := if cc.val = 0 then 23 else 24 + cc.val
-
-/-- Read floating-point condition code `cc`. -/
-def getCC (fcsr : BitVec 32) (cc : Fin 8) : Bool := fcsr.getLsbD (ccBit cc)
-
-/-- Write floating-point condition code `cc`. -/
-def setCC (fcsr : BitVec 32) (cc : Fin 8) (b : Bool) : BitVec 32 :=
-  if b then fcsr ||| (1#32 <<< ccBit cc) else fcsr &&& ~~~(1#32 <<< ccBit cc)
+/-- Every writable FCSR bit: `FS`, `Cause`, `Enables`, `Flags`, `RM`. -/
+def fcsrWritableMask : BitVec 32 := 0x0103FFFF#32
+/-- The read-only FCSR bits that read 1: `ABS2008` (19) and `NAN2008` (18), "1 (Release 6)"
+(MD00082 Vol I-A Rev 6.01 Table 6.8, p.93-94). -/
+def fcsr2008Bits : BitVec 32 := 0x000C0000#32
 
 /-- Current rounding mode, FCSR.RM (bits 1..0). -/
 def getRM (fcsr : BitVec 32) : RoundingMode :=
@@ -843,37 +877,25 @@ def fcsrTrapPending (fcsr : BitVec 32) : Bool :=
   getCauseE fcsr || (fcsr.extractLsb' 12 5 &&& fcsr.extractLsb' 7 5) != 0#5
 
 /-- The value read from FIR (control register 0), a read-only constant
-(MD00082 Vol I-A Rev 6.01 §6.5.1, Figure 6.11 / Table 6.5, p.88-90):
-`0x00330000` = `S` (bit 16), `D` (bit 17), `W` (bit 20) and `L` (bit 21) implemented;
-`F64` (22) = 0, a 32-bit FPU; `Has2008` (23) = 0, legacy NaN encoding and
-arithmetic `ABS`/`NEG`; `PS` (18) = `3D` (19) = 0; `UFRP` = `FREP` = 0;
-`Impl`, `ProcessorID` and `Revision` zero.
+(MD00082 Vol I-A Rev 6.01 §6.5.1, Figure 6.11 / Table 6.5, p.88-90): `0x00F30000` =
+`S` (bit 16), `D` (17), `W` (20), `L` (21), `F64` (22: "In Release 6, StatusFR is read-only 1"),
+`Has2008` (23: "1 (Release 6)", "Required (Release 6)"); `PS` (18) and `3D` (19) "R0 (Release 6)";
+`UFRP` (28) "R0 (Release 6)"; `FREP` (29) = 0 (optional, not implemented: no `Config5.UFE`/`FRE`);
+`Impl`, `ProcessorID` and `Revision` zero. A 64-bit FPU with D needs all of S, D, W and L
+("Release 6 on a 64-bit FPU requires S, D, W, and L data formats", Table 6.4 note 3, p.85). -/
+def firValue : BitVec 32 := 0x00F30000#32
 
-`L` = 1 is forced by the manual: every allowed pre-Release 6 FPU subset that has `D`
-also has `L` (MD00086 Vol II-A Rev 6.06 §3.1, p.30: "FIR.S=FIR.L=FIR.D=FIR.L=1";
-MD00082 Vol I-A Rev 6.01 Table 6.4, p.85: Release 2, 32-bit FPU: "FIRD=1 and FIRL=1
-required"). The manual is inconsistent with itself here: the L-format instruction
-pages (e.g. CVT.L.fmt, MD00086 p.154) say the result "is UNPREDICTABLE if the
-processor is executing in the FR=0 32-bit FPU register model". The model's reading
-(SPEC-NOTES, item `FIR.L`): `FIR.L = 1` as the subsets require, and the L-format
-instructions (`CVT.L.fmt`, `CVT.fmt.L`, `ROUND/TRUNC/CEIL/FLOOR.L.fmt`) are
-not implemented: they decode as Reserved Instruction, a pin of their UNPREDICTABLE
-result with `FR` = 0. -/
-def firValue : BitVec 32 := 0x00330000#32
+/-- FCSR as read through register 31: the writable fields, the reserved bits 0, and `ABS2008` =
+`NAN2008` = 1. -/
+def readFCSR (fcsr : BitVec 32) : BitVec 32 := (fcsr &&& fcsrWritableMask) ||| fcsr2008Bits
 
-/-- FCSR as read through register 31: reserved bits 22..18 read as zero. -/
-def readFCSR (fcsr : BitVec 32) : BitVec 32 := fcsr &&& fcsrWritableMask
-
-/-- `CTC1` to register 31: every non-reserved bit is replaced. -/
+/-- `CTC1` to register 31: every writable bit is replaced; the reserved and read-only bits ignore
+the write. -/
 def writeFCSR (_fcsr v : BitVec 32) : BitVec 32 := v &&& fcsrWritableMask
 
-/-- FCCR (register 25): the eight condition codes, FCC`n` in bit `n`. -/
-def readFCCR (fcsr : BitVec 32) : BitVec 32 :=
-  ((fcsr >>> 24) &&& 0xFE#32) ||| ((fcsr >>> 23) &&& 1#32)
-
-/-- `CTC1` to FCCR: replaces the eight condition codes, nothing else. -/
-def writeFCCR (fcsr v : BitVec 32) : BitVec 32 :=
-  (fcsr &&& ~~~fcsrFCCMask) ||| ((v &&& 0xFE#32) <<< 24) ||| ((v &&& 1#32) <<< 23)
+/-- FCCR (register 25): `0^24 || FCSR31..25 || FCSR23` (MD00086 Vol II-A Rev 6.06, CFC1, p.130);
+the FCC bits read 0 in Release 6 (Table 6.8, p.92), so FCCR reads 0. -/
+def readFCCR (_fcsr : BitVec 32) : BitVec 32 := 0#32
 
 /-- FEXR (register 26): Cause (17..12) and Flags (6..2), in their FCSR
 positions. -/
@@ -893,26 +915,34 @@ def writeFENR (fcsr v : BitVec 32) : BitVec 32 :=
   (fcsr &&& ~~~(fcsrEnablesMask ||| fcsrRMMask ||| fcsrFSMask)) |||
     (v &&& (fcsrEnablesMask ||| fcsrRMMask)) ||| ((v &&& 4#32) <<< 22)
 
-/-- `CFC1 rt, fs`: the value of FPU control register `reg` (0 = FIR,
-25 = FCCR, 26 = FEXR, 28 = FENR, 31 = FCSR).  `none` for every other register
-number, which the manual leaves UNPREDICTABLE. -/
+/-- `CFC1 rt, fs` (MD00086 Vol II-A Rev 6.06, CFC1, p.129-130, Release 6): the value of FPU control
+register `reg` (0 = FIR, 25 = FCCR, 26 = FEXR, 28 = FENR, 31 = FCSR); `none` = Reserved
+Instruction: `UFR` (1) and `UNFR` (4) ("if ConfigAR ≥ 2 SignalException(ReservedInstruction) /*
+Release 6 traps */", `FIR.UFRP = 0`) and every register that does not exist ("In Release 6 and
+later, a Reserved Instruction exception occurs if fs specifies a register that does not exist").
+`FRE` (5) reads `UNPREDICTABLE` ("if ConfigAR ≤ 2 then temp ← UNPREDICTABLE", p.130): pinned to 0. -/
 def readControl (fcsr : BitVec 32) (reg : Nat) : Option (BitVec 32) :=
   match reg with
   | 0 => some firValue
+  | 5 => some 0#32
   | 25 => some (readFCCR fcsr)
   | 26 => some (readFEXR fcsr)
   | 28 => some (readFENR fcsr)
   | 31 => some (readFCSR fcsr)
   | _ => none
 
-/-- `CTC1 rt, fs`: the new FCSR after writing `v` to FPU control register
-`reg`.  FIR (0) is read-only, so the write is ignored; `none` for register
-numbers the manual leaves UNPREDICTABLE.  After a successful write the caller
-must check `fcsrTrapPending` on the result. -/
+/-- `CTC1 rt, fs` (MD00086 Vol II-A Rev 6.06, CTC1, p.149-150, Release 6): the new FCSR after writing
+`v` to FPU control register `reg`; `none` = Reserved Instruction: `UFR`/`UNFR` (1, 4: "Release 6
+traps"), FIR (0) and every other register that does not exist ("Release 6 traps"), and `FRE`/`NFRE`
+(5, 6), whose Operation is `UNPREDICTABLE` in Release 6 ("if ConfigAR ≤ 2 then UNPREDICTABLE"),
+pinned to Reserved Instruction (the exception "Release 6 implementations and later are required to
+produce" for these aliases, p.149). FCCR (25) changes nothing (its FCC bits are reserved R0 in
+Release 6, MD00082 Vol I-A Rev 6.01 Table 6.8, p.92). The `UNPREDICTABLE` arms for reserved bits of
+the written value (25, 26, 28, 31) are pinned to the write with those bits ignored. After a write
+the caller must check `fcsrTrapPending` on the result. -/
 def writeControl (fcsr : BitVec 32) (reg : Nat) (v : BitVec 32) : Option (BitVec 32) :=
   match reg with
-  | 0 => some fcsr
-  | 25 => some (writeFCCR fcsr v)
+  | 25 => some fcsr
   | 26 => some (writeFEXR fcsr v)
   | 28 => some (writeFENR fcsr v)
   | 31 => some (writeFCSR fcsr v)
@@ -943,15 +973,18 @@ plus a sticky bit, which rounds identically) and rounds it **once** with
   divisor is zero and the dividend is a finite nonzero number", result "a
   correctly signed infinity".
 
-`nanResult` implements the NaN rule: the result is the **first quiet NaN
-operand, in the instruction's operand order** (`fs` before `ft`), returned
-unchanged; if no operand is a quiet NaN (all NaN operands are signaling) the
-default QNaN is created. The manual does not say which operand wins when two
-are quiet NaNs; "first operand" is a model pin.
+`nanResult` implements the NaN rule with `FCSR.NAN2008 = 1`: "If a CPU implements passing an
+input NAN operand to the output of an instruction in hardware ... the mantissa portion of the input
+NAN operand is preserved as much as possible: If the chosen input is a QNAN, the entire mantissa is
+passed to the output without change. If the chosen input is a SNAN, the only change is to set the
+leftmost/most-significant mantissa bit" (§6.3.1.5, p.82-83). The chosen input is the **first
+signaling NaN operand** in the instruction's operand order (`fs` before `ft`), made quiet, else the
+**first quiet NaN operand**. The manual does not say which operand is chosen; this order is a model
+pin (SPEC-NOTES), the one QEMU `mips32r6-generic` implements.
 
-Subnormal *operands* are never flushed (with FCSR.FS = 1 this is
-"implementation-dependent" before Release 5, §6.7.2.4 p.102; pinned: not
-flushed). The model never raises Unimplemented Operation. -/
+Subnormal operands are flushed to zero when FCSR.FS = 1 (`Format.flushIn`, applied by the
+`f32*`/`f64*` wrappers: "As of Release 5, every input subnormal value is replaced with zero of the
+same sign", Table 6.8, p.93). The model never raises Unimplemented Operation. -/
 
 /-- Integer square root by binary digit recurrence, structural on the bit
 index: `isqrtAux n i r` extends the partial root `r` with bits `i-1 … 0`. -/
@@ -1003,11 +1036,15 @@ end Exact
 namespace Format
 
 /-- The NaN delivered by an arithmetic operation with operands `ops` (in
-operand order): the first quiet NaN operand, else the default QNaN. -/
+operand order): the first signaling NaN operand made quiet (`quiet`), else the first quiet NaN
+operand, else the default QNaN. -/
 def nanResult (f : Format) (ops : List Nat) : Nat :=
-  match ops.find? (fun x => f.isQNaN x) with
-  | some q => q
-  | none => f.defaultQNaN
+  match ops.find? (fun x => f.isSNaN x) with
+  | some x => f.quiet x
+  | none =>
+    match ops.find? (fun x => f.isQNaN x) with
+    | some q => q
+    | none => f.defaultQNaN
 
 /-- Flags of an arithmetic operation with a NaN operand: Invalid iff some
 operand is a signaling NaN. -/
@@ -1074,97 +1111,57 @@ end Format
 
 /-- `ADD.S`. -/
 def f32Add (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.add e a.toNat b.toNat
+  let r := binary32.add e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 /-- `SUB.S`. -/
 def f32Sub (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.sub e a.toNat b.toNat
+  let r := binary32.sub e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 /-- `MUL.S`. -/
 def f32Mul (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.mul e a.toNat b.toNat
+  let r := binary32.mul e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 /-- `DIV.S`. -/
 def f32Div (e : Env) (a b : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.div e a.toNat b.toNat
+  let r := binary32.div e (binary32.flushIn e.flush a.toNat) (binary32.flushIn e.flush b.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 /-- `SQRT.S`. -/
 def f32Sqrt (e : Env) (a : BitVec 32) : BitVec 32 × Flags :=
-  let r := binary32.sqrt e a.toNat
+  let r := binary32.sqrt e (binary32.flushIn e.flush a.toNat)
   (BitVec.ofNat 32 r.1, r.2)
 
 /-! ### Double precision -/
 
 /-- `ADD.D`. -/
 def f64Add (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.add e a.toNat b.toNat
+  let r := binary64.add e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 /-- `SUB.D`. -/
 def f64Sub (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.sub e a.toNat b.toNat
+  let r := binary64.sub e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 /-- `MUL.D`. -/
 def f64Mul (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.mul e a.toNat b.toNat
+  let r := binary64.mul e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 /-- `DIV.D`. -/
 def f64Div (e : Env) (a b : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.div e a.toNat b.toNat
+  let r := binary64.div e (binary64.flushIn e.flush a.toNat) (binary64.flushIn e.flush b.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 /-- `SQRT.D`. -/
 def f64Sqrt (e : Env) (a : BitVec 64) : BitVec 64 × Flags :=
-  let r := binary64.sqrt e a.toNat
+  let r := binary64.sqrt e (binary64.flushIn e.flush a.toNat)
   (BitVec.ofNat 64 r.1, r.2)
 
-/-! ### Multiply-add family, reciprocal, reciprocal square root
+/-! ### Reciprocal, reciprocal square root
 
-MD00086 Vol II-A Rev 6.06, MADD.fmt (p.256): "The intermediate product is
-rounded according to the current rounding mode in FCSR. The value in FPR fr is
-added to the product. The result sum is calculated to infinite precision,
-rounded according to the current rounding mode in FCSR … The results and
-flags are as if separate floating-point multiply and add instructions were
-executed." — i.e. **unfused**, two roundings. NMADD.fmt (p.308) / NMSUB.fmt
-(p.310): "… as if separate floating-point multiply and add and negate
-instructions were executed", so the final negation is the (legacy, arithmetic)
-`NEG.fmt`, which signals Invalid for a NaN. The functions below give the
-result value and the union of the IEEE exceptions of the steps — the FCSR
-Cause of an untrapped multiply-add (Table 6.8 `Cause`, MD00082 Vol I-A Rev 6.01
-p.94: set "if the corresponding exception condition arises during the
-execution of an instruction"). `step` runs the steps one after the other
-(`Step.lean`, `fpStep`): each writes Cause with the union so far and is
-trap-checked, so a trapping multiply stops the instruction with the multiply's
-Cause; Flags are updated with the union only when no step traps.
-
-RECIP.fmt (p.336) and RSQRT.fmt (p.343) leave the accuracy
+RECIP.fmt (MD00086 Vol II-A Rev 6.06, p.336) and RSQRT.fmt (p.343) leave the accuracy
 implementation-dependent (within 1 resp. 2 ulp) and "it is implementation
 dependent whether the result is affected by the current rounding mode". Model
 pin: `recip x = 1.0 / x` by `DIV.fmt`, and `rsqrt x = 1.0 / sqrt x` by
 `SQRT.fmt` then `DIV.fmt` (flags ORed), both under the current FCSR
-environment. -/
+environment. (Release 6 removed the unfused `MADD.fmt`/`MSUB.fmt`/`NMADD.fmt`/`NMSUB.fmt`.) -/
 
-/-- `MADD.S`: `(fs × ft) + fr`, unfused. -/
-def f32Madd (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
-  let m := f32Mul e fs ft
-  let r := f32Add e m.1 fr
-  (r.1, m.2.or r.2)
-/-- `MSUB.S`: `(fs × ft) − fr`, unfused. -/
-def f32Msub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
-  let m := f32Mul e fs ft
-  let r := f32Sub e m.1 fr
-  (r.1, m.2.or r.2)
-/-- `NMADD.S`: `−(fr + (fs × ft))`, the printed operand order of NMADD.fmt
-(p.308; it decides which QNaN is returned when `fr` and the product are both
-QNaNs). -/
-def f32Nmadd (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
-  let m := f32Mul e fs ft
-  let r := f32Add e fr m.1
-  let n := f32Neg r.1
-  (n.1, (m.2.or r.2).or n.2)
-/-- `NMSUB.S`: `−((fs × ft) − fr)`. -/
-def f32Nmsub (e : Env) (fr fs ft : BitVec 32) : BitVec 32 × Flags :=
-  let r := f32Msub e fr fs ft
-  let n := f32Neg r.1
-  (n.1, r.2.or n.2)
 /-- `RECIP.S`: `1.0 / x`. -/
 def f32Recip (e : Env) (x : BitVec 32) : BitVec 32 × Flags := f32Div e 0x3F800000#32 x
 /-- `RSQRT.S`: `1.0 / sqrt x`. -/
@@ -1173,27 +1170,6 @@ def f32Rsqrt (e : Env) (x : BitVec 32) : BitVec 32 × Flags :=
   let r := f32Div e 0x3F800000#32 q.1
   (r.1, q.2.or r.2)
 
-/-- `MADD.D`. -/
-def f64Madd (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
-  let m := f64Mul e fs ft
-  let r := f64Add e m.1 fr
-  (r.1, m.2.or r.2)
-/-- `MSUB.D`. -/
-def f64Msub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
-  let m := f64Mul e fs ft
-  let r := f64Sub e m.1 fr
-  (r.1, m.2.or r.2)
-/-- `NMADD.D`: `−(fr + (fs × ft))` (printed operand order, p.308). -/
-def f64Nmadd (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
-  let m := f64Mul e fs ft
-  let r := f64Add e fr m.1
-  let n := f64Neg r.1
-  (n.1, (m.2.or r.2).or n.2)
-/-- `NMSUB.D`. -/
-def f64Nmsub (e : Env) (fr fs ft : BitVec 64) : BitVec 64 × Flags :=
-  let r := f64Msub e fr fs ft
-  let n := f64Neg r.1
-  (n.1, r.2.or n.2)
 /-- `RECIP.D`. -/
 def f64Recip (e : Env) (x : BitVec 64) : BitVec 64 × Flags :=
   f64Div e 0x3FF0000000000000#64 x

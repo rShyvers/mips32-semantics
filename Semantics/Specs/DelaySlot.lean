@@ -7,14 +7,15 @@ import Semantics.Specs.Lemmas
 `branch_in_delay_slot_reserved_instruction` covers a control transfer in a delay slot. `DelaySlotRel`,
 `DelaySlotRel_ite` and `execInstr_delaySlotRel` are proof devices for the general theorem.
 
-## Theorems in this file (28)
+## Theorems in this file (31)
 
   `advance_not_in_delay_slot` `advance_in_delay_slot` `DelaySlotRel_ite` `execInstr_delaySlotRel`
   `execInstr_delay_slot` `delay_slot_commits_target` `branch_in_delay_slot_reserved_instruction`
   `readMemByte_pb` `readReg_pb` `writeReg_pb` `writeMemByte_pb` `writeMemByte_getD_pb`
-  `takeAddressException_pc_pb` `writeMemWord_pb` `writeMemHalf_pb` `readFpReg_pb` `cu1Enabled_pb`
+  `takeAddressException_pc_pb` `writeMemWord_pb` `writeMemHalf_pb` `readFpReg_pb` `readFpD_pb` `cu1Enabled_pb`
   `takeCoprocessorUnusable_pc_pb` `delaySlotRel_sw` `delaySlotRel_sh` `delaySlotRel_sb`
-  `delaySlotRel_sc` `delaySlotRel_swc1` `delaySlotRel_sdc1` `hwrValue_pb`
+  `delaySlotRel_sc` `delaySlotRel_swc1` `delaySlotRel_sdc1` `readMemWord_pb` `delaySlotRel_ldc1`
+  `hwrValue_pb`
   `rdhwrAllowed_pb` `takeException_pc_pb` `delaySlotRel_rdhwr`
 -/
 
@@ -119,6 +120,9 @@ theorem writeMemHalf_pb (s : State) (x : Option W32) (a v : W32) :
 
 theorem readFpReg_pb (s : State) (x : Option W32) (i : Fin 32) :
     readFpReg { s with pendingBranch := x } i = readFpReg s i := rfl
+
+theorem readFpD_pb (s : State) (x : Option W32) (f : W32) :
+    readFpD { s with pendingBranch := x } f = readFpD s f := rfl
 
 theorem cu1Enabled_pb (s : State) (x : Option W32) :
     cu1Enabled { s with pendingBranch := x } = cu1Enabled s := rfl
@@ -246,18 +250,52 @@ theorem delaySlotRel_sdc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#3
   rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
     execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
   exec_unfold
-  simp only [readReg_pb, readFpReg_pb, writeMemWord_pb]
+  simp only [readReg_pb, readFpD_pb, writeMemWord_pb]
   split
   · intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   simp only [profile, Bool.false_eq_true, ↓reduceIte]
-  cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readFpReg s (regIdx b)) with
+  cases writeMemWord s (readReg s (regIdx a) + signExt16 c) ((readFpD s b).extractLsb' 0 32) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 =>
     simp only [Option.map_some, writeMemWord_pb]
-    cases writeMemWord s1 ((readReg s (regIdx a) + signExt16 c) + 4#32) (readFpReg s (regIdx (b + 1#32))) with
+    cases writeMemWord s1 ((readReg s (regIdx a) + signExt16 c) + 4#32) ((readFpD s b).extractLsb' 32 32) with
     | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
     | some s2 => intro _; simp only [Option.map_some, mkNext, advance]
 
+
+theorem readMemWord_pb (s : State) (x : Option W32) (a : W32) :
+    readMemWord { s with pendingBranch := x } a = readMemWord s a := rfl
+
+/-- `ldc1` (a whole 64-bit FPR loaded from two words) gets its own proof: on its two-discriminant
+`match` the generic script of `execInstr_delaySlotRel` does not finish in reasonable time. -/
+theorem delaySlotRel_ldc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
+    DelaySlotRel (s.pc + 4#32) t
+      (execInstr { s with pendingBranch := none } (.ldc1 a b c))
+      (execInstr { s with pendingBranch := some t } (.ldc1 a b c)) := by
+  by_cases hcu : cu1Enabled s = true
+  case neg =>
+    have hf : cu1Enabled s = false := by simpa using hcu
+    intro h
+    have e : execInstr { s with pendingBranch := none } (.ldc1 a b c) =
+        takeCoprocessorUnusable { s with pendingBranch := none } := by
+      unfold execInstr
+      simp only [show isBranchLike (Instruction.ldc1 a b c) = false from rfl,
+        show usesCop1 (Instruction.ldc1 a b c) = true from rfl, cu1Enabled_pb, hf, Bool.false_and,
+        Bool.not_false, Bool.and_self, ↓reduceIte, Bool.false_eq_true]
+    rw [e] at h
+    exact absurd (h.symm.trans (takeCoprocessorUnusable_pc_pb _ _)) hvec
+  rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
+    execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
+  exec_unfold
+  simp only [readReg_pb, readMemWord_pb]
+  refine DelaySlotRel_ite _ _ _ _ _ _ _ (fun _ => ?_) (fun _ => ?_)
+  · intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
+  cases readMemWord s (readReg s (regIdx a) + signExt16 c) <;>
+    cases readMemWord s (readReg s (regIdx a) + signExt16 c + 4#32) <;>
+    dsimp only <;>
+    first
+      | (intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec)
+      | (intro _; simp only [mkNext, advance, writeFpD, writeFpReg64])
 
 set_option maxHeartbeats 0 in
 /-- The delay-slot relation holds for every non-control-transfer
@@ -276,6 +314,7 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
   case sc a b c => exact delaySlotRel_sc s t a b c hvec
   case swc1 a b c => exact delaySlotRel_swc1 s t a b c hvec
   case sdc1 a b c => exact delaySlotRel_sdc1 s t a b c hvec
+  case ldc1 a b c => exact delaySlotRel_ldc1 s t a b c hvec
   all_goals (
     obtain ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
     cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, cp0UserLocal, cp0BadInstr,

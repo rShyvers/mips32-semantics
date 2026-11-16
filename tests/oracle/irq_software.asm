@@ -9,8 +9,7 @@
 # IM2 stays 0: the Malta board raises HW0 (IP2) on its own. The handler counts entries (s4), records ExcCode (s0), the pending
 # software requests (s1), EPC relative to the expected address in t0 (s2) and Status (s3), then clears the requests and returns.
 # oracle: bare
-# oracle: expect gpr:s4=4 gpr:s5=4 gpr:s0=0 gpr:s2=0 gpr:s3=0x20000203
-# oracle: known-model-bug gpr:s3 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
+# oracle: expect gpr:s4=4 gpr:s5=4 gpr:s0=0 gpr:s2=0 gpr:s3=0x24000203
 .ktext
 mfc0 $k0, $13
 andi $s0, $k0, 0x7c

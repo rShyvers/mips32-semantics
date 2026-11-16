@@ -204,7 +204,12 @@
     "Trusted.sigrie_spec_raw",
     "Trusted.cache_spec_raw",
     "Trusted.mfc0_unimplemented_reads_zero",
-    "Trusted.mtc0_unimplemented_ignored"
+    "Trusted.mtc0_unimplemented_ignored",
+    "Trusted.nanResult_first_snan",
+    "Trusted.f32ToW64_spec",
+    "Trusted.f64ToW64_spec",
+    "Trusted.w64ToF32_spec",
+    "Trusted.w64ToF64_spec"
   ],
   "definition_names": [],
   "permitted_axioms": [

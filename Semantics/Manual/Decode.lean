@@ -224,8 +224,22 @@ def candidates (w : W32) : List Instruction :=
     .addiupc (f 25 21) (f 18 0),
     .lwpc (f 25 21) (f 18 0),
     .auipc (f 25 21) (f 15 0),
-    .aluipc (f 25 21) (f 15 0)
+    .aluipc (f 25 21) (f 15 0),
     -- END R6-4
+    -- BEGIN R6-5
+    .roundLS (f 10 6) (f 15 11),
+    .roundLD (f 10 6) (f 15 11),
+    .truncLS (f 10 6) (f 15 11),
+    .truncLD (f 10 6) (f 15 11),
+    .ceilLS (f 10 6) (f 15 11),
+    .ceilLD (f 10 6) (f 15 11),
+    .floorLS (f 10 6) (f 15 11),
+    .floorLD (f 10 6) (f 15 11),
+    .cvtLS (f 10 6) (f 15 11),
+    .cvtLD (f 10 6) (f 15 11),
+    .cvtSL (f 10 6) (f 15 11),
+    .cvtDL (f 10 6) (f 15 11)
+    -- END R6-5
     ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an

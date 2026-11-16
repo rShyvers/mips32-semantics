@@ -139,7 +139,7 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   -- END R6-4
 
 set_option maxRecDepth 4000 in
-theorem length_candidates (w : W32) : (candidates w).length = 139 := by simp [candidates]
+theorem length_candidates (w : W32) : (candidates w).length = 151 := by simp [candidates]
 
 /-- The `k`-th candidate has the diagram of the instruction. -/
 local macro "cand " k:num : tactic => `(tactic| (
@@ -150,7 +150,7 @@ local macro "cand " k:num : tactic => `(tactic| (
   try simp
   try simp [mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, and_7, mkRT2, mkPc19, *]))  -- R6-4: mkRT2, mkPc19
 
--- 139 cases, each a field-extraction `simp`: more than the default budget for one declaration
+-- 151 cases, each a field-extraction `simp`: more than the default budget for one declaration
 set_option maxHeartbeats 4000000 in
 set_option linter.unusedSimpArgs false in
 /-- **The candidate of `i`'s constructor read from `encode i` has the diagram `encode i`.** -/
@@ -300,5 +300,19 @@ theorem enc_candidate (i : Instruction) (hs : SelOK i) :
   case auipc => cand 137
   case aluipc => cand 138
   -- END R6-4
+  -- BEGIN R6-5
+  case roundLS => cand 139
+  case roundLD => cand 140
+  case truncLS => cand 141
+  case truncLD => cand 142
+  case ceilLS => cand 143
+  case ceilLD => cand 144
+  case floorLS => cand 145
+  case floorLD => cand 146
+  case cvtLS => cand 147
+  case cvtLD => cand 148
+  case cvtSL => cand 149
+  case cvtDL => cand 150
+  -- END R6-5
 
 end Refine

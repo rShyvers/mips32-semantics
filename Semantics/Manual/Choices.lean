@@ -122,25 +122,6 @@ structure Impl where
   /-- `RSQRT.D`, as `rsqrtS` (RSQRT.fmt, p.343). -/
   rsqrtD : Mips.Fp.Env → BitVec 64 → BitVec 64 × Mips.Fp.Flags
 
-/-- **The readings of `ABS.fmt`/`NEG.fmt` with a quiet NaN operand** when `FIR.Has2008 = 0`. The
-pages say both "If FIRHas2008=0 or FCSRABS2008=0 then this operation is arithmetic. For this case,
-any NaN operand signals invalid operation" (MD00086 Vol II-A Rev 6.06, ABS.fmt p.32, NEG.fmt p.307)
-and, for NEG, "The value is negated by changing the sign bit value" (p.307); Vol I-A says "QNaN
-operands do not cause arithmetic operations to signal an exception" (MD00082 Vol I-A Rev 6.01
-§6.3.1.5, p.82). A signaling NaN operand signals Invalid Operation in every reading, and its
-untrapped result is the default QNaN ("An SNaN is never produced as a result value", §6.3.1.4,
-p.81; Table 6.3, p.82).
-
-* `A`: Invalid Operation; the untrapped result is the QNaN operand unchanged.
-* `A'`: Invalid Operation; the untrapped result is the QNaN operand with the sign bit cleared (ABS)
-  or flipped (NEG) — both sentences of the pages hold.
-* `B`: no exception (Vol I-A §6.3.1.5); the result is the operand with the sign bit changed. -/
-inductive AbsNegNaN where
-  | A
-  | A'
-  | B
-  deriving DecidableEq, Repr
-
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
 need it (later sub-waves add fields as they transcribe more pages). -/
 structure Oracle where
@@ -168,23 +149,24 @@ structure Oracle where
   jalrRsIsRd : Arch → Instruction → Outcome
   -- end 7B S3
   -- 7B S4 FPU
-  /-- `valueFPR ← UNPREDICTABLE` of `ValueFPR(fpr, D)` / `UNINTERPRETED_DOUBLEWORD` with the 32-bit
-  FPR model (`FP32RegistersMode = 0`) and `fpr` odd (MD00086 Vol II-A Rev 6.06, Figure 2.22, p.22). -/
-  fprOddRead : Arch → Fin 32 → BitVec 64
-  /-- `UNPREDICTABLE` of `StoreFPR(fpr, D, value)` / `UNINTERPRETED_DOUBLEWORD` with the 32-bit FPR
-  model and `fpr` odd (Figure 2.23, p.22-23). An UNPREDICTABLE operation may signal an exception or
-  produce a state (MD00086 Vol II-A Rev 6.06 §1.2.1, p.3): `.signal e`, `.arbitrary a'` (the state
-  after the store), `.proceed` (nothing is written). -/
-  fprOddWrite : Arch → Fin 32 → BitVec 64 → Outcome
-  /-- `CFC1 rt, fs` with `fs` naming no FP control register: "Prior to Release 6, the result is
-  UNPREDICTABLE if fs specifies a register that does not exist" (MD00086 Vol II-A Rev 6.06, CFC1,
-  Restrictions, p.129; Operation `temp ← UNPREDICTABLE`, p.130). Gives the value `temp`. -/
+  -- BEGIN R6-5
+  /-- **The upper 32 bits of a 64-bit FPR after a 32-bit result is stored in it** (`StoreFPR(fpr,
+  S/W/UNINTERPRETED_WORD, value)`): "Any FPU instruction that writes a 32-bit result (S or W format)
+  to the low 32-bits of a 64-bit FPR leaves the upper bits of the FPR UNPREDICTABLE. This includes
+  the 32-bit FPU 32-bit load LWC1, the data transfer instruction MTC1, as well as any instruction
+  that computes a 32 bit result" (MD00082 Vol I-A Rev 6.01 §6.6.2, p.98). Arguments: the state
+  before the store and the register. -/
+  fprUpper : Arch → Fin 32 → W32
+  -- END R6-5
+  /-- `CFC1 rt, fs` with `fs` = 5 (`FRE`): "if ConfigAR ≤ 2 then temp ← UNPREDICTABLE" (MD00086 Vol
+  II-A Rev 6.06, CFC1, Operation, p.130; Release 6 has `ConfigAR = 2`). Gives the value `temp`.
+  Arguments: the state and `fs`. -/
   cfc1Unpredictable : Arch → W32 → W32
-  /-- `CTC1 rt, fs` where the Operation says `UNPREDICTABLE`: `fs` names no FP control register, or
-  the written value has a reserved bit set (MD00086 Vol II-A Rev 6.06, CTC1, Restrictions p.149,
-  Operation p.150). Arguments: the state, `fs`, `temp ← GPR[rt]31..0`. `.signal e`: an exception
-  (§1.2.1, p.3); `.arbitrary a'`: the state the write leaves (before the `CheckFPException()` that
-  follows); `.proceed`: nothing is written. -/
+  /-- `CTC1 rt, fs` where the Operation says `UNPREDICTABLE`: `fs` = 5, 6 (`FRE`, `NFRE`: "if ConfigAR
+  ≤ 2 then UNPREDICTABLE"), or the written value has a reserved bit set (MD00086 Vol II-A Rev 6.06,
+  CTC1, Restrictions p.149, Operation p.150). Arguments: the state, `fs`, `temp ← GPR[rt]31..0`.
+  `.signal e`: an exception (§1.2.1, p.3); `.arbitrary a'`: the state the write leaves (before the
+  `CheckFPException()` that follows); `.proceed`: nothing is written. -/
   ctc1Unpredictable : Arch → W32 → W32 → Outcome
   -- 7B S1 integer ALU: begin
   /-- `EXT` with `lsb + msbd > 31`: "The operation is UNPREDICTABLE if lsb+msbd > 31" (EXT,
@@ -218,8 +200,6 @@ structure Oracle where
   "may fail where it could have succeeded" (p.347-348). `true`: this load makes the `SC` fail
   (`LLbit ← 0`). -/
   loadClearsLL : Arch → Bool
-  /-- The reading of `ABS.fmt`/`NEG.fmt` with a NaN operand under `FIR.Has2008 = 0` (`AbsNegNaN`). -/
-  absNegNaN : AbsNegNaN
   /-- The QNaN that `CVT.D.S` delivers for a QNaN operand. "When a floating-point result is to be
   delivered, a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible,
   this QNaN result is one of the operand QNaN values" (MD00082 Vol I-A Rev 6.01 §6.3.1.5, p.82): a
@@ -285,15 +265,24 @@ caches and none of the features `Config3` describes; an `Impl` describes such a 
   fields `TU` (30..28), `SU` (15..12) not implemented ("it should read as zero and be ignored on
   write", p.241-242): bits 31..28, 23..20, 15..12, 7..4 are `1000`, `0`, `0`, `0`.
 * `Config1.M = 1` ("If the Config2 register is implemented, this bit should read as a 1", §9.46,
-  Table 9.65, p.237). -/
+  Table 9.65, p.237).
+* `FIR` bits 31..28 and 23..16 are `0000` and `1111 0011` (MD00082 Vol I-A Rev 6.01 §6.5.1, Table
+  6.5, p.88-89): bits 31..30 "Reserved", `FREP` = 0 (the profile has no `Config5.UFE`/`FRE`, which
+  "If FREP=1" are "available"), `UFRP` "R0 (Release 6)"; `Has2008` "1 (Release 6)"; `F64` = 1 (the
+  64-bit FPU: "In Release 6, StatusFR is read-only 1"); `L` = `W` = `D` = `S` = 1 ("Release 6 on a
+  64-bit FPU requires S, D, W, and L data formats", Table 6.4 note 3, p.85); `3D` and `PS` "R0
+  (Release 6)". `Impl`, `ProcessorID` and `Revision` are free. -/
 def Impl.WF (i : Impl) : Prop :=
   i.SRSCtl.extractLsb' 26 4 = 0#4 ∧ i.SRSCtl.extractLsb' 6 4 = 0#4 ∧ i.IntCtl.extractLsb' 5 5 = 0#5 ∧
   i.Config3 = 0x8C003000#32 ∧ i.Config2 &&& 0xF0F0F0F0#32 = 0x80000000#32 ∧
   i.Config1.extractLsb' 31 1 = 1#1 ∧
   -- BEGIN R6-2
   i.Config4 = 0x80FC0000#32 ∧ i.Config5Fixed = 0x00002010#32 ∧
-  i.CCASupported 2#3 = true ∧ i.CCASupported 3#3 = true
+  i.CCASupported 2#3 = true ∧ i.CCASupported 3#3 = true ∧
   -- END R6-2
+  -- BEGIN R6-5
+  i.FIR &&& 0xF0FF0000#32 = 0x00F30000#32
+  -- END R6-5
 
 instance (i : Impl) : Decidable i.WF := by unfold Impl.WF; infer_instance
 
@@ -349,7 +338,7 @@ def modelImpl : Impl where
   SYNCIStep := 0#32
   SynciAddressError := false   -- 7B S2: SPEC-NOTES §11
   -- 7B S4 FPU
-  FIR := 0x00330000#32
+  FIR := 0x00F30000#32
   -- 7R: `RECIP` is `DIV.fmt` of `1.0` and `RSQRT` is `SQRT.fmt` then `DIV.fmt` (Flags ORed), under the
   -- current FCSR environment, over the IEEE core (`Mips.Fp`); SPEC-NOTES §11
   recipS := fun e x => Mips.Fp.f32Div e 0x3F800000#32 x
@@ -378,24 +367,23 @@ def modelOracle : Oracle where
   jalrRsIsRd := fun _ _ => .proceed
   -- end 7B S3
   -- 7B S4 FPU
-  fprOddRead := fun a fpr => a.FPR (fpr + 1) ++ a.FPR fpr
-  fprOddWrite := fun a fpr v =>
-    .arbitrary { a with FPR := update (update a.FPR fpr (v.extractLsb' 0 32)) (fpr + 1) (v.extractLsb' 32 32) }
+  -- BEGIN R6-5: the upper half of a 32-bit FPR write is unchanged (what QEMU does)
+  fprUpper := fun a fpr => (a.FPR fpr).extractLsb' 32 32
+  -- END R6-5
   cfc1Unpredictable := fun _ _ => 0#32
-  ctc1Unpredictable := fun a fs temp => .arbitrary { a with FCSR :=
-    -- the write of the page's Operation with the reserved bits ignored; a register that does not
-    -- exist is not written
-    if fs == 25#32 then
-      (temp.extractLsb' 1 7 ++ BitVec.ofBool (a.FCSR.getLsbD 24) ++ BitVec.ofBool (temp.getLsbD 0) ++
-        a.FCSR.extractLsb' 0 23 : BitVec 32)
-    else if fs == 26#32 then
-      (a.FCSR.extractLsb' 18 14 ++ temp.extractLsb' 12 6 ++ a.FCSR.extractLsb' 7 5 ++
-        temp.extractLsb' 2 5 ++ a.FCSR.extractLsb' 0 2 : BitVec 32)
-    else if fs == 28#32 then
-      (a.FCSR.extractLsb' 25 7 ++ BitVec.ofBool (temp.getLsbD 2) ++ a.FCSR.extractLsb' 12 12 ++
-        temp.extractLsb' 7 5 ++ a.FCSR.extractLsb' 2 5 ++ temp.extractLsb' 0 2 : BitVec 32)
-    else if fs == 31#32 then temp &&& ~~~(0x1F#32 <<< 18)
-    else a.FCSR }
+  -- R6-5: `FRE`/`NFRE` (5, 6) signal Reserved Instruction (the exception "Release 6 implementations
+  -- and later are required to produce" for these aliases, CTC1 p.149); a value with reserved bits set
+  -- is written with those bits ignored (`FCSRWrite`)
+  ctc1Unpredictable := fun a fs temp =>
+    if fs == 25#32 then .arbitrary a
+    else if fs == 26#32 then .arbitrary { a with FCSR := FCSRWrite (
+      a.FCSR.extractLsb' 18 14 ++ temp.extractLsb' 12 6 ++ a.FCSR.extractLsb' 7 5 ++
+        temp.extractLsb' 2 5 ++ a.FCSR.extractLsb' 0 2 : BitVec 32) }
+    else if fs == 28#32 then .arbitrary { a with FCSR := FCSRWrite (
+      a.FCSR.extractLsb' 25 7 ++ BitVec.ofBool (temp.getLsbD 2) ++ a.FCSR.extractLsb' 12 12 ++
+        temp.extractLsb' 7 5 ++ a.FCSR.extractLsb' 2 5 ++ temp.extractLsb' 0 2 : BitVec 32) }
+    else if fs == 31#32 then .arbitrary { a with FCSR := FCSRWrite temp }
+    else .signal .ReservedInstruction
   -- 7B S1 integer ALU: begin (SPEC-NOTES §11 rows)
   extOutOfRange := fun _ => .signal .ReservedInstruction
   insLsbAboveMsb := fun _ => .signal .ReservedInstruction
@@ -404,8 +392,7 @@ def modelOracle : Oracle where
   unpredictableEncoding := fun _ _ => .signal .ReservedInstruction
   ebaseWriteBEV0 := fun _ _ => .proceed
   loadClearsLL := fun _ => false
-  absNegNaN := .A'
-  cvtQNaNToD := fun x => (Mips.Fp.f32ToF64 x).1
+  cvtQNaNToD := fun x => (Mips.Fp.f32ToF64 false x).1
   cvtQNaNToS := fun x => (Mips.Fp.f64ToF32 Mips.Fp.Env.RN x).1
   -- BEGIN R6-2
   badInstrNoWord := fun _ => 0#32

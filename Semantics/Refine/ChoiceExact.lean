@@ -80,6 +80,24 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case divu x₁ x₂ x₃ => exact rw_divu x₁ x₂ x₃ a h
   case modu x₁ x₂ x₃ => exact rw_modu x₁ x₂ x₃ a h
   -- END R6-4
+  -- BEGIN R6-5: the 32-bit FPR results (`fprUpper`)
+  case mtc1 x₁ x₂ => exact rw_mtc1 x₁ x₂ a h
+  case movS x₁ x₂ => exact rw_movS x₁ x₂ a h
+  case addS x₁ x₂ x₃ => exact rw_addS x₁ x₂ x₃ a h
+  case subS x₁ x₂ x₃ => exact rw_subS x₁ x₂ x₃ a h
+  case mulS x₁ x₂ x₃ => exact rw_mulS x₁ x₂ x₃ a h
+  case divS x₁ x₂ x₃ => exact rw_divS x₁ x₂ x₃ a h
+  case sqrtS x₁ x₂ => exact rw_sqrtS x₁ x₂ a h
+  case recipS x₁ x₂ => exact rw_recipS x₁ x₂ a h
+  case rsqrtS x₁ x₂ => exact rw_rsqrtS x₁ x₂ a h
+  case roundWS x₁ x₂ => exact rw_roundWS x₁ x₂ a h
+  case truncWS x₁ x₂ => exact rw_truncWS x₁ x₂ a h
+  case ceilWS x₁ x₂ => exact rw_ceilWS x₁ x₂ a h
+  case floorWS x₁ x₂ => exact rw_floorWS x₁ x₂ a h
+  case cvtWS x₁ x₂ => exact rw_cvtWS x₁ x₂ a h
+  case cvtSW x₁ x₂ => exact rw_cvtSW x₁ x₂ a h
+  case cvtSL x₁ x₂ => exact rw_cvtSL x₁ x₂ a h
+  -- END R6-5
   all_goals simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/

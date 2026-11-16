@@ -15,9 +15,8 @@ Sources (printed pages):
   6.06 §1.3, Table 1.1, p.5-6 (`GPR[x]`, `PC`, `LLbit`, `I:`/`I+n:`). Release 6 has no `HI`/`LO`
   (the instructions that used them are removed) and no branch-likely instructions, so no
   `NullifyCurrentInstruction()`.
-* FPRs and `FCSR`: MD00082 Vol I-A Rev 6.01 §6.4-6.5 (32-bit FPU, `Status.FR = 0`).
-  -- W5: the Release 6 FPU of this profile is 64-bit (`Status.FR = 1`) with `FIR.Has2008 = 1`;
-  -- the FPR file and FCSR below still describe the pre-Release 6 FR = 0 / legacy-NaN FPU.
+* FPRs and `FCSR`: MD00082 Vol I-A Rev 6.01 §6.4-6.5 (the Release 6 64-bit FPU, `Status.FR = 1`
+  read-only, `FIR.Has2008 = 1`, `FCSR.NAN2008 = ABS2008 = 1` read-only).
 * CP0 registers: MD00090 Vol III Rev 6.02 chapter 9, by name (`Status` §9.32, `Cause` §9.36, `EPC`
   §9.38, `BadVAddr` §9.24, `ErrorEPC` §9.68, `EBase` §9.41, `Config` §9.45, `Count` §9.27,
   `Compare` §9.30, `HWREna` §9.23; Release 6: `UserLocal` §9.11, `BadInstr` §9.25, `BadInstrP`
@@ -32,7 +31,7 @@ either R/W or "0/ignored on write" under this profile; the reading of each field
 namespace Manual
 
 /-- A register file after writing `v` into register `x`. -/
-def update (f : Fin 32 → W32) (x : Fin 32) (v : W32) : Fin 32 → W32 :=
+def update {α : Type} (f : Fin 32 → α) (x : Fin 32) (v : α) : Fin 32 → α :=
   fun y => if y = x then v else f y
 
 /-- The **delayed effect** of the previous instruction's `I+1:` statements (MD00086 Vol II-A Rev
@@ -55,12 +54,15 @@ structure Arch where
   /-- `GPR[x]` (Table 1.1, p.5). `GPR[0]` is read through `Manual.readGPR`, which returns 0 (Vol I-A
   §2.8.4: "r0 is hard-wired to a value of zero"); the stored value at index 0 is never read. -/
   GPR : Fin 32 → W32
-  /-- `FPR[x]`, the 32 32-bit floating-point registers of a 32-bit FPU (`Status.FR = 0`, so
-  `FP32RegistersMode = 0`: `Manual.FP32RegistersMode`; MD00082 Vol I-A Rev 6.01 §6.4.1). -/
-  FPR : Fin 32 → W32
-  /-- `FCSR` (MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8, p.92-95), as a word; bits 22..18 read 0
-  (`FIR.Has2008 = 0`). -/
+  -- BEGIN R6-5
+  /-- `FPR[x]`, the 32 64-bit floating-point registers of the 64-bit FPU (`Status.FR = 1`, so
+  `FP32RegistersMode` is 1: `Manual.FP32RegistersMode`; MD00082 Vol I-A Rev 6.01 §6.4.1, p.84). -/
+  FPR : Fin 32 → BitVec 64
+  /-- `FCSR` (MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8, p.92-95), its R/W fields as a word
+  (`FCSRWritable`); the other bits are 0 here, and `FCSRRead` adds the read-only `ABS2008` and
+  `NAN2008`, which read 1 in Release 6. -/
   FCSR : W32
+  -- END R6-5
   /-- Physical memory, one byte per physical address (`pAddr`). -/
   Mem : PAddr → UInt8
   /-- `LLbit` (Table 1.1, p.6). -/
@@ -123,5 +125,21 @@ structure Arch where
   `Config5` on this profile. -/
   Config5SBRI : Bool
   -- END R6-2
+
+-- BEGIN R6-5
+/-- **The R/W fields of FCSR** on this profile (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-94): `FS`
+(24), `Cause` (17..12), `Enables` (11..7), `Flags` (6..2), `RM` (1..0). The FCC bits 31..25, 23 are "R0
+... Reserved (Release 6)" (p.92); `Impl` (22..21) is not implemented ("If these bits are not
+implemented, they must be ignored on write and read as zero", p.93); bit 20 "Reserved for future use;
+reads as zero"; `ABS2008` (19) and `NAN2008` (18) are read-only ("R", p.93-94). -/
+def FCSRWritable : W32 := 0x0103FFFF#32
+
+/-- **A write of `v` to FCSR**: the R/W fields take the value, the others ignore the write. -/
+def FCSRWrite (v : W32) : W32 := v &&& FCSRWritable
+
+/-- **FCSR as read**: the R/W fields, and `ABS2008` = `NAN2008` = 1 ("1 (Release 6)", Table 6.8,
+p.93-94). -/
+def FCSRRead (a : Arch) : W32 := (a.FCSR &&& FCSRWritable) ||| 0x000C0000#32
+-- END R6-5
 
 end Manual

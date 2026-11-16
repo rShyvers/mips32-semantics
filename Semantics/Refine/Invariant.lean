@@ -7,12 +7,10 @@ import Semantics.Refine.Defs
 /-!
 # Refine.Invariant — two more invariants of the reachable states (7D)
 
-* `FcsrReservedZero s`: FCSR bits 22..18 are 0. They are `Impl` (22..21: "If these bits are not
-  implemented, they must be ignored on write and read as zero"), bit 20 ("Reserved for future use;
-  reads as zero"), `ABS2008` (19) and `NAN2008` (18), which exist only "if FIRHas2008 is set"
-  (MD00082 Vol I-A Rev 6.01, Table 6.8, p.93-94); `FIR.Has2008 = 0` on this profile. Every write of
-  the model keeps them 0 (`fpUpdate` leaves them, `CTC1` masks them with
-  `fcsrWritableMask` or leaves them).
+* `FcsrReservedZero s`: the stored FCSR bits 31..25, 23..18 are 0 (`Refine/Defs.lean`: the Release 6
+  reserved FCC bits, `Impl`, bit 20, and the read-only `ABS2008`/`NAN2008`, which `Mips.Fp.readFCSR`
+  adds on read). Every write of the model keeps them 0 (`fpUpdate` leaves them, `CTC1` writes the
+  `writeControl` results, which mask them with `fcsrWritableMask` or leave them).
 * `StatusImplemented s`: `Status` holds only the bits this profile implements (`statusWriteMask`):
   `mtc0` masks its value, the exception entry sets `EXL`, `di`/`ei` clear/set `IE`, `eret` clears
   `EXL`/`ERL`, the Reset sets `BEV`/`ERL`, the boot convention writes `CU1`.
@@ -24,11 +22,12 @@ a `Kept` predicate, its lemmas for each result shape of `execInstr`, one `split`
 
 namespace Refine
 
-/-- The reserved FCSR bits 22..18. -/
-def fcsrReservedBits : W32 := 0x007C0000#32
+-- BEGIN R6-5
+/-- The FCSR bits that are not R/W on this profile: 31..25, 23..18 (`FcsrReservedZero`). -/
+def fcsrReservedBits : W32 := 0xFEFC0000#32
 
 /-- The FCSR property on a word. -/
-def RZ (x : W32) : Prop := x &&& 0x007C0000#32 = 0#32
+def RZ (x : W32) : Prop := x &&& 0xFEFC0000#32 = 0#32
 
 /-- The Status property on a word. -/
 def SI (x : W32) : Prop := x &&& statusWriteMask = x
@@ -36,28 +35,31 @@ def SI (x : W32) : Prop := x &&& statusWriteMask = x
 /-! ## Bits -/
 
 private theorem rbit : ∀ i : Fin 32,
-    (0x007C0000#32).getLsbD i.val = decide (18 ≤ i.val ∧ i.val < 23) := by decide
+    (0xFEFC0000#32).getLsbD i.val = decide (18 ≤ i.val ∧ i.val ≠ 24) := by decide
 
-/-- Two words with the same bits 22..18 agree on `RZ`. -/
-theorem rz_congr (x y : W32) (h : ∀ i, 18 ≤ i → i < 23 → x.getLsbD i = y.getLsbD i) :
+private theorem rcases13 (i : Nat) (h1 : 18 ≤ i) (h2 : i < 32) (h3 : i ≠ 24) :
+    i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 ∨ i = 23 ∨ i = 25 ∨ i = 26 ∨ i = 27 ∨ i = 28 ∨ i = 29 ∨ i = 30 ∨ i = 31 := by omega
+
+/-- Two words with the same bits 31..25, 23..18 agree on `RZ`. -/
+theorem rz_congr (x y : W32) (h : ∀ i, 18 ≤ i → i < 32 → i ≠ 24 → x.getLsbD i = y.getLsbD i) :
     RZ x ↔ RZ y := by
-  have key : x &&& 0x007C0000#32 = y &&& 0x007C0000#32 := by
+  have key : x &&& 0xFEFC0000#32 = y &&& 0xFEFC0000#32 := by
     apply BitVec.eq_of_getLsbD_eq; intro i hi
     simp only [BitVec.getLsbD_and, rbit ⟨i, hi⟩]
-    by_cases h1 : 18 ≤ i ∧ i < 23
-    · rw [h i h1.1 h1.2]
+    by_cases h1 : 18 ≤ i ∧ i ≠ 24
+    · rw [h i h1.1 hi h1.2]
     · simp [h1]
   unfold RZ; rw [key]
 
 theorem rz_fpUpdate (f : W32) (g : Mips.Fp.Flags) : RZ (Mips.Fp.fpUpdate f g).1 ↔ RZ f := by
-  apply rz_congr; intro i h1 h2
-  obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
+  apply rz_congr; intro i h1 h2 h3
+  rcases rcases13 i h1 h2 h3 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl
   all_goals
     unfold Mips.Fp.fpUpdate Mips.Fp.raiseFlags
     split <;> simp [Mips.Fp.fcsrCauseMask, BitVec.getLsbD_of_ge]
 
-private theorem rz_keep5 (f g : W32)
-    (h : ∀ i, 18 ≤ i → i < 23 → g.getLsbD i = f.getLsbD i) (hf : RZ f) : RZ g :=
+private theorem rz_keep (f g : W32)
+    (h : ∀ i, 18 ≤ i → i < 32 → i ≠ 24 → g.getLsbD i = f.getLsbD i) (hf : RZ f) : RZ g :=
   (rz_congr g f h).mpr hf
 
 theorem rz_writeControl (f v g : W32) (n : Nat) (h : Mips.Fp.writeControl f n v = some g)
@@ -65,19 +67,17 @@ theorem rz_writeControl (f v g : W32) (n : Nat) (h : Mips.Fp.writeControl f n v 
   unfold Mips.Fp.writeControl at h
   split at h <;> simp only [Option.some.injEq, reduceCtorEq] at h <;> subst h
   · exact hf
-  · refine rz_keep5 _ _ (fun i h1 h2 => ?_) hf
-    obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
-    all_goals simp [Mips.Fp.writeFCCR, Mips.Fp.fcsrFCCMask]
-  · refine rz_keep5 _ _ (fun i h1 h2 => ?_) hf
-    obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
+  · refine rz_keep _ _ (fun i h1 h2 h3 => ?_) hf
+    rcases rcases13 i h1 h2 h3 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl
     all_goals simp [Mips.Fp.writeFEXR, Mips.Fp.fcsrCauseMask, Mips.Fp.fcsrFlagsMask]
-  · refine rz_keep5 _ _ (fun i h1 h2 => ?_) hf
-    obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
+  · refine rz_keep _ _ (fun i h1 h2 h3 => ?_) hf
+    rcases rcases13 i h1 h2 h3 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl
     all_goals simp [Mips.Fp.writeFENR, Mips.Fp.fcsrEnablesMask, Mips.Fp.fcsrRMMask,
       Mips.Fp.fcsrFSMask]
   · unfold RZ Mips.Fp.writeFCSR Mips.Fp.fcsrWritableMask
-    rw [BitVec.and_assoc, show (0xFF83FFFF#32 &&& 0x007C0000#32) = 0#32 by decide,
+    rw [BitVec.and_assoc, show (0x0103FFFF#32 &&& 0xFEFC0000#32) = 0#32 by decide,
       BitVec.and_zero]
+-- END R6-5
 
 theorem si_or_exl (x : W32) : SI (x ||| statusExlMask) ↔ SI x := by
   unfold SI

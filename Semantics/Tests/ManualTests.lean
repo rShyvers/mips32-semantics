@@ -39,7 +39,9 @@ def specTime (s : State) : Option Arch := InstructionTime modelImpl modelOracle 
 
 /-- The fields the tests compare. -/
 def archKey (a : Arch) : List W32 :=
-  [a.PC, a.GPR 8, a.GPR 9, a.GPR 10, a.GPR 31, a.Cause, a.EPC, a.Status, a.Count, a.FCSR, a.FPR 0]
+  [a.PC, a.GPR 8, a.GPR 9, a.GPR 10, a.GPR 31, a.Cause, a.EPC, a.Status, a.Count, a.FCSR,
+   (a.FPR 0).extractLsb' 0 32, (a.FPR 0).extractLsb' 32 32, (a.FPR 4).extractLsb' 0 32,
+   (a.FPR 4).extractLsb' 32 32]
 
 /-- Spec and model agree on the compared fields. -/
 def agree (s : State) : Bool :=
@@ -71,13 +73,18 @@ def specExc (s : State) : Option W32 := (specTime s).map fun (a : Arch) => (a.Ca
 def fpState (instr : Instruction) (fprs : List (Fin 32 × W32)) (fcsr : W32 := 0#32) : State :=
   loadImage (prog1 instr) { setFpRegs regs0 fprs with fcsr := fcsr }
 
-/-- The spec's `FPR[i]` and `FCSR` after one instruction time. -/
-def specFp (s : State) (i : Fin 32) : Option (W32 × W32) := (specTime s).map fun a => (a.FPR i, a.FCSR)
+/-- The spec's 64-bit `FPR[i]` and `FCSR` after one instruction time. -/
+def specFp (s : State) (i : Fin 32) : Option (BitVec 64 × W32) :=
+  (specTime s).map fun a => (a.FPR i, a.FCSR)
 
--- (3) NEG.S / ABS.S of a QNaN with the sign set: reading A' (review r5).
-#guard specFp (fpState (.negS 4#32 2#32) [(2, 0xff800001#32)]) 4 = some (0x7f800001#32, 0x00010040#32)
-#guard specFp (fpState (.absS 4#32 2#32) [(2, 0xff800001#32)]) 4 = some (0x7f800001#32, 0x00010040#32)
+-- (3) NEG.S / ABS.S of a NaN with the sign set: Release 6 `ABS2008 = 1`, non-arithmetic (only the
+-- sign bit changes, FCSR not modified; MD00086 Vol II-A Rev 6.06, ABS.fmt p.32, NEG.fmt p.307). The
+-- upper half of `FPR[fd]` is kept (the `fprUpper` pin).
+#guard specFp (fpState (.negS 4#32 2#32) [(2, 0xff800001#32)]) 4 = some (0x7f800001#64, 0#32)
+#guard specFp (fpState (.absS 4#32 2#32) [(2, 0xff800001#32)] 0x00001004#32) 4 =
+  some (0x7f800001#64, 0x00001004#32)
 #guard agree (fpState (.negS 4#32 2#32) [(2, 0xff800001#32)])
+#guard agree (fpState (.absS 4#32 2#32) [(2, 0xff800001#32)] 0x00001004#32)
 -- (5) JALR.HB with `rd = 0` (the Release 6 JR.HB, JR p.207): the hint-16 word jumps; hint 1 is
 -- UNPREDICTABLE: RI.
 #guard agree (loadImage (prog1 (.jalrHb 8#32 0#32)) (setRegs regs0 [(8, 0x00400100#32)]))
@@ -127,14 +134,14 @@ def execAgree (i : Instruction) (s : State) : Bool :=
     | none => false
   | none => false
 
--- CTC1 to a control register that does not exist (`fs = 1`): no write, but the `CheckFPException()`
--- after the UNPREDICTABLE arm still runs (CTC1 p.150): an FCSR holding Cause.V with Enables.V traps
--- (ExcCode 15). Before 7C S4b the model did nothing.
+-- CTC1 to `UFR` (`fs = 1`): Release 6 traps with Reserved Instruction (ExcCode 10), FCSR unchanged
+-- (MD00086 Vol II-A Rev 6.06, CTC1 p.149-150: "Release 6 traps"; 7C S4b had the pre-Release 6
+-- `CheckFPException()` after the UNPREDICTABLE arm).
 #guard agree (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)
 #guard (match specTime (fpState (.ctc1 8#32 1#32) [] 0x00010800#32) with
-        | some a => (a.Cause >>> 2) &&& 0x1F#32 == 15#32 && a.EPC == textBase && a.FCSR == 0x00010800#32
+        | some a => (a.Cause >>> 2) &&& 0x1F#32 == 10#32 && a.EPC == textBase && a.FCSR == 0x00010800#32
         | none => false)
-#guard ((step (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)).cp0Cause >>> 2) &&& 0x1F#32 == 15#32
+#guard ((step (fpState (.ctc1 8#32 1#32) [] 0x00010800#32)).cp0Cause >>> 2) &&& 0x1F#32 == 10#32
 -- 7C S4b: end
 
 /-! ## Wave R6-1: the Release 6 instructions and encodings, little-endian memory -/
@@ -211,19 +218,37 @@ def execAgree (i : Instruction) (s : State) : Bool :=
         | some a => a.Mem 0x50010002#32 == 0x44 && a.Mem 0x50010003#32 == 0x33
         | none => false)
 #guard agree (loadImage (prog1 (.sb 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32), (9, 0xAB#32)]))
--- LDC1 / SDC1: the word at the effective address is the low word (`FPR[ft]`, LDC1 p.215).
+-- LDC1 / SDC1: the word at the effective address is the low word of the 64-bit `FPR[ft]` (LDC1 p.215).
 #guard (match specTime (loadImage (prog1 (.ldc1 8#32 2#32 0#32))
           (withWord (withWord (setRegs regs0 [(8, 0x10010000#32)]) 0x10010000#32 0x11111111#32)
             0x10010004#32 0x22222222#32)) with
-        | some a => a.FPR 2 == 0x11111111#32 && a.FPR 3 == 0x22222222#32
+        | some a => a.FPR 2 == 0x2222222211111111#64 && a.FPR 3 == 0#64
         | none => false)
 #guard agree (loadImage (prog1 (.ldc1 8#32 2#32 0#32))
   (withWord (withWord (setRegs regs0 [(8, 0x10010000#32)]) 0x10010000#32 0x11111111#32)
     0x10010004#32 0x22222222#32))
 #guard (match specTime (loadImage (prog1 (.sdc1 8#32 2#32 0#32))
-          (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(2, 0x11111111#32), (3, 0x22222222#32)])) with
+          (writeFpReg64 (setRegs regs0 [(8, 0x10010000#32)]) 2 0x2222222211111111#64)) with
         | some a => a.Mem 0x50010000#32 == 0x11 && a.Mem 0x50010004#32 == 0x22
         | none => false)
+-- BEGIN R6-5 (C): the 64-bit FPU against the spec: L conversions, MTHC1/MFHC1, CVT.D.S
+#guard agree (fpState (.cvtLS 4#32 2#32) [(2, 0x40200000#32)])
+#guard agree (fpState (.cvtLS 4#32 2#32) [(2, 0x7fc00000#32)])
+#guard agree (fpState (.truncLS 4#32 2#32) [(2, 0xc0200000#32)] 3#32)
+#guard agree (fpState (.floorLD 4#32 2#32) [(2, 0#32)])
+#guard agree (loadImage (prog1 (.cvtLD 4#32 2#32))
+  { writeFpReg64 regs0 2 0x43e0000000000000#64 with fcsr := 0#32 })
+#guard agree (loadImage (prog1 (.cvtDL 4#32 2#32))
+  { writeFpReg64 regs0 2 0x0020000000000001#64 with fcsr := 2#32 })
+#guard agree (loadImage (prog1 (.cvtSL 4#32 2#32))
+  { writeFpReg64 (writeFpReg64 regs0 2 0x7fffffffffffffff#64) 4 0xaaaaaaaa00000000#64 with fcsr := 0#32 })
+#guard specFp (loadImage (prog1 (.cvtLD 4#32 2#32)) (writeFpReg64 regs0 2 0x4004000000000000#64)) 4 =
+  some (2#64, 0x00001004#32)
+#guard agree (loadImage (prog1 (.mthc1 8#32 4#32)) (setRegs (writeFpReg64 regs0 4 0x11111111#64) [(8, 0xabcdef01#32)]))
+#guard agree (loadImage (prog1 (.mfhc1 8#32 4#32)) (writeFpReg64 regs0 4 0x0123456789abcdef#64))
+#guard agree (fpState (.cvtDS 4#32 2#32) [(2, 0x7f800001#32)])
+#guard agree (fpState (.addS 4#32 2#32 0#32) [(2, 0x7f800001#32), (0, 0x3f800000#32)])
+-- END R6-5 (C)
 -- Instruction fetch is little-endian too: the program word is fetched and decoded.
 #guard agree (loadImage (prog1 (.addiu 0#32 8#32 5#32)) regs0)
 -- Removed encodings (Release 6, "6R"/"6Rm", MD00086 Vol II-A Rev 6.06 Table A.1-A.2, p.451):

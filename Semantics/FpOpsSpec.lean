@@ -214,13 +214,14 @@ end Format
 
 The definitions below extend the rounding reference to the whole of each operation: special operands
 (NaN, ±∞, ±0), the conversions, `C.cond.fmt`, `ABS`/`NEG`, and the FCSR bookkeeping. They are written
-from MD00082 Vol I-A Rev 6.01 ch.6 (the FPU programming model, read with `FIR.Has2008 = 0`, the legacy
-NaN encoding) and the MD00086 Vol II-A Rev 6.06 instruction pages, **not** from `FpOps.lean`; where the
-manual leaves a choice, the definition either allows every choice (a relation) or names the pin.
-Operands are taken at their encoded values, never flushed: with FCSR.FS = 1, "Prior to Release 5, it
-is implementation-dependent whether subnormal operand values are flushed to zero" (§6.7.2.4, p.102;
-pin SPEC-NOTES §9 item 13). `Semantics/FpOpsCorrectSpecial.lean` … `FpOpsCorrectIEEE.lean` prove the
-model meets them. -/
+from MD00082 Vol I-A Rev 6.01 ch.6 (the FPU programming model, read for Release 6: `FIR.Has2008 = 1`,
+`FCSR.NAN2008 = ABS2008 = 1`, the IEEE 754-2008 NaN encoding) and the MD00086 Vol II-A Rev 6.06
+instruction pages, **not** from `FpOps.lean`; where the manual leaves a choice, the definition either
+allows every choice (a relation) or names the pin. The definitions below take each operand as the
+operation sees it: with FCSR.FS = 1 "every input subnormal value is replaced with zero of the same
+sign" (Table 6.8, `FS`, p.93, "As of Release 5"), which `FlushedIn` states and the statements about
+the model's operations apply to its operands. `Semantics/FpOpsCorrectSpecial.lean` …
+`FpOpsCorrectIEEE.lean` prove the model meets them. -/
 
 namespace Format
 
@@ -238,12 +239,13 @@ def fracOf (f : Format) (n : Nat) : Nat := n % 2 ^ f.fracBits
 /-- A NaN: unbiased exponent `E_max + 1` (biased exponent all ones), fraction `≠ 0` (Table 6.2). -/
 def IsNaN (f : Format) (n : Nat) : Prop := f.expOf n = 2 ^ f.expBits - 1 ∧ f.fracOf n ≠ 0
 
-/-- A signaling NaN with `FIR.Has2008 = 0`: a NaN whose high-order fraction bit `b1` is 1 (Table 6.2,
-p.80: "E_max + 1, ≠0, b1 = 1, SNaN, Signaling NaN (FIR.Has2008=0 or FCSR.NAN2008=0)"). -/
-def IsSNaN (f : Format) (n : Nat) : Prop := f.IsNaN n ∧ f.fracOf n / 2 ^ (f.fracBits - 1) = 1
+/-- A signaling NaN with `FCSR.NAN2008 = 1`: a NaN whose high-order fraction bit `b1` is 0 (Table 6.2,
+p.80: "E_max + 1, ≠0, b1 = 0, SNaN, Signaling NaN (FCSRNAN2008=1)"; the `FIR.Has2008 = 0` rows are "Not
+applicable to Release 6"). -/
+def IsSNaN (f : Format) (n : Nat) : Prop := f.IsNaN n ∧ f.fracOf n / 2 ^ (f.fracBits - 1) = 0
 
-/-- A quiet NaN with `FIR.Has2008 = 0`: a NaN with `b1 = 0` (Table 6.2, p.80). -/
-def IsQNaN (f : Format) (n : Nat) : Prop := f.IsNaN n ∧ f.fracOf n / 2 ^ (f.fracBits - 1) = 0
+/-- A quiet NaN with `FCSR.NAN2008 = 1`: a NaN with `b1 = 1` (Table 6.2, p.80). -/
+def IsQNaN (f : Format) (n : Nat) : Prop := f.IsNaN n ∧ f.fracOf n / 2 ^ (f.fracBits - 1) = 1
 
 instance (f : Format) (n : Nat) : Decidable (f.IsNaN n) := inferInstanceAs (Decidable (_ ∧ _))
 instance (f : Format) (n : Nat) : Decidable (f.IsSNaN n) := inferInstanceAs (Decidable (_ ∧ _))
@@ -256,10 +258,22 @@ def infBits (f : Format) (neg : Bool) : Nat :=
 /-- The encoding of `±0` (Table 6.2, p.81: `E_min - 1`, fraction 0, sign `s`). -/
 def zeroBits (f : Format) (neg : Bool) : Nat := if neg then 2 ^ (f.expBits + f.fracBits) else 0
 
-/-- **The new quiet NaN** (Table 6.3, p.82, "Value Supplied When a New Quiet NaN Is Created",
-`FIR.Has2008 = 0`): sign 0, biased exponent all ones, `b1 = 0` and every other fraction bit 1 —
-`0x7fbf ffff` (single), `0x7ff7 ffff ffff ffff` (double); `newQNaN_binary32/64` check the two values. -/
-def newQNaN (f : Format) : Nat := (2 ^ f.expBits - 1) * 2 ^ f.fracBits + (2 ^ (f.fracBits - 1) - 1)
+/-- **The new quiet NaN** (Table 6.3, p.82, "Value Supplied When a New Quiet NaN Is Created", column
+`FCSR.NAN2008 = 1`): sign 0, biased exponent all ones, `b1 = 1` and every other fraction bit 0 —
+`0x7fc0 0000` (single), `0x7ff8 0000 0000 0000` (double); `newQNaN_binary32/64` check the two values. -/
+def newQNaN (f : Format) : Nat := (2 ^ f.expBits - 1) * 2 ^ f.fracBits + 2 ^ (f.fracBits - 1)
+
+/-- **A NaN passed to the output** with `FCSR.NAN2008 = 1` (§6.3.1.5, p.82-83): "If the chosen input
+is a QNAN, the entire mantissa is passed to the output without change. If the chosen input is a SNAN,
+the only change is to set the leftmost/most-significant mantissa bit" — the encoding with `b1` set. -/
+def passedNaN (f : Format) (n : Nat) : Nat := n ||| 2 ^ (f.fracBits - 1)
+
+/-- **An input operand under FCSR.FS** (`fl`; MD00082 Vol I-A Rev 6.01 Table 6.8, `FS`, p.93): "When FS
+is one ... As of Release 5, every input subnormal value is replaced with zero of the same sign"; when
+FS is zero "Input subnormal values ... are not altered". A subnormal encoding is one with biased
+exponent 0 and fraction `≠ 0` (Table 6.2, p.80, "E_min -1, ≠0"). -/
+def FlushedIn (f : Format) (fl : Bool) (n : Nat) : Nat :=
+  if fl = true ∧ f.expOf n = 0 ∧ f.fracOf n ≠ 0 then f.zeroBits (f.signOf n) else n
 
 end Format
 
@@ -321,16 +335,18 @@ def RoundEnvSpec (f : Format) (e : Env) (c : Cut) (res : Nat × Flags) : Prop :=
 cause the Invalid Operation exception for arithmetic operations" (§6.3.1.4) and nothing else is
 signaled ("QNaN operands do not cause arithmetic operations to signal an exception", §6.3.1.5); the
 result is a quiet NaN ("An SNaN is never produced as a result value"; §6.7.2.1: "The result ... is a
-quiet NaN"); "When possible, this QNaN result is one of the operand QNaN values" — so it is an operand
-when some operand is a QNaN — and otherwise it is the new QNaN of Table 6.3. *Which* operand QNaN is
-not fixed by the manual: any is allowed here (the model's choice, the first in operand order, is the
-pin SPEC-NOTES §9 item 13, `nanResult_first`). -/
+quiet NaN"). It is a NaN operand passed to the output (`passedNaN`: "If a CPU implements passing an
+input NAN operand to the output ... and FCSRNAN2008=1", p.82-83) or the new QNaN of Table 6.3; "When
+possible, this QNaN result is one of the operand QNaN values", so it is a passed operand when some
+operand is a QNaN. *Which* operand is passed is not fixed by the manual: any is allowed here (the
+model's choice — the first signaling NaN, else the first quiet NaN, in operand order — is the pin
+SPEC-NOTES §9 item 13, `nanResult_first`, `nanResult_first_snan`). -/
 def NaNResult (f : Format) (ops : List Nat) (res : Nat × Flags) : Prop :=
   (res.2.invalid = true ↔ ∃ x ∈ ops, f.IsSNaN x) ∧
   res.2.divZero = false ∧ res.2.overflow = false ∧ res.2.underflow = false ∧ res.2.inexact = false ∧
   f.IsQNaN res.1 ∧
-  ((∃ x ∈ ops, f.IsQNaN x) → res.1 ∈ ops) ∧
-  ((∀ x ∈ ops, ¬ f.IsQNaN x) → res.1 = f.newQNaN)
+  (res.1 = f.newQNaN ∨ ∃ x ∈ ops, f.IsNaN x ∧ res.1 = f.passedNaN x) ∧
+  ((∃ x ∈ ops, f.IsQNaN x) → ∃ x ∈ ops, f.IsNaN x ∧ res.1 = f.passedNaN x)
 
 /-- The Invalid Operation default result: the new QNaN, Invalid only (§6.7.2.1, p.100; Table 6.3). -/
 def invalidResult (f : Format) : Nat × Flags := (f.newQNaN, { invalid := true })
@@ -419,34 +435,36 @@ def signChanged (f : Format) (clear : Bool) (a : Nat) : Nat :=
   if f.signOf a then a - 2 ^ (f.expBits + f.fracBits)
   else if clear then a else a + 2 ^ (f.expBits + f.fracBits)
 
-/-- **`ABS.fmt` (`clear = true`, MD00086 p.32) and `NEG.fmt` (p.307)** with `FIR.Has2008 = 0`: "this
-operation is arithmetic. For this case, any NaN operand signals invalid operation"; the value is
-obtained by "changing the sign bit". A signaling NaN gives the new QNaN (§6.3.1.4, p.81: "An SNaN is
-never produced as a result value"; Table 6.3). A quiet NaN: Invalid, and the delivered value is the
-operand with its sign bit changed — reading A′ (SPEC-NOTES §9 item 21; the manual does not say which
-QNaN an untrapped `ABS`/`NEG` of a QNaN delivers, §6.3.1.5 only that "When possible, this QNaN result
-is one of the operand QNaN values"). Otherwise: the sign bit changed, no exception. Note IEEE Std 754-2019
-§5.5.1, p.35, makes negate/abs quiet ("signal no exception", NaNs treated "alike"); with `FIR.Has2008 = 0` the
-MIPS pages say the operation "is arithmetic", and the model follows MIPS (SPEC-NOTES §9 item 21). -/
-def SignOpSpec (f : Format) (clear : Bool) (a : Nat) (res : Nat × Flags) : Prop :=
-  if f.IsSNaN a then res = f.invalidResult
-  else if f.IsQNaN a then res = (f.signChanged clear a, { invalid := true })
-  else res = (f.signChanged clear a, {})
+/-- **`ABS.fmt` (`clear = true`, MD00086 p.32) and `NEG.fmt` (p.307)** with `FCSR.ABS2008 = 1` (read-only
+1 in Release 6, MD00082 Vol I-A Rev 6.01 Table 6.8, p.93): "this operation is non-arithmetic. For this
+case, both regular floating point numbers and NAN values are treated alike, only the sign bit is
+affected by this instruction. No IEEE exception can be generated for this case": the operand with its
+sign bit changed, whatever it encodes. (IEEE Std 754-2019 §5.5.1, p.35, agrees: negate/abs are quiet
+operations that "signal no exception", NaNs treated "alike"; verified against 2019.) -/
+def SignOpSpec (f : Format) (clear : Bool) (a : Nat) (res : Nat) : Prop :=
+  res = f.signChanged clear a
 
 /-! ### Conversions -/
 
+/-- **The result of a format conversion of a NaN** `a`: a quiet NaN of the destination format
+(§6.3.1.4, p.81: "An SNaN is never produced as a result value"; §6.3.1.5, p.82: "information contained
+in a QNaN to be preserved through ... floating-point format conversions"; which QNaN is not fixed —
+the model keeps the sign and the leading fraction bits and sets `b1`, pin SPEC-NOTES §9 item 22,
+`Oracle.cvtQNaNToD/ToS`), with Invalid exactly for a signaling NaN (§6.3.1.4: "SNaN operands cause the
+Invalid Operation exception for arithmetic operations"; §6.3.1.5: "QNaN operands do not cause
+arithmetic operations to signal an exception") and no other exception. -/
+def ConvertNaNSpec (src dst : Format) (a : Nat) (res : Nat × Flags) : Prop :=
+  dst.IsQNaN res.1 ∧ res.2 = (if src.IsSNaN a then { invalid := true } else {})
+
 /-- **`ConvertFmt` between floating-point formats** (`CVT.S.D`, MD00086 p.159: "converted ... and
-rounded according to the current rounding mode in FCSR"; `CVT.D.S`, p.153). A signaling NaN: Invalid,
-the new QNaN (§6.3.1.4, §6.7.2.1). A quiet NaN: a quiet NaN of the destination format, no exception
-(§6.3.1.5, p.82: "information contained in a QNaN to be preserved through ... floating-point format
-conversions"; which QNaN is not fixed — the model keeps the sign and the leading fraction bits, pin
-SPEC-NOTES §9 item 22, `Oracle.cvtQNaNToD/ToS`). `±∞`: `±∞`. `±0`: `±0`. Otherwise `RoundEnvSpec` of the
-value. (IEEE Std 754-2019 §5.4.2, p.34: a conversion to a narrower precision "shall be rounded as specified
-in Clause 4", to a wider one "is always exact"; §6.2.3, p.49: a quiet NaN converted wider and back "should
-not change the quiet NaN payload in any way except to make it canonical".) -/
+rounded according to the current rounding mode in FCSR"; `CVT.D.S`, p.153). A NaN: `ConvertNaNSpec`.
+`±∞`: `±∞`. `±0`: `±0`. Otherwise `RoundEnvSpec` of the value. (IEEE Std 754-2019 §5.4.2, p.34: a
+conversion to a narrower precision "shall be rounded as specified in Clause 4", to a wider one "is
+always exact"; §6.2.3, p.49: a quiet NaN converted wider and back "should not change the quiet NaN
+payload in any way except to make it canonical".) -/
 def ConvertSpec (src dst : Format) (e : Env) (a : Nat) (res : Nat × Flags) : Prop :=
   match src.datum a with
-  | .nan => (src.IsSNaN a → res = dst.invalidResult) ∧ (src.IsQNaN a → dst.IsQNaN res.1 ∧ res.2 = {})
+  | .nan => ConvertNaNSpec src dst a res
   | .inf s => res = (dst.infBits s, {})
   | .num s x => if x = 0 then res = (dst.zeroBits s, {}) else dst.RoundEnvSpec e (Cut.ofRat x) res
 
@@ -458,11 +476,11 @@ def ExactSpec (f : Format) (s : Bool) (x : Rat) (res : Nat × Flags) : Prop :=
 /-- **`CVT.D.S`** (MD00086 p.153): as `ConvertSpec`, the finite case exact (`ExactSpec`). -/
 def WidenSpec (src dst : Format) (a : Nat) (res : Nat × Flags) : Prop :=
   match src.datum a with
-  | .nan => (src.IsSNaN a → res = dst.invalidResult) ∧ (src.IsQNaN a → dst.IsQNaN res.1 ∧ res.2 = {})
+  | .nan => ConvertNaNSpec src dst a res
   | .inf s => res = (dst.infBits s, {})
   | .num s x => dst.ExactSpec s x res
 
-/-- **`CVT.S.W` / `CVT.D.W` of the word integer `i`** (MD00086 p.159, p.153): `0` gives `+0` (the
+/-- **`CVT.S.W` / `CVT.D.W` / `CVT.S.L` / `CVT.D.L` of the integer `i`** (MD00086 p.159, p.153): `0` gives `+0` (the
 manual does not give the sign; IEEE Std 754-2019 §5.4.1, p.33: "Integer zeros without signs are converted to
 +0", verified against 2019; pin SPEC-NOTES §9 item 30), otherwise `RoundEnvSpec` of `i`. -/
 def FromIntSpec (f : Format) (e : Env) (i : Int) (res : Nat × Flags) : Prop :=
@@ -478,23 +496,36 @@ def IsEvenInt (y : Rat) : Prop := ∃ i : Int, y = 2 * i
 
 namespace Format
 
-/-- **`ConvertFmt(fs, fmt, W)` rounding in mode `rm`** (`CVT.W.fmt` with FCSR.RM, MD00086 p.160;
-`ROUND.W.fmt` mode 0, p.342; `TRUNC.W.fmt` mode 1, p.441; `CEIL.W.fmt` mode 2, p.128; `FLOOR.W.fmt`
-mode 3, p.186): "When the source value is Infinity, NaN, or rounds to an integer outside the range
--2^31 to 2^31-1, the result cannot be represented correctly, an IEEE Invalid Operation condition
-exists"; the default result with `FCSR.NAN2008 = 0` is `2^31–1` (ROUND/TRUNC/CEIL/FLOOR.W pages and
-Table 6.3, p.82: `0x7fff ffff`; the CVT.W.fmt page prints "2^63–1", a misprint for a word result,
-SPEC-NOTES). Only Invalid is signaled then (§6.7.2, p.99: only Inexact with Overflow or Underflow can
-occur together). Otherwise the result is `x` rounded to an integer `i` in direction `rm` (Table 6.10,
-p.95, over the integers), as a two's complement word, with Inexact iff `i ≠ x` (§6.7.2.6). -/
-def ToWordSpec (f : Format) (rm : RoundingMode) (a : Nat) (res : BitVec 32 × Flags) : Prop :=
+/-- **`ConvertFmt(fs, fmt, W)` / `ConvertFmt(fs, fmt, L)` rounding in mode `rm`**, to a `w`-bit fixed
+point integer (`w` = 32 for W, 64 for L): `CVT.W.fmt`/`CVT.L.fmt` with FCSR.RM (MD00086 p.160, p.154);
+`ROUND` mode 0 (p.342, p.341), `TRUNC` mode 1 (p.441, p.440), `CEIL` mode 2 (p.128, p.127), `FLOOR`
+mode 3 (p.186, p.185): "When the source value is Infinity, NaN, or rounds to an integer outside the
+range -2^31 to 2^31-1, the result cannot be represented correctly, an IEEE Invalid Operation condition
+exists" (`-2^63` to `2^63-1` for L). The default result with `FCSR.NAN2008 = 1` (MD00082 Vol I-A Rev
+6.01 §6.3.1.5, Table 6.3, p.82): "result from converting any FP NAN" `0`; "any FP number too big to
+represent as a 32-bit positive integer" `2^31-1`; "too small to represent as a 32-bit negative integer"
+`-2^31` (the longword rows: `2^63-1`, `0`, `-2^63`); `+∞` is too big, `-∞` too small. Only Invalid is
+signaled then (§6.7.2, p.99: only Inexact with Overflow or Underflow can occur together). Otherwise the
+result is `x` rounded to an integer `i` in direction `rm` (Table 6.10, p.95, over the integers), as a
+two's complement integer, with Inexact iff `i ≠ x` (§6.7.2.6). -/
+def ToFixedSpec (f : Format) (w : Nat) (rm : RoundingMode) (a : Nat) (res : BitVec w × Flags) : Prop :=
   match f.datum a with
-  | .nan => res = (0x7FFFFFFF#32, { invalid := true })
-  | .inf _ => res = (0x7FFFFFFF#32, { invalid := true })
+  | .nan => res = (0#w, { invalid := true })
+  | .inf s => res = (if s then BitVec.ofInt w (-2 ^ (w - 1)) else BitVec.ofInt w (2 ^ (w - 1) - 1),
+      { invalid := true })
   | .num _ x => ∃ i : Int, CorrectlyRounded IsInt IsEvenInt rm (Cut.ofRat x) (i : Rat) ∧
-      (-2 ^ 31 ≤ i ∧ i ≤ 2 ^ 31 - 1 →
+      (-2 ^ (w - 1) ≤ i ∧ i ≤ 2 ^ (w - 1) - 1 →
         res.1.toInt = i ∧ res.2 = (if (i : Rat) = x then {} else { inexact := true })) ∧
-      (¬ (-2 ^ 31 ≤ i ∧ i ≤ 2 ^ 31 - 1) → res = (0x7FFFFFFF#32, { invalid := true }))
+      (i < -2 ^ (w - 1) → res = (BitVec.ofInt w (-2 ^ (w - 1)), { invalid := true })) ∧
+      (2 ^ (w - 1) - 1 < i → res = (BitVec.ofInt w (2 ^ (w - 1) - 1), { invalid := true }))
+
+/-- `ToFixedSpec` for a word (`CVT/ROUND/TRUNC/CEIL/FLOOR.W.fmt`). -/
+def ToWordSpec (f : Format) (rm : RoundingMode) (a : Nat) (res : BitVec 32 × Flags) : Prop :=
+  f.ToFixedSpec 32 rm a res
+
+/-- `ToFixedSpec` for a longword (`CVT/ROUND/TRUNC/CEIL/FLOOR.L.fmt`). -/
+def ToLongSpec (f : Format) (rm : RoundingMode) (a : Nat) (res : BitVec 64 × Flags) : Prop :=
+  f.ToFixedSpec 64 rm a res
 
 /-! ### `C.cond.fmt` (MD00086 Vol II-A Rev 6.06, p.110-113) -/
 

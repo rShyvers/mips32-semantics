@@ -8,7 +8,7 @@ check (word: `vAddr1..0`, doubleword: `vAddr2..0`; an Address Error with `BadVAd
 address check and Fixed Mapping translation (`Refine/Fetch.lean`), then the memory elements. The
 doubleword pages access the word at `pAddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)` first,
 which is `pAddr` on this little-endian profile (`endian_xor`): the least-significant word
-(`FPR[ft]`) is at the effective address, the most-significant one (`FPR[ft+1]`) at `+ 4`, as in the
+(`FPR[ft]` bits 31..0) is at the effective address, the most-significant one (bits 63..32) at `+ 4`, as in the
 model (`profile.bigEndianMem = false`).
 -/
 
@@ -73,8 +73,8 @@ macro "ld_fp_tail" s:ident va:ident hfsz:ident : tactic => `(tactic| (
       rw [gep_adel]
     · simp only [↓reduceIte, Option.map_some, Pseudo.get, endian_xor, BitVec.xor_zero,
         xor4_eq _ hpa, loadMemory_model, storeFPR64_model, abs_Mem]
-      rw [writeFpReg2_eq, abs_mkNext_writeFpD _ _ _ $hfsz]
-      simp only [complete_plain, append_lo, append_hi]
+      rw [abs_mkNext_writeFpD _ _ _ $hfsz]
+      simp only [complete_plain]
       rfl
   · have hm : (bits $va 2 0 != 0#3) = true := by rw [misaligned8_eq]; simp [hal]
     simp only [hm, ↓reduceIte, SignalException, hal, ne_eq, not_false_eq_true]
@@ -102,8 +102,7 @@ macro "sd_fp_tail" s:ident va:ident : tactic => `(tactic| (
         StoreMemory, bind, Pseudo.oracle, Pseudo.modify, abs_Mem, hst, bits,
         Nat.reduceAdd, Nat.reduceSub, append_lo, append_hi,
         storeWord_ins4 _ _ _ (aligned4_add4 hpa), storeWord_ins4 _ _ _ (aligned4_of_8 hpa)]
-      rw [regIdx_succ, complete_plain, mkNext, abs_advance _ _ (by rfl)]
-      simp only [regIdx_eq_reg, ite_true, abs_FPR]
+      rw [complete_plain, mkNext, abs_advance _ _ (by rfl), readFpD_abs]
       rfl
   · have hm : (bits $va 2 0 != 0#3) = true := by rw [misaligned8_eq]; simp [hal]
     simp only [hm, ↓reduceIte, SignalException, hal, ne_eq, not_false_eq_true]
@@ -149,7 +148,7 @@ theorem swc1_refines (s : State) (hg : Good s) (base ft off w : W32)
   generalize readReg s (regIdx base) + signExt16 off = va
   sw_fp_tail s va
 
-/-- **LDC1 refines** (odd `ft`: `Oracle.fprOddWrite`, the model's pair `ft`, `ft + 1`). -/
+/-- **LDC1 refines** (one 64-bit FPR, `Status.FR = 1`). -/
 theorem ldc1_refines (s : State) (hg : Good s) (base ft off w : W32)
     (hw : enc (.ldc1 base ft off) = some w) :
     Execute modelCtx w (.ldc1 base ft off) (abs s) = some (abs (execInstr s (.ldc1 base ft off))) := by
@@ -165,8 +164,7 @@ theorem ldc1_refines (s : State) (hg : Good s) (base ft off w : W32)
       else
       match readMemWord s (readReg s (regIdx base) + signExt16 off),
           readMemWord s (readReg s (regIdx base) + signExt16 off + 4#32) with
-      | some lo, some hi =>
-        mkNext s (writeFpReg (writeFpReg s (regIdx ft) lo) (regIdx (ft + 1#32)) hi)
+      | some lo, some hi => mkNext s (writeFpD s ft (hi ++ lo))
       | _, _ => takeAddressException s excCodeAdEL (readReg s (regIdx base) + signExt16 off)) := rfl
   rw [hb]
   simp only [Pseudo.run, Ops.LDC1, bind, GPR, readGPR_abs s h0, ← regIdx_eq_reg, offset16]
@@ -174,7 +172,7 @@ theorem ldc1_refines (s : State) (hg : Good s) (base ft off w : W32)
   generalize readReg s (regIdx base) + signExt16 off = va
   ld_fp_tail s va hfsz
 
-/-- **SDC1 refines** (odd `ft`: `Oracle.fprOddRead`). -/
+/-- **SDC1 refines** (one 64-bit FPR, `Status.FR = 1`). -/
 theorem sdc1_refines (s : State) (hg : Good s) (base ft off w : W32)
     (hw : enc (.sdc1 base ft off) = some w) :
     Execute modelCtx w (.sdc1 base ft off) (abs s) = some (abs (execInstr s (.sdc1 base ft off))) := by
@@ -189,11 +187,11 @@ theorem sdc1_refines (s : State) (hg : Good s) (base ft off w : W32)
         takeAddressException s excCodeAdES (readReg s (regIdx base) + signExt16 off)
       else
       match writeMemWord s (readReg s (regIdx base) + signExt16 off)
-          (readFpReg s (regIdx ft)) with
+          ((readFpD s ft).extractLsb' 0 32) with
       | none => takeAddressException s excCodeAdES (readReg s (regIdx base) + signExt16 off)
       | some s' =>
         match writeMemWord s' (readReg s (regIdx base) + signExt16 off + 4#32)
-            (readFpReg s (regIdx (ft + 1#32))) with
+            ((readFpD s ft).extractLsb' 32 32) with
         | none => takeAddressException s excCodeAdES (readReg s (regIdx base) + signExt16 off)
         | some s'' => mkNext s { s'' with llBit := false }) := rfl
   rw [hb]

@@ -31,7 +31,7 @@ This is *not* the reset state: `Step.lean`'s `resetState` is `resetException pow
 def powerOnState : State :=
   { pc := 0#32
     regs := Array.replicate 32 (0#32)
-    fpRegs := Array.replicate 32 (0#32)
+    fpRegs := Array.replicate 32 (0#64)
     fcsr := 0#32
     physMem := ∅
     pendingBranch := none
@@ -66,7 +66,7 @@ def powerOnState : State :=
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
-all 32 FP registers (`fpRegs`) are `0`; memory is empty
+all 32 64-bit FP registers (`fpRegs`) are `0`; memory is empty
 (the loader, `Semantics/Env.lean`'s `load`, then writes the program image into it);
 `llBit` is `false` (no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot).
 
@@ -78,16 +78,17 @@ equals `initialState textBase` (`Specs/Reset.lean`, `hostedStart_is_reset_then_b
 * `Status = 0x2000_0000`: only `CU1` set (Kernel Mode, `BEV = ERL = 0`), so programs can use
   the FPU (clear it with `mtc0` to get Coprocessor Unusable exceptions). Reset sets `BEV` and
   `ERL`; the boot convention clears them.
-* `FCSR = 0`: round to nearest, no exception enabled, flags and cause clear,
-  all eight condition codes 0, `FS = 0`. The manual makes every FCSR field's
-  reset state "Undefined" (MD00082 Vol I-A Rev 6.01 Table 6.8, p.92-95).
+* `FCSR` writable fields 0: round to nearest, no exception enabled, flags and cause
+  clear, `FS = 0` (`ABS2008 = NAN2008 = 1` are read-only). The manual makes every
+  writable FCSR field's reset state "Undefined" (MD00082 Vol I-A Rev 6.01 Table 6.8,
+  p.92-95).
 * `Cause`, `EPC`, `BadVAddr`, `ErrorEPC`, `Count`, `Compare`, `HWREna` are `0` and no timer
   interrupt is pending; `EBase` holds its reset
   value `0x8000_0000` (MD00090 Vol III Rev 6.02 §9.41, p.223). -/
 def initialState (pc : W32) : State :=
   { pc := pc
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
-    fpRegs := Array.replicate 32 (0#32)
+    fpRegs := Array.replicate 32 (0#64)
     fcsr := 0#32
     physMem := ∅
     pendingBranch := none
@@ -120,19 +121,36 @@ register `0` are silently ignored and the state is returned unchanged. -/
 def writeReg (s : State) (i : Fin 32) (v : W32) : State :=
   if i == 0 then s else { s with regs := s.regs.set! i.val v }
 
-/-- Read coprocessor-1 (FPU) register `i`, as its raw 32-bit bit pattern (no
-conversion to `Float32` — see `Types.lean`'s `fpRegs` docstring for the
-storage convention). Out-of-range indices, which should not occur for
+-- BEGIN R6-5
+/-- Read coprocessor-1 (FPU) register `i` as its whole raw 64-bit pattern (a double, a longword, or
+an uninterpreted doubleword; `ValueFPR(fpr, D/L)` with `FR = 1`, MD00086 Vol II-A Rev 6.06,
+Figure 2.22, p.22: "valueFPR ← FPR[fpr]"). Out-of-range indices, which should not occur for
 `Fin 32`, default to `0`, matching `readReg`. -/
-def readFpReg (s : State) (i : Fin 32) : W32 :=
-  s.fpRegs.getD i.val 0#32
+def readFpReg64 (s : State) (i : Fin 32) : BitVec 64 :=
+  s.fpRegs.getD i.val 0#64
 
-/-- Write `v` (a raw 32-bit bit pattern) into FPU register `i`, returning the
-updated state. Unlike `writeReg`, there is no hardwired-zero FP register in
-MIPS32 — `$f0` is an ordinary read/write register — so this never ignores
-the write. -/
-def writeFpReg (s : State) (i : Fin 32) (v : W32) : State :=
+/-- Read coprocessor-1 (FPU) register `i` as a 32-bit pattern: its low 32 bits (a single, a word, or
+an uninterpreted word; `ValueFPR(fpr, S/W)`, Figure 2.22, p.22). -/
+def readFpReg (s : State) (i : Fin 32) : W32 :=
+  (readFpReg64 s i).extractLsb' 0 32
+
+/-- Write the 64-bit pattern `v` into FPU register `i` (`StoreFPR(fpr, D/L, value)` with `FR = 1`,
+Figure 2.23, p.23: "FPR[fpr] ← value"). There is no hardwired-zero FP register. -/
+def writeFpReg64 (s : State) (i : Fin 32) (v : BitVec 64) : State :=
   { s with fpRegs := s.fpRegs.set! i.val v }
+
+/-- Write the 32-bit pattern `v` into the low 32 bits of FPU register `i` (`StoreFPR(fpr, S/W,
+value)`, Figure 2.23, p.22-23). The upper 32 bits are UNPREDICTABLE ("Any FPU instruction that
+writes a 32-bit result (S or W format) to the low 32-bits of a 64-bit FPR leaves the upper bits of
+the FPR UNPREDICTABLE. This includes ... LWC1, ... MTC1, as well as any instruction that computes a 32
+bit result", MD00082 Vol I-A Rev 6.01 §6.6.2, p.98); the model keeps them unchanged (pin,
+`Manual.Oracle.fprUpper`; what QEMU `mips32r6-generic` does). -/
+def writeFpReg (s : State) (i : Fin 32) (v : W32) : State :=
+  writeFpReg64 s i ((readFpReg64 s i).extractLsb' 32 32 ++ v)
+
+/-- `Status` as software reads it: the stored bits and the read-only `FR = 1` (`statusFrMask`). -/
+def statusValue (s : State) : W32 := s.cp0Status ||| statusFrMask
+-- END R6-5
 
 /-! ## Operating mode -/
 

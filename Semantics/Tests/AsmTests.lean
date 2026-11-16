@@ -184,7 +184,11 @@ def r6Lines : List String :=
    "jr.hb $t1",
    "nop",
    "ssnop",
-   "ehb"]
+   "ehb",
+   -- R6-5 (C): longword conversions
+   "cvt.l.s $f0, $f2", "cvt.l.d $f0, $f2", "round.l.s $f0, $f2", "round.l.d $f0, $f2",
+   "trunc.l.s $f0, $f2", "trunc.l.d $f0, $f2", "ceil.l.s $f0, $f2", "ceil.l.d $f0, $f2",
+   "floor.l.s $f0, $f2", "floor.l.d $f0, $f2", "cvt.s.l $f0, $f2", "cvt.d.l $f0, $f2"]
 
 /-- LLVM's words for `r6Lines` (see the module docstring). -/
 def r6Words : List W32 :=
@@ -209,7 +213,10 @@ def r6Words : List W32 :=
    0x46241000#32, 0x46241001#32, 0x46241002#32, 0x46241003#32, 0x46201004#32, 0x46201005#32,
    0x46201006#32, 0x46201007#32, 0x46201015#32, 0x46201016#32, 0x4620100c#32, 0x4620100d#32,
    0x4620100e#32, 0x4620100f#32, 0x46201024#32, 0x46201020#32, 0x01200009#32, 0x01200409#32,
-   0x00000000#32, 0x00000040#32, 0x000000c0#32]
+   0x00000000#32, 0x00000040#32, 0x000000c0#32,
+   -- R6-5 (C): `llvm-mc-21 -triple=mips -mcpu=mips32r6 -show-encoding`
+   0x46001025#32, 0x46201025#32, 0x46001008#32, 0x46201008#32, 0x46001009#32, 0x46201009#32,
+   0x4600100a#32, 0x4620100a#32, 0x4600100b#32, 0x4620100b#32, 0x46a01020#32, 0x46a01021#32]
 
 #guard r6Lines.length = r6Words.length
 #guard asmText (srcLines r6Lines) = some r6Words
@@ -762,6 +769,30 @@ def ktextSrc : String := srcLines
   = some [encode (.recipS 2#32 4#32), encode (.recipD 2#32 4#32), encode (.rsqrtS 2#32 4#32),
           encode (.rsqrtD 2#32 4#32), encode (.roundWD 2#32 4#32), encode (.truncWD 2#32 4#32),
           encode (.ceilWD 2#32 4#32), encode (.floorWD 2#32 4#32)]
+-- BEGIN R6-5 (C): longword conversions (COP1 rFormat; fmt S = 0x10, D = 0x11, L = 0x15; functs
+-- ROUND.L 0x08, TRUNC.L 0x09, CEIL.L 0x0a, FLOOR.L 0x0b, CVT.L 0x25, CVT.S 0x20, CVT.D 0x21). The
+-- literal words are what `llvm-mc-21 -triple=mipsel -mcpu=mips32r6 -show-encoding` prints.
+#guard asmText "cvt.l.s $f2, $f4\n" = some [0x460020a5#32]
+#guard asmText "cvt.l.d $f2, $f4\n" = some [0x462020a5#32]
+#guard asmText "round.l.s $f2, $f4\n" = some [0x46002088#32]
+#guard asmText "round.l.d $f2, $f4\n" = some [0x46202088#32]
+#guard asmText "trunc.l.s $f2, $f4\n" = some [0x46002089#32]
+#guard asmText "trunc.l.d $f2, $f4\n" = some [0x46202089#32]
+#guard asmText "ceil.l.s $f2, $f4\n" = some [0x4600208a#32]
+#guard asmText "ceil.l.d $f2, $f4\n" = some [0x4620208a#32]
+#guard asmText "floor.l.s $f2, $f4\n" = some [0x4600208b#32]
+#guard asmText "floor.l.d $f2, $f4\n" = some [0x4620208b#32]
+#guard asmText "cvt.s.l $f2, $f4\n" = some [0x46a020a0#32]
+#guard asmText "cvt.d.l $f2, $f4\n" = some [0x46a020a1#32]
+#guard asmText (srcLines ["cvt.l.s $f2, $f4", "cvt.l.d $f2, $f4", "round.l.s $f2, $f4",
+    "round.l.d $f2, $f4", "trunc.l.s $f2, $f4", "trunc.l.d $f2, $f4", "ceil.l.s $f2, $f4",
+    "ceil.l.d $f2, $f4", "floor.l.s $f2, $f4", "floor.l.d $f2, $f4", "cvt.s.l $f2, $f4",
+    "cvt.d.l $f2, $f4"])
+  = some [encode (.cvtLS 2#32 4#32), encode (.cvtLD 2#32 4#32), encode (.roundLS 2#32 4#32),
+          encode (.roundLD 2#32 4#32), encode (.truncLS 2#32 4#32), encode (.truncLD 2#32 4#32),
+          encode (.ceilLS 2#32 4#32), encode (.ceilLD 2#32 4#32), encode (.floorLS 2#32 4#32),
+          encode (.floorLD 2#32 4#32), encode (.cvtSL 2#32 4#32), encode (.cvtDL 2#32 4#32)]
+-- END R6-5 (C)
 -- di / ei
 #guard asmText "di\ndi $t1\nei\nei $t0\n"
   = some [encode (.di 0#32), encode (.di 9#32), encode (.ei 0#32), encode (.ei 8#32)]

@@ -1,8 +1,10 @@
 # round/trunc/ceil/floor.w.s and .w.d use their own rounding direction whatever
-# FCSR.RM is; NaN, infinities and out-of-range values (either sign) convert to
-# 0x7fffffff with Invalid Operation (FCSR 0x00010040 = 65600).
-# MD00082 Vol I-A Rev 6.01 Table 6.3 (p.82); MD00086 Vol II-A Rev 6.06 ROUND.W.fmt (p.342).
-# Expected output: "2 2 3 2 -2 -2 -2 -3 4 3 4 3 2147483647 2147483647 2147483647 2147483647 2147483647 65600 2 2 3 2 "
+# FCSR.RM is; with FCSR.NAN2008 = 1 (Release 6) a NaN converts to 0, +inf and values too big to
+# 0x7fffffff, -inf and values too small to 0x80000000, with Invalid Operation (FCSR 0x000d0040 =
+# 852032: Cause V, Flags V and the read-only ABS2008/NAN2008 bits).
+# MD00082 Vol I-A Rev 6.01 Table 6.3 (p.82), Table 6.8 (p.93-94); MD00086 Vol II-A Rev 6.06
+# ROUND.W.fmt (p.342).
+# Expected output: "2 2 3 2 -2 -2 -2 -3 4 3 4 3 0 2147483647 -2147483648 2147483647 -2147483648 852032 2 2 3 2 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .text
@@ -66,7 +68,7 @@ main:
         ctc1  $zero, $31
         li    $t0, 0x7fbfffff
         mtc1  $t0, $f4
-        cvt.w.s $f2, $f4          # QNaN: invalid -> 0x7fffffff
+        cvt.w.s $f2, $f4          # SNaN: invalid -> 0
         mfc1  $a0, $f2
         jal   pint
         nop
@@ -78,7 +80,7 @@ main:
         nop
         li    $t0, 0xff800000
         mtc1  $t0, $f4
-        cvt.w.s $f2, $f4          # -inf: invalid -> 0x7fffffff
+        cvt.w.s $f2, $f4          # -inf: invalid -> 0x80000000
         mfc1  $a0, $f2
         jal   pint
         nop
@@ -90,7 +92,7 @@ main:
         nop
         li    $t0, 0xdf000000
         mtc1  $t0, $f4
-        cvt.w.s $f2, $f4          # -2^63: invalid -> 0x7fffffff
+        cvt.w.s $f2, $f4          # -2^63: invalid -> 0x80000000
         mfc1  $a0, $f2
         jal   pint
         nop
@@ -98,7 +100,7 @@ main:
         jal   pint
         nop
         ctc1  $zero, $31
-        li    $t0, 0x40040000     # 2.5 as a double: low word 0, high word via mthc1 (FR = 0: $f5; FR = 1: the upper half of $f4)
+        li    $t0, 0x40040000     # 2.5 as a double: low word 0, high word via mthc1 (Status.FR = 1: the upper half of $f4)
         mtc1  $zero, $f4
         mthc1 $t0, $f4
         round.w.d $f2, $f4

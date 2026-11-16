@@ -102,8 +102,8 @@ StatusIE ← 0
 `Manual.Ops.Cp0`). -/
 def DI (rt : W32) : Pseudo Unit := do
   let a ← Pseudo.get
-  -- data ← Status
-  let data := a.Status
+  -- data ← Status (as read: `StatusRead`, `FR` reads 1; R6-5)
+  let data := StatusRead a
   -- GPR[rt] ← data
   setGPR (reg rt) data
   -- StatusIE ← 0
@@ -119,8 +119,8 @@ StatusIE ← 1
 (`sc = 1` of the page's general Operation.) -/
 def EI (rt : W32) : Pseudo Unit := do
   let a ← Pseudo.get
-  -- data ← Status
-  let data := a.Status
+  -- data ← Status (as read: `StatusRead`, `FR` reads 1; R6-5)
+  let data := StatusRead a
   -- GPR[rt] ← data
   setGPR (reg rt) data
   -- StatusIE ← 1

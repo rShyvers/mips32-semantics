@@ -10,8 +10,8 @@ is made for the whole COP1 encoding space before the Operation runs (MD00090 Vol
 §6.2.22, p.100; `Manual.Cycle`). Every arithmetic result goes through `FPResult` (FCSR Cause,
 `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99). The paired-single format `PS`
 is not part of the profile (UNPREDICTABLE with `FR = 0`, SPEC-NOTES §9 item 13).
--- W5: transcribed for the pre-Release 6 FPU (`FR = 0`, `FIR.Has2008 = 0`, legacy NaN, arithmetic
--- ABS/NEG); Release 6 requires `FR = 1` and IEEE 754-2008 NaN handling.
+Transcribed for the Release 6 FPU of this profile (`FR = 1`, `FCSR.NAN2008 = ABS2008 = 1`: `ABS`
+and `NEG` are non-arithmetic, ABS.fmt p.32, NEG.fmt p.307).
 -/
 
 namespace Manual.Ops
@@ -176,12 +176,11 @@ StoreFPR(fd, fmt, AbsoluteValue(ValueFPR(fs, fmt)))
 def ABS_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32),
-  -- a QNaN operand per `Oracle.absNegNaN`
-  let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.absS o.absNegNaN x)
+  -- AbsoluteValue(ValueFPR(fs, fmt)); with FCSR.ABS2008 = 1 the operation is non-arithmetic (p.32):
+  -- "No IEEE exception can be generated for this case, and the FCSRCause and FCSRFlags fields are
+  -- not modified" (no `FPResult`)
   -- StoreFPR (fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) (IEEE.absS x)
 
 /-- **ABS.D fd, fs** — MD00086 Vol II-A Rev 6.06, ABS.fmt, p.32 (fmt = D).
 ```
@@ -191,12 +190,11 @@ StoreFPR(fd, fmt, AbsoluteValue(ValueFPR(fs, fmt)))
 def ABS_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- AbsoluteValue(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.32),
-  -- a QNaN operand per `Oracle.absNegNaN`
-  let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.absD o.absNegNaN x)
+  -- AbsoluteValue(ValueFPR(fs, fmt)); with FCSR.ABS2008 = 1 the operation is non-arithmetic (p.32):
+  -- "No IEEE exception can be generated for this case, and the FCSRCause and FCSRFlags fields are
+  -- not modified" (no `FPResult`)
   -- StoreFPR (fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) (IEEE.absD x)
 
 /-- **NEG.S fd, fs** — MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307 (fmt = S).
 ```
@@ -206,12 +204,11 @@ StoreFPR(fd, fmt, Negate(ValueFPR(fs, fmt)))
 def NEG_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307),
-  -- a QNaN operand per `Oracle.absNegNaN`
-  let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negS o.absNegNaN x)
+  -- Negate(ValueFPR(fs, fmt)); with FCSR.ABS2008 = 1 the operation is non-arithmetic (p.307):
+  -- "No IEEE exception can be generated for this case, and the FCSRCause and FCSRFlags fields are
+  -- not modified" (no `FPResult`)
   -- StoreFPR (fd, fmt, ...)
-  StoreFPR32 (reg fd) r
+  StoreFPR32 (reg fd) (IEEE.negS x)
 
 /-- **NEG.D fd, fs** — MD00086 Vol II-A Rev 6.06, NEG.fmt, p.307 (fmt = D).
 ```
@@ -221,12 +218,11 @@ StoreFPR(fd, fmt, Negate(ValueFPR(fs, fmt)))
 def NEG_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- Negate(ValueFPR(fs, fmt)); with FIR.Has2008 = 0 the operation is arithmetic (p.307),
-  -- a QNaN operand per `Oracle.absNegNaN`
-  let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.negD o.absNegNaN x)
+  -- Negate(ValueFPR(fs, fmt)); with FCSR.ABS2008 = 1 the operation is non-arithmetic (p.307):
+  -- "No IEEE exception can be generated for this case, and the FCSRCause and FCSRFlags fields are
+  -- not modified" (no `FPResult`)
   -- StoreFPR (fd, fmt, ...)
-  StoreFPR64 (reg fd) r
+  StoreFPR64 (reg fd) (IEEE.negD x)
 
 /-- **RECIP.S fd, fs** — MD00086 Vol II-A Rev 6.06, RECIP.fmt, p.336 (fmt = S).
 ```

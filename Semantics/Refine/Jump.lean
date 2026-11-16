@@ -37,7 +37,7 @@ theorem j_refines (s : State) (hg : Good s) (target w : W32)
       unfold execInstr; rw [hbl, hpb]; rfl
     rw [hex]
     simp only [Pseudo.run, Ops.J, bind, PC, jump_target]
-    simp [I1, Complete, abs, readReg, readFpReg]
+    simp [I1, Complete, abs, readReg, readFpReg64]
 
 /-- **JAL refines.** -/
 theorem jal_refines (s : State) (hg : Good s) (target w : W32)
@@ -63,7 +63,7 @@ theorem jal_refines (s : State) (hg : Good s) (target w : W32)
     rw [hex]
     simp only [Pseudo.run, Ops.JAL, bind, PC, setGPR, jump_target, abs_pc_pb, abs_writeReg _ _ _ hsz,
       pc_add_eight]
-    simp [I1, Complete, writeGPR, abs, readReg, readFpReg]
+    simp [I1, Complete, writeGPR, abs, readReg, readFpReg64]
 
 /-- The model's oracle lets `JALR`/`JALR.HB` with `rs = rd` proceed: `temp` is read before
 `GPR[rd]` is written, the model's order too. -/
@@ -100,7 +100,7 @@ theorem jalr_refines (s : State) (hg : Good s) (rs rd w : W32)
       show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
       config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
       abs_writeReg _ _ _ hsz, pc_add_eight]
-    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg, hd]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg64, hd]
 
 /-- **JALR.HB refines**, `rs = rd` included. -/
 theorem jalrHb_refines (s : State) (hg : Good s) (rs rd w : W32)
@@ -124,6 +124,6 @@ theorem jalrHb_refines (s : State) (hg : Good s) (rs rd w : W32)
       show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
       config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
       abs_writeReg _ _ _ hsz, pc_add_eight]
-    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg, hd]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg64, hd]
 
 end Refine

@@ -10,7 +10,7 @@ EffectiveAddress1..0 != 0", or 2..0 for a doubleword); it is transcribed as the 
 `LW` does. The doubleword accesses do two word accesses, the least-significant word at the
 address `xor`ed with `(BigEndianCPU xor ReverseEndian) || 0^2` (the pages write `paddr` for `pAddr`):
 on this little-endian profile, the word at the effective address is the least-significant one.
--- W5: LDC1/SDC1 move a doubleword through the pre-Release 6 FR = 0 register pair (`StoreFPR64`).
+LDC1/SDC1 move a doubleword into/out of one 64-bit FPR (`Status.FR = 1`, `StoreFPR64`/`ValueFPR64`).
 -/
 
 namespace Manual.Ops

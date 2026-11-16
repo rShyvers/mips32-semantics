@@ -1,19 +1,19 @@
 import Semantics.Manual.FPU
 
 /-!
-# Manual.Ops.FpuConvert — FP conversions (MD00086 Vol II-A Rev 6.06), 7B S4
+# Manual.Ops.FpuConvert — FP conversions (MD00086 Vol II-A Rev 6.06), 7B S4, Release 6 (R6-5)
 
-`ROUND.W.fmt`, `TRUNC.W.fmt`, `CEIL.W.fmt`, `FLOOR.W.fmt`, `CVT.W.fmt`, `CVT.S.fmt`, `CVT.D.fmt`
-for the formats of this profile (S, D, W). The `L` (64-bit fixed point) and `PS` formats are
-UNPREDICTABLE with `FR = 0` ("The result of this instruction is UNPREDICTABLE if the processor is
-executing in the FR=0 32-bit FPU register model", e.g. CVT.D.fmt p.153, CVT.L.fmt p.154) and are not
-in the profile (SPEC-NOTES §9 item 13). `ConvertFmt` is the IEEE conversion of `Manual.IEEE`.
-Each result goes through `FPResult` (Vol I-A §6.7.1, p.98-99): an Invalid Operation (Infinity, NaN, or
-out of range) "If the Invalid Operation Enable bit is set in the FCSR, no result is written to fd and
-an Invalid Operation exception is taken immediately. Otherwise, a default result is written to fd"
-(ROUND.W.fmt, p.342). The default result for `FCSR.NAN2008 = 0` is `2^31 - 1` for the word format;
-CVT.W.fmt p.160 prints "2^63-1", a typo (the result is a 32-bit word; ROUND.W.fmt p.342 and Vol I-A
-Table 6.3 p.82 say `2^31 - 1`; SPEC-NOTES §9 item 13).
+`ROUND.fmt`, `TRUNC.fmt`, `CEIL.fmt`, `FLOOR.fmt`, `CVT.W.fmt`, `CVT.L.fmt`, `CVT.S.fmt`, `CVT.D.fmt`
+for the formats of this profile (S, D, W, L: "Release 6 on a 64-bit FPU requires S, D, W, and L data
+formats", MD00082 Vol I-A Rev 6.01 Table 6.4 note 3, p.85; the L pages are predictable "if executing
+on a 64-bit FPU in the FR=1 mode", e.g. CVT.L.fmt p.154). `ConvertFmt` is the IEEE conversion of
+`Manual.IEEE`. Each result goes through `FPResult` (Vol I-A §6.7.1, p.98-99): an Invalid Operation
+(Infinity, NaN, or out of range) "If the Invalid Operation Enable bit is set in the FCSR, no result is
+written to fd and an Invalid Operation exception is taken immediately. Otherwise, a default result is
+written to fd" (ROUND.W.fmt, p.342). The default results for `FCSR.NAN2008 = 1` are those of Vol I-A
+Table 6.3, p.82 (0 for a NaN, `2^31 - 1` / `2^63 - 1` too big, `-2^31` / `-2^63` too small). The pages
+print the too-small result as "-2^31–1" / "-2^63–1" (e.g. ROUND.L.fmt p.341, CVT.L.fmt p.154), which
+is not representable; Table 6.3 gives `0x8000 0000` / `0x8000 0000 0000 0000` (misprint, SPEC-NOTES).
 -/
 
 namespace Manual.Ops
@@ -28,8 +28,9 @@ The value is converted to 32-bit fixed point rounding to nearest/even (rounding 
 def ROUND_W_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, S, W), rounding to nearest/even (rounding mode 0), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordS (IEEE.roundingMode 0#2) x)
+  let r ← FPResult (IEEE.toWordS a (IEEE.roundingMode 0#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -41,8 +42,9 @@ The value is converted to 32-bit fixed point rounding to nearest/even (rounding 
 def ROUND_W_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, D, W), rounding to nearest/even (rounding mode 0), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordD (IEEE.roundingMode 0#2) x)
+  let r ← FPResult (IEEE.toWordD a (IEEE.roundingMode 0#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -54,8 +56,9 @@ The value is converted to 32-bit fixed point rounding toward zero (rounding mode
 def TRUNC_W_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, S, W), rounding toward zero (rounding mode 1), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordS (IEEE.roundingMode 1#2) x)
+  let r ← FPResult (IEEE.toWordS a (IEEE.roundingMode 1#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -67,8 +70,9 @@ The value is converted to 32-bit fixed point rounding toward zero (rounding mode
 def TRUNC_W_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, D, W), rounding toward zero (rounding mode 1), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordD (IEEE.roundingMode 1#2) x)
+  let r ← FPResult (IEEE.toWordD a (IEEE.roundingMode 1#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -80,8 +84,9 @@ The value is converted to 32-bit fixed point rounding toward +infinity (rounding
 def CEIL_W_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, S, W), rounding toward +infinity (rounding mode 2), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordS (IEEE.roundingMode 2#2) x)
+  let r ← FPResult (IEEE.toWordS a (IEEE.roundingMode 2#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -93,8 +98,9 @@ The value is converted to 32-bit fixed point rounding toward +infinity (rounding
 def CEIL_W_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, D, W), rounding toward +infinity (rounding mode 2), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordD (IEEE.roundingMode 2#2) x)
+  let r ← FPResult (IEEE.toWordD a (IEEE.roundingMode 2#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -106,8 +112,9 @@ The value is converted to 32-bit fixed point rounding toward -infinity (rounding
 def FLOOR_W_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, S, W), rounding toward -infinity (rounding mode 3), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordS (IEEE.roundingMode 3#2) x)
+  let r ← FPResult (IEEE.toWordS a (IEEE.roundingMode 3#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -119,8 +126,9 @@ The value is converted to 32-bit fixed point rounding toward -infinity (rounding
 def FLOOR_W_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
   -- ConvertFmt(x, D, W), rounding toward -infinity (rounding mode 3), with FCSR Cause/Flags and CheckFPException
-  let r ← FPResult (IEEE.toWordD (IEEE.roundingMode 3#2) x)
+  let r ← FPResult (IEEE.toWordD a (IEEE.roundingMode 3#2) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -132,9 +140,9 @@ The value is "rounded according to the current rounding mode in FCSR". -/
 def CVT_W_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- ConvertFmt(x, S, W) under FCSR.RM
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.toWordS (IEEE.roundingMode (FCSR_RM a)) x)
+  -- ConvertFmt(x, S, W), rounding per FCSR.RM, with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toWordS a (IEEE.roundingMode (FCSR_RM a)) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
 
@@ -146,11 +154,161 @@ The value is "rounded according to the current rounding mode in FCSR". -/
 def CVT_W_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- ConvertFmt(x, D, W) under FCSR.RM
   let a ← Pseudo.get
-  let r ← FPResult (IEEE.toWordD (IEEE.roundingMode (FCSR_RM a)) x)
+  -- ConvertFmt(x, D, W), rounding per FCSR.RM, with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toWordD a (IEEE.roundingMode (FCSR_RM a)) x)
   -- StoreFPR(fd, W, ...)
   StoreFPR32 (reg fd) r
+
+-- R6-5
+/-- **ROUND.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, ROUND.L.fmt, p.341 (fmt = S).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding to nearest/even (rounding mode 0). -/
+def ROUND_L_S (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, S)
+  let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, S, L), rounding to nearest/even (rounding mode 0), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongS a (IEEE.roundingMode 0#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **ROUND.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, ROUND.L.fmt, p.341 (fmt = D).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding to nearest/even (rounding mode 0). -/
+def ROUND_L_D (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, D)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, D, L), rounding to nearest/even (rounding mode 0), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongD a (IEEE.roundingMode 0#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **TRUNC.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, TRUNC.L.fmt, p.440 (fmt = S).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward zero (rounding mode 1). -/
+def TRUNC_L_S (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, S)
+  let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, S, L), rounding toward zero (rounding mode 1), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongS a (IEEE.roundingMode 1#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **TRUNC.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, TRUNC.L.fmt, p.440 (fmt = D).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward zero (rounding mode 1). -/
+def TRUNC_L_D (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, D)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, D, L), rounding toward zero (rounding mode 1), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongD a (IEEE.roundingMode 1#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **CEIL.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, CEIL.L.fmt, p.127 (fmt = S).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward +infinity (rounding mode 2). -/
+def CEIL_L_S (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, S)
+  let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, S, L), rounding toward +infinity (rounding mode 2), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongS a (IEEE.roundingMode 2#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **CEIL.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, CEIL.L.fmt, p.127 (fmt = D).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward +infinity (rounding mode 2). -/
+def CEIL_L_D (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, D)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, D, L), rounding toward +infinity (rounding mode 2), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongD a (IEEE.roundingMode 2#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **FLOOR.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, FLOOR.L.fmt, p.185 (fmt = S).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward -infinity (rounding mode 3). -/
+def FLOOR_L_S (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, S)
+  let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, S, L), rounding toward -infinity (rounding mode 3), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongS a (IEEE.roundingMode 3#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **FLOOR.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, FLOOR.L.fmt, p.185 (fmt = D).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is converted to 64-bit fixed point rounding toward -infinity (rounding mode 3). -/
+def FLOOR_L_D (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, D)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, D, L), rounding toward -infinity (rounding mode 3), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongD a (IEEE.roundingMode 3#2) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **CVT.L.S fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154 (fmt = S).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is "rounded according to the current rounding mode in FCSR". -/
+def CVT_L_S (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, S)
+  let x ← ValueFPR32 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, S, L), rounding per FCSR.RM, with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongS a (IEEE.roundingMode (FCSR_RM a)) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
+
+-- R6-5
+/-- **CVT.L.D fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.L.fmt, p.154 (fmt = D).
+```
+StoreFPR(fd, L, ConvertFmt(ValueFPR(fs, fmt), fmt, L))
+```
+The value is "rounded according to the current rounding mode in FCSR". -/
+def CVT_L_D (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, D)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, D, L), rounding per FCSR.RM, with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.toLongD a (IEEE.roundingMode (FCSR_RM a)) x)
+  -- StoreFPR(fd, L, ...)
+  StoreFPR64 (reg fd) r
 
 /-- **CVT.D.S fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.D.fmt, p.153 (fmt = S).
 ```
@@ -160,9 +318,10 @@ StoreFPR (fd, D, ConvertFmt(ValueFPR(fs, fmt), fmt, D))
 def CVT_D_S (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, S)
   let x ← ValueFPR32 (reg fs)
-  -- ConvertFmt(x, S, D), with FCSR Cause/Flags and CheckFPException
+  let a ← Pseudo.get
   let o ← Pseudo.oracle
-  let r ← FPResult (IEEE.cvtDS o.cvtQNaNToD x)
+  -- ConvertFmt(x, S, D), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.cvtDS o.cvtQNaNToD a x)
   -- StoreFPR (fd, D, ...)
   StoreFPR64 (reg fd) r
 
@@ -178,6 +337,22 @@ def CVT_D_W (fd fs : W32) : Pseudo Unit := do
   -- StoreFPR (fd, D, ...)
   StoreFPR64 (reg fd) r
 
+-- R6-5
+/-- **CVT.D.L fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.D.fmt, p.153 (fmt = L).
+```
+StoreFPR (fd, D, ConvertFmt(ValueFPR(fs, fmt), fmt, D))
+```
+"converted to a value in double floating point format and rounded according to the current rounding
+mode in FCSR" (only S and W are "always exact"). -/
+def CVT_D_L (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, L)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, L, D), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.cvtDL a x)
+  -- StoreFPR (fd, D, ...)
+  StoreFPR64 (reg fd) r
+
 /-- **CVT.S.D fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.S.fmt, p.159 (fmt = D).
 ```
 StoreFPR(fd, S, ConvertFmt(ValueFPR(fs, fmt), fmt, S))
@@ -186,9 +361,9 @@ The value is "rounded according to the current rounding mode in FCSR". -/
 def CVT_S_D (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, D)
   let x ← ValueFPR64 (reg fs)
-  -- ConvertFmt(x, D, S) under FCSR.RM, with FCSR Cause/Flags and CheckFPException
   let a ← Pseudo.get
   let o ← Pseudo.oracle
+  -- ConvertFmt(x, D, S), with FCSR Cause/Flags and CheckFPException
   let r ← FPResult (IEEE.cvtSD o.cvtQNaNToS a x)
   -- StoreFPR(fd, S, ...)
   StoreFPR32 (reg fd) r
@@ -200,9 +375,23 @@ StoreFPR(fd, S, ConvertFmt(ValueFPR(fs, fmt), fmt, S))
 def CVT_S_W (fd fs : W32) : Pseudo Unit := do
   -- ValueFPR(fs, W)
   let x ← ValueFPR32 (reg fs)
-  -- ConvertFmt(x, W, S) under FCSR.RM, with FCSR Cause/Flags and CheckFPException
   let a ← Pseudo.get
+  -- ConvertFmt(x, W, S), with FCSR Cause/Flags and CheckFPException
   let r ← FPResult (IEEE.cvtSW a x)
+  -- StoreFPR(fd, S, ...)
+  StoreFPR32 (reg fd) r
+
+-- R6-5
+/-- **CVT.S.L fd, fs** — MD00086 Vol II-A Rev 6.06, CVT.S.fmt, p.159 (fmt = L).
+```
+StoreFPR(fd, S, ConvertFmt(ValueFPR(fs, fmt), fmt, S))
+``` -/
+def CVT_S_L (fd fs : W32) : Pseudo Unit := do
+  -- ValueFPR(fs, L)
+  let x ← ValueFPR64 (reg fs)
+  let a ← Pseudo.get
+  -- ConvertFmt(x, L, S), with FCSR Cause/Flags and CheckFPException
+  let r ← FPResult (IEEE.cvtSL a x)
   -- StoreFPR(fd, S, ...)
   StoreFPR32 (reg fd) r
 
