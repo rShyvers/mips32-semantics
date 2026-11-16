@@ -21,6 +21,9 @@ import Semantics.Manual.Ops.FpuMove
 -- BEGIN R6-4
 import Semantics.Manual.Ops.PcRel
 -- END R6-4
+-- BEGIN R6-3
+import Semantics.Manual.Ops.CompactBranch
+-- END R6-3
 
 /-!
 # Manual.Operation — the Operation section of each instruction
@@ -185,5 +188,31 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .auipc rs imm => some (Ops.AUIPC rs imm)
   | .aluipc rs imm => some (Ops.ALUIPC rs imm)
   -- END R6-4
+  -- BEGIN R6-3
+  | .bc off => some (Ops.BC off)
+  | .balc off => some (Ops.BALC off)
+  | .beqc rs rt off => some (Ops.BEQC rs rt off)
+  | .bnec rs rt off => some (Ops.BNEC rs rt off)
+  | .bltc rs rt off => some (Ops.BLTC rs rt off)
+  | .bgec rs rt off => some (Ops.BGEC rs rt off)
+  | .bltuc rs rt off => some (Ops.BLTUC rs rt off)
+  | .bgeuc rs rt off => some (Ops.BGEUC rs rt off)
+  | .blezc rt off => some (Ops.BLEZC rt off)
+  | .bgezc rt off => some (Ops.BGEZC rt off)
+  | .bgtzc rt off => some (Ops.BGTZC rt off)
+  | .bltzc rt off => some (Ops.BLTZC rt off)
+  | .beqzc rs off => some (Ops.BEQZC rs off)
+  | .bnezc rs off => some (Ops.BNEZC rs off)
+  | .blezalc rt off => some (Ops.BLEZALC rt off)
+  | .bgezalc rt off => some (Ops.BGEZALC rt off)
+  | .bgtzalc rt off => some (Ops.BGTZALC rt off)
+  | .bltzalc rt off => some (Ops.BLTZALC rt off)
+  | .beqzalc rt off => some (Ops.BEQZALC rt off)
+  | .bnezalc rt off => some (Ops.BNEZALC rt off)
+  | .bovc rs rt off => some (Ops.BOVC rs rt off)
+  | .bnvc rs rt off => some (Ops.BNVC rs rt off)
+  | .jic rt off => some (Ops.JIC rt off)
+  | .jialc rt off => some (Ops.JIALC rt off)
+  -- END R6-3
 
 end Manual

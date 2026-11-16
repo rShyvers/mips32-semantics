@@ -61,9 +61,13 @@ outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are con
 change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  -- R6-3: two more conjuncts (`linkSourceIs31`)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
+  -- BEGIN R6-3
+  · intros; trivial   -- linkSourceIs31: `.proceed`
+  -- END R6-3
   · intro a r v
     exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
       rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, rfl⟩
@@ -75,6 +79,9 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intros; trivial
   -- restriction 1
   · intro _ _ _ _ _ _; trivial
+  -- BEGIN R6-3
+  · intro _ _ _ _ _ _; trivial   -- linkSourceIs31
+  -- END R6-3
   · intro r v a b _ _ hab
     obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
     refine ⟨h1, h2, ?_, h4, h5, h6, h7, h8, h9, h10⟩

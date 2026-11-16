@@ -50,6 +50,14 @@ def sa2Format (op rs rt rd sub x fn : W32) : W32 :=
 def pc19Format (rs minor imm : W32) : W32 :=
   fld 6 26 0x3B#32 ||| fld 5 21 rs ||| fld 2 19 minor ||| fld 19 0 imm
 -- END R6-4
+-- BEGIN R6-3
+/-- A diagram with a constraint on its fields: the word `w` when `c` holds, no word otherwise. The
+Release 6 compact branches share primary opcodes and are told apart by "constraints such as RS = RT"
+on the `rs`/`rt` fields (MD00086 Vol II-A Rev 6.06 §A.4, p.463; Table A.26, p.464); the diagram of
+each page states its constraint (e.g. BGEZC `rs = rt`, BEQC `rs < rt`, BOVC `rs >= rt`). The
+register fields are compared as the 5-bit numbers the diagram holds (`reg`). -/
+def encIf (c : Bool) (w : W32) : Option W32 := if c then some w else none
+-- END R6-3
 
 /-- **The format diagram of each transcribed instruction** (MD00086 Vol II-A Rev 6.06, the Release 6
 diagram of each page, printed page of the diagram):
@@ -249,6 +257,42 @@ def enc : Instruction → Option W32
   | .auipc rs imm => some (iFormat 0x3B#32 rs 0x1E#32 imm)          -- PCREL AUIPC `11110` (p.48)
   | .aluipc rs imm => some (iFormat 0x3B#32 rs 0x1F#32 imm)         -- PCREL ALUIPC `11111` (p.43)
   -- END R6-4
+  -- BEGIN R6-3
+  -- The compact branches and jumps (Table A.26, p.464; the diagram of each page): BC `110010` p.53,
+  -- BALC `111010` p.52 (26-bit offset); B<cond>C p.82: BEQC POP10 `001000` and BNEC POP30 `011000`
+  -- with `0 < rs < rt`, BLTC POP27 `010111`, BGEC POP26 `010110`, BLTUC POP07 `000111`, BGEUC POP06
+  -- `000110` with `rs ≠ 0`, `rt ≠ 0`, `rs ≠ rt`, BLEZC/BGTZC (`rs = 0`, `rt ≠ 0`) and BGEZC/BLTZC
+  -- (`rs = rt ≠ 0`) on POP26/POP27, BEQZC POP66 `110110` and BNEZC POP76 `111110` (`rs ≠ 0`, 21-bit
+  -- offset); B*ZALC p.77: BLEZALC/BGEZALC on POP06, BGTZALC/BLTZALC on POP07 (`rs = 0` / `rs = rt`,
+  -- `rt ≠ 0`), BEQZALC POP10, BNEZALC POP30 (`rs = 0 < rt`); BOVC POP10, BNVC POP30 with
+  -- `rs >= rt` p.107; JIC POP66, JIALC POP76 with `rs = 0` (p.205, p.203).
+  | .bc off => some (fld 6 26 0x32#32 ||| fld 26 0 off)
+  | .balc off => some (fld 6 26 0x3A#32 ||| fld 26 0 off)
+  | .beqc rs rt off =>
+    encIf (reg rs != 0 && decide ((reg rs).val < (reg rt).val)) (iFormat 0x08#32 rs rt off)
+  | .bnec rs rt off =>
+    encIf (reg rs != 0 && decide ((reg rs).val < (reg rt).val)) (iFormat 0x18#32 rs rt off)
+  | .bltc rs rt off => encIf (reg rs != 0 && reg rt != 0 && reg rs != reg rt) (iFormat 0x17#32 rs rt off)
+  | .bgec rs rt off => encIf (reg rs != 0 && reg rt != 0 && reg rs != reg rt) (iFormat 0x16#32 rs rt off)
+  | .bltuc rs rt off => encIf (reg rs != 0 && reg rt != 0 && reg rs != reg rt) (iFormat 0x07#32 rs rt off)
+  | .bgeuc rs rt off => encIf (reg rs != 0 && reg rt != 0 && reg rs != reg rt) (iFormat 0x06#32 rs rt off)
+  | .blezc rt off => encIf (reg rt != 0) (iFormat 0x16#32 0#32 rt off)
+  | .bgezc rt off => encIf (reg rt != 0) (iFormat 0x16#32 rt rt off)
+  | .bgtzc rt off => encIf (reg rt != 0) (iFormat 0x17#32 0#32 rt off)
+  | .bltzc rt off => encIf (reg rt != 0) (iFormat 0x17#32 rt rt off)
+  | .beqzc rs off => encIf (reg rs != 0) (fld 6 26 0x36#32 ||| fld 5 21 rs ||| fld 21 0 off)
+  | .bnezc rs off => encIf (reg rs != 0) (fld 6 26 0x3E#32 ||| fld 5 21 rs ||| fld 21 0 off)
+  | .blezalc rt off => encIf (reg rt != 0) (iFormat 0x06#32 0#32 rt off)
+  | .bgezalc rt off => encIf (reg rt != 0) (iFormat 0x06#32 rt rt off)
+  | .bgtzalc rt off => encIf (reg rt != 0) (iFormat 0x07#32 0#32 rt off)
+  | .bltzalc rt off => encIf (reg rt != 0) (iFormat 0x07#32 rt rt off)
+  | .beqzalc rt off => encIf (reg rt != 0) (iFormat 0x08#32 0#32 rt off)
+  | .bnezalc rt off => encIf (reg rt != 0) (iFormat 0x18#32 0#32 rt off)
+  | .bovc rs rt off => encIf (decide ((reg rt).val ≤ (reg rs).val)) (iFormat 0x08#32 rs rt off)
+  | .bnvc rs rt off => encIf (decide ((reg rt).val ≤ (reg rs).val)) (iFormat 0x18#32 rs rt off)
+  | .jic rt off => some (iFormat 0x36#32 0#32 rt off)
+  | .jialc rt off => some (iFormat 0x3E#32 0#32 rt off)
+  -- END R6-3
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26

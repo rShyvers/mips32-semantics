@@ -40,7 +40,7 @@ pre-Release 6 encodings Release 6 removed or moved ("6R"/"6Rm" in the opcode tab
 instructions signal a Reserved Instruction exception when executed by a Release 6 implementation. If the
 encoding has been used for a new instruction or coprocessor, the unusable exception takes priority",
 MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the Release 6 instructions of later waves
-(-- W3: the compact branches; -- W6: the new FP instructions),
+(-- W6: the new FP instructions),
 which decode as `.reserved` until transcribed; the TLB instructions, which under the Fixed Mapping MMU
 "are no longer required and must cause a Reserved Instruction Exception" (MD00090 Vol III Rev 6.02
 §A.1.3, p.317; TLBINV/TLBINVF with `Config4.IE = 0`, DECISIONS D4); the EJTAG instructions
@@ -80,7 +80,10 @@ SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6, the 2-bit `sa` 
 `size - 1` and `INS` reads `msb` (15..11) as `pos + size - 1`, inverting the arithmetic `enc` writes
 (EXT p.183, INS p.192). `PAUSE` comes first: its diagram (`SPECIAL 0 0 0 5 SLL`, PAUSE p.317) is the
 `SLL` diagram (p.376) with every field fixed, and the more specific diagram names the instruction
-(Release 6 makes PAUSE a CTI with its own Operation, PAUSE p.317). -/
+(Release 6 makes PAUSE a CTI with its own Operation, PAUSE p.317). The Release 6 compact branches
+read the 26-bit `offset` of BC/BALC at 25..0 and the 21-bit `offset` of BEQZC/BNEZC at 20..0; the
+compact branches sharing an opcode are separated by the constraints of their diagrams (`encIf`), so
+at most one of them has the diagram `w`. -/
 def candidates (w : W32) : List Instruction :=
   let f := fieldAt w
   [ .pause,
@@ -224,8 +227,34 @@ def candidates (w : W32) : List Instruction :=
     .addiupc (f 25 21) (f 18 0),
     .lwpc (f 25 21) (f 18 0),
     .auipc (f 25 21) (f 15 0),
-    .aluipc (f 25 21) (f 15 0)
+    .aluipc (f 25 21) (f 15 0),
     -- END R6-4
+    -- BEGIN R6-3
+    .bc (f 25 0),
+    .balc (f 25 0),
+    .beqc (f 25 21) (f 20 16) (f 15 0),
+    .bnec (f 25 21) (f 20 16) (f 15 0),
+    .bltc (f 25 21) (f 20 16) (f 15 0),
+    .bgec (f 25 21) (f 20 16) (f 15 0),
+    .bltuc (f 25 21) (f 20 16) (f 15 0),
+    .bgeuc (f 25 21) (f 20 16) (f 15 0),
+    .blezc (f 20 16) (f 15 0),
+    .bgezc (f 20 16) (f 15 0),
+    .bgtzc (f 20 16) (f 15 0),
+    .bltzc (f 20 16) (f 15 0),
+    .beqzc (f 25 21) (f 20 0),
+    .bnezc (f 25 21) (f 20 0),
+    .blezalc (f 20 16) (f 15 0),
+    .bgezalc (f 20 16) (f 15 0),
+    .bgtzalc (f 20 16) (f 15 0),
+    .bltzalc (f 20 16) (f 15 0),
+    .beqzalc (f 20 16) (f 15 0),
+    .bnezalc (f 20 16) (f 15 0),
+    .bovc (f 25 21) (f 20 16) (f 15 0),
+    .bnvc (f 25 21) (f 20 16) (f 15 0),
+    .jic (f 20 16) (f 15 0),
+    .jialc (f 20 16) (f 15 0)
+    -- END R6-3
     ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an

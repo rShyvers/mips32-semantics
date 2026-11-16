@@ -14,7 +14,7 @@ The assembly of the independent correctness theorem:
 * **The invariant** `Inv` (`Refine/Defs.lean`: `Good`, `FcsrReservedZero`, `StatusImplemented`).
   No path of the cycle needs anything else (`enc i = some w` comes from `decode_enc`). `step` preserves it
   (`step_preserves_inv`), `resetState`, `hostedStart` and `load p` establish it.
-* **The paths** (`Refine/Cycle.lean`) and the per-instruction refinements of all 139 constructors
+* **The paths** (`Refine/Cycle.lean`) and the per-instruction refinements of all 163 constructors
   (`allInstrRefines`, `Refine/Instr.lean`), assembled: `execute_abs`, `stepCore_abs`.
 * **The top theorems**, unconditional on every state of the invariant: `step_eq_manual`,
   `run_refines_manual`, and the reset theorems (`step_refines_manual` and the determinism results

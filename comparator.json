@@ -204,7 +204,9 @@
     "Trusted.sigrie_spec_raw",
     "Trusted.cache_spec_raw",
     "Trusted.mfc0_unimplemented_reads_zero",
-    "Trusted.mtc0_unimplemented_ignored"
+    "Trusted.mtc0_unimplemented_ignored",
+    "Trusted.beqc_spec_raw",
+    "Trusted.forbidden_slot_cti_reserved"
   ],
   "definition_names": [],
   "permitted_axioms": [

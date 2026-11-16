@@ -53,6 +53,14 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case ctc1 x₁ x₂ => exact rw_ctc1 x₁ x₂ a h
   case jalr x₁ x₂ => exact rw_jalr x₁ x₂ a h
   case jalrHb x₁ x₂ => exact rw_jalrHb x₁ x₂ a h
+  -- BEGIN R6-3
+  case blezalc x₁ x₂ => exact rw_blezalc x₁ x₂ a h
+  case bgezalc x₁ x₂ => exact rw_bgezalc x₁ x₂ a h
+  case bgtzalc x₁ x₂ => exact rw_bgtzalc x₁ x₂ a h
+  case bltzalc x₁ x₂ => exact rw_bltzalc x₁ x₂ a h
+  case beqzalc x₁ x₂ => exact rw_beqzalc x₁ x₂ a h
+  case bnezalc x₁ x₂ => exact rw_bnezalc x₁ x₂ a h
+  -- END R6-3
   case absS x₁ x₂ => exact rw_absS x₁ x₂ a h
   case negS x₁ x₂ => exact rw_negS x₁ x₂ a h
   case absD x₁ x₂ => exact rw_absD x₁ x₂ a h

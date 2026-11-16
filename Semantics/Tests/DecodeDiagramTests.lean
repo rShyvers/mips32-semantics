@@ -73,10 +73,20 @@ def sIndex : State := loadImage (prog1 (.mfc0 9#32 0#32 0#32)) (setRegs regs0 [(
 -- JR (SPECIAL function 001000) is removed; JR is JALR with `rd = 0` (JR p.207).
 #guard Decode 0x01000008#32 == .reserved
 #guard Decode 0x01000009#32 == .instr (.jalr 8#32 0#32)
--- Removed: MULT, MFHI, MOVN, ADDI, BEQL, TEQI, LWL, COP1X (LWXC1), MOVCI, C.cond.S, BC1F.
-#guard [0x01090018#32, 0x00004010#32, 0x012A400B#32, 0x21090001#32, 0x51090001#32, 0x050C0001#32,
+-- Removed: MULT, MFHI, MOVN, BEQL, TEQI, LWL, COP1X (LWXC1), MOVCI, C.cond.S, BC1F.
+#guard [0x01090018#32, 0x00004010#32, 0x012A400B#32, 0x51090001#32, 0x050C0001#32,
   0x89090000#32, 0x4D090000#32, 0x01014001#32, 0x46020030#32, 0x45000001#32].all
   (fun w => Decode w == .reserved)
+-- BEGIN R6-3
+-- The pre-Release 6 ADDI opcode is POP10 (Table A.26, p.464): `0x21090001` (rs = 8 < rt = 9) is
+-- BEQC, `0x21280001` (rs = 9 ≥ rt = 8) is BOVC, `0x20090001` (rs = 0) is BEQZALC. BLEZL/BGTZL
+-- (POP26/POP27 with `rt = 0`) stay removed.
+#guard Decode 0x21090001#32 == .instr (.beqc 8#32 9#32 1#32)
+#guard Decode 0x21280001#32 == .instr (.bovc 9#32 8#32 1#32)
+#guard Decode 0x20090001#32 == .instr (.beqzalc 9#32 1#32)
+#guard Decode 0x59000001#32 == .reserved
+#guard Decode 0x5D000001#32 == .reserved
+-- END R6-3
 -- The encoding spaces: COP1X, MOVCI are outside COP1 (Reserved Instruction even with CU1 = 0);
 -- COP2 is opcode 0x12 only; the Release 6 CACHE (SPECIAL3 function 100101) is in the COP0 space.
 #guard !InCop1Space 0x4C000000#32 && !InCop1Space 0x00010001#32 && InCop1Space 0x44000000#32

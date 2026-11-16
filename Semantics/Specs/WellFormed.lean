@@ -15,7 +15,9 @@ inverts it: register numbers and shift amounts `< 32`, 16-bit immediates
 `< 8`, the 19-bit immediates of `addiupc`/`lwpc` `< 2 ^ 19`, the 2-bit `sa`/`bp` of `lsa`/`align`
 `< 4`), 26-bit jump targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
 bitfield inside the word; `sll $0,$0,5` is
-not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317). -/
+not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317); a compact branch needs the
+`rs`/`rt` relation that selects it within its shared opcode (21-bit offsets of `beqzc`/`bnezc`
+`< 2 ^ 21`, 26-bit offsets of `bc`/`balc` `< 2 ^ 26`; Table A.26, p.464). -/
 def Instruction.WellFormed : Instruction → Prop
   | .add rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .addu rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
@@ -152,3 +154,35 @@ def Instruction.WellFormed : Instruction → Prop
   | .sigrie code => code.toNat < 2 ^ 16
   | .cache base op off => base.toNat < 32 ∧ op.toNat < 32 ∧ off.toNat < 2 ^ 9
   -- END R6-2
+  -- BEGIN R6-3
+  -- Compact branches: the field ranges and the `rs`/`rt` constraint that selects the instruction
+  -- within its shared opcode (MD00086 Vol II-A Rev 6.06 Table A.26, p.464).
+  | .bc off => off.toNat < 2 ^ 26
+  | .balc off => off.toNat < 2 ^ 26
+  | .beqc rs rt off => 0 < rs.toNat ∧ rs.toNat < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bnec rs rt off => 0 < rs.toNat ∧ rs.toNat < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bltc rs rt off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ 0 < rt.toNat ∧ rt.toNat < 32 ∧ rs ≠ rt ∧
+      off.toNat < 2 ^ 16
+  | .bgec rs rt off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ 0 < rt.toNat ∧ rt.toNat < 32 ∧ rs ≠ rt ∧
+      off.toNat < 2 ^ 16
+  | .bltuc rs rt off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ 0 < rt.toNat ∧ rt.toNat < 32 ∧ rs ≠ rt ∧
+      off.toNat < 2 ^ 16
+  | .bgeuc rs rt off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ 0 < rt.toNat ∧ rt.toNat < 32 ∧ rs ≠ rt ∧
+      off.toNat < 2 ^ 16
+  | .blezc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bgezc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bgtzc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bltzc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .beqzc rs off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ off.toNat < 2 ^ 21
+  | .bnezc rs off => 0 < rs.toNat ∧ rs.toNat < 32 ∧ off.toNat < 2 ^ 21
+  | .blezalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bgezalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bgtzalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bltzalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .beqzalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bnezalc rt off => 0 < rt.toNat ∧ rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bovc rs rt off => rt.toNat ≤ rs.toNat ∧ rs.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .bnvc rs rt off => rt.toNat ≤ rs.toNat ∧ rs.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .jic rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  | .jialc rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
+  -- END R6-3

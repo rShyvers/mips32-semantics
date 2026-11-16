@@ -244,13 +244,47 @@ architecture makes a branch, jump, `eret` or `wait` in a delay slot UNPREDICTABL
 branches/jumps: MD00086 Vol II-A Rev 6.06, BEQ, p.72) or UNDEFINED (ERET, p.177; WAIT, p.442),
 and "UNPREDICTABLE operations may cause arbitrary exceptions" (§1.2.1, p.3); Release 6 requires
 exactly this exception (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62). Whenever the instruction about
-to execute is in a delay slot (`s.pendingBranch = some _`) and is one of the 26 instructions of
-`isBranchLike`, `step` takes Reserved Instruction from the delay slot. -/
+to execute is in a delay slot (`s.pendingBranch = some _`) and is one of the instructions of
+`isBranchLike` (the branches and jumps, including the Release 6 compact ones, `eret`, `wait`,
+`pause`), `step` takes Reserved Instruction from the delay slot. (Wave R6-3: the forbidden slot of
+a not-taken conditional compact branch is represented as such a slot, `forbidden_slot_cti_reserved`.) -/
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
     (hpb : s.pendingBranch.isSome = true) (hbr : isBranchLikeSpec instr = true) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
   sorry
+
+-- BEGIN R6-3
+/-- **A compact branch** (Release 6; MD00086 Vol II-A Rev 6.06, B<cond>C, p.82-85): `beqc` taken
+goes to `pc + 4 + (offset << 2)` at once, with no delay slot; not taken, the next instruction is in
+its forbidden slot, represented as the delay slot of a not-taken branch (`pendingBranch := some (pc +
+8)`). Proved in `Semantics/Specs/CompactBranch.lean`. -/
+theorem beqc_spec_raw (s : State) (w rs rt off : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beqc rs rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
+        { s with pc := s.pc + 4#32 + (signExt16 off <<< 2), pendingBranch := none }
+      else
+        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
+  sorry
+
+/-- **A control transfer in the forbidden slot raises Reserved Instruction** (MD00086 Vol II-A Rev
+6.06, B<cond>C, Restrictions, p.84: "If a control transfer instruction (CTI) is placed in the
+forbidden slot of a compact branch, Release 6 implementations are required to signal a Reserved
+Instruction exception, but only when the branch is not taken"): after a not-taken `beqc`, a CTI as
+the next instruction is not executed and the step takes Reserved Instruction from the slot (`EPC` =
+the branch, `Cause.BD = 1` when `EXL = 0`: MD00082 Vol I-A Rev 6.01 §5.3.2.2, p.62; DECISIONS D6).
+Proved in `Semantics/Specs/CompactBranch.lean`. -/
+theorem forbidden_slot_cti_reserved (s : State) (w w2 rs rt off : W32) (instr : Instruction)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beqc rs rt off))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true)
+    (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt))
+    (hfetch2 : readMemWord (step s) (step s).pc = some w2) (hdecode2 : decode w2 = some instr)
+    (hcti : isBranchLikeSpec instr = true) (hexec2 : executesInstr (step s) = true) :
+    step (step s) = timerTick (takeException (step s) excCodeRI) := by
+  sorry
+-- END R6-3
 
 /-! ## R-type arithmetic
 

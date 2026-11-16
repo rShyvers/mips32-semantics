@@ -353,8 +353,9 @@ branches/jumps: MD00086 Vol II-A Rev 6.06, BEQ, p.72) or UNDEFINED (ERET, p.177;
 and "UNPREDICTABLE operations may cause arbitrary exceptions" (§1.2.1, p.3); Release 6 requires
 exactly this exception (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62). Whenever the instruction about
 to execute is in a delay slot (`s.pendingBranch = some _` — set by *every* branch/jump, taken or
-not) and is one of the 15 instructions of `isBranchLike` (`isBranchLikeSpec` is that same
-definition; it includes `pause`: "Release 6: Implementations are required to signal a Reserved
+not, and by a not-taken conditional compact branch for its forbidden slot) and is one of the
+instructions of `isBranchLike` (`isBranchLikeSpec` is that same definition: the branches and jumps,
+the Release 6 compact branches and jumps, `eret`, `wait`, `pause`; it includes `pause`: "Release 6: Implementations are required to signal a Reserved
 Instruction exception if PAUSE is encountered in the delay slot", MD00086 Vol II-A Rev 6.06, PAUSE,
 p.317), `step` takes the Reserved Instruction exception from the delay slot (so `EPC` is the
 branch and `Cause.BD = 1`, `exceptionEntry_exl0_in_delay_slot`). -/

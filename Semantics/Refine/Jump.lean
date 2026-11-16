@@ -126,4 +126,62 @@ theorem jalrHb_refines (s : State) (hg : Good s) (rs rd w : W32)
       abs_writeReg _ _ _ hsz, pc_add_eight]
     by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg, hd]
 
+-- BEGIN R6-3
+/-! ## The Release 6 compact jumps (JIC p.205, JIALC p.203)
+
+No delay slot and no forbidden slot: `PC ← temp` at time `I` on both sides. `modelImpl` has
+`Config3.ISA = 0` and `Config1.CA = 0` (`compact_isa`), so the first arm of the Operation is taken. -/
+
+/-- `(Config3ISA = 0) and (Config1CA = 0)` in `modelImpl`. -/
+theorem compact_isa : (bits modelImpl.Config3 15 14 == 0#2 && !bit modelImpl.Config1 2) = true := by
+  decide
+
+/-- **JIC refines.** -/
+theorem jic_refines (s : State) (hg : Good s) (rt off w : W32) (hw : enc (.jic rt off) = some w) :
+    Execute modelCtx w (.jic rt off) (abs s) = some (abs (execInstr s (.jic rt off))) := by
+  obtain ⟨-, -, h0⟩ := hg
+  have hw' : w = iFormat 0x36#32 0#32 rt off := (Option.some.inj hw).symm
+  have hc1 : InCop1Space w = false := by subst hw'; simp [InCop1Space, opcode_iFormat]
+  have hc0 : InCop0Space w = false := by subst hw'; simp [InCop0Space, opcode_iFormat]
+  have hbl : isBranchLike (.jic rt off) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot w _ s t rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run w _ s (Ops.JIC rt off) hpb hc1 hc0 rfl]
+    have hex : execInstr s (.jic rt off) =
+        { s with pc := readReg s (regIdx rt) + signExt16 off, pendingBranch := none } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JIC, bind, Pseudo.impl, GPR, readGPR_abs s h0, ← regIdx_eq_reg, offset16,
+      show modelCtx.impl = modelImpl from rfl, compact_isa, ↓reduceIte, setPC, abs_pc_pb]
+    simp [Complete]
+
+/-- **JIALC refines** (`temp` is read before `GPR[31]` is written, on both sides). -/
+theorem jialc_refines (s : State) (hg : Good s) (rt off w : W32) (hw : enc (.jialc rt off) = some w) :
+    Execute modelCtx w (.jialc rt off) (abs s) = some (abs (execInstr s (.jialc rt off))) := by
+  obtain ⟨hsz, -, h0⟩ := hg
+  have hw' : w = iFormat 0x3E#32 0#32 rt off := (Option.some.inj hw).symm
+  have hc1 : InCop1Space w = false := by subst hw'; simp [InCop1Space, opcode_iFormat]
+  have hc0 : InCop0Space w = false := by subst hw'; simp [InCop0Space, opcode_iFormat]
+  have hbl : isBranchLike (.jialc rt off) = true := rfl
+  cases hpb : s.pendingBranch with
+  | some t =>
+    rw [execute_cti_slot w _ s t rfl hpb]
+    unfold execInstr; rw [hbl, hpb]; rfl
+  | none =>
+    rw [execute_cti_run w _ s (Ops.JIALC rt off) hpb hc1 hc0 rfl]
+    have hex : execInstr s (.jialc rt off) =
+        { writeReg s 31 (s.pc + 4#32) with
+            pc := readReg s (regIdx rt) + signExt16 off, pendingBranch := none } := by
+      unfold execInstr; rw [hbl, hpb]; rfl
+    rw [hex]
+    simp only [Pseudo.run, Ops.JIALC, bind, Pseudo.impl, GPR, readGPR_abs s h0, ← regIdx_eq_reg,
+      offset16, PC, setGPR, abs_PC, show modelCtx.impl = modelImpl from rfl, compact_isa, ↓reduceIte,
+      setPC, abs_pc_pb]
+    rw [← abs_writeReg _ _ _ hsz]
+    simp [Complete]
+-- END R6-3
+
 end Refine

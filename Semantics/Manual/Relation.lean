@@ -155,6 +155,9 @@ UNDEFINED outcome and no Reset changes the interrupt inputs `HW` (the `HW` claus
 def Oracle.Valid (o : Oracle) : Prop :=
   -- restrictions 2 and 3 on every UNPREDICTABLE operation
   (∀ a i, OutcomeValid a (o.jalrRsIsRd a i)) ∧
+  -- BEGIN R6-3
+  (∀ a i, OutcomeValid a (o.linkSourceIs31 a i)) ∧
+  -- END R6-3
   (∀ a r v, OutcomeValid a (o.fprOddWrite a r v)) ∧
   (∀ a fs t, OutcomeValid a (o.ctc1Unpredictable a fs t)) ∧
   (∀ a, OutcomeValid a (o.extOutOfRange a)) ∧
@@ -162,6 +165,9 @@ def Oracle.Valid (o : Oracle) : Prop :=
   (∀ a w, OutcomeValid a (o.unpredictableEncoding a w)) ∧
   -- restriction 1 on every UNPREDICTABLE operation and value
   (∀ i, NIOutcome (o.jalrRsIsRd · i)) ∧
+  -- BEGIN R6-3
+  (∀ i, NIOutcome (o.linkSourceIs31 · i)) ∧
+  -- END R6-3
   (∀ r v, NIOutcome (o.fprOddWrite · r v)) ∧
   (∀ fs t, NIOutcome (o.ctc1Unpredictable · fs t)) ∧
   NIOutcome o.extOutOfRange ∧
@@ -223,12 +229,14 @@ is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the o
   written to `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
 * `MTC0` of a different Exception Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
 * `EXT`/`INS` with an UNPREDICTABLE field combination; `JALR`/`JALR.HB` with `rs = rd`;
+* the Release 6 compact branch-and-link (`BLEZALC`, ..., `BNEZALC`) with `rt = 31`
+  (`linkSourceIs31`);
 * `ABS.fmt`/`NEG.fmt` of a quiet NaN (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN
   (`cvtQNaNToD`, `cvtQNaNToS`).
 
 `MFHC1` with `rt = 0` is not a row: the odd-register value is written to `GPR[0]`, which has no effect
 (wave 9). (Release 6 removed the instructions of the former rows `DIV`/`DIVU`/`MUL` (HI/LO), the
-branch-and-link with `rs = 31`, `NMADD`/`NMSUB`, `MADD.D`/`MSUB.D`, `C.cond.D`, `MOVF.D`/`MOVT.D`/
+delay-slot branch-and-link with `rs = 31`, `NMADD`/`NMSUB`, `MADD.D`/`MSUB.D`, `C.cond.D`, `MOVF.D`/`MOVT.D`/
 `MOVN.D`/`MOVZ.D` and the indexed FP loads and stores.)
 -- W5: the odd-FPR rows go with the 64-bit FPU (`Status.FR = 1`). -/
 def ConsultsOracle : Instruction → Arch → Bool
@@ -244,6 +252,10 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
   | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
   | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
+  -- BEGIN R6-3
+  | .blezalc rt _, _ | .bgezalc rt _, _ | .bgtzalc rt _, _ | .bltzalc rt _, _ | .beqzalc rt _, _
+  | .bnezalc rt _, _ => reg rt == 31
+  -- END R6-3
   | .absS _ fs, a | .negS _ fs, a => Mips.Fp.isQNaN32 (a.FPR (reg fs))
   | .absD fd fs, a | .negD fd fs, a =>
     OddFPR fs || OddFPR fd || Mips.Fp.isQNaN64 (FPRPair a fs)

@@ -58,6 +58,16 @@ theorem fieldAt_sel86_lt (w : W32) : (fieldAt w 8 6).toNat < 8 := by
 /-- The `sel` field of `MFC0`/`MTC0`/`RDHWR` fits its 3 bits (`enc` writes 3 bits, `encode` 6 or 5). -/
 def SelOK : Instruction → Prop
   | .mfc0 _ _ sel | .mtc0 _ _ sel | .rdhwr _ _ sel => sel.toNat < 8
+  -- BEGIN R6-3
+  -- the compact branches: the constraint of the diagram (`Manual.encIf`) holds
+  | .beqc rs rt _ | .bnec rs rt _ => (reg rs != 0 && decide ((reg rs).val < (reg rt).val)) = true
+  | .bltc rs rt _ | .bgec rs rt _ | .bltuc rs rt _ | .bgeuc rs rt _ =>
+    (reg rs != 0 && reg rt != 0 && reg rs != reg rt) = true
+  | .blezc rt _ | .bgezc rt _ | .bgtzc rt _ | .bltzc rt _ | .blezalc rt _ | .bgezalc rt _
+  | .bgtzalc rt _ | .bltzalc rt _ | .beqzalc rt _ | .bnezalc rt _ => (reg rt != 0) = true
+  | .beqzc rs _ | .bnezc rs _ => (reg rs != 0) = true
+  | .bovc rs rt _ | .bnvc rs rt _ => decide ((reg rt).val ≤ (reg rs).val) = true
+  -- END R6-3
   | _ => True
 
 -- one simp set serves every constructor; some members are unused in the `mfc0`/`mtc0` arms
@@ -94,6 +104,13 @@ theorem enc_eq_encode_gen (i : Instruction) (h : SelOK i) : enc i = some (encode
       mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, mkRT2, mkPc19, BitVec.or_assoc,
       mask1, mask2, mask3, mask4, mask5, mask6, mask9, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and,
       BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
+  -- BEGIN R6-3
+  -- the compact branches: `h` is the diagram's constraint; BEQZC/BNEZC's 21-bit field
+  all_goals
+    rw [encIf_true h]
+    try simp only [mkOff21, fld, field, maskLow, mask5, mask6, mask21, BitVec.or_assoc,
+      BitVec.shiftLeft_zero, BitVec.reduceAnd]
+  -- END R6-3
 
 /-! ## Completeness: every diagram word has a candidate with that diagram -/
 
@@ -139,7 +156,7 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   -- END R6-4
 
 set_option maxRecDepth 4000 in
-theorem length_candidates (w : W32) : (candidates w).length = 139 := by simp [candidates]
+theorem length_candidates (w : W32) : (candidates w).length = 163 := by simp [candidates]
 
 /-- The `k`-th candidate has the diagram of the instruction. -/
 local macro "cand " k:num : tactic => `(tactic| (
@@ -150,7 +167,32 @@ local macro "cand " k:num : tactic => `(tactic| (
   try simp
   try simp [mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, and_7, mkRT2, mkPc19, *]))  -- R6-4: mkRT2, mkPc19
 
--- 139 cases, each a field-extraction `simp`: more than the default budget for one declaration
+-- BEGIN R6-3
+/-- A register field masked to its 5 bits is the same register. -/
+theorem reg_and31 (x : W32) : reg (x &&& 31#32) = reg x := by
+  apply Fin.ext
+  simp only [reg_val, BitVec.toNat_and, show (31#32).toNat = 2 ^ 5 - 1 from rfl,
+    Nat.and_two_pow_sub_one_eq_mod]
+  omega
+
+theorem fieldAt_off21 (w : W32) : fieldAt w 20 0 = off21Of w := rfl
+
+set_option hygiene false in
+/-- The `k`-th candidate has the diagram of the compact branch: its constraint is that of the
+instruction (`hs`), its word the instruction's. -/
+local macro "cand_cb " k:num : tactic => `(tactic| (
+  refine ⟨(candidates _)[$k]'(by rw [length_candidates]; decide), List.getElem_mem _, ?_⟩
+  simp only [candidates, List.getElem_cons_succ, List.getElem_cons_zero]
+  refine (enc_eq_encode_gen _ ?_).trans (congrArg some ?_)
+  · simp only [SelOK, encode, fieldAt_rs, fieldAt_rt, fieldAt_imm, fieldAt_off21, rsOf_mkIT, rtOf_mkIT,
+      rsOf_mkOff21, reg_and31] at hs ⊢
+    exact hs
+  · simp only [encode, fieldAt_rs, fieldAt_rt, fieldAt_imm, fieldAt_off21, rsOf_mkIT, rtOf_mkIT,
+      immOf_mkIT, rsOf_mkOff21, off21Of_mkOff21]
+    simp [mkIT, mkOff21, field, maskLow, BitVec.and_assoc]))
+-- END R6-3
+
+-- 163 cases, each a field-extraction `simp`: more than the default budget for one declaration
 set_option maxHeartbeats 4000000 in
 set_option linter.unusedSimpArgs false in
 /-- **The candidate of `i`'s constructor read from `encode i` has the diagram `encode i`.** -/
@@ -300,5 +342,31 @@ theorem enc_candidate (i : Instruction) (hs : SelOK i) :
   case auipc => cand 137
   case aluipc => cand 138
   -- END R6-4
+  -- BEGIN R6-3
+  case bc => cand 139
+  case balc => cand 140
+  case beqc => cand_cb 141
+  case bnec => cand_cb 142
+  case bltc => cand_cb 143
+  case bgec => cand_cb 144
+  case bltuc => cand_cb 145
+  case bgeuc => cand_cb 146
+  case blezc => cand_cb 147
+  case bgezc => cand_cb 148
+  case bgtzc => cand_cb 149
+  case bltzc => cand_cb 150
+  case beqzc => cand_cb 151
+  case bnezc => cand_cb 152
+  case blezalc => cand_cb 153
+  case bgezalc => cand_cb 154
+  case bgtzalc => cand_cb 155
+  case bltzalc => cand_cb 156
+  case beqzalc => cand_cb 157
+  case bnezalc => cand_cb 158
+  case bovc => cand_cb 159
+  case bnvc => cand_cb 160
+  case jic => cand 161
+  case jialc => cand 162
+  -- END R6-3
 
 end Refine

@@ -83,6 +83,28 @@ theorem imm19Of_lt' (w : W32) : (imm19Of w).toNat < 524288 := imm19Of_lt w
 
 /-! ## The diagrams are the model's encoding -/
 
+-- BEGIN R6-3
+/-- A diagram whose constraint holds is its word. -/
+theorem encIf_true {c : Bool} {w : W32} (h : c = true) : Manual.encIf c w = some w := by
+  simp [Manual.encIf, h]
+
+/-- A constrained diagram that gives a word: its constraint holds and the word is its own. -/
+theorem encIf_some {c : Bool} {w v : W32} (h : Manual.encIf c w = some v) : c = true ∧ w = v := by
+  unfold encIf at h; split at h
+  · exact ⟨‹_›, Option.some.inj h⟩
+  · cases h
+
+/-- A register field as a number (`Manual.reg`). -/
+theorem reg_val (x : W32) : (Manual.reg x).val = x.toNat % 32 := rfl
+
+/-- The constraint of a compact branch's diagram, from `WellFormed` (field arithmetic). -/
+macro "cb_cond" : tactic => `(tactic| (
+  simp only [Instruction.WellFormed, ne_eq, ← BitVec.toNat_inj] at *
+  simp only [bne_iff_ne, ne_eq, Bool.and_eq_true, decide_eq_true_eq]
+  simp only [Fin.ext_iff, reg_val, Fin.val_zero]
+  omega))
+-- END R6-3
+
 theorem mask1 : (1#32 <<< 1) - 1#32 = 1#32 := by decide
 theorem mask2 : (1#32 <<< 2) - 1#32 = 3#32 := by decide
 theorem mask3 : (1#32 <<< 3) - 1#32 = 7#32 := by decide
@@ -95,6 +117,9 @@ theorem mask16 : (1#32 <<< 16) - 1#32 = 65535#32 := by decide
 theorem mask19 : (1#32 <<< 19) - 1#32 = 524287#32 := by decide
 theorem mask20 : (1#32 <<< 20) - 1#32 = 1048575#32 := by decide
 theorem mask26 : (1#32 <<< 26) - 1#32 = 67108863#32 := by decide
+-- BEGIN R6-3
+theorem mask21 : (1#32 <<< 21) - 1#32 = 2097151#32 := by decide
+-- END R6-3
 
 theorem fld3_sel (sel : W32) (h : sel.toNat < 8) : fld 3 0 sel = field 6 0 sel := by
   have e : sel &&& 7#32 = sel := and_7 sel h
@@ -136,6 +161,13 @@ theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encod
       mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, mkRT2, mkPc19, BitVec.or_assoc,
       mask1, mask2, mask3, mask4, mask5, mask6, mask9, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and,
       BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
+  -- BEGIN R6-3
+  -- the compact branches: the diagram's constraint holds (`WellFormed`); BEQZC/BNEZC's 21-bit field
+  all_goals
+    rw [encIf_true (by cb_cond)]
+    try simp only [mkOff21, fld, field, maskLow, mask5, mask6, mask21, BitVec.or_assoc,
+      BitVec.shiftLeft_zero, BitVec.reduceAnd]
+  -- END R6-3
 
 /-! ## `decode` is strict: a decoded word is the canonical encoding -/
 
@@ -179,6 +211,85 @@ local macro "word_goal" : tactic =>
     | (apply ext_rt2 <;> field_goal)    -- R6-4
     | (apply ext_pc19 <;> field_goal))  -- R6-4
 
+-- BEGIN R6-3
+/-! ### The compact branches: the three shapes of a shared opcode (`decodeZeroEqTwo`,
+`decodeLtGe`, `decodeJumpOrZ`) re-encode to the word they decoded -/
+
+theorem ext_off21 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
+    (h3 : off21Of x = off21Of w) : x = w := by
+  simp only [BitVec.toNat_eq, opcodeOf, rsOf, off21Of, BitVec.extractLsb, BitVec.toNat_setWidth,
+    BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow] at *
+  have := BitVec.isLt x; have := BitVec.isLt w; omega
+
+theorem off21Of_lt' (w : W32) : (off21Of w).toNat < 2097152 := off21Of_lt w
+
+/-- An I-format word with the opcode, `rs`, `rt` and offset of `w` is `w`. -/
+theorem mkIT_fields (op rs rt : W32) (w : W32) (hop : opcodeOf w = op) (hrs : rsOf w = rs)
+    (hrt : rtOf w = rt) : mkIT op rs rt (immOf w) = w := by
+  subst hop hrs hrt
+  apply ext_it <;> simp
+
+/-- The opcode of a decoded word, from the `match` of `decodePrimary`. -/
+theorem opcodeOf_of_toNat (w : W32) (n : Nat) (h : (opcodeOf w).toNat = n) :
+    opcodeOf w = BitVec.ofNat 32 n := by
+  apply BitVec.eq_of_toNat_eq; rw [h]; have := opcodeOf_lt w; simp; omega
+
+theorem encode_zeroEqTwo (zero eq : W32 → W32 → Instruction) (two : W32 → W32 → W32 → Instruction)
+    (n : Nat) (w : W32) (hop : (opcodeOf w).toNat = n)
+    (hz : ∀ rt imm, encode (zero rt imm) = mkIT (BitVec.ofNat 32 n) 0#32 rt imm)
+    (he : ∀ rt imm, encode (eq rt imm) = mkIT (BitVec.ofNat 32 n) rt rt imm)
+    (ht : ∀ rs rt imm, encode (two rs rt imm) = mkIT (BitVec.ofNat 32 n) rs rt imm) :
+    encode (decodeZeroEqTwo zero eq two w) = w := by
+  have hop' := opcodeOf_of_toNat w n hop
+  unfold decodeZeroEqTwo
+  simp only [beq_iff_eq]
+  split
+  · rename_i h0; rw [hz]; exact mkIT_fields _ _ _ w hop' h0 rfl
+  · split
+    · rename_i _ h0; rw [he]; exact mkIT_fields _ _ _ w hop' h0 rfl
+    · rw [ht]; exact mkIT_fields _ _ _ w hop' rfl rfl
+
+theorem encode_ltGe (zero : W32 → W32 → Instruction) (two ovf : W32 → W32 → W32 → Instruction)
+    (n : Nat) (w : W32) (hop : (opcodeOf w).toNat = n)
+    (hz : ∀ rt imm, encode (zero rt imm) = mkIT (BitVec.ofNat 32 n) 0#32 rt imm)
+    (ht : ∀ rs rt imm, encode (two rs rt imm) = mkIT (BitVec.ofNat 32 n) rs rt imm)
+    (ho : ∀ rs rt imm, encode (ovf rs rt imm) = mkIT (BitVec.ofNat 32 n) rs rt imm) :
+    encode (decodeLtGe zero two ovf w) = w := by
+  have hop' := opcodeOf_of_toNat w n hop
+  unfold decodeLtGe
+  simp only [beq_iff_eq]
+  split
+  · split
+    · rename_i _ h0; rw [hz]; exact mkIT_fields _ _ _ w hop' h0 rfl
+    · rw [ht]; exact mkIT_fields _ _ _ w hop' rfl rfl
+  · rw [ho]; exact mkIT_fields _ _ _ w hop' rfl rfl
+
+theorem encode_jumpOrZ (jmp z : W32 → W32 → Instruction) (n : Nat) (w : W32)
+    (hop : (opcodeOf w).toNat = n)
+    (hj : ∀ rt imm, encode (jmp rt imm) = mkIT (BitVec.ofNat 32 n) 0#32 rt imm)
+    (hz : ∀ rs off, encode (z rs off) = mkOff21 (BitVec.ofNat 32 n) rs off) :
+    encode (decodeJumpOrZ jmp z w) = w := by
+  have hop' := opcodeOf_of_toNat w n hop
+  unfold decodeJumpOrZ
+  simp only [beq_iff_eq]
+  split
+  · rename_i h0; rw [hj]; exact mkIT_fields _ _ _ w hop' h0 rfl
+  · rw [hz]
+    apply ext_off21
+    · rw [opcodeOf_mkOff21, hop', and_63 _ (by have := opcodeOf_lt w; rw [← hop']; exact this)]
+    · simp [rsOf_mkOff21]
+    · simp [off21Of_mkOff21, and_2097151 _ (off21Of_lt w)]
+
+/-- Close `encode (<shape> ... w) = w` for a compact-branch opcode. -/
+local macro "compact_word" : tactic => `(tactic| (
+  first
+    | with_reducible refine encode_zeroEqTwo _ _ _ _ _ ‹_› ?_ ?_ ?_
+    | with_reducible refine encode_ltGe _ _ _ _ _ ‹_› ?_ ?_ ?_
+    | with_reducible refine encode_jumpOrZ _ _ _ _ ‹_› ?_ ?_
+  all_goals intros
+  all_goals rfl))
+-- END R6-3
+
 set_option maxHeartbeats 1000000 in
 /-- **A word `decode` accepts is the encoding of the instruction it returns.** -/
 theorem encode_of_decode (w : W32) (i : Instruction) (h : decode w = some i) : encode i = w := by
@@ -187,6 +298,9 @@ theorem encode_of_decode (w : W32) (i : Instruction) (h : decode w = some i) : e
     decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf] at h
   repeat' split at h
   all_goals (cases h)
+  -- BEGIN R6-3
+  all_goals (try compact_word)
+  -- END R6-3
   all_goals (try simp only [beq_iff_eq, Bool.and_eq_true, decide_eq_true_eq, BitVec.toNat_eq] at *)
   all_goals (rw [← BitVec.toNat_eq]; simp only [encode])
   all_goals word_goal
