@@ -13,6 +13,12 @@ Used for I-format immediates (e.g. `addi`, `lw`, `beq` offsets). -/
 def signExt16 (w : W32) : W32 :=
   (w.extractLsb 15 0).signExtend 32
 
+/-- Sign-extend the low 9 bits of a word to 32 bits: the 9-bit `offset` of the Release 6
+SPECIAL3 `LL`/`SC`/`PREF` (MD00086 Vol II-A Rev 6.06, LL p.224: "Release 6 implements a 9-bit
+offset"). -/
+def signExt9 (w : W32) : W32 :=
+  (w.extractLsb 8 0).signExtend 32
+
 /-- Interpret a word as a two's-complement signed integer. -/
 def asSigned (w : W32) : Int :=
   w.toInt

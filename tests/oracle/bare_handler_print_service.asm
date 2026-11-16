@@ -4,7 +4,7 @@
 # (EPC + 4; ERET p.177-178). The model runs with MipsRun --bare (no hosted services); QEMU has no
 # default handler because the test brings its own.
 # oracle: bare
-# oracle: expect mem:0x10010000=0x48690000 gpr:s7=0x10010002
+# oracle: expect mem:0x10010000=0x00006948 gpr:s7=0x10010002
 .data
 buf: .word 0, 0
 .ktext

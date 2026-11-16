@@ -24,11 +24,11 @@ set_option maxRecDepth 4000
 
 MIPS32 / MIPS32r2 additions (`docs/spec/MIPS-COVERAGE-GAPS.md` §3.4/§3.5). The statements use
 `countLeadingZerosSpec`, `countLeadingOnesSpec`, `signExtLowByteSpec` and `lowBitsMaskSpec`
-(`Defs.lean`). (`mul` is in `MulDiv.lean`.) -/
+(`Defs.lean`). -/
 
 /-- **`clo` counts `$rs`'s leading one bits (from the MSB) into `$rd`**;
-`32` if `$rs` is all-ones (SPECIAL2 opcode 0x1c, funct 0x21; INSTRUCTION-REF
-"clo"). -/
+`32` if `$rs` is all-ones (Release 6: SPECIAL funct 0x11, MD00086 Vol II-A Rev 6.06 CLO p.134;
+INSTRUCTION-REF "clo"). -/
 theorem clo_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clo rs rd))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -40,7 +40,7 @@ theorem clo_spec_raw (s : State) (w rs rd : W32)
   step_spec
 
 /-- **`clz` counts `$rs`'s leading zero bits (from the MSB) into `$rd`**;
-`32` if `$rs` is all-zero (SPECIAL2 opcode 0x1c, funct 0x20; INSTRUCTION-REF
+`32` if `$rs` is all-zero (Release 6: SPECIAL funct 0x10, CLZ p.135; INSTRUCTION-REF
 "clz"). -/
 theorem clz_spec_raw (s : State) (w rs rd : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.clz rs rd))
@@ -85,7 +85,7 @@ theorem seb_spec_raw (s : State) (w rd rt : W32)
 /-- **`seh` sign-extends `$rt`'s low halfword into `$rd`**, ignoring `$rt`'s
 upper 16 bits entirely (SPECIAL3 BSHFL opcode 0x1f, funct 0x20, sub-field
 0x18; INSTRUCTION-REF "seh"). Reuses the already-public `signExt16` directly
-— no new mirror needed (same helper `addi`/`lw`/etc. already use for
+— no new mirror needed (same helper `addiu`/`lw`/etc. already use for
 immediates). -/
 theorem seh_spec_raw (s : State) (w rd rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.seh rd rt))

@@ -57,19 +57,20 @@ theorem low2_of_aligned (pa : W32) (h : pa.toNat % 4 = 0) : (pa &&& 3#32).toNat 
   exact h
 
 /-- **`StoreMemory` of a word against `writeMemWord`**: the four bytes at the aligned physical
-address, most significant first. -/
+address, in the profile's byte order (`byteOfValue`). -/
 theorem storeWord_mem (m : Std.HashMap PAddr UInt8) (pa : PAddr) (v : W32) (h : pa.toNat % 4 = 0) :
     (storedLanes (pa &&& 3#32).toNat WORD).foldl
         (fun mm l => updMem mm ((pa &&& ~~~3#32) + BitVec.ofNat 32 l) (laneByte v l)) (memOf m) =
-      memOf ((((m.insert pa ((v >>> 24) &&& 0xff#32).toNat.toUInt8).insert (pa + 1#32)
-        ((v >>> 16) &&& 0xff#32).toNat.toUInt8).insert (pa + 2#32) ((v >>> 8) &&& 0xff#32).toNat.toUInt8).insert
-        (pa + 3#32) (v &&& 0xff#32).toNat.toUInt8) := by
+      memOf ((((m.insert pa (byteOfValue profile.bigEndianMem 4 v 0)).insert (pa + 1#32)
+        (byteOfValue profile.bigEndianMem 4 v 1)).insert (pa + 2#32)
+        (byteOfValue profile.bigEndianMem 4 v 2)).insert (pa + 3#32)
+        (byteOfValue profile.bigEndianMem 4 v 3)) := by
   rw [base_of_aligned pa h, low2_of_aligned pa h]
   simp only [memOf_insert]
   rw [show storedLanes 0 WORD = [0, 1, 2, 3] by rfl]
   simp only [List.foldl, laneByte_eq v 0 (by omega), laneByte_eq v 1 (by omega),
     laneByte_eq v 2 (by omega), laneByte_eq v 3 (by omega)]
-  simp only [Nat.reduceMul, Nat.reduceSub, BitVec.add_zero, BitVec.ushiftRight_zero]
+  simp only [BitVec.add_zero]
 
 /-- **SW refines.** -/
 theorem sw_refines (s : State) (hg : Good s) (base rt off w : W32)
@@ -120,7 +121,7 @@ theorem lb_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.lb base rt off) = some w) :
     Execute modelCtx w (.lb base rt off) (abs s) = some (abs (execInstr s (.lb base rt off))) := by
   s2_open Ops.LB (Ops.LB base rt off)
-  simp only [execBody]
+  exec_unfold
   rw [BitVec.add_comm (signExt16 off)]
   generalize hva : readReg s (regIdx base) + signExt16 off = va
   rw [addrTrans_run s va .DATA .LOAD _ _ rfl, readMemByte_eq]
@@ -130,7 +131,7 @@ theorem lb_refines (s : State) (hg : Good s) (base rt off w : W32)
     rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
   · simp only [↓reduceIte, Option.map_some, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
       Bool.false_and, abs_Mem, setGPR, addr_recombine]
-    rw [show BigEndianCPU (abs s) = true from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
+    rw [show BigEndianCPU (abs s) = false from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
       memElem_byte, complete_writeReg_eq s hg.1, signExtByte_eq]
 
 /-- **LBU refines.** -/
@@ -138,7 +139,7 @@ theorem lbu_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.lbu base rt off) = some w) :
     Execute modelCtx w (.lbu base rt off) (abs s) = some (abs (execInstr s (.lbu base rt off))) := by
   s2_open Ops.LBU (Ops.LBU base rt off)
-  simp only [execBody]
+  exec_unfold
   rw [BitVec.add_comm (signExt16 off)]
   generalize readReg s (regIdx base) + signExt16 off = va
   rw [addrTrans_run s va .DATA .LOAD _ _ rfl, readMemByte_eq]
@@ -148,7 +149,7 @@ theorem lbu_refines (s : State) (hg : Good s) (base rt off w : W32)
     rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl, gep_adel]
   · simp only [↓reduceIte, Option.map_some, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
       Bool.false_and, abs_Mem, setGPR, addr_recombine]
-    rw [show BigEndianCPU (abs s) = true from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
+    rw [show BigEndianCPU (abs s) = false from rfl, byte_idx, ← fixedMappingPA_low (erlSet s) va,
       memElem_byte, complete_writeReg_eq s hg.1, zeroExtByte_eq]
 
 /-- **LH refines.** -/
@@ -156,7 +157,7 @@ theorem lh_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.lh base rt off) = some w) :
     Execute modelCtx w (.lh base rt off) (abs s) = some (abs (execInstr s (.lh base rt off))) := by
   s2_open Ops.LH (Ops.LH base rt off)
-  simp only [execBody]
+  exec_unfold
   rw [BitVec.add_comm (signExt16 off)]
   generalize readReg s (regIdx base) + signExt16 off = va
   by_cases hal : va.toNat % 2 = 0
@@ -171,7 +172,7 @@ theorem lh_refines (s : State) (hg : Good s) (base rt off w : W32)
     · simp only [↓reduceIte, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
         Bool.false_and, abs_Mem, setGPR, addr_recombine_half]
       have hP := fixedMappingPA_low (erlSet s) va
-      rw [show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP,
+      rw [show BigEndianCPU (abs s) = false from rfl, half_idx va, ← hP,
         memElem_half _ _ (by omega), complete_writeReg_eq s hg.1, signExt16_half]
       rfl
   · have hm : bit va 0 = true := by rw [misaligned2_eq]; simp [hal]
@@ -184,7 +185,7 @@ theorem lhu_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.lhu base rt off) = some w) :
     Execute modelCtx w (.lhu base rt off) (abs s) = some (abs (execInstr s (.lhu base rt off))) := by
   s2_open Ops.LHU (Ops.LHU base rt off)
-  simp only [execBody]
+  exec_unfold
   rw [BitVec.add_comm (signExt16 off)]
   generalize readReg s (regIdx base) + signExt16 off = va
   by_cases hal : va.toNat % 2 = 0
@@ -199,7 +200,7 @@ theorem lhu_refines (s : State) (hg : Good s) (base rt off w : W32)
     · simp only [↓reduceIte, Pseudo.get, loadMemory_model, ReverseEndian, StatusRE,
         Bool.false_and, abs_Mem, setGPR, addr_recombine_half]
       have hP := fixedMappingPA_low (erlSet s) va
-      rw [show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP,
+      rw [show BigEndianCPU (abs s) = false from rfl, half_idx va, ← hP,
         memElem_half _ _ (by omega), complete_writeReg_eq s hg.1, half_bits]
       rfl
   · have hm : bit va 0 = true := by rw [misaligned2_eq]; simp [hal]
@@ -236,7 +237,7 @@ theorem sb_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.sb base rt off) = some w) :
     Execute modelCtx w (.sb base rt off) (abs s) = some (abs (execInstr s (.sb base rt off))) := by
   s2_open Ops.SB (Ops.SB base rt off)
-  simp only [execBody]
+  exec_unfold
   have hcomm : signExt16 off + readReg s (regIdx base) = readReg s (regIdx base) + signExt16 off :=
     BitVec.add_comm _ _
   rw [hcomm]
@@ -251,7 +252,7 @@ theorem sb_refines (s : State) (hg : Good s) (base rt off w : W32)
       show modelCtx.oracle.storeClearsLL (abs s) = true from rfl, store_byte_fold]
     generalize hB : (bits (sign_extend (imm16 off) + readReg s (regIdx base)) 1 0 ^^^
       BitVec.fill 2 (BigEndianCPU (abs s))).toNat = byte
-    rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = true from rfl, byte_idx,
+    rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = false from rfl, byte_idx,
       ← fixedMappingPA_low (erlSet s) va] at hB
     subst hB
     rw [lane_sb _ _ (Nat.mod_lt _ (by omega)), complete_plain, mkNext, abs_advance _ _ (by rfl)]
@@ -264,7 +265,7 @@ theorem sh_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.sh base rt off) = some w) :
     Execute modelCtx w (.sh base rt off) (abs s) = some (abs (execInstr s (.sh base rt off))) := by
   s2_open Ops.SH (Ops.SH base rt off)
-  simp only [execBody]
+  exec_unfold
   have hcomm : signExt16 off + readReg s (regIdx base) = readReg s (regIdx base) + signExt16 off :=
     BitVec.add_comm _ _
   rw [hcomm]
@@ -284,7 +285,7 @@ theorem sh_refines (s : State) (hg : Good s) (base rt off w : W32)
         show modelCtx.oracle.storeClearsLL (abs s) = true from rfl, store_half_fold _ _ _ (by omega : (fixedMappingPA (erlSet s) va).toNat % 2 = 0)]
       generalize hB : (bits (sign_extend (imm16 off) + readReg s (regIdx base)) 1 0 ^^^
         (BitVec.ofBool (BigEndianCPU (abs s)) ++ 0#1)).toNat = byte
-      rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = true from rfl, half_idx va hal, ← hP] at hB
+      rw [offset16, hcomm, hva, show BigEndianCPU (abs s) = false from rfl, half_idx va, ← hP] at hB
       subst hB
       have hl := lane_sh (readReg s (regIdx rt)) _ (by omega : (fixedMappingPA (erlSet s) va).toNat % 4 = 0 ∨ (fixedMappingPA (erlSet s) va).toNat % 4 = 2)
       rw [hl.1, hl.2, complete_plain, mkNext, abs_advance _ _ (by rfl)]

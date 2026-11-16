@@ -11,8 +11,9 @@ namespace Manual.Ops
 
 open Manual
 
-/-- `ArchitectureRevision()` (MD00086 Vol II-A Rev 6.06 §2.2.2.1, p.20): the target is Release 2. -/
-private def ArchitectureRevision : Nat := 2
+/-- `ArchitectureRevision()`: the release of the target, Release 6 (the pages compare it with
+release numbers, e.g. MFC0 p.266: "if ArchitectureRevision() ≥ 6"). -/
+private def ArchitectureRevision : Nat := 6
 
 /-- **SLL rd, rt, sa** — MD00086 Vol II-A Rev 6.06, SLL, p.376.
 ```
@@ -110,12 +111,12 @@ temp ← GPR[rt]s-1..0 || GPR[rt]31..s
 GPR[rd] ← temp
 ```
 The printed page has `<` in the first line (read from the PDF page; only the text extraction of
-6.06 loses the glyph). With `ArchitectureRevision() = 2` (the target is Release 2) the test is
+6.06 loses the glyph). With `ArchitectureRevision() = 6` (the target is Release 6) the test is
 false, so the UNPREDICTABLE branch is never taken and `Config3.SM` (SmartMIPS) is not needed: the
 first line is kept as a comment and has no Lean statement. -/
 def ROTR (rd rt sa : W32) : Pseudo Unit := do
   -- if ((ArchitectureRevision() < 2) and (Config3SM = 0)) then UNPREDICTABLE endif
-  --   (ArchitectureRevision() = 2: never taken)
+  --   (ArchitectureRevision() = 6: never taken)
   let x ← GPR (reg rt)
   -- s ← sa
   let s := (low sa 5).toNat
@@ -136,7 +137,7 @@ GPR[rd] ← temp
 The condition is as for `ROTR`. -/
 def ROTRV (rd rt rs : W32) : Pseudo Unit := do
   -- if ((ArchitectureRevision() < 2) and (Config3SM = 0)) then UNPREDICTABLE endif
-  --   (ArchitectureRevision() = 2: never taken)
+  --   (ArchitectureRevision() = 6: never taken)
   let x ← GPR (reg rt)
   -- s ← GPR[rs]4..0
   let s := (low (← GPR (reg rs)) 5).toNat

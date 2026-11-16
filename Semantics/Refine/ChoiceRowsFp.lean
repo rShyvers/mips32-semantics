@@ -5,19 +5,18 @@ import Semantics.Refine.ChoiceRows
 
 * a double written to an odd `fd` (`StoreFPR` UNPREDICTABLE): the witness oracle signals Reserved
   Instruction;
-* `ABS.fmt`/`NEG.fmt` of a quiet NaN, `NMADD.fmt`/`NMSUB.fmt` with a quiet NaN sum, and every `D`
-  operation of `ABS`/`NEG`/`NMADD`/`NMSUB` reading an odd register (the witness reads the quiet NaN
+* `ABS.fmt`/`NEG.fmt` of a quiet NaN, and every `D` operation of `ABS`/`NEG` reading an odd
+  register (the witness reads the quiet NaN
   `QA64`, so the value negated is a quiet NaN): the readings `A` and `B` of `Oracle.absNegNaN` differ
   in Invalid Operation (`FCSR.Cause.V`, bit 16, or a trap);
 * `ADD/SUB/MUL/DIV.D` reading an odd register: a signaling NaN and a quiet NaN read differ in the
   result or in Invalid Operation (`dist_left`, `dist_right`, `dist_both`);
 * `SQRT/RECIP/RSQRT.D`, `CVT.S.D` reading an odd register: Invalid Operation for the signaling NaN
-  only; `ROUND/TRUNC/CEIL/FLOOR/CVT.W.D`: `+1.0` and `+4.0` give the words 1 and 4; `MOV.D`, the
-  conditional moves: the value read is the value written;
-* `CVT.D.S`/`CVT.S.D` of a quiet NaN: two quiet NaNs;
-* `C.cond.D` with an odd register not absorbed by the other operand: Invalid Operation for a
-  signaling NaN read and not for a quiet NaN (`cond3 = 0`) or `+1.0` (`cond3 = 1`) read;
-* `MADD.D`/`MSUB.D` outside `MaddAbsorbs`: the cases of `rw_maddD`.
+  only; `ROUND/TRUNC/CEIL/FLOOR/CVT.W.D`: `+1.0` and `+4.0` give the words 1 and 4; `MOV.D`: the
+  value read is the value written;
+* `CVT.D.S`/`CVT.S.D` of a quiet NaN: two quiet NaNs.
+(Release 6 removed the rows of `NMADD`/`NMSUB`, `C.cond.D`, `MADD.D`/`MSUB.D` and the FP conditional
+moves.)
 -/
 
 namespace Refine
@@ -43,23 +42,23 @@ def PairV (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) (x : Arch) : Prop :=
 theorem obs_pairV (fd : W32) (r₁ r₂ : BitVec 64 × Mips.Fp.Flags) (hd : Dist r₁ r₂) (x y : Arch)
     (hx : PairV fd r₁ x) (hy : PairV fd r₂ y) : Obs x ≠ Obs y := by
   intro he
-  have h1 := congrArg (fun o => o.2.2.2.1) he
-  have h2 := congrArg (fun o => o.2.2.2.2.1) he
+  have h1 := congrArg (fun o => o.2.2.1) he
+  have h2 := congrArg (fun o => o.2.2.2.1) he
   simp only [Obs] at h1 h2
   rcases hd with hd | hd
   · apply hd; rw [← hx.1, ← hy.1]; simp only [FPRPair, h1]
   · apply hd; rw [← hx.2, ← hy.2, h2]
 
 theorem obs_bit16 (x y : Arch) (hx : bit x.FCSR 16 = true) (hy : bit y.FCSR 16 = false) : Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.2.2.1) he; simp only [Obs] at this; rw [this] at hx
+  intro he; have := congrArg (fun o => o.2.2.2.1) he; simp only [Obs] at this; rw [this] at hx
   rw [hx] at hy; cases hy
 theorem obs_pair (fd : W32) (v₁ v₂ : BitVec 64) (hv : v₁ ≠ v₂) (x y : Arch) (hx : FPRPair x fd = v₁)
     (hy : FPRPair y fd = v₂) : Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.2.1) he; simp only [Obs] at this
+  intro he; have := congrArg (fun o => o.2.2.1) he; simp only [Obs] at this
   apply hv; rw [← hx, ← hy]; simp only [FPRPair, this]
 theorem obs_fpr (r : W32) (v₁ v₂ : W32) (hv : v₁ ≠ v₂) (x y : Arch) (hx : x.FPR (reg r) = v₁)
     (hy : y.FPR (reg r) = v₂) : Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.2.1 (reg r)) he; simp only [Obs] at this
+  intro he; have := congrArg (fun o => o.2.2.1 (reg r)) he; simp only [Obs] at this
   rw [hx, hy] at this; exact hv this
 
 /-- `runp` closing paths that store a double to an even register. -/
@@ -364,50 +363,6 @@ theorem rw_cvtDW (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtDW fd fs) a =
   simp only [ConsultsOracle, OddFPR] at h
   exact row_sig rfl fun _ => by simp only [Ops.CVT_D_W]; runp
 
-theorem rw_movfD (fd fs cc : W32) (a : Arch) (h : ConsultsOracle (.movfD fd fs cc) a = true) :
-    RowWitness (.movfD fd fs cc) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true, Bool.and_eq_true] at h
-  by_cases hd : OddFPR fd = true
-  · simp only [OddFPR] at hd; exact row_sig rfl fun _ => by simp only [Ops.MOVF_D]; runp
-  obtain ⟨hc, hs⟩ := h.resolve_left hd
-  simp only [OddFPR, Bool.not_eq_true, FPCC] at hd hs hc
-  exact row_of rfl { rd := QA64 } { rd := QB64 } (fun x => FPRPair x fd = QA64) (fun x => FPRPair x fd = QB64)
-    (obs_pair fd _ _ QA64_ne_QB64) (fun _ => by simp only [Ops.MOVF_D]; runp_fp)
-    (fun _ => by simp only [Ops.MOVF_D]; runp_fp)
-
-theorem rw_movtD (fd fs cc : W32) (a : Arch) (h : ConsultsOracle (.movtD fd fs cc) a = true) :
-    RowWitness (.movtD fd fs cc) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true, Bool.and_eq_true] at h
-  by_cases hd : OddFPR fd = true
-  · simp only [OddFPR] at hd; exact row_sig rfl fun _ => by simp only [Ops.MOVT_D]; runp
-  obtain ⟨hc, hs⟩ := h.resolve_left hd
-  simp only [OddFPR, Bool.not_eq_true, FPCC] at hd hs hc
-  exact row_of rfl { rd := QA64 } { rd := QB64 } (fun x => FPRPair x fd = QA64) (fun x => FPRPair x fd = QB64)
-    (obs_pair fd _ _ QA64_ne_QB64) (fun _ => by simp only [Ops.MOVT_D]; runp_fp)
-    (fun _ => by simp only [Ops.MOVT_D]; runp_fp)
-
-theorem rw_movnD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movnD fd fs rt) a = true) :
-    RowWitness (.movnD fd fs rt) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true, Bool.and_eq_true] at h
-  by_cases hd : OddFPR fd = true
-  · simp only [OddFPR] at hd; exact row_sig rfl fun _ => by simp only [Ops.MOVN_D]; runp
-  obtain ⟨hc, hs⟩ := h.resolve_left hd
-  simp only [OddFPR, Bool.not_eq_true, FPCC] at hd hs hc
-  exact row_of rfl { rd := QA64 } { rd := QB64 } (fun x => FPRPair x fd = QA64) (fun x => FPRPair x fd = QB64)
-    (obs_pair fd _ _ QA64_ne_QB64) (fun _ => by simp only [Ops.MOVN_D]; runp_fp)
-    (fun _ => by simp only [Ops.MOVN_D]; runp_fp)
-
-theorem rw_movzD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movzD fd fs rt) a = true) :
-    RowWitness (.movzD fd fs rt) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true, Bool.and_eq_true] at h
-  by_cases hd : OddFPR fd = true
-  · simp only [OddFPR] at hd; exact row_sig rfl fun _ => by simp only [Ops.MOVZ_D]; runp
-  obtain ⟨hc, hs⟩ := h.resolve_left hd
-  simp only [OddFPR, Bool.not_eq_true, FPCC] at hd hs hc
-  exact row_of rfl { rd := QA64 } { rd := QB64 } (fun x => FPRPair x fd = QA64) (fun x => FPRPair x fd = QB64)
-    (obs_pair fd _ _ QA64_ne_QB64) (fun _ => by simp only [Ops.MOVZ_D]; runp_fp)
-    (fun _ => by simp only [Ops.MOVZ_D]; runp_fp)
-
 theorem rw_absD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.absD fd fs) a = true) : RowWitness (.absD fd fs) a := by
   simp only [ConsultsOracle, Bool.or_eq_true] at h
   by_cases hd : OddFPR fd = true
@@ -432,19 +387,6 @@ theorem rw_negD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.negD fd fs) a = t
     simp only [OddFPR, Bool.not_eq_true] at ho; simp only [FPRPair] at hq
     have hs := qnan64_not_snan _ hq
     exact row_AB rfl QA64 fun _ r => by simp only [Ops.NEG_D]; cases r <;> runp_fp
-
-theorem rw_nmaddS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddS fd fr fs ft) a = true) :
-    RowWitness (.nmaddS fd fr fs ft) a := by
-  simp only [ConsultsOracle] at h
-  have hs := qnan32_not_snan _ h
-  exact row_AA'S rfl QA64 fd (IEEE.addS a (a.FPR (reg fr)) (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1).1
-    (fun _ => by simp only [Ops.NMADD_S]; runp_fp) (fun _ => by simp only [Ops.NMADD_S]; runp_fp)
-theorem rw_nmsubS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmsubS fd fr fs ft) a = true) :
-    RowWitness (.nmsubS fd fr fs ft) a := by
-  simp only [ConsultsOracle] at h
-  have hs := qnan32_not_snan _ h
-  exact row_AA'S rfl QA64 fd (IEEE.subS a (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1 (a.FPR (reg fr))).1
-    (fun _ => by simp only [Ops.NMSUB_S]; runp_fp) (fun _ => by simp only [Ops.NMSUB_S]; runp_fp)
 
 end
 

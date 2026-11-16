@@ -11,14 +11,11 @@ import Semantics.Specs.Invariants
 import Semantics.Specs.RegFileSize
 import Semantics.Specs.Arith
 import Semantics.Specs.Shift
-import Semantics.Specs.MulDiv
 import Semantics.Specs.BitOps
 import Semantics.Specs.Immediate
 import Semantics.Specs.Memory
 import Semantics.Specs.Atomic
-import Semantics.Specs.Unaligned
 import Semantics.Specs.Branch
-import Semantics.Specs.BranchLikely
 import Semantics.Specs.Jump
 import Semantics.Specs.Trap
 import Semantics.Specs.Syscall
@@ -31,8 +28,6 @@ import Semantics.Specs.FpuControl
 import Semantics.Specs.FpuMemory
 import Semantics.Specs.FpuArith
 import Semantics.Specs.FpuConvert
-import Semantics.Specs.FpuCompare
-import Semantics.Specs.FpuBranch
 import Semantics.Specs.SelfModifying
 import Semantics.Specs.Mmu
 import Semantics.Specs.Loader
@@ -100,16 +95,13 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
 | Register-file sizes | `RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed`: the `regs.size = 32` / `fpRegs.size = 32` side conditions are invariants (the rest is proof device) |
-| R-type arithmetic / logic | `Arith.lean` | the `_spec_raw` statements; overflow corollaries; `movn`/`movz` not-taken |
+| R-type arithmetic / logic | `Arith.lean` | the `_spec_raw` statements; overflow corollaries |
 | Shifts, rotates | `Shift.lean` | the `_spec_raw` statements; `rotr` is not `srl` |
-| Multiply / divide, HI/LO | `MulDiv.lean` | the `_spec_raw` statements; division by zero |
 | Bit operations | `BitOps.lean` | `clo`/`clz`/`seb`/`seh`/`wsbh`/`ext`/`ins` statements |
 | Immediates | `Immediate.lean` | sign- vs zero-extension of the immediate in each statement |
 | Loads / stores | `Memory.lean` | alignment conditions and `AdEL`/`AdES`; sign/zero extension; `sync`/`synci`/`pref` no-ops |
 | `ll` / `sc` | `Atomic.lean` | when `sc` succeeds; `LLbit` |
-| `lwl`/`lwr`/`swl`/`swr` | `Unaligned.lean` | the big-endian byte selection in each statement |
-| Branches | `Branch.lean` | taken / not-taken corollaries; the link register of `bltzal`/`bgezal` |
-| Branch-likely | `BranchLikely.lean` | `beql_not_taken_squashes_delay_slot` and the statements |
+| Branches | `Branch.lean` | taken / not-taken corollaries; the link register of `nal`/`bal` |
 | Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd` |
 | Traps, `break` | `Trap.lean` | the trap condition of each statement |
 | `syscall` | `Syscall.lean` | `syscall_spec_raw` (the System Call exception, always) |
@@ -124,8 +116,6 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | FPU loads / stores | `FpuMemory.lean` | alignment and the register pair used for doubles |
 | FPU arithmetic | `FpuArith.lean` | which `Mips.Fp` function each instruction applies |
 | FPU conversions | `FpuConvert.lean` | which rounding mode each conversion uses |
-| FPU compare | `FpuCompare.lean` | `cCondS_spec_raw`, `cCondD_spec_raw`; `c_lt_s_sets_cc` etc.; the meaning of the predicates is in `Semantics/FpCompareFacts.lean` |
-| FPU branches | `FpuBranch.lean` | `bc1f`/`bc1t`/`bc1fl`/`bc1tl` statements |
 
 The partition follows the constructor groups of `Instruction` (`Semantics/Instruction.lean`) and
 the sections of `docs/spec/INSTRUCTION-REF.md`; each family file's header lists its constructors,

@@ -2,23 +2,24 @@ import Semantics.Specs.Tactics
 import Semantics.Specs.Fixtures
 
 /-!
-# FpuMove — FPU moves: `mfc1`/`mtc1`/`mfhc1`/`mthc1`, `mov.fmt`, conditional moves
+# FpuMove — FPU moves: `mfc1`/`mtc1`/`mfhc1`/`mthc1`, `mov.fmt`
 
-Constructors: `mfc1` `mtc1` `mfhc1` `mthc1` `movS` `movD` `movfS` `movtS` `movfD` `movtD` `movnS` `movzS` `movnD` `movzD` `movf` `movt`.
+Constructors: `mfc1` `mtc1` `mfhc1` `mthc1` `movS` `movD` (Release 6 removed the conditional moves
+MOVF/MOVT/MOVN/MOVZ and their `.fmt` forms).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  MFC1 p.267; MTC1 p.292; MFHC1 p.271; MTHC1 p.295; MOV.fmt p.275; MOV.fmt p.275;
-  MOVF.fmt p.277-278; MOVT.fmt p.282-283; MOVF.fmt p.277-278; MOVT.fmt p.282-283; MOVN.fmt p.280;
-  MOVZ.fmt p.285; MOVN.fmt p.280; MOVZ.fmt p.285; MOVF p.276; MOVT p.281.
+  MFC1 p.267; MTC1 p.292; MFHC1 p.271; MTHC1 p.295; MOV.fmt p.275.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 1)".
 
-## Theorems in this file (16)
+## Theorems in this file (6)
 
   `mfc1_spec_raw` `mtc1_spec_raw` `mfhc1_spec_raw` `mthc1_spec_raw` `movS_spec_raw` `movD_spec_raw`
-  `movfS_spec_raw` `movtS_spec_raw` `movnS_spec_raw` `movzS_spec_raw` `movfD_spec_raw`
-  `movtD_spec_raw` `movnD_spec_raw` `movzD_spec_raw` `movf_spec_raw` `movt_spec_raw`
 -/
+
+-- W5: these statements describe the pre-Release 6 32-bit FPU register model (`Status.FR = 0`: a
+-- double in an even/odd register pair, `mfhc1`/`mthc1` on the odd register); the Release 6 target
+-- profile (CLAUDE.md) is `FR = 1` (64-bit FPRs), which W5 implements.
 
 set_option maxRecDepth 4000
 
@@ -72,100 +73,4 @@ theorem movD_spec_raw (s : State) (w fd fs : W32)
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeFpD s fd (readFpD s fs)) with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movf.s`**: `if FCC[cc] = 0 then fd ← fs`; otherwise nothing changes but `pc`
-(MD00086 Vol II-A Rev 6.06, MOVF.fmt, p.277) -/
-theorem movfS_spec_raw (s : State) (w fd fs cc : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movfS fd fs cc))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { s with pc := s.pc + 4#32 }
-      else { (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs))) with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movt.s`**: `if FCC[cc] = 1 then fd ← fs` -/
-theorem movtS_spec_raw (s : State) (w fd fs cc : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movtS fd fs cc))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs))) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movn.s`**: `if $rt ≠ 0 then fd ← fs` -/
-theorem movnS_spec_raw (s : State) (w fd fs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movnS fd fs rt))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdx rt) != 0#32 then { (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs))) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movz.s`**: `if $rt = 0 then fd ← fs` -/
-theorem movzS_spec_raw (s : State) (w fd fs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movzS fd fs rt))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdx rt) == 0#32 then { (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs))) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movf.d`**: `if FCC[cc] = 0 then fd ← fs`; otherwise nothing changes but `pc`
-(MD00086 Vol II-A Rev 6.06, MOVF.fmt, p.277) -/
-theorem movfD_spec_raw (s : State) (w fd fs cc : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movfD fd fs cc))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { s with pc := s.pc + 4#32 }
-      else { (writeFpD s fd (readFpD s fs)) with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movt.d`**: `if FCC[cc] = 1 then fd ← fs` -/
-theorem movtD_spec_raw (s : State) (w fd fs cc : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movtD fd fs cc))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { (writeFpD s fd (readFpD s fs)) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movn.d`**: `if $rt ≠ 0 then fd ← fs` -/
-theorem movnD_spec_raw (s : State) (w fd fs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movnD fd fs rt))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdx rt) != 0#32 then { (writeFpD s fd (readFpD s fs)) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movz.d`**: `if $rt = 0 then fd ← fs` -/
-theorem movzD_spec_raw (s : State) (w fd fs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movzD fd fs rt))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdx rt) == 0#32 then { (writeFpD s fd (readFpD s fs)) with pc := s.pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movf`** (GPR): `if FCC[cc] = 0 then $rd ← $rs` (MD00086 Vol II-A Rev 6.06, MOVF, p.276) -/
-theorem movf_spec_raw (s : State) (w rs cc rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movf rs cc rd))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { s with pc := s.pc + 4#32 }
-      else
-        { (writeReg s (regIdx rd) (readReg s (regIdx rs))) with
-            pc := (writeReg s (regIdx rd) (readReg s (regIdx rs))).pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`movt`** (GPR): `if FCC[cc] = 1 then $rd ← $rs` (MD00086 Vol II-A Rev 6.06, MOVT, p.281) -/
-theorem movt_spec_raw (s : State) (w rs cc rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movt rs cc rd))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then
-        { (writeReg s (regIdx rd) (readReg s (regIdx rs))) with
-            pc := (writeReg s (regIdx rd) (readReg s (regIdx rs))).pc + 4#32 }
-      else { s with pc := s.pc + 4#32 }) := by
   fp_step_spec

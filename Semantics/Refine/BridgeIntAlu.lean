@@ -3,11 +3,10 @@ import Semantics.Refine.Bridge
 /-!
 # Refine.BridgeIntAlu — the shared steps of the integer ALU refinement proofs (sub-wave 7C S1)
 
-The integer ALU instructions (`Refine/{IntArith,Shift,MulDiv,BitOps,Immediate}.lean`) are neither
-CTIs (except `PAUSE`, the encoding of `SLL r0, r0, 5`, which `modelOracle.ctiInSlot` lets proceed)
-nor in a coprocessor encoding space, and their model arm is `execBody`. Each refinement theorem is
-then three facts: the encoding space of the word, the run of the Operation on `abs s` (a register,
-`HI`/`LO` or no write, or a signalled exception), and the value lemma tying the manual's formula to
+The integer ALU instructions (`Refine/{IntArith,Shift,BitOps,Immediate}.lean`) are neither
+CTIs nor in a coprocessor encoding space, and their model arm is `execBody`. Each refinement theorem is
+then three facts: the encoding space of the word, the run of the Operation on `abs s` (a register
+or no write, or a signalled exception), and the value lemma tying the manual's formula to
 the model's. This file proves the first two once (`refine_ok`, `refine_gpr`, `refine_exc`) and the
 value lemmas shared by several families.
 -/
@@ -16,12 +15,12 @@ namespace Refine
 
 open Manual
 
-/-! ## Execute for an instruction that is not a CTI (or is `PAUSE`) -/
+/-! ## Execute for an instruction that is not a CTI -/
 
-/-- `Execute` runs the Operation of an instruction that is not a CTI, or is `PAUSE` (the model's
-oracle lets a `PAUSE` in a delay slot proceed), outside the unusable coprocessors' spaces. -/
+/-- `Execute` runs the Operation of an instruction that is not a CTI, outside the unusable
+coprocessors' spaces. -/
 theorem execute_plain (w : W32) (i : Instruction) (a : Arch) (op : Pseudo Unit)
-    (hcti : IsCTI i = true → IsPAUSE i = true) (h1 : InCop1Space w = false)
+    (hcti : IsCTI i = true → False) (h1 : InCop1Space w = false)
     (h0 : InCop0Space w = false) (hop : Operation i = some op) :
     Execute modelCtx w i a =
       match op.run modelCtx { arch := a } with
@@ -33,15 +32,10 @@ theorem execute_plain (w : W32) (i : Instruction) (a : Arch) (op : Pseudo Unit)
       | (.signal e, f) => some (GeneralExceptionProcessing modelCtx.impl modelCtx.oracle e f.arch) := by
     simp only [Execute.runOperation, h1, h0, hop, Bool.false_and, Bool.false_eq_true, ite_false]
     rfl
+  have hc : IsCTI i = false := by cases h : IsCTI i; rfl; exact (hcti h).elim
   unfold Execute
-  split
-  · next hc =>
-    have hp : IsPAUSE i = true := hcti (by simp only [Bool.and_eq_true] at hc; exact hc.1)
-    have hs : modelCtx.oracle.ctiInSlot a i = .proceed := by
-      simp only [modelCtx, modelOracle, hp, ↓reduceIte]
-    simp only [hs]
-    exact hr
-  · exact hr
+  simp only [hc, Bool.false_and, Bool.false_eq_true, ite_false]
+  exact hr
 
 /-- The model's arm of an instruction that is no CTI and needs no coprocessor is `execBody`. -/
 theorem execInstr_body (s : State) (i : Instruction) (h1 : isBranchLike i = false)
@@ -53,7 +47,7 @@ theorem execInstr_body (s : State) (i : Instruction) (h1 : isBranchLike i = fals
 /-- **An Operation that completes normally** with the architectural state `abs t`, against a model
 arm `mkNext s t` whose effect `t` keeps `pc` and `pendingBranch`. -/
 theorem refine_ok (s t : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
-    (hcti : IsCTI i = true → IsPAUSE i = true) (h1 : InCop1Space w = false)
+    (hcti : IsCTI i = true → False) (h1 : InCop1Space w = false)
     (h0 : InCop0Space w = false) (hop : Operation i = some op)
     (hrun : op.run modelCtx { arch := abs s } = (.ok (), { arch := abs t }))
     (hex : execInstr s i = mkNext s t) (hpc : t.pc = s.pc)
@@ -67,7 +61,7 @@ theorem refine_ok (s t : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
 /-- **An Operation that writes one GPR** (`GPR[r] ← v`), against the model's
 `mkNext s (writeReg s (regIdx r) v)`. -/
 theorem refine_gpr (s : State) (hg : Good s) (w : W32) (i : Instruction) (op : Pseudo Unit)
-    (r v : W32) (hcti : IsCTI i = true → IsPAUSE i = true) (h1 : InCop1Space w = false)
+    (r v : W32) (hcti : IsCTI i = true → False) (h1 : InCop1Space w = false)
     (h0 : InCop0Space w = false) (hop : Operation i = some op)
     (hrun : op.run modelCtx { arch := abs s } = (.ok (), { arch := writeGPR (abs s) (reg r) v }))
     (hex : execInstr s i = mkNext s (writeReg s (regIdx r) v)) :
@@ -79,7 +73,7 @@ theorem refine_gpr (s : State) (hg : Good s) (w : W32) (i : Instruction) (op : P
 /-- **An Operation that signals an exception** that saves nothing more and has no `CE` (Integer
 Overflow here), from the state it started with, against the model's `takeException`. -/
 theorem refine_exc (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit) (e : Exception)
-    (code : W32) (hcti : IsCTI i = true → IsPAUSE i = true) (h1 : InCop1Space w = false)
+    (code : W32) (hcti : IsCTI i = true → False) (h1 : InCop1Space w = false)
     (h0 : InCop0Space w = false) (hop : Operation i = some op)
     (hrun : op.run modelCtx { arch := abs s } = (.signal e, { arch := abs s }))
     (hs : Simple e = true) (hc : code = (ExcCode e).setWidth 32)
@@ -92,15 +86,14 @@ theorem refine_exc (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit) (e
 
 theorem inCop1_rFormat (op rs rt rd sa fn : W32) :
     InCop1Space (rFormat op rs rt rd sa fn) =
-      ((op &&& 0x3F#32) == 0x11#32 || (op &&& 0x3F#32) == 0x13#32 || (op &&& 0x3F#32) == 0x31#32 ||
-        (op &&& 0x3F#32) == 0x39#32 || (op &&& 0x3F#32) == 0x35#32 || (op &&& 0x3F#32) == 0x3D#32 ||
-        ((op &&& 0x3F#32) == 0#32 && (fn &&& 0x3F#32) == 1#32)) := by
-  simp only [InCop1Space, opcode_rFormat, funct_rFormat]
+      ((op &&& 0x3F#32) == 0x11#32 || (op &&& 0x3F#32) == 0x31#32 ||
+        (op &&& 0x3F#32) == 0x39#32 || (op &&& 0x3F#32) == 0x35#32 || (op &&& 0x3F#32) == 0x3D#32) := by
+  simp only [InCop1Space, opcode_rFormat]
 
 theorem inCop0_rFormat (op rs rt rd sa fn : W32) :
     InCop0Space (rFormat op rs rt rd sa fn) =
-      ((op &&& 0x3F#32) == 0x10#32 || (op &&& 0x3F#32) == 0x2F#32) := by
-  simp only [InCop0Space, opcode_rFormat]
+      ((op &&& 0x3F#32) == 0x10#32 || ((op &&& 0x3F#32) == 0x1F#32 && (fn &&& 0x3F#32) == 0x25#32)) := by
+  simp only [InCop0Space, opcode_rFormat, funct_rFormat]
 
 /-- `iFormat` ignores the function field only through its immediate; the low six bits of the
 word are the immediate's. -/
@@ -112,15 +105,14 @@ theorem iFormat_funct (op rs rt imm : W32) :
 
 theorem inCop1_iFormat (op rs rt imm : W32) :
     InCop1Space (iFormat op rs rt imm) =
-      ((op &&& 0x3F#32) == 0x11#32 || (op &&& 0x3F#32) == 0x13#32 || (op &&& 0x3F#32) == 0x31#32 ||
-        (op &&& 0x3F#32) == 0x39#32 || (op &&& 0x3F#32) == 0x35#32 || (op &&& 0x3F#32) == 0x3D#32 ||
-        ((op &&& 0x3F#32) == 0#32 && (imm &&& 0x3F#32) == 1#32)) := by
-  simp only [InCop1Space, opcode_iFormat, iFormat_funct]
+      ((op &&& 0x3F#32) == 0x11#32 || (op &&& 0x3F#32) == 0x31#32 ||
+        (op &&& 0x3F#32) == 0x39#32 || (op &&& 0x3F#32) == 0x35#32 || (op &&& 0x3F#32) == 0x3D#32) := by
+  simp only [InCop1Space, opcode_iFormat]
 
 theorem inCop0_iFormat (op rs rt imm : W32) :
     InCop0Space (iFormat op rs rt imm) =
-      ((op &&& 0x3F#32) == 0x10#32 || (op &&& 0x3F#32) == 0x2F#32) := by
-  simp only [InCop0Space, opcode_iFormat]
+      ((op &&& 0x3F#32) == 0x10#32 || ((op &&& 0x3F#32) == 0x1F#32 && (imm &&& 0x3F#32) == 0x25#32)) := by
+  simp only [InCop0Space, opcode_iFormat, iFormat_funct]
 
 /-- The encoding-space side conditions of an R-format or I-format ALU word, closed by evaluation of
 the constant opcode and function fields. -/
@@ -135,8 +127,7 @@ macro "alu_space" : tactic =>
 `abs` (the caller adds the Operation, `readGPR_abs s h0` and the value lemmas). -/
 syntax "alu_run" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
-  | `(tactic| alu_run [$ls,*]) => `(tactic| simp only [Pseudo.run, bind, GPR, setGPR, HI, LO, setHI,
-      setLO, Pseudo.modify, Pseudo.oracle, Pseudo.get, ← regIdx_eq_reg, ↓reduceIte, Bool.false_eq_true,
+  | `(tactic| alu_run [$ls,*]) => `(tactic| simp only [Pseudo.run, bind, GPR, setGPR, Pseudo.modify, Pseudo.oracle, Pseudo.get, ← regIdx_eq_reg, ↓reduceIte, Bool.false_eq_true,
       $ls,*])
 
 /-! ## Value lemmas: integer arithmetic -/

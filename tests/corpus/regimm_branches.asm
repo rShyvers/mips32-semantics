@@ -21,16 +21,7 @@ a4: bgez $zero, a5
 a5: bgez $t0, a6
     nop
     addiu $s0, $s0, 4
-a6: bltzal $t0, sub
-    nop
-    bltzal $t1, sub
-    nop
-    bgezal $t1, sub
-    nop
-    bgezal $t0, sub
-    nop
-    bgezal $zero, sub
-    nop
+a6:
     move $a0, $s0
     li $v0, 1
     syscall

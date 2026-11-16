@@ -16,9 +16,9 @@ find its bug" step: that program needs assembler macros, which
 `docs/spec/SPEC-NOTES.md` §9 puts explicitly out of scope, so it can't be
 assembled by `Asm.lean` at all. Instead, this harness validates the
 semantics against a small corpus we wrote ourselves: for several arithmetic
-operations, a "base" program using the direct instruction (`mult`, `div`,
-`sub`, …) and a "variant" program computing the same function with
-bit-shifting/bitwise instructions instead — the kind of strength-reduction a
+operations, a "base" program (`addu` doublings, branch-free biased shifts, `subu`, …; Release 6
+removed MULT/DIV/MFHI/MFLO and its MUL/DIV/MOD are not modeled yet, W4) and a "variant" program
+computing the same function with different bit-shifting/bitwise instructions — the kind of strength-reduction a
 compiler or a hand-optimizing assembly programmer would do. Two of the
 pairs are *deliberately wrong* (the classic "replace division/mod by a
 power of two with a raw shift/mask" bug, which breaks on negative
@@ -62,32 +62,32 @@ def corpus : List EquivCase :=
     , basePath := "tests/equiv/mul_pow2_base.asm"
     , variantPath := "tests/equiv/mul_pow2_shift.asm"
     , expectEquivalent := true
-    , note := "x*8 via mult/mflo vs sll by 3" }
+    , note := "x*8 via three wrapping doublings (addu) vs sll by 3" }
   , { name := "mul_const5"
     , basePath := "tests/equiv/mul_const5_base.asm"
     , variantPath := "tests/equiv/mul_const5_shiftadd.asm"
     , expectEquivalent := true
-    , note := "x*5 via mult/mflo vs (x<<2)+x (addu, non-trapping)" }
+    , note := "x*5 via doublings + x (addu) vs (x<<2)+x (addu, non-trapping)" }
   , { name := "div_pow2_buggy"
     , basePath := "tests/equiv/div_pow2_base.asm"
     , variantPath := "tests/equiv/div_pow2_shift_buggy.asm"
     , expectEquivalent := false
-    , note := "x/4 via div/mflo vs plain sra (WRONG: rounds toward -inf, not zero)" }
+    , note := "x/4 via branch-free biased sra vs plain sra (WRONG: rounds toward -inf, not zero)" }
   , { name := "div_pow2_correct"
     , basePath := "tests/equiv/div_pow2_base.asm"
     , variantPath := "tests/equiv/div_pow2_shift_correct.asm"
     , expectEquivalent := true
-    , note := "x/4 via div/mflo vs bias-corrected sra" }
+    , note := "x/4 via branch-free biased sra vs branching bias-corrected sra" }
   , { name := "mod_pow2_buggy"
     , basePath := "tests/equiv/mod_pow2_base.asm"
     , variantPath := "tests/equiv/mod_pow2_mask_buggy.asm"
     , expectEquivalent := false
-    , note := "x%4 via div/mfhi vs plain andi mask (WRONG: always non-negative)" }
+    , note := "x%4 via branch-free ((x+b)&3)-b vs plain andi mask (WRONG: always non-negative)" }
   , { name := "mod_pow2_correct"
     , basePath := "tests/equiv/mod_pow2_base.asm"
     , variantPath := "tests/equiv/mod_pow2_mask_correct.asm"
     , expectEquivalent := true
-    , note := "x%4 via div/mfhi vs a0 - (bias-corrected quotient)*4" }
+    , note := "x%4 via branch-free ((x+b)&3)-b vs a0 - (bias-corrected quotient)*4" }
   , { name := "sub_twos_complement"
     , basePath := "tests/equiv/sub_base.asm"
     , variantPath := "tests/equiv/sub_twos_complement.asm"
@@ -234,8 +234,6 @@ def archDiff (x y : Arch) (addrs : List PAddr) : List String := Id.run do
   for k in List.finRange 32 do
     if x.GPR k != y.GPR k then d := d ++ [s!"GPR[{k}] {x.GPR k} vs {y.GPR k}"]
     if x.FPR k != y.FPR k then d := d ++ [s!"FPR[{k}] {x.FPR k} vs {y.FPR k}"]
-  if x.HI != y.HI then d := d ++ ["HI"]
-  if x.LO != y.LO then d := d ++ ["LO"]
   if x.FCSR != y.FCSR then d := d ++ [s!"FCSR {x.FCSR} vs {y.FCSR}"]
   for p in addrs do
     if x.Mem p != y.Mem p then d := d ++ [s!"Mem[{p}] {x.Mem p} vs {y.Mem p}"]
@@ -256,7 +254,6 @@ def archDiff (x y : Arch) (addrs : List PAddr) : List String := Id.run do
   if x.HW != y.HW then d := d ++ ["HW"]
   if x.LowPower != y.LowPower then d := d ++ ["LowPower"]
   if x.BranchDelay != y.BranchDelay then d := d ++ [s!"BranchDelay {x.BranchDelay} vs {y.BranchDelay}"]
-  if x.Nullify != y.Nullify then d := d ++ ["Nullify"]
   return d
 
 /-- The physical bytes to compare after the step from `s` to `s'`: the keys the model added, and the
@@ -265,21 +262,21 @@ def memCheckAddrs (s s' : State) : List PAddr :=
   let added := s'.physMem.keys.filter (fun k => !s.physMem.contains k)
   let ea : List PAddr :=
     match readMemWord s s.pc |>.bind decode with
-    | some (.lw b _ o) | some (.sw b _ o) | some (.lwl b _ o)
-    -- 7B S2: every other load/store of the memory, atomic and unaligned families
+    | some (.lw b _ o) | some (.sw b _ o)
+    -- 7B S2: every other load/store of the memory family
     | some (.lb b _ o) | some (.lbu b _ o) | some (.lh b _ o) | some (.lhu b _ o) | some (.sb b _ o)
-    | some (.sh b _ o) | some (.ll b _ o) | some (.sc b _ o) | some (.lwr b _ o) | some (.swl b _ o)
-    | some (.swr b _ o) =>
+    | some (.sh b _ o) =>
       let va := readReg s (regIdx b) + signExt16 o
+      let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
+      [pa, pa + 1#32, pa + 2#32, pa + 3#32]
+    -- LL/SC: the Release 6 9-bit offset
+    | some (.ll b _ o) | some (.sc b _ o) =>
+      let va := readReg s (regIdx b) + signExt9 o
       let pa := fixedMappingPA (erlSet s) va &&& ~~~3#32
       [pa, pa + 1#32, pa + 2#32, pa + 3#32]
     -- 7B S4 FPU: the bytes an FP store may write (aligned word, or the doubleword)
     | some (.swc1 b _ o) | some (.sdc1 b _ o) =>
       let va := readReg s (regIdx b) + signExt16 o
-      let pa := fixedMappingPA (erlSet s) va &&& ~~~7#32
-      (List.range 8).map fun k => pa + BitVec.ofNat 32 k
-    | some (.swxc1 _ i b) | some (.sdxc1 _ i b) =>
-      let va := readReg s (regIdx b) + readReg s (regIdx i)
       let pa := fixedMappingPA (erlSet s) va &&& ~~~7#32
       (List.range 8).map fun k => pa + BitVec.ofNat 32 k
     | _ => []

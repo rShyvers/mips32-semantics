@@ -3,7 +3,7 @@ import Semantics.Manual.FPU
 /-!
 # Manual.Ops.FpuControl — FP control register moves (MD00086 Vol II-A Rev 6.06), 7B S4
 
-`CFC1` and `CTC1`, read for pre-Release 6, Release 2 (the profile). The Release 5 `UFR`/`UNFR`
+`CFC1` and `CTC1`, read for the pre-Release 6 FPU (-- W5: the Release 6 FPU of the profile). The Release 5 `UFR`/`UNFR`
 aliases (`fs` = 1, 4) and the Release 6 `FRE`/`NFRE` aliases (`fs` = 5, 6) need `Config5` and
 `FIR.UFRP`, which this profile does not have (no `Config5`, `FIR.UFRP = 0`): they name no register
 that exists, so they take the `else` arm of the Operation ("Prior to Release 6, the result is

@@ -20,6 +20,10 @@ Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 
   `cvtSW_spec_raw` `cvtDW_spec_raw` `cvtDS_spec_raw` `cvtSD_spec_raw`
 -/
 
+-- W5: these statements describe the pre-Release 6 FPU (legacy NaN handling, `Status.FR = 0`
+-- register pairs for doubles); the Release 6 target profile (CLAUDE.md: `FR = 1`,
+-- `FCSR.NAN2008 = 1`) is implemented by W5.
+
 set_option maxRecDepth 4000
 
 /-! ## Conversions -/

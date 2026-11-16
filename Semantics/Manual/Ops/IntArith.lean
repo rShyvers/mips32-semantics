@@ -136,24 +136,4 @@ def SLTU (rs rt rd : W32) : Pseudo Unit := do
   -- else GPR[rd] ← 0^GPRLEN
   else setGPR (reg rd) 0#32
 
-/-- **MOVN rd, rs, rt** — MD00086 Vol II-A Rev 6.06, MOVN, p.279.
-```
-if GPR[rt] ≠ 0 then
-   GPR[rd] ← GPR[rs]
-endif
-``` -/
-def MOVN (rs rt rd : W32) : Pseudo Unit := do
-  -- if GPR[rt] ≠ 0 then GPR[rd] ← GPR[rs] endif
-  if (← GPR (reg rt)) != 0#32 then setGPR (reg rd) (← GPR (reg rs))
-
-/-- **MOVZ rd, rs, rt** — MD00086 Vol II-A Rev 6.06, MOVZ, p.284.
-```
-if GPR[rt] = 0 then
-   GPR[rd] ← GPR[rs]
-endif
-``` -/
-def MOVZ (rs rt rd : W32) : Pseudo Unit := do
-  -- if GPR[rt] = 0 then GPR[rd] ← GPR[rs] endif
-  if (← GPR (reg rt)) == 0#32 then setGPR (reg rd) (← GPR (reg rs))
-
 end Manual.Ops

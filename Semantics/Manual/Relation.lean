@@ -52,7 +52,7 @@ state", Vol III §6.2.5, p.89: the others are registers).
   of the oracle whose value can change the result (`manual_step_deterministic`,
   `Refine/Determinism.lean`, is the soundness direction; the module doc there lists what is proved of
   the other direction). The choices are: `Cause.CE` of every exception other than Coprocessor Unusable
-  (an interrupt included); a CTI in a delay slot; a word with an UNPREDICTABLE field value (unless a
+  (an interrupt included, and the Reserved Instruction of a CTI in a delay slot); a word with an UNPREDICTABLE field value (unless a
   coprocessor-unusable check comes first); and in an Operation the points listed by `ConsultsOracle`.
 -/
 
@@ -80,9 +80,9 @@ def InaccessibleSame (a x y : Arch) : Prop :=
 /-- **The state accessible in the mode of `a` is the same in `x` and `y`**: everything but what
 `InaccessibleSame` names (`GPR` as read: register 0 reads 0). -/
 def AccessibleSame (a x y : Arch) : Prop :=
-  x.PC = y.PC ∧ (∀ r, readGPR x r = readGPR y r) ∧ x.HI = y.HI ∧ x.LO = y.LO ∧ x.FPR = y.FPR ∧
+  x.PC = y.PC ∧ (∀ r, readGPR x r = readGPR y r) ∧ x.FPR = y.FPR ∧
   x.FCSR = y.FCSR ∧ x.LLbit = y.LLbit ∧ x.LLAddr = y.LLAddr ∧ x.LowPower = y.LowPower ∧
-  x.BranchDelay = y.BranchDelay ∧ x.Nullify = y.Nullify ∧
+  x.BranchDelay = y.BranchDelay ∧
   (∀ pa : PAddr, (UserMode a = true → UserPAddr pa) → x.Mem pa = y.Mem pa) ∧
   (CP0Usable a = true → CP0Same x y)
 
@@ -148,8 +148,6 @@ UNDEFINED outcome and no Reset changes the interrupt inputs `HW` (the `HW` claus
 `UnpredictableLimits` and `UndefinedOutcomeValid`, a model-side strengthening). -/
 def Oracle.Valid (o : Oracle) : Prop :=
   -- restrictions 2 and 3 on every UNPREDICTABLE operation
-  (∀ a i, OutcomeValid a (o.ctiInSlot a i)) ∧
-  (∀ a i, OutcomeValid a (o.linkSourceIs31 a i)) ∧
   (∀ a i, OutcomeValid a (o.jalrRsIsRd a i)) ∧
   (∀ a r v, OutcomeValid a (o.fprOddWrite a r v)) ∧
   (∀ a fs t, OutcomeValid a (o.ctc1Unpredictable a fs t)) ∧
@@ -157,15 +155,12 @@ def Oracle.Valid (o : Oracle) : Prop :=
   (∀ a, OutcomeValid a (o.insLsbAboveMsb a)) ∧
   (∀ a w, OutcomeValid a (o.unpredictableEncoding a w)) ∧
   -- restriction 1 on every UNPREDICTABLE operation and value
-  (∀ i, NIOutcome (o.ctiInSlot · i)) ∧
-  (∀ i, NIOutcome (o.linkSourceIs31 · i)) ∧
   (∀ i, NIOutcome (o.jalrRsIsRd · i)) ∧
   (∀ r v, NIOutcome (o.fprOddWrite · r v)) ∧
   (∀ fs t, NIOutcome (o.ctc1Unpredictable · fs t)) ∧
   NIOutcome o.extOutOfRange ∧
   NIOutcome o.insLsbAboveMsb ∧
   (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
-  NIValue o.divByZero ∧ NIValue o.divuByZero ∧ NIValue o.mulHILO ∧
   (∀ r, NIValue (o.fprOddRead · r)) ∧
   (∀ fs, NIValue (o.cfc1Unpredictable · fs)) ∧
   -- the UNDEFINED operations
@@ -196,10 +191,6 @@ def OddFPR (fpr : W32) : Bool := bit (BitVec.ofNat 5 (reg fpr).val) 0
 /-- The doubleword `ValueFPR(fpr, D)` reads for an even `fpr` (Figure 2.22, p.22). -/
 def FPRPair (a : Arch) (fpr : W32) : BitVec 64 := a.FPR (reg fpr + 1) ++ a.FPR (reg fpr)
 
-/-- `FPConditionCode(cc)` of state `a` (Figure 2.25, p.23). -/
-def FPCC (a : Arch) (cc : W32) : Bool :=
-  if (low cc 3).toNat == 0 then bit a.FCSR 23 else bit a.FCSR (24 + (low cc 3).toNat)
-
 /-- `CTC1 rt, fs` with `temp = GPR[rt]` takes one of the `UNPREDICTABLE` arms of its Operation
 (MD00086 Vol II-A Rev 6.06, CTC1, p.150). -/
 def CTC1Unpredictable (fs temp : W32) : Bool :=
@@ -209,68 +200,31 @@ def CTC1Unpredictable (fs temp : W32) : Bool :=
   else if fs == 31#32 then bits temp 22 18 != 0#5
   else true
 
-/-- **A `C.cond.D` operand that decides the comparison alone** (wave 9): with `y` a signaling NaN, or a
-quiet NaN under a predicate with `cond3 = 1`, the comparison is unordered and Invalid Operation is
-raised whatever the other operand is ("If one of the values is an SNaN, or cond3 is set and at least
-one of the values is a QNaN, an Invalid Operation condition is raised", MD00086 Vol II-A Rev 6.06,
-C.cond.fmt, Description, p.110; Operation, p.112-113). The other operand, read from an odd register
-(`ValueFPR` UNPREDICTABLE), then cannot change the result. -/
-def CmpAbsorbs (cond : W32) (y : BitVec 64) : Bool :=
-  Mips.Fp.isSNaN64 y || (bit cond 3 && Mips.Fp.isQNaN64 y)
-
-/-- **The corner of `MADD.D`/`MSUB.D` where the odd `ft` cannot change the result** (wave 9; Wave
-12a): `fs` even holding a quiet NaN `x`, `ft` odd, `fr` even holding a signaling NaN. The multiply
-delivers `x` whatever `ft` reads (the first quiet NaN operand, `Mips.Fp.Format.nanResult`); the read
-shows only as Invalid Operation of the multiply when it is a signaling NaN. That condition does not
-trap when the Invalid enable (`FCSR` bit 11) is 0; the add of `x` and the signaling NaN `fr` signals
-Invalid Operation anyway, and the instruction's `Cause` is the union of the operations' conditions
-("A bit is set to 1 if the corresponding exception condition arises during the execution of an
-instruction", MD00082 Vol I-A Rev 6.01, Table 6.8, p.94), which are then ORed into the Flags ("The
-Cause bits are ORed into the Flag bits if no exception is taken", MD00086 Vol II-A Rev 6.06, MADD.fmt,
-p.256; MSUB.fmt, p.287). Before Wave 12a the corner also held with the Invalid Flag already set,
-when only the last operation's Cause was kept.
-
-The second corner (Wave 12a): `fs`, `ft` even, `fr` odd, and the multiply signals Invalid Operation.
-Its result is then a quiet NaN (`Mips.Fp.Format.nanResult`, or the default QNaN of an invalid
-product), which the add delivers whatever `fr` reads (the first quiet NaN operand); the read shows only
-as Invalid Operation of the add when it is a signaling NaN, which the union with the multiply's
-Invalid absorbs. (When the Invalid enable is set the multiply traps before `fr` is read.) -/
-def MaddAbsorbs (a : Arch) (fr fs ft : W32) : Bool :=
-  (!OddFPR fs && OddFPR ft && !OddFPR fr && Mips.Fp.isQNaN64 (FPRPair a fs) && !bit a.FCSR 11 &&
-    Mips.Fp.isSNaN64 (FPRPair a fr)) ||
-  (!OddFPR fs && !OddFPR ft && OddFPR fr &&
-    (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).2.invalid)
-
 /-- **The Operation of `ins`, run from `a`, reaches an oracle choice whose value can change the
 result** (exact, provided the Operation does not signal before reaching it; an Operation that signals
 is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the oracle:
 
 * the loads (`Oracle.loadClearsLL`) and stores (`storeClearsLL`), while `LLbit = 1`: the choice is
   whether `LLbit` becomes 0. Not `LL` and `SC`, which set `LLbit` themselves afterwards;
-* an odd FPR read or written as a double (`fprOddRead`, `fprOddWrite`), on the path the Operation takes
-  (`MOVF.D`/`MOVT.D`/`MOVN.D`/`MOVZ.D` read `fs` only when they move);
-* `DIV`/`DIVU` by zero (`divByZero`, `divuByZero`), `MUL` (`mulHILO`, always);
+* an odd FPR read or written as a double (`fprOddRead`, `fprOddWrite`), on the path the Operation
+  takes;
 * `CFC1` of a register that does not exist (`cfc1Unpredictable`), unless `rt = 0` (the value is
   written to `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
 * `MFC0`/`MTC0` of a register CP0 does not contain (`cp0Undefined`); `MTC0` of a different Exception
   Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
-* `EXT`/`INS` with an UNPREDICTABLE field combination; a branch-and-link with `rs = 31`; `JALR`/
-  `JALR.HB` with `rs = rd`;
-* `ABS.fmt`/`NEG.fmt` of a quiet NaN and `NMADD.fmt`/`NMSUB.fmt` whose sum is a quiet NaN
-  (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN (`cvtQNaNToD`, `cvtQNaNToS`).
+* `EXT`/`INS` with an UNPREDICTABLE field combination; `JALR`/`JALR.HB` with `rs = rd`;
+* `ABS.fmt`/`NEG.fmt` of a quiet NaN (`absNegNaN`); `CVT.D.S`/`CVT.S.D` of a quiet NaN
+  (`cvtQNaNToD`, `cvtQNaNToS`).
 
-Wave 9 made three rows exact (each of them was `true` at states where no oracle can change the
-result; `Refine.choiceFree_exact` is the proof that the rows are now exact):
-* `MFHC1` with `rt = 0`: the odd-register value is written to `GPR[0]`, which has no effect;
-* `C.cond.D` with exactly one odd register, when the other operand absorbs it (`CmpAbsorbs`);
-* `MADD.D`/`MSUB.D` in the corner `MaddAbsorbs`. -/
+`MFHC1` with `rt = 0` is not a row: the odd-register value is written to `GPR[0]`, which has no effect
+(wave 9). (Release 6 removed the instructions of the former rows `DIV`/`DIVU`/`MUL` (HI/LO), the
+branch-and-link with `rs = 31`, `NMADD`/`NMSUB`, `MADD.D`/`MSUB.D`, `C.cond.D`, `MOVF.D`/`MOVT.D`/
+`MOVN.D`/`MOVZ.D` and the indexed FP loads and stores.)
+-- W5: the odd-FPR rows go with the 64-bit FPU (`Status.FR = 1`). -/
 def ConsultsOracle : Instruction → Arch → Bool
-  | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a | .lwl .., a | .lwr .., a
-  | .lwc1 .., a | .lwxc1 .., a | .sb .., a | .sh .., a | .sw .., a | .swl .., a | .swr .., a
-  | .swc1 .., a | .swxc1 .., a => a.LLbit
-  | .ldc1 _ ft _, a | .sdc1 _ ft _, a | .ldxc1 ft _ _, a | .sdxc1 ft _ _, a => a.LLbit || OddFPR ft
-  | .div _ rt, a | .divu _ rt, a => readGPR a (reg rt) == 0#32
-  | .mul .., _ => true
+  | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a
+  | .lwc1 .., a | .sb .., a | .sh .., a | .sw .., a | .swc1 .., a => a.LLbit
+  | .ldc1 _ ft _, a | .sdc1 _ ft _, a => a.LLbit || OddFPR ft
   | .cfc1 rt fs, _ =>
     !(fs == 0#32 || fs == 25#32 || fs == 26#32 || fs == 28#32 || fs == 31#32) && reg rt != 0
   | .ctc1 rt fs, a => CTC1Unpredictable fs (low (readGPR a (reg rt)) 32)
@@ -281,23 +235,10 @@ def ConsultsOracle : Instruction → Arch → Bool
         bits (readGPR a (reg rt)) 29 12 != bits a.EBase 29 12)
   | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
   | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
-  | .bltzal rs _, _ | .bgezal rs _, _ | .bltzall rs _, _ | .bgezall rs _, _ => reg rs == 31
   | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
   | .absS _ fs, a | .negS _ fs, a => Mips.Fp.isQNaN32 (a.FPR (reg fs))
   | .absD fd fs, a | .negD fd fs, a =>
     OddFPR fs || OddFPR fd || Mips.Fp.isQNaN64 (FPRPair a fs)
-  | .nmaddS _ fr fs ft, a =>
-    Mips.Fp.isQNaN32 (IEEE.addS a (a.FPR (reg fr)) (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1).1
-  | .nmsubS _ fr fs ft, a =>
-    Mips.Fp.isQNaN32 (IEEE.subS a (IEEE.mulS a (a.FPR (reg fs)) (a.FPR (reg ft))).1 (a.FPR (reg fr))).1
-  | .nmaddD fd fr fs ft, a =>
-    OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd ||
-      Mips.Fp.isQNaN64 (IEEE.addD a (FPRPair a fr) (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).1).1
-  | .nmsubD fd fr fs ft, a =>
-    OddFPR fr || OddFPR fs || OddFPR ft || OddFPR fd ||
-      Mips.Fp.isQNaN64 (IEEE.subD a (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).1 (FPRPair a fr)).1
-  | .maddD fd fr fs ft, a | .msubD fd fr fs ft, a =>
-    OddFPR fd || ((OddFPR fr || OddFPR fs || OddFPR ft) && !MaddAbsorbs a fr fs ft)
   | .addD fd fs ft, _ | .subD fd fs ft, _ | .mulD fd fs ft, _ | .divD fd fs ft, _ =>
     OddFPR fs || OddFPR ft || OddFPR fd
   | .sqrtD fd fs, _ | .recipD fd fs, _ | .rsqrtD fd fs, _ | .movD fd fs, _ => OddFPR fs || OddFPR fd
@@ -306,13 +247,6 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .cvtDS fd fs, a => OddFPR fd || Mips.Fp.isQNaN32 (a.FPR (reg fs))
   | .cvtDW fd _, _ => OddFPR fd
   | .cvtSD _ fs, a => OddFPR fs || Mips.Fp.isQNaN64 (FPRPair a fs)
-  | .cCondD cond _ fs ft, a =>
-    (OddFPR fs && OddFPR ft) || (OddFPR fs && !OddFPR ft && !CmpAbsorbs cond (FPRPair a ft)) ||
-      (!OddFPR fs && OddFPR ft && !CmpAbsorbs cond (FPRPair a fs))
-  | .movfD fd fs cc, a => OddFPR fd || (FPCC a cc == false && OddFPR fs)
-  | .movtD fd fs cc, a => OddFPR fd || (FPCC a cc == true && OddFPR fs)
-  | .movnD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) != 0#32 && OddFPR fs)
-  | .movzD fd fs rt, a => OddFPR fd || (readGPR a (reg rt) == 0#32 && OddFPR fs)
   | .mfhc1 rt fs, _ => OddFPR fs && reg rt != 0
   | .mthc1 _ fs, _ => OddFPR fs
   | _, _ => false
@@ -323,13 +257,13 @@ def ctxOf (i : Impl) (o : Oracle) : Ctx := { impl := i, oracle := o }
 /-- **No oracle choice that can change the result is made in the instruction time from `a`**
 (decidable; module doc). `false` when an interrupt or an exception other than Coprocessor Unusable is
 taken (its `Cause.CE` "is loaded, but not defined", Vol III §6.2.3, p.87), for a word with an
-UNPREDICTABLE field value whose coprocessor is usable, for a CTI in a delay slot, and when the
+UNPREDICTABLE field value whose coprocessor is usable, for a CTI in a delay slot (Reserved Instruction,
+whose `Cause.CE` is not defined), and when the
 Operation reaches a choice (`ConsultsOracle`). Whether the Operation signals is computed with the model's
 oracle `modelOracle`; when `ConsultsOracle` is `false` every oracle gives the same run. -/
 def ChoiceFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch) : Bool :=
   if InterruptTaken i a then false
   else if a.LowPower then true
-  else if a.Nullify then true
   else
     match InstructionFetch.run (ctxOf i modelOracle) { arch := a } with
     | (.signal _, _) => false

@@ -21,7 +21,7 @@ theorem sll_refines (s : State) (hg : Good s) (rd rt shamt w : W32)
       some (abs (execInstr s (.sll rd rt shamt))) := by
   obtain rfl : rFormat 0#32 0#32 rt rd shamt 0x00#32 = w := Option.some.inj hw
   refine refine_gpr s hg _ _ (Ops.SLL rd rt shamt) rd (readReg s (regIdx rt) <<< (shamt.toNat % 32))
-    (fun h => h) (by alu_space) (by alu_space) rfl ?_
+    (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_
     (execInstr_body s _ rfl rfl rfl)
   alu_run [Ops.SLL, readGPR_abs s hg.2.2, sll_eq _ _ (low5_lt _), low5]
 
@@ -32,7 +32,7 @@ theorem srl_refines (s : State) (hg : Good s) (rd rt shamt w : W32)
       some (abs (execInstr s (.srl rd rt shamt))) := by
   obtain rfl : rFormat 0#32 0#32 rt rd shamt 0x02#32 = w := Option.some.inj hw
   refine refine_gpr s hg _ _ (Ops.SRL rd rt shamt) rd (readReg s (regIdx rt) >>> (shamt.toNat % 32))
-    (fun h => h) (by alu_space) (by alu_space) rfl ?_
+    (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_
     (execInstr_body s _ rfl rfl rfl)
   alu_run [Ops.SRL, readGPR_abs s hg.2.2, srl_eq _ _ (low5_lt _), low5]
 
@@ -43,7 +43,7 @@ theorem sra_refines (s : State) (hg : Good s) (rd rt shamt w : W32)
       some (abs (execInstr s (.sra rd rt shamt))) := by
   obtain rfl : rFormat 0#32 0#32 rt rd shamt 0x03#32 = w := Option.some.inj hw
   refine refine_gpr s hg _ _ (Ops.SRA rd rt shamt) rd ((readReg s (regIdx rt)).sshiftRight (shamt.toNat % 32))
-    (fun h => h) (by alu_space) (by alu_space) rfl ?_
+    (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_
     (execInstr_body s _ rfl rfl rfl)
   alu_run [Ops.SRA, readGPR_abs s hg.2.2, sra_eq _ _ (low5_lt _), low5]
 

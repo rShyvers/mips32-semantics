@@ -36,33 +36,21 @@ theorem pc_add_eight (p : W32) : p + 4#32 + 4#32 = p + 8#32 := by
 
 /-! ## The model's UNPREDICTABLE choices of the control instructions -/
 
-/-- `linkSourceIs31` of the model is `.proceed`: the body of a branch-and-link runs as written. -/
+/-- A `.proceed` resolution: the body of an Operation runs as written (`JALR` with `rs = rd`). -/
 theorem link31_proceed (c : Bool) (body : Pseudo Unit) :
     (if c = true then unpredictableOr .proceed body else body) = body := by
   split <;> rfl
 
-theorem modelOracle_linkSourceIs31 (a : Arch) (i : Instruction) :
-    modelCtx.oracle.linkSourceIs31 a i = .proceed := rfl
-
-theorem writeReg_nullified (s : State) (i : Fin 32) (v : W32) :
-    (writeReg s i v).nullified = s.nullified := by
-  unfold writeReg; split <;> rfl
-
 /-- The model's state with a new `pc` and `pendingBranch`, seen through `abs`. -/
 theorem abs_pc_pb (s : State) (p : W32) (b : Option W32) :
     abs { s with pc := p, pendingBranch := b } = { abs s with PC := p, BranchDelay := b } := rfl
-
-/-- The model's state with a new `pc`, `pendingBranch` and `nullified`, seen through `abs`. -/
-theorem abs_pc_pb_n (s : State) (p : W32) (b : Option W32) (n : Bool) :
-    abs { s with pc := p, pendingBranch := b, nullified := n } =
-      { abs s with PC := p, BranchDelay := b, Nullify := n } := rfl
 
 /-! ## The shape of a branch's refinement proof -/
 
 set_option hygiene false in
 /-- The common part of the refinement proof of an I-format branch `i` (encoded as `word`, Operation
 `op`, the model's arm outside a delay slot `hex`): the delay-slot case (Reserved Instruction on both
-sides), then `fin` on the run of the Operation against `hex`. Expects `s hg hn w hw` in scope. -/
+sides), then `fin` on the run of the Operation against `hex`. Expects `s hg w hw` in scope. -/
 macro "branch_refine " i:term:max word:term:max op:term:max hex:term:max " => " fin:tacticSeq : tactic =>
   `(tactic| (
     obtain ⟨hsz, -, h0⟩ := hg
@@ -72,7 +60,7 @@ macro "branch_refine " i:term:max word:term:max op:term:max hex:term:max " => " 
     have hbl : isBranchLike $i = true := rfl
     cases hpb : s.pendingBranch with
     | some t =>
-      rw [execute_cti_slot w _ s t rfl rfl hpb]
+      rw [execute_cti_slot w _ s t rfl hpb]
       unfold execInstr; rw [hbl, hpb]; rfl
     | none =>
       rw [execute_cti_run w _ s $op hpb hc1 hc0 rfl]
@@ -117,8 +105,9 @@ theorem opcode_wrpgpr (rd rt : W32) :
     opcode (fld 6 26 0x10#32 ||| fld 5 21 0x0E#32 ||| fld 5 16 rt ||| fld 5 11 rd) = 0x10#32 := by
   opcode_tac
 
-theorem opcode_rdhwr (rt rd : W32) :
-    opcode (fld 6 26 0x1F#32 ||| fld 5 16 rt ||| fld 5 11 rd ||| fld 6 0 0x3B#32) = 0x1F#32 := by
+theorem opcode_rdhwr (rt rd sel : W32) :
+    opcode (fld 6 26 0x1F#32 ||| fld 5 16 rt ||| fld 5 11 rd ||| fld 3 6 sel ||| fld 6 0 0x3B#32) =
+      0x1F#32 := by
   opcode_tac
 
 theorem opcode_j (target : W32) : opcode (fld 6 26 0x02#32 ||| fld 26 0 target) = 0x02#32 := by

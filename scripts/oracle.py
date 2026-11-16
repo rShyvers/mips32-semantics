@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Second differential oracle: QEMU (MIPS32r2 24Kf, big-endian) vs the Lean model.
+"""Second differential oracle: QEMU (MIPS32 Release 6, mips32r6-generic, little-endian) vs the Lean model.
 
     scripts/oracle.py                  run every tests/oracle/*.asm on both, compare
     scripts/oracle.py --only NAME      run one (repeatable; NAME without .asm)
@@ -26,7 +26,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTDIR = os.path.join(ROOT, "tests", "oracle")
 HARNESS = os.path.join(TESTDIR, "harness", "boot.s")
 ENCLIST = os.path.join(TESTDIR, "encodings.list")
-ASMLEAN = os.path.join(ROOT, "Semantics", "Asm.lean")
+ASMDIR_LEAN = os.path.join(ROOT, "Semantics", "Asm")
+# Toolchain targets (DECISIONS D1: little-endian Release 6)
+QEMU = "qemu-system-mipsel"
+QEMU_CPU = "mips32r6-generic"
+MC_TRIPLE = "-triple=mipsel-unknown-elf"
+MC_CPU = "-mcpu=mips32r6"
+LD_EMU = "elf32ltsmip"
+BYTEORDER = "little"
 
 # ----------------------------------------------------------------------------- constants
 # Comparison masks.  Bits the model implements (Semantics/Types.lean statusWriteMask / causeWriteMask
@@ -43,7 +50,7 @@ PAGE = 0x1000
 REGS = ["zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6",
         "t7", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp",
         "fp", "ra"]
-SIMPLE_FIELDS = ["hi", "lo", "fcsr", "status", "cause", "epc", "badvaddr", "errorepc", "pc", "output", "term"]
+SIMPLE_FIELDS = ["fcsr", "status", "cause", "epc", "badvaddr", "errorepc", "pc", "output", "term"]
 BUF_WORDS = 73
 
 
@@ -54,9 +61,9 @@ class HarnessError(Exception):
 # ----------------------------------------------------------------------------- tools
 def find_tools():
     missing = []
-    qemu = shutil.which("qemu-system-mips")
+    qemu = shutil.which(QEMU)
     if not qemu:
-        missing.append("qemu-system-mips (apt install qemu-system-mips)")
+        missing.append(QEMU + " (apt install qemu-system-mips)")
     llvm = None
     cands = [os.environ.get("ORACLE_LLVM_DIR", ""), "/usr/lib/llvm-21/bin"]
     cands += [d for d in sorted(os.listdir("/usr/lib")) if False]
@@ -107,8 +114,7 @@ class Env:
     def harness_object(self):
         if self.boot_o is None:
             o = os.path.join(self.work, "boot.o")
-            sh([self.llvm_tool("llvm-mc"), "-triple=mips-unknown-elf", "-mcpu=mips32r2",
-                "-filetype=obj", HARNESS, "-o", o])
+            sh([self.llvm_tool("llvm-mc"), MC_TRIPLE, MC_CPU, "-filetype=obj", HARNESS, "-o", o])
             self.boot_o = o
         return self.boot_o
 
@@ -222,7 +228,7 @@ def model_record(j):
     f = j["final"]
     h = j["halt"]
     kind = h["kind"]
-    rec = {"gpr": list(f["gpr"]), "hi": f["hi"], "lo": f["lo"], "fcsr": f["fcsr"], "fpr": list(f["fpr"]),
+    rec = {"gpr": list(f["gpr"]), "fcsr": f["fcsr"], "fpr": list(f["fpr"]),
            "status": f["cp0"]["status"], "cause": f["cp0"]["cause"], "epc": f["cp0"]["epc"],
            "badvaddr": f["cp0"]["badvaddr"], "errorepc": f["cp0"]["errorepc"], "pc": f["pc"],
            "output": j["output"]}
@@ -308,7 +314,7 @@ def build_qemu_elf(env, model, tdir):
     while len(tlb) < 16:
         tlb.append([0xC0000000 + len(tlb) * 0x2000, 0, 0])
     status = ini["cp0"]["status"]
-    cfg = list(ini["gpr"]) + [ini["hi"], ini["lo"], ini["fcsr"], status, ini["cp0"]["cause"],
+    cfg = list(ini["gpr"]) + [0, 0, ini["fcsr"], status, ini["cp0"]["cause"],
                               ini["cp0"]["epc"], ini["cp0"]["errorepc"], ini["pc"], 16] + list(ini["fpr"])
     for e in tlb:
         cfg += e
@@ -339,16 +345,16 @@ def build_qemu_elf(env, model, tdir):
     ld.append("}")
     open(os.path.join(tdir, "img.s"), "w").write("\n".join(s) + "\n")
     open(os.path.join(tdir, "t.ld"), "w").write("\n".join(ld) + "\n")
-    sh([env.llvm_tool("llvm-mc"), "-triple=mips-unknown-elf", "-mcpu=mips32r2", "-filetype=obj",
+    sh([env.llvm_tool("llvm-mc"), MC_TRIPLE, MC_CPU, "-filetype=obj",
         os.path.join(tdir, "img.s"), "-o", os.path.join(tdir, "img.o")])
     elf = os.path.join(tdir, "t.elf")
-    sh([env.llvm_tool("ld.lld"), "-m", "elf32btsmip", "-T", os.path.join(tdir, "t.ld"),
+    sh([env.llvm_tool("ld.lld"), "-m", LD_EMU, "-T", os.path.join(tdir, "t.ld"),
         env.harness_object(), os.path.join(tdir, "img.o"), "-o", elf, "--no-rosegment", "-z", "norelro"])
     return elf
 
 
 def run_qemu(env, elf):
-    cmd = [env.qemu, "-M", "malta", "-cpu", "24Kf", "-m", "64", "-nographic", "-monitor", "none",
+    cmd = [env.qemu, "-M", "malta", "-cpu", QEMU_CPU, "-m", "64", "-nographic", "-monitor", "none",
            "-serial", "stdio", "-no-reboot", "-kernel", elf]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=env.timeout, stdin=subprocess.DEVNULL)
@@ -379,7 +385,7 @@ def parse_qemu(out):
         i += 2
     if i >= len(w):
         raise HarnessError("QEMU dump missing end marker")
-    rec = {"gpr": b[0:32], "hi": b[32], "lo": b[33], "fcsr": b[34], "status": b[35], "cause": b[36],
+    rec = {"gpr": b[0:32], "fcsr": b[34], "status": b[35], "cause": b[36],
            "epc": b[37], "badvaddr": b[38], "errorepc": b[39], "pc": b[40], "fpr": b[41:73],
            "output": out_s, "mem": {a: v for a, v in mem.items() if in_mem_region(a)}, "qkind": kind}
     cause = rec["cause"]
@@ -444,7 +450,7 @@ def compare(model, mrec, qrec):
         return diffs
     for i in range(32):
         put("gpr:" + REGS[i], mrec["gpr"][i], qrec["gpr"][i])
-    for k in ("hi", "lo", "epc", "badvaddr", "errorepc", "pc", "output", "status", "cause", "fcsr"):
+    for k in ("epc", "badvaddr", "errorepc", "pc", "output", "status", "cause", "fcsr"):
         if k in skip:
             continue
         mk = m.get(k, 0xFFFFFFFF)
@@ -541,14 +547,28 @@ ASM_SKIP = {
 }
 
 # Sidecar `# oracle:` directives for tests/asm programs (the programs themselves stay untouched: EquivHarness reads them).
-_NAN_CITE = ("MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' -- with one QNaN operand "
-             "(QNaN + 1.0) the operand QNaN is mandatory, with two NaN operands which one is returned is not specified; "
-             "model returns the first quiet-NaN operand, QEMU the default QNaN 0x7fbfffff")
+# W5 (the Release 6 FPU, DECISIONS D2): the model's FPU is still FR = 0 with the legacy NaN encoding and FCSR.NAN2008 = ABS2008 = 0;
+# QEMU mips32r6-generic has FR = 1 and NAN2008 = ABS2008 = 1 (read-only).
+_FCSR2008 = ("MD00082 Vol I-A Rev 6.01 sec 6.5 Table 6.8 p.93 (ABS2008, bit 19: reset state 1 (Release 6), \"Required as of Release 5\") and p.94 "
+             "(NAN2008, bit 18: 1 (Release 6)): W5: the model's FCSR reads NAN2008 = ABS2008 = 0 (QEMU: 0x000c0000 set)")
+_FR1 = ("MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (Status.FR read-only in Release 6; FR = 1 required with a 64-bit FPU) and DECISIONS D2: "
+        "W5: the model keeps doubles in even/odd FPR pairs (FR = 0); QEMU (FR = 1) leaves the odd FPR alone")
+_CVT2008 = ("MD00086 Vol II-A Rev 6.06 CVT.W.fmt p.160 (\"On cores with FCSRNAN2008=0, the default result is 2^31-1. On cores with FCSRNAN2008=1, the default "
+            "result is: 0 when the input value is NaN ...\") and the FCSR bits (" + _FCSR2008 + ")")
+_NAN2008 = ("MD00082 Vol I-A Rev 6.01 sec 6.5 Table 6.8 p.94 (NAN2008 = 1 in Release 6: a quiet NaN has the first fraction bit 1) and p.93 (ABS2008 = 1: "
+            "ABS/NEG non-arithmetic): W5: the model still uses the legacy NaN encoding and arithmetic ABS/NEG")
+_MISALIGNED = ("MD00086 Vol II-A Rev 6.06 LDC1 p.215 / MD00082 Vol I-A Rev 6.01 App. B.2 p.128 (Release 6 permits hardware misalignment support or an "
+               "Address Error for every misaligned access): an implementation choice; the profile traps (DECISIONS D3, the model), QEMU mips32r6-generic "
+               "performs the access")
 ASM_DIRECTIVES = {
-    "fp_legacy_nan": [
-        "expect-deviation output MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 (abs.s of a NaN is arithmetic, signals Invalid; QEMU leaves FCSR 0 and returns the NaN) and " + _NAN_CITE,
-        "unpredictable fpr:f2 " + _NAN_CITE,
-    ],
+    "fcsr_rounding_modes": ["known-model-bug output " + _FCSR2008],
+    "fp_convert_to_word": ["known-model-bug output " + _CVT2008, "known-model-bug fpr:f5 " + _FR1],
+    "fp_legacy_nan": ["known-model-bug output " + _NAN2008,
+                      "unpredictable fpr:f2 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' "
+                      "-- with two NaN operands which one is returned is not specified"],
+    "fp_release2_retained": ["known-model-bug output " + _FCSR2008, "known-model-bug fpr:f5 " + _FR1, "known-model-bug fpr:f7 " + _FR1],
+    "ldc1_doubleword_alignment": ["unpredictable %s %s" % (f, _MISALIGNED)
+                                  for f in ("term", "gpr:v0", "epc", "badvaddr", "pc", "status", "cause", "fpr:f2", "fpr:f3")],
 }
 
 
@@ -671,9 +691,9 @@ ENC_DECLARED = [
     (r"^li \$t0,(0|5|65535)$",
      "our li uses `ori $rt,$zero,imm` for 0..65535 (MARS-compatible); llvm-mc uses `addiu $rt,$zero,imm`"),
     (r"^li \$t0,(65536|0x12345678|0xffff0000|0xffffffff)$",
-     "32-bit li: ours is always lui+ori (MARS-compatible); llvm-mc picks lui-only / addiu forms when it can"),
+     "32-bit li: ours is always aui+ori via $at (aui $at,$0,hi = the LUI word; MARS-compatible); llvm-mc picks lui-only / addiu forms when it can"),
     (r"^la \$t0,",
-     "our la expands via $at (`lui $at,hi; ori $rt,$at,lo`, MARS/SPIM style); llvm-mc: `lui $rt,%hi; addiu $rt,$rt,%lo`"),
+     "our la expands via $at (`aui $at,$0,hi; ori $rt,$at,lo`, MARS/SPIM style); llvm-mc: `lui $rt,%hi; addiu $rt,$rt,%lo`"),
     (r"^move ",
      "our move is `addu $rd,$zero,$rs` (MARS/SPIM); llvm-mc emits `or $rd,$rs,$zero`"),
     (r"^abs ",
@@ -681,11 +701,9 @@ ENC_DECLARED = [
 ]
 
 
-# Forms llvm-mc 21 cannot assemble for -mcpu=mips32r2 although the manual defines them: the expected word is
+# Forms llvm-mc 21 cannot assemble for -mcpu=mips32r6 although the manual defines them: the expected word is
 # built by hand from the instruction's bit layout (mipsdoc.py insn NAME) and compared with our assembler.
 ENC_MANUAL = {
-    "prefx 0,$t1($t2)": ([0x4D49000F], "MD00086 Rev 6.06 PREFX p.329: COP1X 010011 | base(25:21)=$t2 | index(20:16)=$t1 | hint(15:11)=0 | 00000 | 001111"),
-    "prefx 31,$ra($sp)": ([0x4FBFF80F], "MD00086 Rev 6.06 PREFX p.329: base=$sp(29) index=$ra(31) hint=31"),
     "wait 5": ([0x42000160], "MD00086 Rev 6.06 WAIT p.442: COP0 010000 | CO=1 | code(24:6)=5 | 100000"),
     # llvm-mc 21 accepts RDPGPR/WRPGPR only with microMIPS ("instruction requires a CPU feature not currently enabled").
     "rdpgpr $t0,$t1": ([0x41494000], "MD00086 Rev 6.06 RDPGPR p.335: COP0 010000 | RDPGPR 01010 | rt(20:16)=$t1 | rd(15:11)=$t0 | 0(10:0)"),
@@ -704,36 +722,35 @@ def enc_lines():
     return ls
 
 
-def lean_def_body(src, name, terminator):
-    """Body text of `def <name> ...` in Semantics/Asm.lean, with or without `private` (and `protected`).
-    `terminator` is a regex for the end of the body.  Exits with a clear message if the definition is
-    not found, so a rename or reformatting in Asm.lean cannot silently shrink the mnemonic set."""
-    m = re.search(r"(?:^|\n)(?:private\s+|protected\s+)?def\s+" + re.escape(name) + r"\b[^=\n]*(?::[^=]*)?:=\s*" + terminator, src, re.S)
+ASM_TABLES = [("Int.lean", "intTable"), ("Memory.lean", "memoryTable"), ("Branch.lean", "branchTable"),
+              ("System.lean", "systemTable"), ("Fpu.lean", "fpuTable"), ("Fpu.lean", "fmtRows"),
+              ("Pseudo.lean", "idiomTable"), ("Pseudo.lean", "macroTable")]
+
+
+def lean_def_body(src, name, path):
+    """Body text of `def <name> ...` up to the next blank line. Exits with a clear message if the definition is
+    not found, so a rename or reformatting in Semantics/Asm/ cannot silently shrink the mnemonic set."""
+    m = re.search(r"(?:^|\n)def\s+" + re.escape(name) + r"\b.*?:=\s*(.*?)\n\n", src, re.S)
     if not m:
-        sys.stderr.write("oracle.py: cannot find `def %s` in %s (expected `[private] def %s : ... := ...`; "
-                         "if it was renamed or restructured, update asm_mnemonics())\n" % (name, ASMLEAN, name))
+        sys.stderr.write("oracle.py: cannot find `def %s` in %s (if it was renamed or restructured, update ASM_TABLES)\n"
+                         % (name, path))
         sys.exit(2)
     return m.group(1)
 
 
 def asm_mnemonics():
-    src = open(ASMLEAN).read()
+    """Every mnemonic of the assembler tables (Semantics/Asm/*.lean): machine instructions, macros and idioms.
+    Per-format rows (`("add." ++ f.sfx, ...)`) expand to both formats `.s` and `.d`."""
     ms = set()
-    for t in ("rTable", "iTable", "bTable", "cop1Table"):
-        body = lean_def_body(src, t, r"(.*?)\n\n")
+    for fname, table in ASM_TABLES:
+        path = os.path.join(ASMDIR_LEAN, fname)
+        body = lean_def_body(open(path).read(), table, path)
         ms |= set(re.findall(r'\("([a-z0-9.]+)",', body))
-        # names generated per format suffix: ("add." ++ sfx, ...) -> add.s, add.d
-        for base in re.findall(r'\("([a-z0-9.]+\.)" \+\+ sfx', body):
+        for base in re.findall(r'\("([a-z0-9.]+\.)" \+\+ f\.sfx', body):
             ms |= {base + "s", base + "d"}
-        if t == "cop1Table":
-            fbody = lean_def_body(src, "fpCondNames", r"\[(.*?)\]")
-            for c in re.findall(r'"([a-z]+)"', fbody):
-                ms |= {"c.%s.s" % c, "c.%s.d" % c}
-            ms -= {"s", "d"}
-    for t in ("pseudoSet", "bshflMnemonics", "multAccumMnemonics", "jrJalrMnemonics", "hiLoMoveMnemonics",
-              "bitfieldMnemonics", "cop0Mnemonics", "hwRegMnemonics"):
-        ms |= set(re.findall(r'"([a-z0-9.]+)"', lean_def_body(src, t, r"\[(.*?)\]")))
-    ms |= {"j", "jal"}
+    if len(ms) < 100:
+        sys.stderr.write("oracle.py: only %d mnemonics parsed from %s (table format changed?)\n" % (len(ms), ASMDIR_LEAN))
+        sys.exit(2)
     return ms
 
 
@@ -749,7 +766,7 @@ def trace_mnemonics():
     ms = set()
     for c in json.load(open(out))["constructors"]:
         ms |= set(c.get("mnemonics") or [])
-    return {m for m in ms if not m.startswith("c.cond.")}   # covered by the 16 generated c.<cond>.<fmt> names
+    return ms
 
 
 NEEDS_AT = re.compile(r"^(blt|bge|bgt|ble|bltu|bgeu|bgtu|bleu|abs|la|li)\b")
@@ -762,9 +779,6 @@ def enc_programs(lines):
         body = ln.replace("@T", "T%d" % i).replace("@B", "B%d" % i)
         ours += [".align 6", ".word %s" % mark, "B%d: nop" % i, "nop", body, "nop", "T%d: nop" % i]
         pre, post = ((".set at"), (".set noat")) if NEEDS_AT.match(ln) else ("", "")
-        # llvm-mc reads the 2-operand `div rs,rt` as the 3-operand macro (zero check + $at); `div $zero,rs,rt`
-        # is its spelling of the bare SPECIAL funct 0x1a/0x1b instruction
-        body = re.sub(r"^(divu?) (\$\w+),(\$\w+)$", r"\1 $zero,\2,\3", body)
         theirs += [".align 6", ".word %s" % mark, "B%d: nop" % i, "nop"] + ([pre] if pre else []) + [body] \
             + ([post] if post else []) + ["nop", "T%d: nop" % i]
     ours_src = ".text\n" + "\n".join(ours) + "\n"
@@ -805,28 +819,28 @@ def assemble_llvm(env, src, tdir, tag):
     s = os.path.join(tdir, tag + ".s")
     open(s, "w").write(src)
     o = os.path.join(tdir, tag + ".o")
-    r = subprocess.run([env.llvm_tool("llvm-mc"), "-triple=mips-unknown-elf", "-mcpu=mips32r2",
+    r = subprocess.run([env.llvm_tool("llvm-mc"), MC_TRIPLE, MC_CPU,
                         "-filetype=obj", s, "-o", o], capture_output=True, text=True)
     if r.returncode != 0:
         return None, r.stderr
     e = os.path.join(tdir, tag + ".elf")
-    r = subprocess.run([env.llvm_tool("ld.lld"), "-m", "elf32btsmip", "-Ttext=0x00400000", "-e", "_start",
+    r = subprocess.run([env.llvm_tool("ld.lld"), "-m", LD_EMU, "-Ttext=0x00400000", "-e", "_start",
                         o, "-o", e, "--no-rosegment", "-z", "norelro"], capture_output=True, text=True)
     if r.returncode != 0:
         return None, r.stderr
     b = os.path.join(tdir, tag + ".bin")
     subprocess.run([env.llvm_tool("llvm-objcopy"), "-O", "binary", "-j", ".text", e, b], check=True)
     data = open(b, "rb").read()
-    words = [int.from_bytes(data[k:k + 4], "big") for k in range(0, len(data) - len(data) % 4, 4)]
+    words = [int.from_bytes(data[k:k + 4], BYTEORDER) for k in range(0, len(data) - len(data) % 4, 4)]
     return words, e
 
 
 def objdump_words(env, words, tdir):
     """Disassemble a list of words with llvm-objdump (best effort)."""
     b = os.path.join(tdir, "dis.bin")
-    open(b, "wb").write(b"".join(w.to_bytes(4, "big") for w in words))
-    r = subprocess.run([env.llvm_tool("llvm-objdump"), "-D", "-b", "binary", "--triple=mips-unknown-elf",
-                        "--mcpu=mips32r2", b], capture_output=True, text=True)
+    open(b, "wb").write(b"".join(w.to_bytes(4, BYTEORDER) for w in words))
+    r = subprocess.run([env.llvm_tool("llvm-objdump"), "-D", "-b", "binary", "--triple=mipsel-unknown-elf",
+                        "--mcpu=mips32r6", b], capture_output=True, text=True)
     out = []
     for ln in r.stdout.splitlines():
         m = re.match(r"\s*[0-9a-f]+:\s+(?:[0-9a-f]{2} ){4}\s*(.*)", ln)
@@ -923,7 +937,7 @@ def cmd_encodings(env, args):
         want, why = ENC_MANUAL[ln]
         if om == want:
             results.append({"line": ln, "status": "DECLARED", "ours": om, "llvm": None,
-                            "reason": "llvm-mc cannot assemble this for mips32r2; ours equals the word built from the manual: " + why})
+                            "reason": "llvm-mc cannot assemble this for mips32r6; ours equals the word built from the manual: " + why})
         else:
             results.append({"line": ln, "status": "MISMATCH", "ours": om, "llvm": want,
                             "reason": "ours differs from the manual-derived word: " + why})
@@ -933,7 +947,7 @@ def cmd_encodings(env, args):
         results.append({"line": s, "status": "MISMATCH", "reason": "stale declaration (no difference occurred)"})
         mism += 1
     for m in unc:
-        results.append({"line": m, "status": "MISMATCH", "reason": "mnemonic in Asm.lean tables not covered by encodings.list"})
+        results.append({"line": m, "status": "MISMATCH", "reason": "mnemonic of the Semantics/Asm tables or the model not covered by encodings.list"})
         mism += 1
     fx = lambda ws: " ".join("%08x" % w for w in ws) if ws is not None else "-"
     for r in results:
@@ -965,7 +979,7 @@ def cmd_selftest(env, args):
         ok = ok and cond
 
     def rec(**kw):
-        base = {"gpr": [0] * 32, "hi": 0, "lo": 0, "fcsr": 0, "fpr": [0] * 32, "status": 0, "cause": 0,
+        base = {"gpr": [0] * 32, "fcsr": 0, "fpr": [0] * 32, "status": 0, "cause": 0,
                 "epc": 0, "badvaddr": 0, "errorepc": 0, "pc": 0x400000, "output": "", "mem": {},
                 "term": "exit", "kind": "exit"}
         base.update(kw)
@@ -988,7 +1002,7 @@ def cmd_selftest(env, args):
     check("wrong manual expectation on the model fails", v == "FAIL" and any("expectation" in x for x in det), v)
     v, _ = judge(model, m, rec(), D("# oracle: expect gpr:zero=0"))
     check("right manual expectation passes", v == "PASS", v)
-    v, det = judge(model, m, rec(), D("# oracle: unpredictable hi"))
+    v, det = judge(model, m, rec(), D("# oracle: unpredictable fcsr"))
     check("citation is mandatory", v == "FAIL" and any("directive error" in x for x in det), v)
     v, det = judge(model, m, q, D("# oracle: known-model-bug gpr:t0 MD00086-Rev-6.06-p.1 model-wrong-example"))
     check("known-model-bug is reported separately and does not fail", v == "KNOWN_BUG" and any("KNOWN MODEL BUG" in x for x in det), v)
@@ -1019,7 +1033,9 @@ def cmd_selftest(env, args):
     # a stale extra declaration -> FAIL
     src = open(os.path.join(TESTDIR, "exc_sc_misaligned.asm")).read()
     abs_src = open(os.path.join(TESTDIR, "fp_abs_neg_nan.asm")).read()
-    as_bug = re.sub(r"# oracle: expect-deviation gpr:s0 ", "# oracle: known-model-bug gpr:s0 ", abs_src)
+    as_bug = abs_src   # declares `known-model-bug gpr:s0` (W5: ABS2008 = 1 makes abs.s of a NaN non-arithmetic)
+    if "# oracle: known-model-bug gpr:s0 " not in as_bug or "li $t9, 0x7fa00000" not in as_bug:
+        check("fp_abs_neg_nan.asm still has the lines the selftest uses", False)
     variants = {"known-bug": (as_bug, "KNOWN_BUG"), "known-bug-stale": (as_bug.replace("li $t9, 0x7fa00000", "li $t9, 0x3f800000"), "FAIL"),
                 "declared": (src, "DEVIATION"),
                 "undeclared": ("\n".join(l for l in src.splitlines() if "expect-deviation" not in l) + "\n", "FAIL"),

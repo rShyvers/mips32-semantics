@@ -43,7 +43,6 @@ import Semantics.FpOpsCorrectConv
 import Semantics.FpOpsCorrectCompare
 import Semantics.FpOpsCorrectFcsr
 import Semantics.FpOpsCorrectIEEE
-import Semantics.FpOpsCorrectStep
 import Semantics.Step
 -- The environment layer (loader, hosted run): not part of the architecture.
 import Semantics.Env
@@ -78,14 +77,11 @@ import Semantics.Refine.Fetch
 import Semantics.Refine.IntArith
 import Semantics.Refine.Memory
 import Semantics.Refine.Branch
-import Semantics.Refine.BranchLikely
 import Semantics.Refine.FpuArith
 -- 7C S4a
 import Semantics.Refine.BridgeFpu
 import Semantics.Refine.FpuConvert
-import Semantics.Refine.FpuCompare
 import Semantics.Refine.Cp0
-import Semantics.Refine.Unaligned
 -- 7C S3 control + system
 import Semantics.Refine.BridgeControl
 import Semantics.Refine.Jump
@@ -94,7 +90,6 @@ import Semantics.Refine.System
 -- 7C S1 integer ALU
 import Semantics.Refine.BridgeIntAlu
 import Semantics.Refine.Shift
-import Semantics.Refine.MulDiv
 import Semantics.Refine.BitOps
 import Semantics.Refine.Immediate
 -- end 7C S1
@@ -109,7 +104,6 @@ import Semantics.Refine.BridgeFpuMove
 import Semantics.Refine.FpuMemory
 import Semantics.Refine.FpuMove
 import Semantics.Refine.FpuControl
-import Semantics.Refine.FpuBranch
 -- end 7C S4b
 -- 7D cycle refinement and top theorems
 import Semantics.Manual.Relation

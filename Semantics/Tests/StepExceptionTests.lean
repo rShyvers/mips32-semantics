@@ -83,52 +83,8 @@ private def cp0Untouched (r : Outcome) (before : State) : Bool :=
 #guard cp0Eq (hstep (prog1 (.tgeu 8#32 9#32 0#32)) (setRegs regs0 [(8, 0xffffffff#32), (9, 1#32)]))
   textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr
 
--- ### Trap-immediate family (REGIMM, real MIPS32 ISA;
--- docs/spec/MIPS-COVERAGE-GAPS.md §3.8): teqi/tnei/tgei/tgeiu/tlti/tltiu,
--- the sign-extended-16-bit-immediate counterpart of teq/tne/tlt/tge/tltu/tgeu.
-
--- teqi: trap-taken when `$rs == sext16(imm)`; trap-not-taken behaves like
--- an ordinary instruction and leaves all CP0 state untouched.
-#guard cp0Eq (hstep (prog1 (.teqi 8#32 5#32)) (setRegs regs0 [(8, 5#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr
-#guard isNext (hstep (prog1 (.teqi 8#32 5#32)) (setRegs regs0 [(8, 6#32)]))
-#guard cp0Untouched (hstep (prog1 (.teqi 8#32 5#32)) (setRegs regs0 [(8, 6#32)])) regs0
-
--- tnei: trap on not-equal (opposite condition from teqi)
-#guard cp0Eq (hstep (prog1 (.tnei 8#32 5#32)) (setRegs regs0 [(8, 6#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr
-#guard isNext (hstep (prog1 (.tnei 8#32 5#32)) (setRegs regs0 [(8, 5#32)]))
-
--- tgei/tlti: signed comparison against `sext16(imm)`; imm = 0xffff sign-
--- extends to -1.
-#guard cp0Eq (hstep (prog1 (.tgei 8#32 0xffff#32)) (setRegs regs0 [(8, 0xffffffff#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr  -- -1 >= -1
-#guard isNext (hstep (prog1 (.tgei 8#32 0xffff#32)) (setRegs regs0 [(8, 0xfffffffe#32)]))  -- -2 >= -1 false
-#guard cp0Eq (hstep (prog1 (.tlti 8#32 1#32)) (setRegs regs0 [(8, 0xffffffff#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr  -- -1 < 1
-#guard isNext (hstep (prog1 (.tlti 8#32 1#32)) (setRegs regs0 [(8, 1#32)]))  -- 1 < 1 false
-
--- tgeiu/tltiu: the immediate is sign-extended to 32 bits first, *then* the
--- comparison is unsigned on the resulting bit pattern -- same convention
--- `sltiu` already uses. Edge case where the signed and unsigned
--- interpretations of the same `$rs` bit pattern disagree: $rs = 0xffffffff
--- (signed -1, unsigned max) against imm = 1 (sext16(1) = 1); unsigned
--- 0xffffffff >=u 1 is true (traps), even though a signed read of the same
--- bits (-1 >= 1) would be false.
-#guard cp0Eq (hstep (prog1 (.tgeiu 8#32 1#32)) (setRegs regs0 [(8, 0xffffffff#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr
-#guard isNext (hstep (prog1 (.tltiu 8#32 1#32)) (setRegs regs0 [(8, 0xffffffff#32)]))  -- 0xffffffff <u 1 false
-#guard cp0Eq (hstep (prog1 (.tltiu 8#32 1#32)) (setRegs regs0 [(8, 0#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr  -- 0 <u 1 true
-
--- a negative-immediate edge case: imm = 0xffff (sext16 = -1, i.e. bit
--- pattern 0xffffffff) compared *unsigned* against $rs = 1 does NOT trap
--- (1 >=u 0xffffffff is false) under tgeiu, unlike the signed tgei case
--- with the exact same operands (1 >= -1 is true, traps) -- demonstrating
--- tgeiu really does compare unsigned, not just sign-extend-and-reuse-tgei.
-#guard isNext (hstep (prog1 (.tgeiu 8#32 0xffff#32)) (setRegs regs0 [(8, 1#32)]))
-#guard cp0Eq (hstep (prog1 (.tgei 8#32 0xffff#32)) (setRegs regs0 [(8, 1#32)]))
-  textBase (excCodeTr <<< 2) (statusCu1Mask ||| statusExlMask) exceptionVectorAddr
+-- (Release 6 removed the trap-immediate family TEQI/TNEI/TGEI/TGEIU/TLTI/TLTIU; their tests are
+-- gone.)
 
 -- break: unconditional trap, distinct `ExcCode` (`excCodeBp` ≠ `excCodeTr`)
 -- from the same starting state/address as the teq case above.
@@ -154,9 +110,9 @@ private def trapAtState : State := { regs0 with pc := textBase + 0x100#32 }
 #guard isHaltNoInstr (hstep (∅ : Program) regs0) textBase
 
 -- if a real handler word *is* present at the vector address, it executes
--- normally after the trap (e.g. an `addi` landing there).
+-- normally after the trap (e.g. an `addiu` landing there).
 private def vectorHandlerProg : Program :=
-  (prog1 (.break 0#32)).insert exceptionVectorAddr (encode (.addi 0#32 8#32 42#32))
+  (prog1 (.break 0#32)).insert exceptionVectorAddr (encode (.addiu 0#32 8#32 42#32))
 #guard (match stepState vectorHandlerProg regs0 with
         | some s' => nextRegEq (hstep vectorHandlerProg s') 8 42#32
         | none => false)
@@ -226,20 +182,20 @@ private def vectorHandlerProg : Program :=
         | none => false)
 #guard nextRegEq (hstep (prog1 (.mfc0 8#32 7#32 0#32)) { regs0 with cp0HWREna := 0xa#32 }) 8 0xa#32
 -- rdhwr in Kernel Mode: CPUNum 0, SYNCI_Step 0, CC = Count, CCRes 1; 29 (ULR) is RI
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 1#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32)) { regs0 with cp0Count := 0xabc#32 }) 8 0xabc#32
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32)) regs0) 8 1#32
-#guard raises (hstep (prog1 (.rdhwr 8#32 29#32)) regs0) excCodeRI
-#guard raises (hstep (prog1 (.rdhwr 8#32 4#32)) regs0) excCodeRI
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 0#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 1#32 0#32)) (setRegs regs0 [(8, 7#32)])) 8 0#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32 0#32)) { regs0 with cp0Count := 0xabc#32 }) 8 0xabc#32
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32 0#32)) regs0) 8 1#32
+#guard raises (hstep (prog1 (.rdhwr 8#32 29#32 0#32)) regs0) excCodeRI
+#guard raises (hstep (prog1 (.rdhwr 8#32 4#32 0#32)) regs0) excCodeRI
 -- rdhwr in User Mode (UM = 1, CU0 = 0): only the registers enabled in HWREna; otherwise RI (not CpU)
-#guard raises (hstep (prog1 (.rdhwr 8#32 2#32)) { regs0 with cp0Status := statusUmMask }) excCodeRI
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32))
+#guard raises (hstep (prog1 (.rdhwr 8#32 2#32 0#32)) { regs0 with cp0Status := statusUmMask }) excCodeRI
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 2#32 0#32))
   { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32, cp0Count := 55#32 }) 8 55#32
-#guard raises (hstep (prog1 (.rdhwr 8#32 3#32))
+#guard raises (hstep (prog1 (.rdhwr 8#32 3#32 0#32))
   { regs0 with cp0Status := statusUmMask, cp0HWREna := 4#32 }) excCodeRI
 -- User Mode with CU0 = 1: Coprocessor 0 is enabled, so every implemented register is readable
-#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32))
+#guard nextRegEq (hstep (prog1 (.rdhwr 8#32 3#32 0#32))
   { regs0 with cp0Status := statusUmMask ||| statusCu0Mask }) 8 1#32
 -- ErrorEPC (30) is fully readable/writable.
 #guard (match stepState (prog1 (.mtc0 8#32 30#32 0#32)) (setRegs regs0 [(8, 0x3000#32)]) with
@@ -420,8 +376,8 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 
 -- ### CP0 additions: PRId / Config / Config1 / EBase, di / ei, Cause.DC
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 15#32 0#32)) regs0) 9 0x00010000#32
--- Config: M=1, K23=2, KU=2, BE=1, AR=1, MT=3 (Fixed Mapping), K0=2
-#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0xA4008582#32
+-- Config: M=1, K23=2, KU=2, BE=0 (little-endian), AR=2 (Release 6), MT=3 (Fixed Mapping), K0=2
+#guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 0#32)) regs0) 9 0xA4000982#32
 -- Config1: M=1 (Config2 present), FP=1; Config2: M=1 (Config3 present), no L2/L3 cache; Config3 = 0
 -- (MD00090 Vol III Rev 6.02 Tables 9.65-9.67, p.237-251)
 #guard nextRegEq (hstep (prog1 (.mfc0 9#32 16#32 1#32)) regs0) 9 0x80000001#32
@@ -445,13 +401,13 @@ private def badProg : Program := (∅ : Program).insert textBase badWord
 -- every other bit alone
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xffffffff#32)]) with
         | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-            0xFE008587#32
+            0xFE000987#32
         | .halt _ => false)
 -- every 3-bit K0 value reads back; the bits outside K23/KU/K0 are ignored; nothing else changes
 #guard (List.range 8).all fun k =>
   (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0xfffffff8#32 ||| BitVec.ofNat 32 k)]) with
     | .next s => nextRegEq (hstep (prog1 (.mfc0 10#32 16#32 0#32)) { s with pc := textBase }) 10
-        (0xFE008580#32 ||| BitVec.ofNat 32 k)
+        (0xFE000980#32 ||| BitVec.ofNat 32 k)
     | .halt _ => false)
 #guard (match hstep (prog1 (.mtc0 9#32 16#32 0#32)) (setRegs regs0 [(9, 0#32)]) with
         | .next s => s.cp0ConfigK0 == 0#3 && s.cp0ConfigK23 == 0#3 && s.cp0ConfigKU == 0#3 &&
@@ -519,10 +475,16 @@ private def cp0Unusable (s : State) : Bool :=
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI)
-#guard [0x42000008#32, 0x41a00000#32, 0xbc000000#32].all fun w =>
+-- (CACHE is the Release 6 encoding SPECIAL3 funct 0x25, `0x7c000025`; W2 decodes it.)
+#guard [0x42000008#32, 0x41a00000#32, 0x7c000025#32].all fun w =>
         decode w == none && isCop0Word w &&
         cp0Unusable (step (loadImage ((∅ : Program).insert textBase w) userSt)) &&
         causeExcCode (step (loadImage ((∅ : Program).insert textBase w) regs0)) == excCodeRI
+-- The pre-Release 6 CACHE opcode (0x2f) is not a COP0 word any more: Reserved Instruction in User
+-- Mode too.
+#guard (let w := 0xbc000000#32
+        decode w == none && !isCop0Word w &&
+        causeExcCode (step (loadImage ((∅ : Program).insert textBase w) userSt)) == excCodeRI)
 -- Non-CP0 instructions run normally in User Mode (and FP with CU1 = 1).
 #guard (let s := step1 (.addiu 0#32 8#32 5#32) userSt
         readReg s 8 == 5#32 && s.pc == textBase + 4#32 && userMode s)
@@ -553,7 +515,7 @@ private def cp0Unusable (s : State) : Bool :=
 
 #guard resetState.pc == 0xbfc00000#32 && resetState.cp0Status == 0x00400004#32 &&
   kernelMode resetState && exceptionVector resetState == 0xbfc00380#32 &&
-  ebaseValue resetState == 0x80000000#32 && configValue resetState == 0xA4008582#32 &&
+  ebaseValue resetState == 0x80000000#32 && configValue resetState == 0xA4000982#32 &&
   resetState.cp0ErrorEpc == 0#32 && resetState.cp0Cause == 0#32
 -- An exception taken right after reset (BEV = 1) goes to the bootstrap vector 0xBFC0_0380;
 -- with ERL = 1 it is still Kernel Mode and CP0 is usable.

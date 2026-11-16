@@ -135,13 +135,11 @@ inductive AbsNegNaN where
 /-- One resolution of every choice the manual leaves open, as far as the transcribed operations
 need it (later sub-waves add fields as they transcribe more pages). -/
 structure Oracle where
-  /-- A CTI in a branch delay slot: "Processor operation is UNPREDICTABLE if a control transfer
-  instruction (CTI) is placed in the delay slot of a branch or jump" (MD00086 Vol II-A Rev 6.06,
-  BEQ, Restrictions, p.72). -/
-  ctiInSlot : Arch → Instruction → Outcome
   /-- `MTC0`/`MFC0` of a register `(rd, sel)` that coprocessor 0 does not contain: "Pre-Release 6:
   The results are UNDEFINED if coprocessor 0 does not contain a register as specified by rd and sel"
-  (MD00086 Vol II-A Rev 6.06, MTC0, Restrictions, p.290; MFC0 p.266). -/
+  (MD00086 Vol II-A Rev 6.06, MTC0, Restrictions, p.290; MFC0 p.266).
+  -- W2: the Release 6 reading (MFC0 p.266, MTC0 p.290: a reserved or unimplemented register reads 0,
+  -- writes are ignored) replaces this choice. -/
   cp0Undefined : Arch → Instruction → Outcome
   /-- A store executed between `LL` and `SC` (by this processor): "A coherent store is executed
   between an LL and SC sequence on the same processor to the block of synchronizable physical memory
@@ -161,11 +159,6 @@ structure Oracle where
   the state before the listed assignments of the Operation are made (p.89-90). -/
   resetUndefined : Arch → Arch
   -- 7B S3 control + system
-  /-- A branch-and-link with `rs = 31`: "GPR 31 must not be used for the source register rs, because
-  such an instruction does not have the same effect when re-executed. The result of executing such
-  an instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, BLTZAL p.98, BGEZAL p.76, BLTZALL
-  p.99, BGEZALL p.80). -/
-  linkSourceIs31 : Arch → Instruction → Outcome
   /-- `JALR` with `rs = rd`: "Register specifiers rs and rd must not be equal, because such an
   instruction does not have the same effect when re-executed. The result of executing such an
   instruction is UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, JALR, p.196). -/
@@ -191,16 +184,6 @@ structure Oracle where
   follows); `.proceed`: nothing is written. -/
   ctc1Unpredictable : Arch → W32 → W32 → Outcome
   -- 7B S1 integer ALU: begin
-  /-- `DIV` by a zero divisor: "If the divisor in GPR rt is zero, the arithmetic result value is
-  UNPREDICTABLE" (MD00086 Vol II-A Rev 6.06, DIV, Restrictions, p.165). The `(HI, LO)` pair the
-  instruction leaves; no exception ("No arithmetic exception occurs under any circumstances", p.165). -/
-  divByZero : Arch → W32 × W32
-  /-- `DIVU` by a zero divisor: "If the divisor in GPR rt is zero, the arithmetic result value is
-  UNPREDICTABLE" (DIVU, Restrictions, p.171). The `(HI, LO)` pair the instruction leaves. -/
-  divuByZero : Arch → W32 × W32
-  /-- `MUL`: "The contents of HI and LO are UNPREDICTABLE after the operation" (MUL, Description and
-  Operation `HI ← UNPREDICTABLE`, `LO ← UNPREDICTABLE`, p.299). The `(HI, LO)` pair left. -/
-  mulHILO : Arch → W32 × W32
   /-- `EXT` with `lsb + msbd > 31`: "The operation is UNPREDICTABLE if lsb+msbd > 31" (EXT,
   Restrictions and Operation, p.183). The model: Reserved Instruction (as `decode` for such words). -/
   extOutOfRange : Arch → Outcome
@@ -213,8 +196,8 @@ structure Oracle where
   (`Manual.UnpredictableEncoding`): a nonzero unnamed field ("Fields that contain zeros but are not
   named are unused fields that are required to be zero ... If such fields are set to non-zero
   values, the operation of the processor is UNPREDICTABLE", MD00086 Vol II-A Rev 6.06 §2.1.1, p.12),
-  `CLO`/`CLZ` with `rt ≠ rd` (p.134-135), `EXT` with `lsb + msbd > 31` (p.183), `INS` with
-  `lsb > msb` (p.193), a `JR`/`JALR` hint that is neither 0 nor the hazard barrier (p.207, p.196).
+  `EXT` with `lsb + msbd > 31` (p.183), `INS` with `lsb > msb` (p.193), a `JALR` hint that is
+  neither 0 nor the hazard barrier (p.196).
   `UNPREDICTABLE` operations "may cause ... arbitrary exceptions" or a result (§1.2.1, p.3):
   `.signal e`; `.arbitrary a'`; `.proceed` = treat the word as matching no diagram
   (`Manual.Undecodable`). The arguments are the state and the word. -/
@@ -244,12 +227,6 @@ structure Oracle where
   /-- The QNaN that `CVT.S.D` delivers for a QNaN operand (as `cvtQNaNToD`, §6.3.1.5, p.82). -/
   cvtQNaNToS : BitVec 64 → W32
 
-/-- Whether an instruction is `PAUSE`, whose format diagram is SPECIAL, `0`, `0`, `0`, `5`, SLL
-(MD00086 Vol II-A Rev 6.06, PAUSE, p.317): the encoding of `SLL r0, r0, 5`. -/
-def IsPAUSE : Instruction → Bool
-  | .sll rd rt shamt => rd == 0#32 && rt == 0#32 && shamt == 5#32
-  | _ => false
-
 /-- **The implementations this profile admits.** The spec's `Arch` has the normal GPRs only, no
 caches and none of the features `Config3` describes; an `Impl` describes such a processor when:
 
@@ -261,7 +238,7 @@ caches and none of the features `Config3` describes; an `Impl` describes such a 
 * `IntCtl.VS = 0` (bits 9..5): "If neither EIC interrupt mode nor VI mode are implemented
   (Config3VEIC = 0 and Config3VInt = 0), this field is ignored on write and reads as zero" (Table
   9.48, p.201); `Config3.VEIC = Config3.VInt = 0` follows from the next item.
-* `Config3 = 0`: the profile is Release 2, so Config3 exists ("Required if any optional feature
+* `Config3 = 0`: the profile is Release 6 (a release after Release 2), so Config3 exists ("Required if any optional feature
   described by this register is implemented: Release 2 of the Architecture, ...", Vol III §9.48,
   p.245), and every field of it flags a feature the spec does not have (Table 9.67, p.245-251:
   Config4, CM GCR space, MSA, BadInstr/BadInstrP, Segment Control, page table walk, VZ, the MCU ASE,
@@ -308,15 +285,16 @@ def Impl.RecipAccurate (i : Impl) : Prop :=
       ULPDistD (i.recipD e x).1 (Mips.Fp.f64Div e 0x3FF0000000000000#64 x).1 ≤ 1)
 
 /-- **The model's implementation constants** (SPEC-NOTES §9, the pins listed there): `Count` + 1 per
-instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_8580`
-(`M = 1`, `BE = 1`, `AT = 0`, `AR = 1`, `MT = 3`); `Config1 = 0x8000_0001` (`M = 1`, `FP = 1`);
+instruction time (`timerTick` pin); `PRId = 0x0001_0000`; `Config` read-only part `0x8000_0980`
+(`M = 1`, `BE = 0` little-endian, `AT = 0`, `AR = 2` Release 6, `MT = 3`; MD00090 Vol III Rev 6.02
+§9.45, Table 9.64, p.234: BE "0 Little endian", AR "2 Release 6"); `Config1 = 0x8000_0001` (`M = 1`, `FP = 1`);
 `Config2 = 0x8000_0000` (`M = 1`, no L2/L3 cache); `Config3 = 0`; `IntCtl`
 with `IPTI = 7` (`0xE000_0000`), `SRSCtl = 0`; `CCRes = 1`; `SYNCI_Step = 0`; `WAIT` restarts on any
 pending request not masked by `IM`. -/
 def modelImpl : Impl where
   CountIncrement := 1#32
   PRId := 0x00010000#32
-  ConfigFixed := 0x80008580#32
+  ConfigFixed := 0x80000980#32
   Config1 := 0x80000001#32
   Config2 := 0x80000000#32
   Config3 := 0#32
@@ -341,20 +319,17 @@ def modelImpl : Impl where
     let r := Mips.Fp.f64Div e 0x3FF0000000000000#64 q.1
     (r.1, q.2.or r.2)
 
-/-- **The model's choices** (SPEC-NOTES §9): a CTI in a delay slot signals Reserved Instruction,
-except `PAUSE`, which the model executes as the `SLL` it is encoded as (item 1); an `MTC0`/`MFC0` of
+/-- **The model's choices** (SPEC-NOTES §9): an `MTC0`/`MFC0` of
 a register coprocessor 0 does not contain signals Reserved Instruction; every store clears `LLbit`
 (the `LLbit` pin); `Cause.CE` is loaded with 0 for every exception other than Coprocessor Unusable;
 a Reset keeps every register whose reset state is undefined, except `Config.K23 = Config.KU = 2` and
 `LLbit = 0` (SPEC-NOTES, Reset pins). -/
 def modelOracle : Oracle where
-  ctiInSlot := fun _ i => if IsPAUSE i then .proceed else .signal .ReservedInstruction
   cp0Undefined := fun _ _ => .signal .ReservedInstruction
   storeClearsLL := fun _ => true
   causeCE := fun _ _ => 0#2
   resetUndefined := fun a => { a with ConfigK23 := 2#3, ConfigKU := 2#3, LLbit := false }
   -- 7B S3 control + system
-  linkSourceIs31 := fun _ _ => .proceed
   jalrRsIsRd := fun _ _ => .proceed
   -- end 7B S3
   -- 7B S4 FPU
@@ -377,9 +352,6 @@ def modelOracle : Oracle where
     else if fs == 31#32 then temp &&& ~~~(0x1F#32 <<< 18)
     else a.FCSR }
   -- 7B S1 integer ALU: begin (SPEC-NOTES §11 rows)
-  divByZero := fun a => (a.HI, a.LO)
-  divuByZero := fun a => (a.HI, a.LO)
-  mulHILO := fun a => (a.HI, a.LO)
   extOutOfRange := fun _ => .signal .ReservedInstruction
   insLsbAboveMsb := fun _ => .signal .ReservedInstruction
   -- 7B S1 integer ALU: end

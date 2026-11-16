@@ -21,7 +21,7 @@ that implements it; the main weak spots are repeated in the generated Gaps
 section and in the module-level notes below.
 
 Heuristics at a glance
-  * mnemonic   : an assembler literal in Semantics/Asm.lean (or a backticked
+  * mnemonic   : an assembler literal in Semantics/Asm.lean or Semantics/Asm/*.lean (or a backticked
                  token of the constructor's docstring) that equals the
                  constructor name once dots are removed and case is ignored
                  (`cEqS` ~ `c.eq.s`).  Otherwise a camel-case split, marked '?'.
@@ -34,15 +34,17 @@ Heuristics at a glance
   * decode /   : first clause mentioning `.ctor` in the `decode*` / `encode*`
     encode       definitions of Instruction.lean.
   * step       : arm header `  | .ctor ...  =>` (2-space indent) in the
-                 `exec*` definitions of Step.lean; one arm may list several
-                 constructors.
+                 `exec*` definitions of Semantics/Exec/*.lean (one table per
+                 family, dispatched by Step.lean's `execTables`) and Step.lean;
+                 one arm may list several constructors.
   * theorems   : `theorem`/`lemma` under Semantics/Specs/ whose *header*
                  (up to `:= by`) has a `decode .. = some (.ctor ..)`
                  hypothesis.  Primary = named `<ctor>_spec_raw`/`<ctor>_spec`.
   * tests      : first token of each instruction line (comments and labels
-                 stripped) of tests/{corpus,equiv,asm,oracle}/*.asm; `move`/`nop`
-                 count as addu/sll.  `li`/`la` expansions are data-dependent
-                 and not counted.
+                 stripped) of tests/{corpus,equiv,asm,oracle}/*.asm; the idioms
+                 with one fixed expansion count as that instruction (`move`/`nop`
+                 as addu/sll, `lui` as aui, `jr`/`jr.hb` as jalr/jalr.hb, `b` as
+                 beq).  `li`/`la` expansions are data-dependent and not counted.
 """
 import argparse
 import glob
@@ -55,13 +57,16 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTR_LEAN = "Semantics/Instruction.lean"
 STEP_LEAN = "Semantics/Step.lean"
+EXEC_GLOB = "Semantics/Exec/*.lean"
 ASM_LEAN = "Semantics/Asm.lean"
+ASM_GLOB = "Semantics/Asm/*.lean"
 REF_MD = "docs/spec/INSTRUCTION-REF.md"
 MANUAL_DIR = os.path.join(ROOT, "manuals")
 TEST_DIRS = ["tests/corpus", "tests/equiv", "tests/asm", "tests/oracle"]
 DIFF_DIR = "tests/corpus"          # the MARS differential corpus
 ORACLE_DIR = "tests/oracle"        # the QEMU differential oracle programs
-PSEUDO_AS = {"move": "addu", "nop": "sll"}   # pseudo-ops with one fixed expansion
+PSEUDO_AS = {"move": "addu", "nop": "sll", "lui": "aui", "jr": "jalr", "jr.hb": "jalr.hb",
+             "b": "beq"}   # idioms with one fixed expansion
 CTOR = r"(?<![\w.'])\.{n}(?![\w'])"          # `.name` as a constructor reference
 
 
@@ -195,14 +200,23 @@ def parse_instruction_inductive():
 
 # ------------------------------------------------------------- 2. mnemonics
 
+def asm_files():
+    """The assembler's source files, repo-relative: the root module and its per-family tables."""
+    return [ASM_LEAN] + sorted(os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, ASM_GLOB)))
+
+
 def asm_literals():
-    """Every lowercase string literal in Asm.lean that looks like a mnemonic,
-    with the line of its first occurrence (the mnemonic tables, the special
-    cases in `encodeInstruction`, ...)."""
+    """Every lowercase string literal of the assembler (Asm.lean, Asm/*.lean) that looks like a
+    mnemonic, with the file and line of its first occurrence (the encoder tables, the idioms, ...).
+    A per-format row `("add." ++ f.sfx, ...)` (Asm/Fpu.lean) yields `add.s` and `add.d`."""
     lits = {}
-    for i, l in enumerate(read_lines(ASM_LEAN)):
-        for m in re.finditer(r'"([a-z][a-z0-9]*(?:\.[a-z0-9]+)*)"', l):
-            lits.setdefault(m.group(1), i + 1)
+    for rel in asm_files():
+        for i, l in enumerate(read_lines(rel)):
+            for m in re.finditer(r'"([a-z][a-z0-9]*(?:\.[a-z0-9]+)*)"', l):
+                lits.setdefault(m.group(1), (rel, i + 1))
+            for m in re.finditer(r'"([a-z][a-z0-9.]*\.)" \+\+ f\.sfx', l):
+                for f in ("s", "d"):
+                    lits.setdefault(m.group(1) + f, (rel, i + 1))
     return lits
 
 
@@ -507,9 +521,13 @@ def build():
     ins_code = strip_comments(ins_lines)
     dec = clause_lines(ins_code, defs_matching(ins_lines, ins_code, "decode"), names)
     enc = match_arms(ins_code, defs_matching(ins_lines, ins_code, "encode"))
-    step_lines = read_lines(STEP_LEAN)
-    step_code = strip_comments(step_lines)
-    step = match_arms(step_code, defs_matching(step_lines, step_code, "exec"))
+    step = {}
+    exec_files = sorted(os.path.relpath(p, ROOT) for p in glob.glob(os.path.join(ROOT, EXEC_GLOB))) + [STEP_LEAN]
+    for rel in exec_files:
+        lines = read_lines(rel)
+        code = strip_comments(lines)
+        for n, ln in match_arms(code, defs_matching(lines, code, "exec")).items():
+            step.setdefault(n, (rel, ln))
 
     theorems = collect_theorems()
     by_ctor = theorems_for(names, theorems)
@@ -678,7 +696,7 @@ def render(rows, theorems, have_manual):
          "`execInstr` arm -> spec theorem(s) -> refinement of the manual's Operation (`Refine.<ctor>_refines`) -> tests. Links are `file:line` relative to the repository root.", "",
          "## Generation inputs", "",
          f"- git HEAD: `{head}`, working tree: {'dirty (%d changed paths)' % nchg if dirty else 'clean'}",
-         f"- `{INSTR_LEAN}` (constructors, decode, encode), `{STEP_LEAN}` (step arms), `{ASM_LEAN}` (mnemonics)",
+         f"- `{INSTR_LEAN}` (constructors, decode, encode), `{EXEC_GLOB}` (step arms, dispatched by `{STEP_LEAN}`), `{ASM_LEAN}` + `{ASM_GLOB}` (mnemonics)",
          f"- `{REF_MD}`; Semantics/Specs/**/*.lean ({len(spec_files())} files, {len(theorems)} theorems)",
          "- Manual: MD00086 Vol II-A Rev 6.06 via `manuals/mipsdoc.py`"
          + ("" if have_manual else " -- **manual not fetched** (run `manuals/fetch.sh`)"),
@@ -705,7 +723,7 @@ def render(rows, theorems, have_manual):
             ctor = link(INSTR_LEAN, r["line"], r["name"])
             o.append("| " + " | ".join([mn, ctor, cell_manual(r, have_manual), cell_ref(r),
                                  cell_lines(INSTR_LEAN, r["decode"]), cell_lines(INSTR_LEAN, r["encode"]),
-                                 cell_lines(STEP_LEAN, r["step"]), cell_thms(r), cell_refines(r),
+                                 cell_lines(r["step"][0], r["step"][1]) if r["step"] else "-", cell_thms(r), cell_refines(r),
                                  cell_tests(r)]) + " |")
         o.append("")
     g = gaps(rows, theorems, have_manual)

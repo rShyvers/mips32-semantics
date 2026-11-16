@@ -4,69 +4,31 @@ import Semantics.Specs.Fixtures
 /-!
 # Immediate — I-type immediate arithmetic and logic
 
-Constructors: `addi` `addiu` `slti` `sltiu` `andi` `ori` `xori` `lui`.
+Constructors: `addiu` `slti` `sltiu` `andi` `ori` `xori` `aui`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  ADDI p.35; ADDIU p.36; SLTI p.379; SLTIU p.380; ANDI p.45-46; ORI p.315-316; XORI p.447;
-  LUI p.233.
+  ADDIU p.36; SLTI p.379; SLTIU p.380; ANDI p.45-46; ORI p.315-316; XORI p.447; AUI p.47
+  (LUI = AUI with rs = 0).
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "I-type immediate arithmetic / logic".
 
-## Theorems in this file (9)
+## Theorems in this file (8)
 
-  `addi_spec_raw` `addi_overflow_raises_ov` `addiu_spec_raw` `slti_spec_raw` `sltiu_spec_raw`
-  `andi_spec_raw` `ori_spec_raw` `xori_spec_raw` `lui_spec_raw`
+  `addiu_spec_raw` `slti_spec_raw` `sltiu_spec_raw` `andi_spec_raw` `ori_spec_raw` `xori_spec_raw`
+  `aui_spec_raw` `aui_rs_zero_is_lui`
 -/
 
 set_option maxRecDepth 4000
 
-/-- **`addi` computes `$rs + sext16(imm)` exactly, or traps exactly on
-signed overflow.** The immediate is sign-extended first (INSTRUCTION-REF
-"addi" section), then the same overflow test as `add` applies. -/
-theorem addi_spec_raw (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let av := readReg s (regIdxSpec rs)
-      let bv := signExt16 imm
-      let sumBV := av + bv
-      if addOverflowsSpec (asSigned av) (asSigned bv) (asSigned sumBV) then
-        takeException s excCodeOv
-      else
-        { (writeReg s (regIdxSpec rt) sumBV) with
-            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 }) := by
-  step_spec
+/-! ## `addiu`, `slti`, `sltiu`, `andi`, `ori`, `xori`, `aui`
 
-/-- **`addi` overflow raises Integer Overflow**, in or out of a delay slot. -/
-theorem addi_overflow_raises_ov (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
-    (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (signExt16 imm))
-      (asSigned (readReg s (regIdxSpec rs) + signExt16 imm)) = true) (hexec : executesInstr s = true) :
-    step s = timerTick (takeException s excCodeOv) := by
-  rw [step_of_executesInstr s hexec]; unfold execute
-  rw [hfetch]
-  dsimp only
-  rw [hdecode]
-  show timerTick (if addOverflows _ _ _ = true then takeException s excCodeOv else _) = _
-  rw [ite_of_pos hov]
-
-/-! ### Satisfiable examples -/
-
--- `addi_spec_raw`: `addi $t1, $zero, 5` does not overflow.
-#guard (let s := stepIn (prog1Spec (.addi 0#32 9#32 5#32)) (initialState textBase)
-        readReg s 9 == 5#32) = true
-
-/-! ## `addiu`, `slti`, `sltiu`, `andi`, `ori`, `xori`, `lui`
-
-`docs/spec/INSTRUCTION-REF.md` "I-type immediate arithmetic / logic". None of these traps;
-the statements differ in how the 16-bit immediate is extended (sign for `addiu`/`slti`/`sltiu`,
-zero for `andi`/`ori`/`xori`, shifted for `lui`). -/
+`docs/spec/INSTRUCTION-REF.md` "I-type immediate arithmetic / logic". None of these traps
+(Release 6 removed ADDI); the statements differ in how the 16-bit immediate is extended (sign for
+`addiu`/`slti`/`sltiu`, zero for `andi`/`ori`/`xori`, shifted into the upper half for `aui`). -/
 
 /-- **`addiu` computes `$rs + sext16(imm)` with plain 32-bit wraparound and
-never traps** — unlike `addi`, there is no overflow check at all (same
-sign-extended immediate, but the "u" suffix removes the overflow test
-entirely; INSTRUCTION-REF "addiu" section, confirmed against `Step.lean`'s
-`.addiu` case, which has no `addOverflows`/exception branch whatsoever). -/
+never traps**: there is no overflow check at all (INSTRUCTION-REF "addiu" section; the trapping
+ADDI was removed in Release 6). -/
 theorem addiu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addiu rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -102,7 +64,7 @@ theorem sltiu_spec_raw (s : State) (w rs rt imm : W32)
   step_spec
 
 /-- **`andi` zero-extends the 16-bit immediate, then bitwise-ANDs it with
-`$rs`** — unlike `addi`/`slti`, the immediate is zero-extended, not
+`$rs`** — unlike `addiu`/`slti`, the immediate is zero-extended, not
 sign-extended (INSTRUCTION-REF "andi" section: "immediate is
 zero-extended... not sign-extended"). -/
 theorem andi_spec_raw (s : State) (w rs rt imm : W32)
@@ -135,21 +97,33 @@ theorem xori_spec_raw (s : State) (w rs rt imm : W32)
           pc := (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) ^^^ zeroExt16 imm)).pc + 4#32 }) := by
   step_spec
 
-/-- **`lui` writes `imm << 16` into `$rt`, ignoring `$rs` entirely** — `$rs`
-is a fixed/unused field in the real encoding, and `Instruction.lui` itself
-has no `rs` operand at all (INSTRUCTION-REF "lui" section: "$rt = imm <<
-16", no sign extension needed since the low 16 bits are always discarded by
-the shift). -/
-theorem lui_spec_raw (s : State) (w rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lui rt imm))
+/-- **`aui` adds `imm << 16` to `$rs` and writes the sum to `$rt`** (MD00086 Vol II-A Rev 6.06,
+AUI, p.47: `GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)`; on 32 bits `sign_extend(imm << 16)`
+is `zeroExt16 imm <<< 16`, the low 16 bits being zero). No overflow check. `lui` is `aui` with
+`rs = 0` (`aui_rs_zero_is_lui`). -/
+theorem aui_spec_raw (s : State) (w rs rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.aui rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { (writeReg s (regIdxSpec rt) (readReg s (regIdxSpec rs) + (zeroExt16 imm <<< 16))) with
+          pc := (writeReg s (regIdxSpec rt)
+            (readReg s (regIdxSpec rs) + (zeroExt16 imm <<< 16))).pc + 4#32 }) := by
+  step_spec
+
+/-- **`lui $rt, imm` is `aui $rt, $zero, imm`** (MD00086 Vol II-A Rev 6.06, AUI, p.47; LUI is the
+`rs = 0` case): with `$zero` reading 0 (an invariant of `step`, `step_preserves_zero_register`),
+`$rt` receives `imm << 16`, the low half-word zero. -/
+theorem aui_rs_zero_is_lui (s : State) (w rt imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.aui 0#32 rt imm))
+    (hpb : s.pendingBranch = none) (hz : readReg s 0 = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg s (regIdxSpec rt) (zeroExt16 imm <<< 16)) with
           pc := (writeReg s (regIdxSpec rt) (zeroExt16 imm <<< 16)).pc + 4#32 }) := by
-  step_spec
+  rw [aui_spec_raw s w 0#32 rt imm hfetch hdecode hpb hexec]
+  have h0 : regIdxSpec 0#32 = (0 : Fin 32) := by decide
+  rw [h0, hz, BitVec.zero_add]
 
--- `addiu_spec_raw`: `0x7fffffff + 1` wraps to `0x80000000` instead of
--- trapping (the one observable difference from `addi`).
+-- `addiu_spec_raw`: `0x7fffffff + 1` wraps to `0x80000000` instead of trapping.
 #guard (let s := stepIn (prog1Spec (.addiu 8#32 9#32 1#32))
           (setRegsSpec (initialState textBase) [(8, 0x7fffffff#32)])
         readReg s 9 == 0x80000000#32) = true
@@ -180,8 +154,12 @@ theorem lui_spec_raw (s : State) (w rt imm : W32)
           (setRegsSpec (initialState textBase) [(8, 0#32)])
         readReg s 9 == 0x00008001#32) = true
 
--- `lui_spec_raw`: the immediate lands in the high half-word, low half-word
--- stays zero, and `$rs` (here nonzero garbage) is ignored since `lui` has
--- no `rs` operand at all.
-#guard (let s := stepIn (prog1Spec (.lui 9#32 0x8001#32)) (initialState textBase)
+-- `aui_rs_zero_is_lui`: `lui $t1, 0x8001` (= `aui $t1, $zero, 0x8001`): the immediate lands in
+-- the high half-word, the low half-word stays zero.
+#guard (let s := stepIn (prog1Spec (.aui 0#32 9#32 0x8001#32)) (initialState textBase)
         readReg s 9 == 0x80010000#32) = true
+
+-- `aui_spec_raw`: `$rs` is added (with wraparound): `0x8001_1234 + (0x8000 << 16)` = `0x0001_1234`.
+#guard (let s := stepIn (prog1Spec (.aui 8#32 9#32 0x8000#32))
+          (setRegsSpec (initialState textBase) [(8, 0x80011234#32)])
+        readReg s 9 == 0x00011234#32) = true

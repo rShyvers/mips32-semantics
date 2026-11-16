@@ -251,14 +251,12 @@ theorem gep_take (s : State) (e : Exception) (hs : Simple e = true)
   have hce : ceOf e = 0#32 := by cases e <;> first | rfl | cases hs
   rw [hb, hce]; rfl
 
-/-- A CTI (other than `PAUSE`) in a delay slot: the model's choice is Reserved Instruction. -/
+/-- A CTI in a delay slot: Reserved Instruction (Release 6). -/
 theorem execute_cti_slot (w : W32) (i : Instruction) (s : State) (t : W32)
-    (hcti : IsCTI i = true) (hp : IsPAUSE i = false) (hpb : s.pendingBranch = some t) :
+    (hcti : IsCTI i = true) (hpb : s.pendingBranch = some t) :
     Execute modelCtx w i (abs s) = some (abs (takeException s excCodeRI)) := by
   have hb : (abs s).BranchDelay.isSome = true := by simp [abs, hpb]
-  have hc : modelCtx.oracle.ctiInSlot (abs s) i = .signal .ReservedInstruction := by
-    simp [modelCtx, modelOracle, hp]
-  simp only [Execute, hcti, hb, Bool.and_self, ↓reduceIte, hc]
+  simp only [Execute, hcti, hb, Bool.and_self, ↓reduceIte]
   rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
     gep_take s .ReservedInstruction rfl excCodeRI (by decide)]
 

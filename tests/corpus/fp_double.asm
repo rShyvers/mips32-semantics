@@ -45,23 +45,6 @@ buf: .word 0, 0, 0, 0
     mfc1 $a2, $f14
     mfc1 $a3, $f15
     li $v1, 0
-    c.eq.d $f12, $f14
-    bc1f n1
-    nop
-    addiu $v1, $v1, 1
-n1: c.lt.d $f12, $f16
-    bc1f n2
-    nop
-    addiu $v1, $v1, 2
-n2: c.le.d $f16, $f12
-    bc1t n3
-    nop
-    addiu $v1, $v1, 4
-n3: c.le.d $f12, $f12
-    bc1f n4
-    nop
-    addiu $v1, $v1, 8
-n4:
     move $a0, $s0
     li $v0, 1
     syscall

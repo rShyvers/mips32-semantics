@@ -38,8 +38,8 @@ ClearHazards()
 so `PC ← temp` is at time `I` (`setPC`). `SRSCtl.HSS = 0` (`Impl.WF`): the `SRSCtlCSS ← SRSCtlPSS`
 arm is never taken (`SRSCtl.CSS` is not a stored state here).
 `IsMIPS16Implemented()` is false and `Config3ISA = 0` (see `Manual.Ops.Jump`). `ClearHazards()`
-has no architectural state. "The operation of the processor is UNDEFINED if an ERET is executed in
-the delay slot of a branch or jump instruction" (Restrictions, p.177: `Oracle.ctiInSlot`). -/
+has no architectural state. ERET is a CTI: in a delay slot Release 6 signals Reserved Instruction
+before the Operation (`Manual.Execute`; BEQ, Restrictions, p.72). -/
 def ERET : Pseudo Unit := do
   let a ← Pseudo.get
   let temp : W32 ←
@@ -69,39 +69,82 @@ I+1: /* Potential interrupt taken here */
 and entering a lower power mode" (Description, p.442). The restart on an external event or an
 interrupt, and `Impl.WaitRestartsOnNotEnabled`, are in `Manual.Cycle` (`LowPowerTime`); the `code`
 bits (19, implementation-dependent) are not used ("A value of zero for code bits is the default
-and must be valid in all implementations"). "The operation of the processor is UNDEFINED if a WAIT
-instruction is executed in the delay slot of a branch or jump instruction" (p.442:
-`Oracle.ctiInSlot`). -/
+and must be valid in all implementations"). WAIT is a CTI: in a delay slot Release 6 signals Reserved
+Instruction before the Operation (`Manual.Execute`; BEQ, Restrictions, p.72).
+-- W2: the Release 6 WAIT Operation (p.442-443) replaces this pre-Release 6 one (DECISIONS D9). -/
 def WAIT (_code : W32) : Pseudo Unit := do
   -- I: Enter implementation dependent lower power mode
   Pseudo.modify fun a => { a with LowPower := true }
   -- I+1: /* Potential interrupt taken here */ (Manual.Cycle)
 
-/-- **RDHWR rt, rd** — MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334, pre-Release 6 reading (no `sel`).
+/-- **PAUSE** — MD00086 Vol II-A Rev 6.06, PAUSE, p.317.
 ```
-case rd
-   0: temp ← EBaseCPUNum
-   1: temp ← SYNCI_StepSize()
-   2: temp ← Count
-   3: temp ← CountResolution()
-   29: temp ← UserLocal
-   30: temp ← Implementation-Dependent-Value
-   31: temp ← Implementation-Dependent-Value
-   otherwise: SignalException(ReservedInstruction)
-endcase
+if LLBit ≠ 0 then
+   EPC ← PC + 4                  /* Resume at the following instruction */
+   DescheduleInstructionStream()
+endif
+```
+`DescheduleInstructionStream()` is not defined by the manual; the Description says "In a
+single-threaded processor, this may be implemented as a short-term WAIT operation which resumes at the
+next instruction when the LLBit is zero or on some other external event such as an interrupt" (p.317).
+**Pin:** it enters the lower power mode `WAIT` enters (`LowPower`, left by `Manual.LowPowerTime` and
+the interrupt of `Manual.InstructionTime`), and the instruction completes (`PC` advances to the next
+instruction). On this single processor nothing else clears `LLbit` while the pipeline is stopped.
+PAUSE is a CTI ("CTIs include all branches and jumps, NAL, ERET, ERETNC, DERET, WAIT, and PAUSE", BEQ
+p.72; "Release 6: Implementations are required to signal a Reserved Instruction exception if PAUSE is
+encountered in the delay slot", p.317): `Manual.Execute` signals Reserved Instruction there before the
+Operation. -/
+def PAUSE : Pseudo Unit := do
+  let a ← Pseudo.get
+  let pc ← PC
+  -- if LLBit ≠ 0 then
+  if a.LLbit then
+    -- EPC ← PC + 4
+    Pseudo.modify fun x => { x with EPC := pc + 4#32 }
+    -- DescheduleInstructionStream(): the lower power mode of WAIT (pin)
+    Pseudo.modify fun x => { x with LowPower := true }
+
+/-- **RDHWR rt, rd, sel** — MD00086 Vol II-A Rev 6.06, RDHWR, p.332-334 (Release 6 diagram: `sel` in
+bits 8..6, bits 10..9 zero).
+```
+if ((rd≠4) and (sel==0))
+   case rd
+      0: temp ← EBaseCPUNum
+      1: temp ← SYNCI_StepSize()
+      2: temp ← Count
+      3: temp ← CountResolution()
+      if (≥2) 5: temp ← Config5XNP endif     // Release 6
+      29: temp ← UserLocal
+      30: temp ← Implementation-Dependent-Value
+      31: temp ← Implementation-Dependent-Value
+      otherwise: SignalException(ReservedInstruction)
+   endcase
+elseif ((rd==4) and (≥2) and (sel==defined))  // Release 6
+   temp ← PerfCtr[sel]
+else
+endif
 GPR[rt] ← temp
 ```
-(the page's `rd = 4` `PerfCtr` and `rd = 5` `XNP` arms are Release 6 only.) Restrictions (p.333):
-"Access to the specified hardware register is enabled if Coprocessor 0 is enabled, or if the
-corresponding bit is set in the HWREna register. If access is not allowed or the register is not
-implemented, a Reserved Instruction Exception is signaled." Register 29 `UserLocal` is "if it is
-implemented" and 30-31 "If they are not implemented, access results in a Reserved Instruction
-Exception": none is implemented. `EBaseCPUNum` is `EBase` bits 9..0 (one processor, `EBaseRead`),
-`SYNCI_StepSize()` is `Impl.SYNCIStep`, `CountResolution()` is `Impl.CCRes` (Table 5.4, p.332). -/
-def RDHWR (rt rd : W32) : Pseudo Unit := do
+(the page's first line reads `rs!=4`; the field is `rd`, as in the `elseif` and Table 5.4.)
+Restrictions (p.333): "Access to the specified hardware register is enabled if Coprocessor 0 is
+enabled, or if the corresponding bit is set in the HWREna register. If access is not allowed or the
+register is not implemented, a Reserved Instruction Exception is signaled"; "In Release 6, when the
+3-bit sel is undefined for use with a specific register number, then a Reserved Instruction Exception
+is signaled". `sel ≠ 0` is defined for no register implemented here (`PerfCtr`, register 4, needs
+performance counters, `Config1.PC = 0`), so it signals Reserved Instruction. Register 29 `UserLocal` is
+"if it is implemented" and 30-31 "If they are not implemented, access results in a Reserved
+Instruction Exception": none is implemented. `EBaseCPUNum` is `EBase` bits 9..0 (one processor,
+`EBaseRead`), `SYNCI_StepSize()` is `Impl.SYNCIStep`, `CountResolution()` is `Impl.CCRes` (Table 5.4,
+p.332).
+-- W2: register 5 (`XNP` = `Config5.XNP`, DECISIONS D13) and 29 (`UserLocal`) as Release 6 defines
+-- them; until then they signal Reserved Instruction, as the model does. -/
+def RDHWR (rt rd sel : W32) : Pseudo Unit := do
   let impl ← Pseudo.impl
   let a ← Pseudo.get
   let r := rd.toNat
+  -- (Restrictions) a sel undefined for the register: Reserved Instruction
+  if sel != 0#32 then SignalException .ReservedInstruction
+  else
   -- Restrictions: access is enabled if Coprocessor 0 is enabled, or the HWREna bit is set
   let enabled := CP0Usable a || (r < 4 && bit a.HWREna r)
   if !enabled then SignalException .ReservedInstruction
@@ -115,7 +158,7 @@ def RDHWR (rt rd : W32) : Pseudo Unit := do
       | 2 => pure a.Count
       -- 3: temp ← CountResolution()
       | 3 => pure impl.CCRes
-      -- 29, 30, 31 (not implemented), otherwise: SignalException(ReservedInstruction)
+      -- 5, 29, 30, 31 (not implemented), otherwise: SignalException(ReservedInstruction)
       | _ => SignalException .ReservedInstruction
     -- GPR[rt] ← temp
     setGPR (reg rt) temp

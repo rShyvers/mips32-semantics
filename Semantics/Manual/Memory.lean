@@ -4,7 +4,7 @@ import Semantics.Manual.CP0
 # Manual.Memory — address translation and the memory functions
 
 MD00086 Vol II-A Rev 6.06 §2.2.2.2 (p.18-21): `AddressTranslation`, `LoadMemory`, `StoreMemory`,
-`AccessLength` (Table 2.1, p.20-21); Table 1.1 (p.5): `BigEndianMem`, `BigEndianCPU`,
+`AccessLength` (Table 2.1, p.20-21); Table 1.1 (p.6): `BigEndianMem`, `BigEndianCPU`,
 `ReverseEndian`. The MMU is the Fixed Mapping MMU (`Config.MT = 3`; MD00090 Vol III Rev 6.02
 Appendix A.1, p.313-317) with the address error check of Table 4.2 (p.30).
 -/
@@ -28,9 +28,13 @@ def TRIPLEBYTE : Nat := 2
 /-- `WORD` = 3 (Table 2.1). -/
 def WORD : Nat := 3
 
-/-- `BigEndianMem` (Table 1.1, p.5): "Endian mode as configured at chip reset (0 → Little-Endian,
-1 → Big-Endian)". This profile is big-endian (`Config.BE = 1`). -/
-def BigEndianMem : Bool := true
+/-- `BigEndianMem` (MD00086 Vol II-A Rev 6.06 §1.3, Table 1.1, p.6): "Endian mode as configured at
+chip reset (0 → Little-Endian, 1 → Big-Endian)". This profile is little-endian: `Config.BE = 0`
+(MD00090 Vol III Rev 6.02 §9.45, Table 9.64, p.234: "0 Little endian") and `Config5.DEC = 0`
+("Only Little-Endian mode supported. Any implementation must support Little-endian mode", §9.50,
+p.261). Every byte-lane computation below reads this constant, so a big-endian profile changes only
+this line. -/
+def BigEndianMem : Bool := false
 
 /-- `ReverseEndian` (Table 1.1, p.5): "(SRRE and User mode)". -/
 def ReverseEndian (a : Arch) : Bool := StatusRE a && UserMode a
@@ -77,13 +81,21 @@ def AddressTranslation (vAddr : W32) (_iord : IorD) (lors : LorS) : Pseudo (PAdd
   else
     pure (FixedMapping (StatusERL a) vAddr, CCAOf a vAddr)
 
-/-- The aligned word (`MemElem`) of physical memory that contains `pAddr`, big-endian
-(`BigEndianMem = 1`): the byte at the lowest address is the most significant ("For big-endian
-ordering this is the most-significant byte", §2.2.2.2, p.18). -/
+/-- **The bit position of byte lane `k`** (0 = the lowest address) inside the aligned word `MemElem`,
+in the byte order `BigEndianMem`: little-endian memory puts the byte at the lowest address in bits
+7..0, big-endian memory in bits 31..24 ("For big-endian ordering this is the most-significant byte",
+§2.2.2.2, p.18). It is the same `xor` the pages apply to the address (`byte ← vAddr1..0 xor
+BigEndianCPU^2`, LB p.211), with `ReverseEndian = 0` (`StatusRE` reads 0). A lane is a byte
+position within the 4-byte element, so `k` is taken modulo 4. -/
+def laneShift (k : Nat) : Nat := 8 * (if BigEndianMem then 3 - k % 4 else k % 4)
+
+/-- The aligned word (`MemElem`) of physical memory that contains `pAddr`: byte lane `k` (the byte
+at `base + k`) at bits `laneShift k + 7 .. laneShift k`. -/
 def MemElemAt (m : PAddr → UInt8) (pAddr : PAddr) : W32 :=
   let base := pAddr &&& ~~~3#32
-  (m base).toBitVec ++ (m (base + 1#32)).toBitVec ++ (m (base + 2#32)).toBitVec ++
-    (m (base + 3#32)).toBitVec
+  ((m base).toBitVec.setWidth 32 <<< laneShift 0) ||| ((m (base + 1#32)).toBitVec.setWidth 32 <<< laneShift 1) |||
+    ((m (base + 2#32)).toBitVec.setWidth 32 <<< laneShift 2) |||
+    ((m (base + 3#32)).toBitVec.setWidth 32 <<< laneShift 3)
 
 /-- **`MemElem ← LoadMemory(CCA, AccessLength, pAddr, vAddr, IorD)`** (§2.2.2.2.3, Figure 2.18,
 p.19): "The data is returned in a fixed-width naturally aligned memory element (MemElem) ... The
@@ -99,25 +111,22 @@ def LoadMemory (_cca : BitVec 3) (_accessLength : Nat) (pAddr : PAddr) (_vAddr :
   if iord == .DATA && o.loadClearsLL a then Pseudo.modify fun x => { x with LLbit := false }
   pure (MemElemAt a.Mem pAddr)
 
-/-- The byte of the memory element `w` in byte lane `k` (0 = lowest address) for big-endian memory:
-bits `31-8k .. 24-8k`. -/
-def laneByte (w : W32) (k : Nat) : UInt8 := ⟨w.extractLsb' (24 - 8 * k) 8⟩
+/-- The byte of the memory element `w` in byte lane `k` (0 = lowest address): bits
+`laneShift k + 7 .. laneShift k`. -/
+def laneByte (w : W32) (k : Nat) : UInt8 := ⟨w.extractLsb' (laneShift k) 8⟩
 
 /-- Physical memory after writing byte `b` at `p`. -/
 def updMem (m : PAddr → UInt8) (p : PAddr) (b : UInt8) : PAddr → UInt8 :=
   fun q => if p == q then b else m q
 
-/-- **The byte lanes `StoreMemory` changes** (7B S2). The manual says only that "The low-order two (or
+/-- **The byte lanes `StoreMemory` changes**. The manual says only that "The low-order two (or
 three) bits of pAddr and the AccessLength field indicate which of the bytes within the MemElem data
 should be stored" (MD00086 Vol II-A Rev 6.06 §2.2.2.2.4, p.20) and gives AccessLength as "Length, in
 bytes, of access" (Table 2.1, p.20-21: value = bytes - 1). For `p = pAddr1..0` and `a = AccessLength`
-the stores of the pages need these lanes (lane 0 = lowest address = most significant byte of the
-big-endian word): `SB`/`SH`/`SW` `p..p+a` (aligned, p+a <= 3); `SWL` (SWL p.398, Figure 5.10) `p..p+a`
-with `a = 3 - p`, i.e. `p..3`; `SWR` (SWR p.402, Figure 5.14) lanes `0..p` with `a = p` (`WORD - byte`).
-`p = a` occurs for no other store (SB, `a = 0 = p` selects lane 0 either way; SH/SW are aligned), so
-the manual's two readings are told apart by `a = p`. This reading is recorded in SPEC-NOTES §11. -/
-def storedLanes (p a : Nat) : List Nat :=
-  if a == p then List.range (p + 1) else (List.range (a + 1)).map (p + ·)
+the stores of this profile (`SB`, `SH`, `SW`, `SC`, `SWC1`, `SDC1`, all naturally aligned, so
+`p + a ≤ 3`) store lanes `p..p+a`. (Release 6 removed `SWL`/`SWR`, the only stores whose lanes start
+below `p`.) -/
+def storedLanes (p a : Nat) : List Nat := (List.range (a + 1)).map (p + ·)
 
 /-- **`StoreMemory(CCA, AccessLength, MemElem, pAddr, vAddr)`** (§2.2.2.2.4, Figure 2.19, p.20):
 "The low-order two (or three) bits of pAddr and the AccessLength field indicate which of the bytes

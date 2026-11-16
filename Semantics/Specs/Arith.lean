@@ -3,23 +3,21 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.Invariants
 
 /-!
-# Arith — R-type arithmetic, logic, compare and conditional move
+# Arith — R-type arithmetic, logic and compare
 
-Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu` `movn` `movz`.
+Constructors: `add` `addu` `sub` `subu` `and` `or` `xor` `nor` `slt` `sltu`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   ADD p.33; ADDU p.38-39; SUB p.388; SUBU p.390; AND p.44; OR p.314; XOR p.446; NOR p.313;
-  SLT p.378; SLTU p.381; MOVN p.279; MOVZ p.284.
+  SLT p.378; SLTU p.381.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "R-type arithmetic / logic"; "MIPS32 / MIPS32r2 additions (beyond the MARS-matched v1 baseline)".
 
-## Theorems in this file (22)
+## Theorems in this file (14)
 
   `add_spec_raw` `step_add_preserves_zero_register` `sub_spec_raw` `add_overflow_raises_ov`
   `sub_overflow_raises_ov` `add_overflow_not_wrapped` `addu_spec_raw` `subu_spec_raw`
   `and_spec_raw` `or_spec_raw` `xor_spec_raw` `nor_spec_raw` `slt_spec_raw` `sltu_spec_raw`
-  `movn_spec_raw` `movn_taken_spec` `movn_not_taken_spec` `movn_not_taken_unchanged`
-  `movz_spec_raw` `movz_taken_spec` `movz_not_taken_spec` `movz_not_taken_unchanged`
 -/
 
 set_option maxRecDepth 4000
@@ -157,7 +155,7 @@ theorem add_overflow_not_wrapped (s : State) (w : W32)
         causeExcCode s' == excCodeOv && s'.pc == exceptionVectorAddr
             && s'.cp0Epc == textBase && readReg s' 10 == 0x55#32) = true
 
-/-! ## `addu`, `subu`, `and`, `or`, `xor`, `nor`, `slt`, `sltu`, `movn`, `movz`
+/-! ## `addu`, `subu`, `and`, `or`, `xor`, `nor`, `slt`, `sltu`
 
 `addu`/`subu` are `add`/`sub` without the overflow trap: plain two's-complement wraparound,
 never an exception (INSTRUCTION-REF "addu"/"subu"). `and`/`or`/`xor`/`nor` are bitwise
@@ -251,107 +249,7 @@ theorem sltu_spec_raw (s : State) (w rs rt rd : W32)
       { (writeReg s (regIdxSpec rd) v) with pc := (writeReg s (regIdxSpec rd) v).pc + 4#32 }) := by
   step_spec
 
-/-- **`movn` moves `$rs` into `$rd` iff `$rt ≠ 0`; otherwise `$rd` is left
-completely unchanged** — a true conditional no-op, not "write `0`"
-(INSTRUCTION-REF "movn" section). This is the full case split; see
-`movn_taken_spec`/`movn_not_taken_spec`/`movn_not_taken_unchanged` below for
-the two branches isolated. -/
-theorem movn_spec_raw (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdxSpec rt) != 0#32 then
-        { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
-            pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`movn`, condition true (`$rt ≠ 0`)**: `$rd` actually receives `$rs`'s
-value. -/
-theorem movn_taken_spec (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (htaken : readReg s (regIdxSpec rt) ≠ 0#32) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
-          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }) := by
-  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_pos (by simpa using htaken)]
-
-/-- **`movn`, condition false (`$rt = 0`)**: the state advances with no
-register write at all — `$rd` is not touched, not zeroed. -/
-theorem movn_not_taken_spec (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [movn_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_neg (by simp [hnot])]
-
-/-- **"Bad output rejection" for `movn`**: whenever the condition fails
-(`$rt = 0`), the resulting state's `$rd` reads back *exactly* its pre-step
-value — a buggy implementation that always overwrote `$rd` regardless of
-`$rt` could never satisfy this. -/
-theorem movn_not_taken_unchanged (s s' : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movn rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) = 0#32)
-    (hstep : step s = s') (hexec : executesInstr s = true) :
-    readReg s' (regIdxSpec rd) = readReg s (regIdxSpec rd) := by
-  rw [movn_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot hexec] at hstep
-  have hs := hstep
-  rw [← hs]
-  rfl
-
-/-- **`movz` moves `$rs` into `$rd` iff `$rt = 0`; otherwise `$rd` is left
-completely unchanged** — the mirror image of `movn` (INSTRUCTION-REF "movz"
-section). -/
-theorem movz_spec_raw (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdxSpec rt) == 0#32 then
-        { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
-            pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`movz`, condition true (`$rt = 0`)**: `$rd` actually receives `$rs`'s
-value. -/
-theorem movz_taken_spec (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (htaken : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))) with
-          pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rs))).pc + 4#32 }) := by
-  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_pos (by simpa using htaken)]
-
-/-- **`movz`, condition false (`$rt ≠ 0`)**: the state advances with no
-register write at all. -/
-theorem movz_not_taken_spec (s : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) ≠ 0#32) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 4#32 }) := by
-  rw [movz_spec_raw s w rs rt rd hfetch hdecode hpb hexec, ite_of_neg (by simpa using hnot)]
-
-/-- **"Bad output rejection" for `movz`**: whenever the condition fails
-(`$rt ≠ 0`), the resulting state's `$rd` reads back *exactly* its pre-step
-value — a buggy implementation that always overwrote `$rd` regardless of
-`$rt` could never satisfy this. -/
-theorem movz_not_taken_unchanged (s s' : State) (w rs rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movz rs rt rd))
-    (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rt) ≠ 0#32)
-    (hstep : step s = s') (hexec : executesInstr s = true) :
-    readReg s' (regIdxSpec rd) = readReg s (regIdxSpec rd) := by
-  rw [movz_not_taken_spec s w rs rt rd hfetch hdecode hpb hnot hexec] at hstep
-  have hs := hstep
-  rw [← hs]
-  rfl
-
-/-! ### Satisfiable examples (`addu` … `movz`) -/
+/-! ### Satisfiable examples (`addu` … `sltu`) -/
 
 -- `addu_spec_raw`: `0xffffffff + 2` wraps to `1`, with no trap (unlike
 -- `add`, which would trap on this operand pair's signed overflow reading).
@@ -391,23 +289,3 @@ theorem movz_not_taken_unchanged (s s' : State) (w rs rt rd : W32)
 #guard (let s := stepIn (prog1Spec (.sltu 8#32 9#32 10#32))
           (setRegsSpec (initialState textBase) [(8, 0xffffffff#32), (9, 1#32)])
         readReg s 10 == 0#32) = true
-
--- `movn_taken_spec`/`movn_not_taken_unchanged`: `$rd` pre-seeded with the
--- sentinel `99` is overwritten when `$rt ≠ 0`, and left at `99` (not
--- zeroed) when `$rt = 0`.
-#guard (let s := stepIn (prog1Spec (.movn 8#32 9#32 10#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32), (9, 1#32), (10, 99#32)])
-        readReg s 10 == 5#32) = true
-
-#guard (let s := stepIn (prog1Spec (.movn 8#32 9#32 10#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32), (9, 0#32), (10, 99#32)])
-        readReg s 10 == 99#32) = true
-
--- `movz_taken_spec`/`movz_not_taken_unchanged`: the mirror image of `movn`.
-#guard (let s := stepIn (prog1Spec (.movz 8#32 9#32 10#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32), (9, 0#32), (10, 99#32)])
-        readReg s 10 == 5#32) = true
-
-#guard (let s := stepIn (prog1Spec (.movz 8#32 9#32 10#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32), (9, 1#32), (10, 99#32)])
-        readReg s 10 == 99#32) = true

@@ -16,6 +16,9 @@ sll $s6, $s6, 8
 or $s6, $s6, $k0
 addiu $s4, $s4, 1
 cfc1 $s5, $31
+lui $k1, 0xfff3
+ori $k1, $k1, 0xffff
+and $s5, $s5, $k1
 li $k1, 0xfffc0fff
 and $k1, $s5, $k1
 ctc1 $k1, $31
@@ -40,6 +43,9 @@ ctc1 $t8, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 0($s7)
 sw $t1, 4($s7)
@@ -55,6 +61,9 @@ ctc1 $t8, $31
 sqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 12($s7)
 sw $t1, 16($s7)
@@ -72,6 +81,9 @@ ctc1 $t8, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 24($s7)
 sw $t1, 28($s7)
@@ -89,6 +101,9 @@ ctc1 $t8, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 36($s7)
 sw $t1, 40($s7)
@@ -106,6 +121,9 @@ ctc1 $t8, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 48($s7)
 sw $t1, 52($s7)
@@ -123,6 +141,9 @@ ctc1 $t8, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 60($s7)
 sw $t1, 64($s7)
@@ -138,6 +159,9 @@ ctc1 $t8, $31
 cvt.w.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 72($s7)
 sw $t1, 76($s7)

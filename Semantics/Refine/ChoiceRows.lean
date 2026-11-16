@@ -12,11 +12,11 @@ collects them.
 * loads with `LLbit = 1`: `loadClearsLL` true / false leaves `LLbit` 0 / 1 (MD00086 Vol II-A Rev 6.06,
   SC, p.347-348);
 * stores with `LLbit = 1`: `storeClearsLL` true / false, the same;
-* `DIV`/`DIVU` by zero and `MUL`: two `HI` values; `CFC1` of a missing register with `rt ≠ 0`: two
-  `GPR[rt]` values; `MFHC1` of an odd register with `rt ≠ 0`: two `GPR[rt]` values;
-* `SDC1`/`SDXC1` of an odd register with `LLbit = 0`: two stored doublewords (all zeros, all ones);
-* the UNPREDICTABLE / UNDEFINED operations (`CTC1`, `MFC0`/`MTC0`, `EXT`/`INS`, a branch-and-link with
-  `rs = 31`, `JALR` with `rs = rd`, `MTHC1`/`LDC1`/`LDXC1` of an odd register): the witness oracle
+* `CFC1` of a missing register with `rt ≠ 0`: two `GPR[rt]` values; `MFHC1` of an odd register with
+  `rt ≠ 0`: two `GPR[rt]` values;
+* `SDC1` of an odd register with `LLbit = 0`: two stored doublewords (all zeros, all ones);
+* the UNPREDICTABLE / UNDEFINED operations (`CTC1`, `MFC0`/`MTC0`, `EXT`/`INS`, `JALR` with
+  `rs = rd`, `MTHC1`/`LDC1` of an odd register): the witness oracle
   signals Reserved Instruction, so both runs signal and the two `Cause.CE` values tell them apart.
 -/
 
@@ -35,10 +35,10 @@ theorem toBits_b4' (f : Mips.Fp.Flags) : f.toBits[4] = f.invalid := by
 /-- Unfold an Operation run under a witness oracle into its paths. -/
 macro "runp_simp" : tactic => `(tactic| simp only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory, StoreMemory, ValueFPR64,
-    StoreFPR64, ValueFPR32, StoreFPR32, Pseudo.modify, resolve, unpredictableOr, FPResult, FPCheck, CheckFPException,
-    FPConditionCode, setHI, setLO, wo, ctxOf, sigRI, RunP_ok, RunP_sig, NotCpU, ne_eq, reduceCtorEq,
+    StoreFPR64, ValueFPR32, StoreFPR32, Pseudo.modify, resolve, unpredictableOr, FPResult, CheckFPException,
+    wo, ctxOf, sigRI, RunP_ok, RunP_sig, NotCpU, ne_eq, reduceCtorEq,
     not_false_eq_true, implies_true, ↓reduceIte, Bool.false_eq_true, CEof_writeGPR, writeGPR_LLbit,
-    writeGPR_HI, and_true, true_and, FP32RegistersMode, beq_self_eq_true, SetFPConditionCode, *])
+    and_true, true_and, FP32RegistersMode, beq_self_eq_true, *])
 
 /-- Prove a `RunP` goal: unfold, split every `if`, close each path. -/
 macro "runp" : tactic => `(tactic| (
@@ -63,14 +63,12 @@ theorem row_sig {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation
 
 theorem obs_LL (x y : Arch) (hx : x.LLbit = !true) (hy : y.LLbit = !false) : Obs x ≠ Obs y := by
   intro he; have := congrArg (·.1) he; simp_all [Obs]
-theorem obs_HI (x y : Arch) (hx : x.HI = 0#32) (hy : y.HI = 1#32) : Obs x ≠ Obs y := by
-  intro he; have := congrArg (·.2.1) he; simp only [Obs] at this; rw [hx, hy] at this; exact absurd this (by decide)
 theorem obs_GPR (r : Fin 32) (v₁ v₂ : W32) (hv : v₁ ≠ v₂) (x y : Arch) (hx : x.GPR r = v₁) (hy : y.GPR r = v₂) :
     Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.1 r) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
+  intro he; have := congrArg (fun o => o.2.1 r) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
 theorem obs_Mem (q : PAddr) (b₁ b₂ : UInt8) (hv : b₁ ≠ b₂) (x y : Arch) (hx : x.Mem q = b₁) (hy : y.Mem q = b₂) :
     Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.2.2.2 q) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
+  intro he; have := congrArg (fun o => o.2.2.2.2 q) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
 
 /-! ## Loads and stores while `LLbit = 1` -/
 
@@ -96,38 +94,18 @@ theorem rw_lbu : RowWitness (.lbu base rt off) a := row_load rfl fun _ _ => by s
 theorem rw_lh : RowWitness (.lh base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LH]; runp
 theorem rw_lhu : RowWitness (.lhu base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LHU]; runp
 theorem rw_lw : RowWitness (.lw base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LW]; runp
-theorem rw_lwl : RowWitness (.lwl base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LWL]; runp
-theorem rw_lwr : RowWitness (.lwr base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LWR]; runp
 theorem rw_lwc1 : RowWitness (.lwc1 base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LWC1]; runp
-theorem rw_lwxc1 : RowWitness (.lwxc1 base rt off) a := row_load rfl fun _ _ => by simp only [Ops.LWXC1]; runp
 theorem rw_sb : RowWitness (.sb base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SB]; runp
 theorem rw_sh : RowWitness (.sh base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SH]; runp
 theorem rw_sw : RowWitness (.sw base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SW]; runp
-theorem rw_swl : RowWitness (.swl base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SWL]; runp
-theorem rw_swr : RowWitness (.swr base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SWR]; runp
 theorem rw_swc1 : RowWitness (.swc1 base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SWC1]; runp
-theorem rw_swxc1 : RowWitness (.swxc1 base rt off) a := row_store rfl fun _ _ => by simp only [Ops.SWXC1]; runp
 
 end
 
-/-! ## UNPREDICTABLE values: `HI`, `GPR[rt]` -/
+/-! ## UNPREDICTABLE values: `GPR[rt]` -/
 
 section
 set_option linter.unusedSimpArgs false
-
-theorem row_HI {ins : Instruction} {a : Arch} {O : Pseudo Unit} (hO : Operation ins = some O)
-    (h : ∀ ce v, RunP a (fun x => x.HI = v) (O (ctxOf modelImpl (wo { hl := (v, v) } ce)) { arch := a })) :
-    RowWitness ins a :=
-  row_of hO { hl := (0#32, 0#32) } { hl := (1#32, 1#32) } _ _ obs_HI (fun ce => h ce 0#32) (fun ce => h ce 1#32)
-
-theorem rw_div (rs rt : W32) (a : Arch) (h : ConsultsOracle (.div rs rt) a = true) : RowWitness (.div rs rt) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_HI rfl fun _ _ => by simp only [Ops.DIV]; runp
-theorem rw_divu (rs rt : W32) (a : Arch) (h : ConsultsOracle (.divu rs rt) a = true) : RowWitness (.divu rs rt) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_HI rfl fun _ _ => by simp only [Ops.DIVU]; runp
-theorem rw_mul (rs rt rd : W32) (a : Arch) : RowWitness (.mul rs rt rd) a :=
-  row_HI rfl fun _ _ => by simp only [Ops.MUL]; runp
 
 theorem rw_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = true) : RowWitness (.cfc1 rt fs) a := by
   simp only [ConsultsOracle, Bool.and_eq_true, Bool.not_eq_true', Bool.or_eq_false_iff, beq_eq_false_iff_ne,
@@ -174,22 +152,6 @@ theorem rw_ins (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ins rt rs
     RowWitness (.ins rt rs pos size) a := by
   simp only [ConsultsOracle, decide_eq_true_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.INS]; runp
-theorem rw_bltzal (rs off : W32) (a : Arch) (h : ConsultsOracle (.bltzal rs off) a = true) :
-    RowWitness (.bltzal rs off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BLTZAL]; runp
-theorem rw_bgezal (rs off : W32) (a : Arch) (h : ConsultsOracle (.bgezal rs off) a = true) :
-    RowWitness (.bgezal rs off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BGEZAL]; runp
-theorem rw_bltzall (rs off : W32) (a : Arch) (h : ConsultsOracle (.bltzall rs off) a = true) :
-    RowWitness (.bltzall rs off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BLTZALL]; runp
-theorem rw_bgezall (rs off : W32) (a : Arch) (h : ConsultsOracle (.bgezall rs off) a = true) :
-    RowWitness (.bgezall rs off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BGEZALL]; runp
 theorem rw_jalr (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalr rs rd) a = true) : RowWitness (.jalr rs rd) a := by
   simp only [ConsultsOracle, beq_iff_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.JALR]; runp
@@ -210,23 +172,17 @@ theorem rw_ldc1 (base ft off : W32) (a : Arch) (h : ConsultsOracle (.ldc1 base f
   · have hl : a.LLbit = true := h.resolve_right ho
     simp only [OddFPR, Bool.not_eq_true] at ho
     exact row_load rfl fun _ _ => by simp only [Ops.LDC1]; runp
-theorem rw_ldxc1 (fd index base : W32) (a : Arch) (h : ConsultsOracle (.ldxc1 fd index base) a = true) :
-    RowWitness (.ldxc1 fd index base) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true] at h
-  by_cases ho : OddFPR fd = true
-  · simp only [OddFPR] at ho
-    exact row_sig rfl fun _ => by simp only [Ops.LDXC1]; runp
-  · have hl : a.LLbit = true := h.resolve_right ho
-    simp only [OddFPR, Bool.not_eq_true] at ho
-    exact row_load rfl fun _ _ => by simp only [Ops.LDXC1]; runp
-
 end
 
-/-! ## `SDC1`/`SDXC1` of an odd register: the stored doubleword -/
+/-! ## `SDC1` of an odd register: the stored doubleword -/
 
 theorem laneByte_of (w : W32) (c : BitVec 8) (h : ∀ s, s < 25 → BitVec.extractLsb' s 8 w = c) (k : Nat) :
     laneByte w k = ⟨c⟩ := by
-  unfold laneByte; rw [h _ (by omega)]
+  unfold laneByte
+  have hk : laneShift k < 25 := by
+    unfold laneShift; simp only [BigEndianMem, Bool.false_eq_true, ↓reduceIte]
+    have := Nat.mod_lt k (show 4 > 0 by omega); omega
+  rw [h _ hk]
 
 theorem foldl_keep (base : PAddr) (w : W32) (b : UInt8) (hb : ∀ k, laneByte w k = b) (ls : List Nat) :
     ∀ (m : PAddr → UInt8) (q : PAddr), m q = b →
@@ -250,12 +206,9 @@ theorem foldl_lane (base : PAddr) (w : W32) (b : UInt8) (hb : ∀ k, laneByte w 
     · exact foldl_keep base w b hb ls _ _ (by simp [updMem, hb])
     · exact ih _ l h
 
-theorem storedLanes_ne (p : Nat) : ∃ l, l ∈ storedLanes p 3 := by
-  unfold storedLanes; split
-  · exact ⟨0, by simp⟩
-  · exact ⟨p, by simp⟩
+theorem storedLanes_ne (p : Nat) : ∃ l, l ∈ storedLanes p 3 := ⟨p, by simp [storedLanes]⟩
 
-/-- The lanes the last word store of `SDC1`/`SDXC1` writes, at `q`, all hold `b`. -/
+/-- The lanes the last word store of `SDC1` writes, at `q`, all hold `b`. -/
 def LastStore (q : PAddr) (b : UInt8) (x : Arch) : Prop :=
   ∀ l ∈ storedLanes (q &&& 3#32).toNat WORD, x.Mem ((q &&& ~~~3#32) + BitVec.ofNat 32 l) = b
 
@@ -278,7 +231,7 @@ macro "runp_core" : tactic => `(tactic| (
   repeat' (case_ite <;> (try runp_simp))
   all_goals (first | (simp_all [CEof]; done) | skip)))
 
-/-- The physical address of the second word an `SDC1`/`SDXC1` with effective address `v` stores
+/-- The physical address of the second word an `SDC1` with effective address `v` stores
 (SDC1, Operation, p.362: `paddr ← paddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)`, then
 `paddr xor 0b100`). -/
 def sdQ (a : Arch) (v : W32) : PAddr :=
@@ -300,21 +253,6 @@ theorem rw_sdc1 (base ft off : W32) (a : Arch) (h : ConsultsOracle (.sdc1 base f
       (LastStore (sdQ a (sign_extend (imm16 off) + readGPR a (reg base))) 0)
       (LastStore (sdQ a (sign_extend (imm16 off) + readGPR a (reg base))) 255)
       (fun x y => obs_lastStore _ x y) (fun _ => ?_) (fun _ => ?_) <;> simp only [Ops.SDC1] <;> runp_core
-    · exact ⟨fun l hl => foldl_lane _ _ _ lb_zero _ _ _ hl, rfl⟩
-    · exact ⟨fun l hl => foldl_lane _ _ _ lb_ones _ _ _ hl, rfl⟩
-
-theorem rw_sdxc1 (fs index base : W32) (a : Arch) (h : ConsultsOracle (.sdxc1 fs index base) a = true) :
-    RowWitness (.sdxc1 fs index base) a := by
-  simp only [ConsultsOracle, Bool.or_eq_true] at h
-  by_cases hl : a.LLbit = true
-  · exact row_store rfl fun _ _ => by simp only [Ops.SDXC1]; runp
-  · have ho := h.resolve_left hl
-    simp only [OddFPR] at ho
-    simp only [Bool.not_eq_true] at hl
-    refine row_of rfl { rd := 0#64 } { rd := BitVec.allOnes 64 }
-      (LastStore (sdQ a (readGPR a (reg base) + readGPR a (reg index))) 0)
-      (LastStore (sdQ a (readGPR a (reg base) + readGPR a (reg index))) 255)
-      (fun x y => obs_lastStore _ x y) (fun _ => ?_) (fun _ => ?_) <;> simp only [Ops.SDXC1] <;> runp_core
     · exact ⟨fun l hl => foldl_lane _ _ _ lb_zero _ _ _ hl, rfl⟩
     · exact ⟨fun l hl => foldl_lane _ _ _ lb_ones _ _ _ hl, rfl⟩
 

@@ -7,15 +7,14 @@ import Semantics.Specs.Lemmas
 `branch_in_delay_slot_reserved_instruction` covers a control transfer in a delay slot. `DelaySlotRel`,
 `DelaySlotRel_ite` and `execInstr_delaySlotRel` are proof devices for the general theorem.
 
-## Theorems in this file (34)
+## Theorems in this file (28)
 
   `advance_not_in_delay_slot` `advance_in_delay_slot` `DelaySlotRel_ite` `execInstr_delaySlotRel`
   `execInstr_delay_slot` `delay_slot_commits_target` `branch_in_delay_slot_reserved_instruction`
   `readMemByte_pb` `readReg_pb` `writeReg_pb` `writeMemByte_pb` `writeMemByte_getD_pb`
   `takeAddressException_pc_pb` `writeMemWord_pb` `writeMemHalf_pb` `readFpReg_pb` `cu1Enabled_pb`
-  `takeCoprocessorUnusable_pc_pb` `delaySlotRel_lwl` `delaySlotRel_lwr` `delaySlotRel_swl`
-  `delaySlotRel_swr` `delaySlotRel_sw` `delaySlotRel_sh` `delaySlotRel_sb` `delaySlotRel_sc`
-  `delaySlotRel_swc1` `delaySlotRel_swxc1` `delaySlotRel_sdc1` `delaySlotRel_sdxc1` `hwrValue_pb`
+  `takeCoprocessorUnusable_pc_pb` `delaySlotRel_sw` `delaySlotRel_sh` `delaySlotRel_sb`
+  `delaySlotRel_sc` `delaySlotRel_swc1` `delaySlotRel_sdc1` `hwrValue_pb`
   `rdhwrAllowed_pb` `takeException_pc_pb` `delaySlotRel_rdhwr`
 -/
 
@@ -45,7 +44,7 @@ afterwards. Formally: run the instruction once **not** in a delay slot
 (`pendingBranch := some t`), from otherwise the same state. If the first
 run completes normally — it yields a state `s'` with `s'.pc = s.pc + 4` —
 then the second run yields exactly `{ s' with pc := t }`: the same
-registers, memory, `hi`/`lo`, FP state, CP0 state and `LLbit`, with
+registers, memory, FP state, CP0 state and `LLbit`, with
 `pc` on the branch target and no branch pending.
 
 "Completes normally" is expressed as `s'.pc = s.pc + 4`. Exception entry
@@ -73,7 +72,7 @@ theorem DelaySlotRel_ite (c : Prop) [Decidable c] (pcNext t : W32) (a b a' b' : 
 
 /-! ### Memory instructions in a delay slot
 
-For the stores and `lwl`/`lwr`/`swl`/`swr`, whose step can raise the MMU's Address Error, the
+For the stores and `rdhwr`, whose step can raise the MMU's Address Error, the
 relation is proved directly: every memory access of `{ s with pendingBranch := x }` is that of `s`
 (the translation reads only `Status`), so both runs make the same access; the Address Error case
 ends at the exception vector, which `hvec` excludes. (Proof devices for `execInstr_delaySlotRel`.) -/
@@ -136,69 +135,22 @@ theorem rdhwrAllowed_pb (s : State) (x : Option W32) (rd : W32) :
 theorem takeException_pc_pb (s : State) (x : Option W32) (c : W32) :
     (takeException { s with pendingBranch := x } c).pc = exceptionVector s := rfl
 
-theorem delaySlotRel_rdhwr (s : State) (t : W32) (rt rd : W32)
+theorem delaySlotRel_rdhwr (s : State) (t : W32) (rt rd sel : W32)
     (hvec : s.pc + 4#32 ≠ exceptionVector s) :
     DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.rdhwr rt rd))
-      (execInstr { s with pendingBranch := some t } (.rdhwr rt rd)) := by
+      (execInstr { s with pendingBranch := none } (.rdhwr rt rd sel))
+      (execInstr { s with pendingBranch := some t } (.rdhwr rt rd sel)) := by
   rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
     execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, hwrValue_pb, rdhwrAllowed_pb]
+  exec_unfold
+  simp only [hwrValue_pb, rdhwrAllowed_pb]
+  refine DelaySlotRel_ite _ _ _ _ _ _ _ (fun _ => ?_) (fun _ => ?_)
+  · intro h; exact absurd (h.symm.trans (takeException_pc_pb _ _ _)) hvec
   split
   · refine DelaySlotRel_ite _ _ _ _ _ _ _ (fun _ => ?_) (fun _ => ?_)
     · intro _; simp only [mkNext, advance, writeReg_pb]
     · intro h; exact absurd (h.symm.trans (takeException_pc_pb _ _ _)) hvec
   · intro h; exact absurd (h.symm.trans (takeException_pc_pb _ _ _)) hvec
-
-theorem delaySlotRel_lwl (s : State) (t : W32) (rs rt imm : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.lwl rs rt imm))
-      (execInstr { s with pendingBranch := some t } (.lwl rs rt imm)) := by
-  rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
-    execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readMemByte_pb, readReg_pb]
-  cases readMemByte s (readReg s (regIdx rs) + signExt16 imm) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some b0 => intro _; simp only [mkNext, advance, writeReg_pb]
-
-theorem delaySlotRel_lwr (s : State) (t : W32) (rs rt imm : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.lwr rs rt imm))
-      (execInstr { s with pendingBranch := some t } (.lwr rs rt imm)) := by
-  rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
-    execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readMemByte_pb, readReg_pb]
-  cases readMemByte s (readReg s (regIdx rs) + signExt16 imm) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some b0 => intro _; simp only [mkNext, advance, writeReg_pb]
-
-theorem delaySlotRel_swl (s : State) (t : W32) (rs rt imm : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.swl rs rt imm))
-      (execInstr { s with pendingBranch := some t } (.swl rs rt imm)) := by
-  rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
-    execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemByte_pb]
-  cases writeMemByte s (readReg s (regIdx rs) + signExt16 imm) (getByteSlot (readReg s (regIdx rt)) 0) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some s1 =>
-    intro _
-    simp only [Option.map_some, writeMemByte_getD_pb, mkNext, advance]
-    split <;> rfl
-
-theorem delaySlotRel_swr (s : State) (t : W32) (rs rt imm : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.swr rs rt imm))
-      (execInstr { s with pendingBranch := some t } (.swr rs rt imm)) := by
-  rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
-    execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemByte_pb]
-  cases writeMemByte s (readReg s (regIdx rs) + signExt16 imm) (getByteSlot (readReg s (regIdx rt)) 3) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some s1 =>
-    intro _
-    simp only [Option.map_some, writeMemByte_getD_pb, mkNext, advance]
-    split <;> rfl
 
 theorem delaySlotRel_sw (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
     DelaySlotRel (s.pc + 4#32) t
@@ -206,7 +158,8 @@ theorem delaySlotRel_sw (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 
       (execInstr { s with pendingBranch := some t } (.sw a b c)) := by
   rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
     execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemWord_pb]
+  exec_unfold
+  simp only [readReg_pb, writeMemWord_pb]
   cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readReg s (regIdx b)) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 => intro _; simp only [Option.map_some, mkNext, advance]
@@ -217,7 +170,8 @@ theorem delaySlotRel_sh (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 
       (execInstr { s with pendingBranch := some t } (.sh a b c)) := by
   rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
     execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemHalf_pb]
+  exec_unfold
+  simp only [readReg_pb, writeMemHalf_pb]
   cases writeMemHalf s (readReg s (regIdx a) + signExt16 c) (readReg s (regIdx b)) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 => intro _; simp only [Option.map_some, mkNext, advance]
@@ -228,7 +182,8 @@ theorem delaySlotRel_sb (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 
       (execInstr { s with pendingBranch := some t } (.sb a b c)) := by
   rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
     execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemByte_pb]
+  exec_unfold
+  simp only [readReg_pb, writeMemByte_pb]
   cases writeMemByte s (readReg s (regIdx a) + signExt16 c) (readReg s (regIdx b) &&& 0xff#32).toNat.toUInt8 with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 => intro _; simp only [Option.map_some, mkNext, advance]
@@ -239,8 +194,9 @@ theorem delaySlotRel_sc (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 
       (execInstr { s with pendingBranch := some t } (.sc a b c)) := by
   rw [execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl),
     execInstr_eq_body _ _ (Or.inl rfl) (Or.inl rfl) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, writeMemWord_pb]
-  cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readReg s (regIdx b)) with
+  exec_unfold
+  simp only [readReg_pb, writeMemWord_pb]
+  cases writeMemWord s (readReg s (regIdx a) + signExt9 c) (readReg s (regIdx b)) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 =>
     simp only [Option.map_some]
@@ -265,31 +221,9 @@ theorem delaySlotRel_swc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#3
     exact absurd (h.symm.trans (takeCoprocessorUnusable_pc_pb _ _)) hvec
   rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
     execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, readFpReg_pb, writeMemWord_pb]
+  exec_unfold
+  simp only [readReg_pb, readFpReg_pb, writeMemWord_pb]
   cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readFpReg s (regIdx b)) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some s1 => intro _; simp only [Option.map_some, mkNext, advance]
-
-theorem delaySlotRel_swxc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.swxc1 a b c))
-      (execInstr { s with pendingBranch := some t } (.swxc1 a b c)) := by
-  by_cases hcu : cu1Enabled s = true
-  case neg =>
-    have hf : cu1Enabled s = false := by simpa using hcu
-    intro h
-    have e : execInstr { s with pendingBranch := none } (.swxc1 a b c) =
-        takeCoprocessorUnusable { s with pendingBranch := none } := by
-      unfold execInstr
-      simp only [show isBranchLike (Instruction.swxc1 a b c) = false from rfl,
-        show usesCop1 (Instruction.swxc1 a b c) = true from rfl, cu1Enabled_pb, hf, Bool.false_and,
-        Bool.not_false, Bool.and_self, ↓reduceIte, Bool.false_eq_true]
-    rw [e] at h
-    exact absurd (h.symm.trans (takeCoprocessorUnusable_pc_pb _ _)) hvec
-  rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
-    execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, readFpReg_pb, writeMemWord_pb]
-  cases writeMemWord s (readReg s (regIdx c) + readReg s (regIdx b)) (readFpReg s (regIdx a)) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 => intro _; simp only [Option.map_some, mkNext, advance]
 
@@ -311,43 +245,16 @@ theorem delaySlotRel_sdc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#3
     exact absurd (h.symm.trans (takeCoprocessorUnusable_pc_pb _ _)) hvec
   rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
     execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, readFpReg_pb, writeMemWord_pb]
+  exec_unfold
+  simp only [readReg_pb, readFpReg_pb, writeMemWord_pb]
   split
   · intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readFpReg s (regIdx (b + 1#32))) with
+  simp only [profile, Bool.false_eq_true, ↓reduceIte]
+  cases writeMemWord s (readReg s (regIdx a) + signExt16 c) (readFpReg s (regIdx b)) with
   | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
   | some s1 =>
     simp only [Option.map_some, writeMemWord_pb]
-    cases writeMemWord s1 ((readReg s (regIdx a) + signExt16 c) + 4#32) (readFpReg s (regIdx b)) with
-    | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-    | some s2 => intro _; simp only [Option.map_some, mkNext, advance]
-
-theorem delaySlotRel_sdxc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#32 ≠ exceptionVector s) :
-    DelaySlotRel (s.pc + 4#32) t
-      (execInstr { s with pendingBranch := none } (.sdxc1 a b c))
-      (execInstr { s with pendingBranch := some t } (.sdxc1 a b c)) := by
-  by_cases hcu : cu1Enabled s = true
-  case neg =>
-    have hf : cu1Enabled s = false := by simpa using hcu
-    intro h
-    have e : execInstr { s with pendingBranch := none } (.sdxc1 a b c) =
-        takeCoprocessorUnusable { s with pendingBranch := none } := by
-      unfold execInstr
-      simp only [show isBranchLike (Instruction.sdxc1 a b c) = false from rfl,
-        show usesCop1 (Instruction.sdxc1 a b c) = true from rfl, cu1Enabled_pb, hf, Bool.false_and,
-        Bool.not_false, Bool.and_self, ↓reduceIte, Bool.false_eq_true]
-    rw [e] at h
-    exact absurd (h.symm.trans (takeCoprocessorUnusable_pc_pb _ _)) hvec
-  rw [execInstr_eq_body { s with pendingBranch := none } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl),
-    execInstr_eq_body { s with pendingBranch := some t } _ (Or.inl rfl) (Or.inr hcu) (Or.inl rfl)]
-  simp only [execBody, readReg_pb, readFpReg_pb, writeMemWord_pb]
-  split
-  · intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  cases writeMemWord s (readReg s (regIdx c) + readReg s (regIdx b)) (readFpReg s (regIdx (a + 1#32))) with
-  | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
-  | some s1 =>
-    simp only [Option.map_some, writeMemWord_pb]
-    cases writeMemWord s1 ((readReg s (regIdx c) + readReg s (regIdx b)) + 4#32) (readFpReg s (regIdx a)) with
+    cases writeMemWord s1 ((readReg s (regIdx a) + signExt16 c) + 4#32) (readFpReg s (regIdx (b + 1#32))) with
     | none => intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec
     | some s2 => intro _; simp only [Option.map_some, mkNext, advance]
 
@@ -362,35 +269,30 @@ theorem execInstr_delaySlotRel (s : State) (t : W32) (instr : Instruction)
       (execInstr { s with pendingBranch := none } instr)
       (execInstr { s with pendingBranch := some t } instr) := by
   cases instr <;> first | exact Bool.noConfusion (hnb : true = false) | skip
-  case rdhwr rt rd => exact delaySlotRel_rdhwr s t rt rd hvec
-  case lwl rs rt imm => exact delaySlotRel_lwl s t rs rt imm hvec
-  case lwr rs rt imm => exact delaySlotRel_lwr s t rs rt imm hvec
-  case swl rs rt imm => exact delaySlotRel_swl s t rs rt imm hvec
-  case swr rs rt imm => exact delaySlotRel_swr s t rs rt imm hvec
+  case rdhwr rt rd sel => exact delaySlotRel_rdhwr s t rt rd sel hvec
   case sw a b c => exact delaySlotRel_sw s t a b c hvec
   case sh a b c => exact delaySlotRel_sh s t a b c hvec
   case sb a b c => exact delaySlotRel_sb s t a b c hvec
   case sc a b c => exact delaySlotRel_sc s t a b c hvec
   case swc1 a b c => exact delaySlotRel_swc1 s t a b c hvec
-  case swxc1 a b c => exact delaySlotRel_swxc1 s t a b c hvec
   case sdc1 a b c => exact delaySlotRel_sdc1 s t a b c hvec
-  case sdxc1 a b c => exact delaySlotRel_sdxc1 s t a b c hvec
   all_goals (
-    obtain ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
-    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby, nullified⟩ := s
-    unfold execInstr execBody
+    obtain ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, cp0Status, cp0Cause, cp0Epc, cp0BadVAddr, cp0ErrorEpc, llAddr, cp0EBase, cp0ConfigK0, cp0ConfigK23, cp0ConfigKU,
+    cp0Count, cp0Compare, cp0TimerInt, cp0HWREna, hwInt, standby⟩ := s
+    unfold execInstr
+    exec_unfold
     dsimp only [isBranchLike]
     simp only [Bool.false_and, Bool.false_eq_true, ↓reduceIte, mkNext, advance,
       takeException, takeAddressException, readReg, readFpReg, readMemWord, readMemHalf, readMemByte,
       translate, accessAllowed, kernelMode, erlSet, writeFpReg, readFpD, writeFpD, fpFinishS, fpFinishD,
-      fpFinishCmp, takeCoprocessorUnusable, readFcc,
-      writeReg_proj_pc, writeReg_proj_hi, writeReg_proj_lo,
+      takeCoprocessorUnusable,
+      writeReg_proj_pc,
       writeReg_proj_fpRegs, writeReg_proj_fcsr, writeReg_proj_mem,
       writeReg_proj_pendingBranch, writeReg_proj_llBit, writeReg_proj_cp0Status,
       writeReg_proj_cp0Cause, writeReg_proj_cp0Epc, writeReg_proj_cp0BadVAddr,
       writeReg_proj_cp0ErrorEpc, writeReg_proj_llAddr, writeReg_proj_cp0EBase, writeReg_proj_cp0ConfigK0, writeReg_proj_cp0ConfigK23, writeReg_proj_cp0ConfigKU,
       writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt,
-      writeReg_proj_cp0HWREna, writeReg_proj_hwInt, writeReg_proj_standby, writeReg_proj_nullified, writeReg_proj_regs]
+      writeReg_proj_cp0HWREna, writeReg_proj_hwInt, writeReg_proj_standby, writeReg_proj_regs]
     repeat' (first
       | (show (_ : State).pc = _ → _ = _
          intro hnorm
@@ -448,8 +350,10 @@ branches/jumps: MD00086 Vol II-A Rev 6.06, BEQ, p.72) or UNDEFINED (ERET, p.177;
 and "UNPREDICTABLE operations may cause arbitrary exceptions" (§1.2.1, p.3); Release 6 requires
 exactly this exception (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62). Whenever the instruction about
 to execute is in a delay slot (`s.pendingBranch = some _` — set by *every* branch/jump, taken or
-not) and is one of the 26 instructions of `isBranchLike` (`isBranchLikeSpec` is that same
-definition), `step` takes the Reserved Instruction exception from the delay slot (so `EPC` is the
+not) and is one of the 15 instructions of `isBranchLike` (`isBranchLikeSpec` is that same
+definition; it includes `pause`: "Release 6: Implementations are required to signal a Reserved
+Instruction exception if PAUSE is encountered in the delay slot", MD00086 Vol II-A Rev 6.06, PAUSE,
+p.317), `step` takes the Reserved Instruction exception from the delay slot (so `EPC` is the
 branch and `Cause.BD = 1`, `exceptionEntry_exl0_in_delay_slot`). -/
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)

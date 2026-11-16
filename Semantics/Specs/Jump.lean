@@ -3,19 +3,19 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DecodeSpec
 
 /-!
-# Jump — jumps and calls (`j`/`jal`/`jr`/`jalr`)
+# Jump — jumps and calls (`j`/`jal`/`jalr`/`jalr.hb`; `jr` = `jalr` with `rd = 0`)
 
-Constructors: `j` `jal` `jr` `jalr`.
+Constructors: `j` `jal` `jalr` `jalrHb` (Release 6 has no separate `jr`/`jr.hb` encodings).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  J p.194; JAL p.195; JR p.206-207; JALR p.196-197.
+  J p.194; JAL p.195; JALR p.196-197; JALR.HB p.198-199; JR p.206-207; JR.HB p.208-209.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Control flow"; "Register-indirect jump/call (real MIPS32 ISA)".
 
-## Theorems in this file (8)
+## Theorems in this file (10)
 
-  `target_mask_of_lt` `jal_spec_raw` `jal_sets_ra` `j_spec_raw` `jr_spec_raw` `jalr_spec_raw` `jalr_sets_rd`
-  `jalr_rd_eq_rs_targets_original_value`
+  `target_mask_of_lt` `jal_spec_raw` `jal_sets_ra` `j_spec_raw` `jalr_spec_raw` `jalrHb_spec_raw`
+  `jalr_rd_zero_is_jr` `jalrHb_rd_zero_is_jrHb` `jalr_sets_rd` `jalr_rd_eq_rs_targets_original_value`
 -/
 
 set_option maxRecDepth 4000
@@ -87,19 +87,6 @@ theorem j_spec_raw (s : State) (w target : W32)
   rw [← hm]
   step_spec
 
-/-- **`jr` schedules a jump to the raw 32-bit value held in `$rs`** — not a
-26-bit composed target like `j`, the full register value (INSTRUCTION-REF
-"jr" section). A misaligned target is not special-cased here: it surfaces
-as an Address Error (AdEL) exception the next time `step` tries to fetch from it.
-Same one-delay-slot discipline as every other jump/branch: `jr` itself
-falls through to `PC_next`. -/
-theorem jr_spec_raw (s : State) (w rs : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jr rs))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
-  step_spec
-
 /-- **`jalr` links `$rd` to `pc + 8` (the same `jal`/`jalr` link-value
 convention — past the delay slot) and schedules a jump to the raw value
 held in `$rs`, read *before* `$rd` is overwritten** — so `rd == rs`
@@ -116,16 +103,6 @@ theorem jalr_spec_raw (s : State) (w rs rd : W32)
           pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
 
-/-- **`jr.hb`** (MD00086 Vol II-A Rev 6.06, JR.HB, p.208-209): as `jr_spec_raw` —
-the hazard barrier (`ClearHazards()`) has no state in this model (SPEC-NOTES,
-`EHB`). This is `step`'s own code restated. -/
-theorem jrHb_spec_raw (s : State) (w rs : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jrHb rs))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
-  step_spec
-
 /-- **`jalr.hb`** (MD00086 Vol II-A Rev 6.06, JALR.HB, p.198-199): as
 `jalr_spec_raw` (the link is read before `$rd` is written); the hazard barrier
 has no state in this model. This is `step`'s own code restated. -/
@@ -137,6 +114,29 @@ theorem jalrHb_spec_raw (s : State) (w rs rd : W32)
       { (writeReg s (regIdxSpec rd) (pcNext + 4#32)) with
           pc := pcNext, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
   step_spec
+
+/-- **`jr` is `jalr` with `rd = 0`** (MD00086 Vol II-A Rev 6.06, JR, p.207: "Release 6: JR is
+defined to be JALR with the destination register specifier rd set to 0"; the pre-Release 6 JR
+encoding is removed): the link write to `$zero` is discarded, so the instruction only schedules a
+jump to the raw 32-bit value held in `$rs`. A misaligned target is not special-cased here: it
+surfaces as an Address Error (AdEL) when `step` fetches from it. -/
+theorem jalr_rd_zero_is_jr (s : State) (w rs : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalr rs 0#32))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
+  rw [jalr_spec_raw s w rs 0#32 hfetch hdecode hpb hexec]
+  rfl
+
+/-- **`jr.hb` is `jalr.hb` with `rd = 0`** (MD00086 Vol II-A Rev 6.06, JR.HB, p.208): as
+`jalr_rd_zero_is_jr`; the hazard barrier has no state in this model. -/
+theorem jalrHb_rd_zero_is_jrHb (s : State) (w rs : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.jalrHb rs 0#32))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdxSpec rs)) }) := by
+  rw [jalrHb_spec_raw s w rs 0#32 hfetch hdecode hpb hexec]
+  rfl
 
 /-- Corollary of `jalr_spec_raw`: `$rd` reads back exactly `pc + 8` — past
 the delay slot, the same link-value convention as `jal`'s `$ra`. Requires
@@ -178,8 +178,9 @@ theorem jalr_rd_eq_rs_targets_original_value (s : State) (w rs : W32)
 #guard (let s := stepIn (prog1Spec (.j 0x1000#32)) (initialState textBase)
         s.pc == textBase + 4#32 && s.pendingBranch == some 0x4000#32) = true
 
--- `jr_spec_raw`: schedules the raw register value, not a composed target.
-#guard (let s := stepIn (prog1Spec (.jr 8#32))
+-- `jalr_rd_zero_is_jr`: `jr $t0` (= `jalr $zero, $t0`) schedules the raw register value, not a
+-- composed target, and writes no register.
+#guard (let s := stepIn (prog1Spec (.jalr 8#32 0#32))
           (setRegsSpec (initialState textBase) [(8, 0x80020000#32)])
         s.pc == textBase + 4#32 && s.pendingBranch == some 0x80020000#32) = true
 

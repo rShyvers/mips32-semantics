@@ -7,7 +7,7 @@
 # slot before transferring control (docs/spec/SPEC-NOTES.md §9 item 1), so
 # `beq` and `j` below are each followed by a genuine no-op
 # (`sll $zero, $zero, 0`) as their delay-slot instruction. This leaves the
-# branch targets (and therefore the biasing `addi`'s being skipped exactly
+# branch targets (and therefore the biasing `addiu`'s being skipped exactly
 # when $a0 >= 0) unchanged: the nop after `beq` executes harmlessly then
 # control still lands on `Lnonneg` when taken, and the nop after `j`
 # executes harmlessly then control still lands on `Lend`.
@@ -16,7 +16,7 @@ main:
     slt  $t1, $a0, $zero     # t1 = 1 if $a0 < 0, else 0
     beq  $t1, $zero, Lnonneg
     sll  $zero, $zero, 0
-    addi $t2, $a0, 3         # bias: divisor - 1, only needed when negative
+    addiu $t2, $a0, 3        # bias: divisor - 1, only needed when negative
     sra  $t9, $t2, 2
     j    Lend
     sll  $zero, $zero, 0

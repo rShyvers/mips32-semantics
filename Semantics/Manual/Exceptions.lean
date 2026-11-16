@@ -105,7 +105,6 @@ def GeneralExceptionProcessing (i : Impl) (o : Oracle) (e : Exception) (a0 : Arc
       Status := a.Status ||| (1#32 <<< 1)   -- StatusEXL ← 1
       PC := base.extractLsb' 30 2 ++ (base.extractLsb' 0 30 + off.extractLsb' 0 30)
       BranchDelay := none
-      Nullify := false
       LLbit := false }
 
 end Manual

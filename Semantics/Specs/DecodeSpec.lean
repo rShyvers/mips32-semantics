@@ -46,14 +46,16 @@ private theorem m19 (i : Nat) : (524287#32).getLsbD i = decide (i < 19) :=
   getLsbD_lowMask 19 (by omega) i
 private theorem m20 (i : Nat) : (1048575#32).getLsbD i = decide (i < 20) :=
   getLsbD_lowMask 20 (by omega) i
+private theorem m9 (i : Nat) : (511#32).getLsbD i = decide (i < 9) :=
+  getLsbD_lowMask 9 (by omega) i
 
 /-- Closes a field-extraction goal bit by bit. -/
 local macro "field_ext" : tactic =>
   `(tactic| (apply BitVec.eq_of_getLsbD_eq; intro i hi
              simp [opcodeOf, rsOf, rtOf, rdOf, shamtOf, functOf, immOf, targetOf,
-               ccOf, ndOf, tfOf, fccOf, fcOf, z76Of, coOf, condOf, code20Of, code10Of, code19Of,
-               mkRT, mkIT, mkJT, mkCCR, mkCCI, mkCmp, mkCode20, mkTrap, mkWait,
-               field, maskLow, m5, m6, m16, m26, m1, m2, m3, m4, m10, m19, m20]
+               coOf, code20Of, code10Of, code19Of, off9Of, bit6Of,
+               mkRT, mkIT, mkJT, mkCode20, mkTrap, mkWait, mkOff9,
+               field, maskLow, m5, m6, m16, m26, m1, m2, m3, m4, m9, m10, m19, m20]
              try grind))
 
 /-! ## Field extraction: `x ||| mkRT ..` (SPECIAL2/SPECIAL3/COP0/COP1, where `x` is the
@@ -72,64 +74,23 @@ theorem shamtOf_or_mkRT (x a b c d e : W32) :
 theorem functOf_or_mkRT (x a b c d e : W32) :
     functOf (x ||| mkRT a b c d e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
 
-theorem fcOf_or_mkRT (x a b c d e : W32) :
-    fcOf (x ||| mkRT a b c d e) = ((x >>> 4) &&& 3#32) ||| ((e >>> 4) &&& 3#32) := by field_ext
 theorem coOf_or_mkRT (x a b c d e : W32) :
     coOf (x ||| mkRT a b c d e) = ((x >>> 25) &&& 1#32) ||| ((a >>> 4) &&& 1#32) := by field_ext
 
-/-! ## Field extraction: `mkCCR ..` (`MOVCI`, `MOVCF.fmt`) -/
+/-! ## Field extraction: `x ||| mkOff9 ..` (Release 6 `LL`/`SC`/`PREF`) -/
 
-theorem opcodeOf_mkCCR (o a c n t r d e : W32) :
-    opcodeOf (mkCCR o a c n t r d e) = o &&& 63#32 := by field_ext
-theorem rsOf_mkCCR (o a c n t r d e : W32) : rsOf (mkCCR o a c n t r d e) = a &&& 31#32 := by
+theorem opcodeOf_or_mkOff9 (x a b c e : W32) : opcodeOf (x ||| mkOff9 a b c e) = x >>> 26 := by
   field_ext
-theorem ccOf_mkCCR (o a c n t r d e : W32) : ccOf (mkCCR o a c n t r d e) = c &&& 7#32 := by
-  field_ext
-theorem ndOf_mkCCR (o a c n t r d e : W32) : ndOf (mkCCR o a c n t r d e) = n &&& 1#32 := by
-  field_ext
-theorem tfOf_mkCCR (o a c n t r d e : W32) : tfOf (mkCCR o a c n t r d e) = t &&& 1#32 := by
-  field_ext
-theorem rdOf_mkCCR (o a c n t r d e : W32) : rdOf (mkCCR o a c n t r d e) = r &&& 31#32 := by
-  field_ext
-theorem shamtOf_mkCCR (o a c n t r d e : W32) :
-    shamtOf (mkCCR o a c n t r d e) = d &&& 31#32 := by field_ext
-theorem functOf_mkCCR (o a c n t r d e : W32) :
-    functOf (mkCCR o a c n t r d e) = e &&& 63#32 := by field_ext
-theorem fcOf_mkCCR (o a c n t r d e : W32) :
-    fcOf (mkCCR o a c n t r d e) = (e >>> 4) &&& 3#32 := by field_ext
-
-/-! ## Field extraction: `mkCCI ..` (FP branches) -/
-
-theorem opcodeOf_mkCCI (o a c n t imm : W32) : opcodeOf (mkCCI o a c n t imm) = o &&& 63#32 := by
-  field_ext
-theorem rsOf_mkCCI (o a c n t imm : W32) : rsOf (mkCCI o a c n t imm) = a &&& 31#32 := by
-  field_ext
-theorem ccOf_mkCCI (o a c n t imm : W32) : ccOf (mkCCI o a c n t imm) = c &&& 7#32 := by
-  field_ext
-theorem ndOf_mkCCI (o a c n t imm : W32) : ndOf (mkCCI o a c n t imm) = n &&& 1#32 := by
-  field_ext
-theorem tfOf_mkCCI (o a c n t imm : W32) : tfOf (mkCCI o a c n t imm) = t &&& 1#32 := by
-  field_ext
-theorem immOf_mkCCI (o a c n t imm : W32) : immOf (mkCCI o a c n t imm) = imm &&& 65535#32 := by
-  field_ext
-
-/-! ## Field extraction: `mkCmp ..` (`C.cond.fmt`) -/
-
-theorem opcodeOf_mkCmp (o f a b c x d : W32) : opcodeOf (mkCmp o f a b c x d) = o &&& 63#32 := by
-  field_ext
-theorem rsOf_mkCmp (o f a b c x d : W32) : rsOf (mkCmp o f a b c x d) = f &&& 31#32 := by
-  field_ext
-theorem rtOf_mkCmp (o f a b c x d : W32) : rtOf (mkCmp o f a b c x d) = a &&& 31#32 := by
-  field_ext
-theorem rdOf_mkCmp (o f a b c x d : W32) : rdOf (mkCmp o f a b c x d) = b &&& 31#32 := by
-  field_ext
-theorem fccOf_mkCmp (o f a b c x d : W32) : fccOf (mkCmp o f a b c x d) = c &&& 7#32 := by
-  field_ext
-theorem condOf_mkCmp (o f a b c x d : W32) : condOf (mkCmp o f a b c x d) = d &&& 15#32 := by
-  field_ext
-theorem fcOf_mkCmp (o f a b c x d : W32) : fcOf (mkCmp o f a b c x d) = x &&& 3#32 := by
-  field_ext
-theorem z76Of_mkCmp (o f a b c x d : W32) : z76Of (mkCmp o f a b c x d) = 0#32 := by field_ext
+theorem rsOf_or_mkOff9 (x a b c e : W32) :
+    rsOf (x ||| mkOff9 a b c e) = ((x >>> 21) &&& 31#32) ||| (a &&& 31#32) := by field_ext
+theorem rtOf_or_mkOff9 (x a b c e : W32) :
+    rtOf (x ||| mkOff9 a b c e) = ((x >>> 16) &&& 31#32) ||| (b &&& 31#32) := by field_ext
+theorem off9Of_or_mkOff9 (x a b c e : W32) :
+    off9Of (x ||| mkOff9 a b c e) = ((x >>> 7) &&& 511#32) ||| (c &&& 511#32) := by field_ext
+theorem bit6Of_or_mkOff9 (x a b c e : W32) :
+    bit6Of (x ||| mkOff9 a b c e) = (x >>> 6) &&& 1#32 := by field_ext
+theorem functOf_or_mkOff9 (x a b c e : W32) :
+    functOf (x ||| mkOff9 a b c e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
 
 /-! ## Field extraction: `mkCode20 ..`, `mkTrap ..`, `mkWait ..` -/
 
@@ -191,6 +152,7 @@ theorem and_1 (a : W32) (h : a.toNat < 2) : a &&& 1#32 = a := and_lowMask 1 (by 
 theorem and_7 (a : W32) (h : a.toNat < 8) : a &&& 7#32 = a := and_lowMask 3 (by decide) a h
 theorem and_15 (a : W32) (h : a.toNat < 16) : a &&& 15#32 = a := and_lowMask 4 (by decide) a h
 theorem and_63 (a : W32) (h : a.toNat < 64) : a &&& 63#32 = a := and_lowMask 6 (by decide) a h
+theorem and_511 (a : W32) (h : a.toNat < 2 ^ 9) : a &&& 511#32 = a := and_lowMask 9 (by decide) a h
 theorem and_1023 (a : W32) (h : a.toNat < 2 ^ 10) : a &&& 1023#32 = a :=
   and_lowMask 10 (by decide) a h
 theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
@@ -226,12 +188,8 @@ theorem targetOf_lt (w : W32) : (targetOf w).toNat < 2 ^ 26 := by
   simp [targetOf, BitVec.extractLsb]; omega
 theorem functOf_lt (w : W32) : (functOf w).toNat < 64 := by
   simp [functOf, BitVec.extractLsb]; omega
-theorem ccOf_lt (w : W32) : (ccOf w).toNat < 8 := by
-  simp [ccOf, BitVec.extractLsb]; omega
-theorem fccOf_lt (w : W32) : (fccOf w).toNat < 8 := by
-  simp [fccOf, BitVec.extractLsb]; omega
-theorem condOf_lt (w : W32) : (condOf w).toNat < 16 := by
-  simp [condOf, BitVec.extractLsb]; omega
+theorem off9Of_lt (w : W32) : (off9Of w).toNat < 2 ^ 9 := by
+  simp [off9Of, BitVec.extractLsb]; omega
 theorem code20Of_lt (w : W32) : (code20Of w).toNat < 2 ^ 20 := by
   simp [code20Of, BitVec.extractLsb]; omega
 theorem code10Of_lt (w : W32) : (code10Of w).toNat < 2 ^ 10 := by
@@ -246,17 +204,15 @@ open DecodeSpec
 attribute [local simp] opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT shamtOf_or_mkRT
   functOf_or_mkRT opcodeOf_mkRT rsOf_mkRT rtOf_mkRT rdOf_mkRT shamtOf_mkRT functOf_mkRT
   opcodeOf_mkIT rsOf_mkIT rtOf_mkIT immOf_mkIT opcodeOf_or_mkJT targetOf_or_mkJT
-  fcOf_or_mkRT coOf_or_mkRT
-  opcodeOf_mkCCR rsOf_mkCCR ccOf_mkCCR ndOf_mkCCR tfOf_mkCCR rdOf_mkCCR shamtOf_mkCCR
-  functOf_mkCCR fcOf_mkCCR
-  opcodeOf_mkCCI rsOf_mkCCI ccOf_mkCCI ndOf_mkCCI tfOf_mkCCI immOf_mkCCI
-  opcodeOf_mkCmp rsOf_mkCmp rtOf_mkCmp rdOf_mkCmp fccOf_mkCmp condOf_mkCmp fcOf_mkCmp z76Of_mkCmp
+  coOf_or_mkRT
+  opcodeOf_or_mkOff9 rsOf_or_mkOff9 rtOf_or_mkOff9 off9Of_or_mkOff9 bit6Of_or_mkOff9
+  functOf_or_mkOff9
   opcodeOf_mkCode20 functOf_mkCode20 code20Of_mkCode20
   opcodeOf_mkTrap functOf_mkTrap rsOf_mkTrap rtOf_mkTrap code10Of_mkTrap
   opcodeOf_mkWait coOf_mkWait functOf_mkWait code19Of_mkWait
-  and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_1023 and_524287 and_1048575
+  and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_511 and_1023 and_524287 and_1048575
 
--- ~180 constructors, each unfolding the full `decode` match: needs more than
+-- ~120 constructors, each unfolding the full `decode` match: needs more than
 -- the default heartbeat budget.
 set_option maxHeartbeats 1000000 in
 /-- Round trip: decoding the encoding of a well-formed instruction returns it.
@@ -267,41 +223,58 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     obtain ⟨hrt, hrs, hpos, hs1, hs2⟩ := h
     have e1 : (size - 1#32) &&& 31#32 = size - 1#32 := and_31 _ (by bv_omega)
     have e2 : size - 1#32 + 1#32 = size := by bv_omega
-    simp [encode, decode, decodeIf, hrt, hrs, hpos, e1, e2]
+    simp [encode, decode, decodeFor, decodePrimary, decodeSpecial3, decodeIf, hrt, hrs,
+      hpos, e1, e2]
     omega
   case ins rt rs pos size =>
     obtain ⟨hrt, hrs, hpos, hs1, hs2⟩ := h
     have e1 : (pos + size - 1#32) &&& 31#32 = pos + size - 1#32 := and_31 _ (by bv_omega)
     have e2 : pos + size - 1#32 - pos + 1#32 = size := by bv_omega
-    simp [encode, decode, decodeIf, hrt, hrs, hpos, e1, e2]
+    simp [encode, decode, decodeFor, decodePrimary, decodeSpecial3, decodeIf, hrt, hrs,
+      hpos, e1, e2]
     omega
   case mfc0 rt rd sel =>
     obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
     have h3 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeIf, h, h1, h2, h3]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h, h1, h2, h3]
   case mtc0 rt rd sel =>
     obtain ⟨h1, h2⟩ := isModeledCp0Reg_lt rd sel h.2
     have h3 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeIf, h, h1, h2, h3]
-  all_goals simp [encode, decode, decodeIf, h]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h, h1, h2, h3]
+  case rdhwr rt rd sel =>
+    obtain ⟨h1, h2, h3⟩ := h
+    have e : sel &&& 31#32 = sel := and_31 _ (by omega)
+    simp [encode, decode, decodeFor, decodePrimary, decodeSpecial3, decodeIf, h1, h2, h3, e]
+  case sll rd rt shamt =>
+    obtain ⟨h1, h2, h3, h4⟩ := h
+    by_cases e : rd = 0#32 ∧ rt = 0#32 ∧ shamt = 5#32
+    · exact absurd e h4
+    · simp only [not_and] at e
+      simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeIf, h1, h2, h3]
+      bv_omega
+  all_goals simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm,
+    decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h]
 
--- Splits the whole `decode` match (~230 leaves).
+-- Splits the whole `decode` table (~150 leaves).
 set_option maxHeartbeats 1000000 in
 /-- Everything `decode` produces is well-formed. -/
 theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
     i.WellFormed := by
   have h1 := rsOf_lt w; have h2 := rtOf_lt w; have h3 := rdOf_lt w
   have h4 := shamtOf_lt w; have h5 := immOf_lt w; have h6 := targetOf_lt w
-  have h7 := ccOf_lt w; have h8 := fccOf_lt w; have h9 := condOf_lt w
+  have h7 := off9Of_lt w
   have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
-  simp only [decode, decodeIf] at h
+  simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
+    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf] at h
   repeat' split at h
   all_goals
     (cases h <;>
-      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12,
+      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h10, h11, h12,
         and_self, true_and])
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
   all_goals first
     | (simp only [decide_eq_true_eq] at hc; bv_omega)
     | (simp only [Bool.and_eq_true] at hc; exact hc.2)
+    | (simp only [Bool.and_eq_true, decide_eq_true_eq] at hc; exact hc.2)
+    | (rename_i hp; intro ⟨ha, hb, hs⟩; simp [ha, hb, hs] at hp)

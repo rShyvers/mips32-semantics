@@ -31,8 +31,6 @@ def memOf (m : Std.HashMap PAddr UInt8) : PAddr → UInt8 := fun pa => (m.get? p
 def abs (s : State) : Arch where
   PC := s.pc
   GPR := fun i => readReg s i
-  HI := s.hi
-  LO := s.lo
   FPR := fun i => readFpReg s i
   FCSR := s.fcsr
   Mem := memOf s.physMem
@@ -54,7 +52,6 @@ def abs (s : State) : Arch where
   HW := s.hwInt
   LowPower := s.standby
   BranchDelay := s.pendingBranch
-  Nullify := s.nullified
 
 /-- **The states the refinement is stated for**: both register files have 32 entries
 (`State.RegFilesWF`, preserved by `step`, `step_preserves_wellFormed`) and `$zero` reads 0 (preserved
@@ -62,7 +59,8 @@ by `step`, `step_preserves_zero_register`). -/
 def Good (s : State) : Prop := s.regs.size = 32 ∧ s.fpRegs.size = 32 ∧ readReg s 0 = 0#32
 
 /-- FCSR bits 22..18 read as zero (MD00082 Vol I-A Rev 6.01, Table 6.8, p.93-94: `Impl` 22..21,
-bit 20, `ABS2008` 19, `NAN2008` 18; `FIR.Has2008 = 0`). -/
+bit 20, `ABS2008` 19, `NAN2008` 18; `FIR.Has2008 = 0`).
+-- W5: with the Release 6 FPU of this profile `NAN2008 = ABS2008 = 1` read-only (DECISIONS D2). -/
 def FcsrReservedZero (s : State) : Prop := s.fcsr &&& 0x007C0000#32 = 0#32
 
 /-- `Status` holds only implemented (writable) bits. -/

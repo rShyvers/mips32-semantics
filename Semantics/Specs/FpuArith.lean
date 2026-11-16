@@ -4,26 +4,27 @@ import Semantics.Specs.Fixtures
 /-!
 # FpuArith — FPU arithmetic (single and double)
 
-Constructors: `addS` `subS` `mulS` `divS` `sqrtS` `absS` `negS` `recipS` `rsqrtS` `addD` `subD` `mulD` `divD` `sqrtD` `absD` `negD` `recipD` `rsqrtD` `maddS` `msubS` `nmaddS` `nmsubS` `maddD` `msubD` `nmaddD` `nmsubD`.
+Constructors: `addS` `subS` `mulS` `divS` `sqrtS` `absS` `negS` `recipS` `rsqrtS` `addD` `subD` `mulD` `divD` `sqrtD` `absD` `negD` `recipD` `rsqrtD` (Release 6 removed
+MADD/MSUB/NMADD/NMSUB.fmt).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   ADD.fmt p.34; SUB.fmt p.389; MUL.fmt p.302; DIV.fmt p.170; SQRT.fmt p.382; ABS.fmt p.32;
   NEG.fmt p.307; RECIP.fmt p.336; RSQRT.fmt p.343; ADD.fmt p.34; SUB.fmt p.389; MUL.fmt p.302;
-  DIV.fmt p.170; SQRT.fmt p.382; ABS.fmt p.32; NEG.fmt p.307; RECIP.fmt p.336; RSQRT.fmt p.343;
-  MADD.fmt p.256-258; MSUB.fmt p.287-288; NMADD.fmt p.308-309; NMSUB.fmt p.310-311;
-  MADD.fmt p.256-258; MSUB.fmt p.287-288; NMADD.fmt p.308-309; NMSUB.fmt p.310-311.
+  DIV.fmt p.170; SQRT.fmt p.382; ABS.fmt p.32; NEG.fmt p.307; RECIP.fmt p.336; RSQRT.fmt p.343.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 1)".
 
-## Theorems in this file (26)
+## Theorems in this file (18)
 
   `addS_spec_raw` `subS_spec_raw` `mulS_spec_raw` `divS_spec_raw` `sqrtS_spec_raw`
-  `recipS_spec_raw` `rsqrtS_spec_raw` `absS_spec_raw` `negS_spec_raw` `maddS_spec_raw`
-  `msubS_spec_raw` `nmaddS_spec_raw` `nmsubS_spec_raw` `addD_spec_raw` `subD_spec_raw`
-  `mulD_spec_raw` `divD_spec_raw` `sqrtD_spec_raw` `recipD_spec_raw` `rsqrtD_spec_raw`
-  `absD_spec_raw` `negD_spec_raw` `maddD_spec_raw` `msubD_spec_raw` `nmaddD_spec_raw`
-  `nmsubD_spec_raw`
+  `recipS_spec_raw` `rsqrtS_spec_raw` `absS_spec_raw` `negS_spec_raw` `addD_spec_raw`
+  `subD_spec_raw` `mulD_spec_raw` `divD_spec_raw` `sqrtD_spec_raw` `recipD_spec_raw`
+  `rsqrtD_spec_raw` `absD_spec_raw` `negD_spec_raw`
 -/
+
+-- W5: these statements describe the pre-Release 6 FPU (`Status.FR = 0` register pairs for
+-- doubles, legacy NaN encoding and non-2008 ABS/NEG, `FIR.Has2008 = 0`); the Release 6 target
+-- profile (CLAUDE.md: `FR = 1`, `FCSR.NAN2008 = ABS2008 = 1`) is implemented by W5.
 
 set_option maxRecDepth 4000
 
@@ -122,66 +123,6 @@ theorem negS_spec_raw (s : State) (w fd fs : W32)
       fpCompletesS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) := by
   fp_step_spec
 
-/-- **`madd.s`** `(fs × ft) + fr` (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the add of the rounded
-product; each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishS` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem maddS_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddS fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
-      fpStep s m fun s1 p => fpFinishS s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr))))) := by
-  fp_step_spec
-
-/-- **`msub.s`** `(fs × ft) − fr` (MD00086 Vol II-A Rev 6.06, MSUB.fmt p.287): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the subtract of the rounded
-product; each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishS` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem msubS_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubS fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
-      fpStep s m fun s1 p => fpFinishS s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr))))) := by
-  fp_step_spec
-
-/-- **`nmadd.s`** `−(fr + (fs × ft))` (MD00086 Vol II-A Rev 6.06, NMADD.fmt p.308): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the add of the rounded
-product then the negate (`NEG.fmt`); each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishS` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem nmaddS_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddS fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
-      fpStep s m fun s1 p =>
-        let a := Mips.Fp.accFlags m.2 (Mips.Fp.f32Add (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fr)) p)
-        fpStep s1 a fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f32Neg q))) := by
-  fp_step_spec
-
-/-- **`nmsub.s`** `−((fs × ft) − fr)` (MD00086 Vol II-A Rev 6.06, NMSUB.fmt p.310): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the subtract of the rounded
-product then the negate (`NEG.fmt`); each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishS` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem nmsubS_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubS fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f32Mul (Mips.Fp.envOf s.fcsr) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))
-      fpStep s m fun s1 p =>
-        let a := Mips.Fp.accFlags m.2 (Mips.Fp.f32Sub (Mips.Fp.envOf s.fcsr) p (readFpReg s (regIdx fr)))
-        fpStep s1 a fun s2 q => fpFinishS s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f32Neg q))) := by
-  fp_step_spec
-
 /-- **`add.d`: `fd ← fs + ft`**, double precision: the result bits and exceptions are
 `Mips.Fp.f64Add` of the operand bit patterns under the FCSR environment (rounding
 mode, enables, FS); completion and FCSR update per `fpCompletesD`
@@ -273,64 +214,4 @@ theorem negD_spec_raw (s : State) (w fd fs : W32)
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       fpCompletesD s fd (Mips.Fp.f64Neg (readFpD s fs))) := by
-  fp_step_spec
-
-/-- **`madd.d`** `(fs × ft) + fr` (MD00086 Vol II-A Rev 6.06, MADD.fmt p.256): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the add of the rounded
-product; each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishD` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem maddD_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.maddD fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)
-      fpStep s m fun s1 p => fpFinishD s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) p (readFpD s fr)))) := by
-  fp_step_spec
-
-/-- **`msub.d`** `(fs × ft) − fr` (MD00086 Vol II-A Rev 6.06, MSUB.fmt p.287): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the subtract of the rounded
-product; each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishD` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem msubD_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.msubD fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)
-      fpStep s m fun s1 p => fpFinishD s1 fd (Mips.Fp.accFlags m.2 (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) p (readFpD s fr)))) := by
-  fp_step_spec
-
-/-- **`nmadd.d`** `−(fr + (fs × ft))` (MD00086 Vol II-A Rev 6.06, NMADD.fmt p.308): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the add of the rounded
-product then the negate (`NEG.fmt`); each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishD` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem nmaddD_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmaddD fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)
-      fpStep s m fun s1 p =>
-        let a := Mips.Fp.accFlags m.2 (Mips.Fp.f64Add (Mips.Fp.envOf s.fcsr) (readFpD s fr) p)
-        fpStep s1 a fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f64Neg q))) := by
-  fp_step_spec
-
-/-- **`nmsub.d`** `−((fs × ft) − fr)` (MD00086 Vol II-A Rev 6.06, NMSUB.fmt p.310): "as if
-separate floating-point" operations "were executed" — the multiply, rounded, then the subtract of the rounded
-product then the negate (`NEG.fmt`); each operation writes FCSR Cause with the union of
-the exceptions so far and is trap-checked (`fpStep`, `Mips.Fp.accFlags`), the last completing per
-`fpFinishD` with that union (Cause, trap check, Flags). A trapping operation stops the instruction
-with the Cause of the operations so far and Flags unchanged. This is `step`'s own code restated. -/
-theorem nmsubD_spec_raw (s : State) (w fd fr fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nmsubD fd fr fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let m := Mips.Fp.f64Mul (Mips.Fp.envOf s.fcsr) (readFpD s fs) (readFpD s ft)
-      fpStep s m fun s1 p =>
-        let a := Mips.Fp.accFlags m.2 (Mips.Fp.f64Sub (Mips.Fp.envOf s.fcsr) p (readFpD s fr))
-        fpStep s1 a fun s2 q => fpFinishD s2 fd (Mips.Fp.accFlags a.2 (Mips.Fp.f64Neg q))) := by
   fp_step_spec

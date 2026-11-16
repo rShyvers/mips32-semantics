@@ -5,8 +5,8 @@ import Semantics.Refine.Step
 
 * `FPResult_eq`: one FP operation's FCSR side as an `if` on the trap condition `trapC` (`fpc` writes
   `Cause`, `fpf` also the `Flags`; MD00082 Vol I-A Rev 6.01 §6.7.1, p.99).
-* `trapC_inv`, `trapC_fpf`, `fpf_fpf`: the FCSR algebra of the `MADD.D`/`MSUB.D` corner
-  `Manual.MaddAbsorbs` (soundness of the refined row, `Refine.cf_maddD`).
+* `trapC_inv`, `trapC_fpf`, `fpf_fpf`: FCSR algebra of two consecutive FP operations (written for the
+  pre-Release 6 `MADD.D`/`MSUB.D` rows, which Release 6 removed; kept as general facts).
 * The NaN branch of the binary operations (`add_nan` ...: the first quiet NaN operand, Invalid iff some
   operand is a signaling NaN; `Mips.Fp.Format.nanResult`), and `Dist`: a signaling NaN and a quiet NaN
   in one operand position give results that differ in the value or in Invalid Operation
@@ -63,21 +63,6 @@ theorem FPResult_eq {α} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
         BitVec.extractLsb' 7 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12)) != 0#5) = true
   · simp only [hc, ↓reduceIte]
   · simp only [hc, ↓reduceIte, Bool.false_eq_true]; rfl
-
-/-- `FPCheck` (one operation of a multiply-add: Cause and the trap check, no Flags) as an `if` on
-`trapC`. -/
-theorem FPCheck_eq {α} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
-    FPCheck r c f = if trapC f.arch.FCSR r.2 then
-      (.signal .FloatingPoint, { f with arch := { f.arch with FCSR := fpc f.arch.FCSR r.2 } })
-    else (.ok r.1, { f with arch := { f.arch with FCSR := fpc f.arch.FCSR r.2 } }) := by
-  unfold FPCheck CheckFPException
-  simp only [bind, Pseudo.modify, Pseudo.get, SignalException, pure, ite_app2']
-  unfold trapC fpc
-  by_cases hc : (bit (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12) 17 ||
-      (BitVec.extractLsb' 12 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12) &&&
-        BitVec.extractLsb' 7 5 (f.arch.FCSR &&& ~~~(63#32 <<< 12) ||| BitVec.setWidth 32 r.2.toBits <<< 12)) != 0#5) = true
-  · simp only [hc, ↓reduceIte]
-  · simp only [hc, ↓reduceIte, Bool.false_eq_true]
 
 theorem m63_bit (k : Nat) : (63#32).getLsbD k = decide (k < 6) := by
   by_cases h : k < 6

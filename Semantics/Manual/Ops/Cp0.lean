@@ -26,7 +26,9 @@ endif
 Restrictions (p.290): "Pre-Release 6: The results are UNDEFINED if coprocessor 0 does not contain a
 register as specified by rd and sel" (`Oracle.cp0Undefined`). The effect of a write on each register
 is its field table (`CPRWrite`); a write of a different Exception Base to `EBase` with `Status.BEV = 0`
-is UNDEFINED (MD00090 Vol III Rev 6.02 §9.41, p.223; `Oracle.ebaseWriteBEV0`). -/
+is UNDEFINED (MD00090 Vol III Rev 6.02 §9.41, p.223; `Oracle.ebaseWriteBEV0`).
+-- W2: the Release 6 arm (`ArchitectureRevision() ≥ 6`: the write is ignored) replaces the
+-- pre-Release 6 UNDEFINED, with the Release 6 CP0 register set. -/
 def MTC0 (rt rd sel : W32) : Pseudo Unit := do
   -- data ← GPR[rt]
   let data ← GPR (reg rt)
@@ -65,7 +67,9 @@ else
 endif
 ```
 Restrictions (p.266): "Pre-Release 6: The results are UNDEFINED if coprocessor 0 does not contain a
-register as specified by rd and sel" (`Oracle.cp0Undefined`). -/
+register as specified by rd and sel" (`Oracle.cp0Undefined`).
+-- W2: the Release 6 arm (`ArchitectureRevision() ≥ 6`: `GPR[rt] ← 0`) replaces the pre-Release 6
+-- UNDEFINED, with the Release 6 CP0 register set. -/
 def MFC0 (rt rd sel : W32) : Pseudo Unit := do
   let impl ← Pseudo.impl
   let a ← Pseudo.get

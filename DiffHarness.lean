@@ -278,11 +278,6 @@ private def rArithSrc : String :=
 "    li   $t1, 20\n" ++
 "    add  $t2, $t0, $t1\n" ++
 "    sub  $t3, $t0, $t1\n" ++
-"    mult $t0, $t1\n" ++
-"    mflo $t4\n" ++
-"    div  $t0, $t1\n" ++
-"    mfhi $t5\n" ++
-"    mflo $t6\n" ++
 "    andi $a0, $t2, 0x7f\n" ++
 "    li   $v0, 11\n" ++
 "    syscall\n" ++
@@ -302,11 +297,10 @@ private def rArithSrc : String :=
 "    syscall\n"
 
 #guard isHaltedExit (runOurs rArithSrc 100000)
--- Hand-computed: $t2=70, $t3=30, mult 50*20=1000 -> $t4=1000 mod 256 via andi 0x7f
--- is computed on the *register value itself* (1000 = 0x3e8, &0x7f = 0x68 = 104);
--- div 50/20 -> lo=2,hi=10 -> $t5=10,$t6=2. Chars: 70,30,104,10,2.
+-- Hand-computed: $t2=70, $t3=30; $t4..$t6 are never written (Release 6 removed MULT/DIV/MFHI/MFLO,
+-- tests/corpus/r_arith.asm) and print as 0. Chars: 70,30,0,0,0.
 #guard outcomeOut (runOurs rArithSrc 100000) =
-  String.ofList [Char.ofNat 70, Char.ofNat 30, Char.ofNat 104, Char.ofNat 10, Char.ofNat 2]
+  String.ofList [Char.ofNat 70, Char.ofNat 30, Char.ofNat 0, Char.ofNat 0, Char.ofNat 0]
 
 private def syscallIoSrc : String :=
 ".data\n" ++
@@ -383,7 +377,7 @@ private def shiftsSrc : String :=
 private def iImmSrc : String :=
 "main:\n" ++
 "    li    $t0, 10\n" ++
-"    addi  $t1, $t0, 5\n" ++
+"    addiu $t1, $t0, 5\n" ++
 "    andi  $t2, $t0, 0x7\n" ++
 "    ori   $t3, $t0, 0x5\n" ++
 "    xori  $t4, $t0, 0x3\n" ++
@@ -437,7 +431,7 @@ private def memWordSrc : String :=
 ".text\n" ++
 "main:\n" ++
 "    la   $t0, buf\n" ++
-"    addi $t0, $t0, 8\n" ++
+"    addiu $t0, $t0, 8\n" ++
 "    li   $t1, 123\n" ++
 "    sw   $t1, 0($t0)\n" ++
 "    sw   $t1, -4($t0)\n" ++
@@ -607,10 +601,10 @@ private def jumpJalSrc : String :=
 
 #guard isHaltedExit (runOurs jumpJalSrc 100000)
 
-private def addiNegSrc : String :=
+private def addiuNegSrc : String :=
 "main:\n" ++
 "    li   $t0, 10\n" ++
-"    addi $t1, $t0, -3\n" ++
+"    addiu $t1, $t0, -3\n" ++
 "    li   $t2, 0xffffffff\n" ++
 "    li   $t3, 1\n" ++
 "    slt  $t4, $t2, $t3\n" ++
@@ -627,8 +621,8 @@ private def addiNegSrc : String :=
 "    li   $v0, 10\n" ++
 "    syscall\n"
 
-#guard isHaltedExit (runOurs addiNegSrc 100000)
-#guard outcomeOut (runOurs addiNegSrc 100000) =
+#guard isHaltedExit (runOurs addiuNegSrc 100000)
+#guard outcomeOut (runOurs addiuNegSrc 100000) =
   String.ofList [Char.ofNat 7, Char.ofNat 1, Char.ofNat 0]
 
 end CorpusGoldenTests

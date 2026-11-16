@@ -4,15 +4,14 @@ import Semantics.Refine.ChoiceFp
 # Refine.ChoicePoints — the Operations are oracle-free where `ConsultsOracle` says so (wave 8)
 
 `operation_choiceFree`: when `Manual.ConsultsOracle ins a = false`, the Operation of `ins` run from `a`
-gives the same result (value, exception and state) under any two oracles. For the 113 constructors
-whose Operation reads no oracle field this is definitional (`rfl`); for the 70 that read one
+gives the same result (value, exception and state) under any two oracles. For the constructors
+whose Operation reads no oracle field this is definitional (`rfl`); for those that read one
 (`cf_<ctor>`) the proof splits on the conditions the Operation tests (`case_ite`), rewrites the
 oracle-reading primitives to their oracle-free form under the hypotheses (`LoadMemory_free`,
 `StoreMemory_free` while `LLbit = 0`, `ValueFPR64_even`/`StoreFPR64_even` for even registers,
 `signOpS_free`/`cvtDS_free`/... away from a quiet NaN), and closes with `rfl`. `LL` and `SC` set
 `LLbit` after their memory access, so their `loadClearsLL`/`storeClearsLL` choice never shows
-(`LoadMemory_any`, `StoreMemory_any`). `NMADD`/`NMSUB` test the sum computed after the product's
-`FPResult`, which leaves the FP environment unchanged (`env_fpResult`).
+(`LoadMemory_any`, `StoreMemory_any`).
 -/
 
 namespace Refine
@@ -137,12 +136,12 @@ macro "ofree_simp" : tactic => `(tactic| simp only [bind, GPR, Pseudo.get, Addre
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, *, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf])
 
 macro "cf_pre" h:ident : tactic => `(tactic| (
   (try simp only [ConsultsOracle, Bool.or_eq_false_iff, OddFPR, FPRPair,
-    Bool.not_eq_false', decide_eq_false_iff_not, FPCC] at $h:ident)
+    Bool.not_eq_false', decide_eq_false_iff_not] at $h:ident)
   repeat (obtain ⟨_, $h:ident⟩ := $h:ident)))
 
 macro "ofree_all" : tactic => `(tactic| (
@@ -150,7 +149,7 @@ macro "ofree_all" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
@@ -158,7 +157,7 @@ macro "ofree_all" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
@@ -168,7 +167,7 @@ macro "ofree_ll" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
@@ -176,7 +175,7 @@ macro "ofree_ll" : tactic => `(tactic| (
     ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
     StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, FPCheck, CheckFPException, FPConditionCode,
+    OddFPR, FPRPair, FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
@@ -193,29 +192,9 @@ theorem cf_sw (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sw base rt of
     Ops.SW base rt off (ctxOf i o₁) { arch := a } = Ops.SW base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SW]; ofree
 
-theorem cf_lwl (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lwl base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LWL base rt off (ctxOf i o₁) { arch := a } = Ops.LWL base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LWL]; ofree
-
 theorem cf_mtc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mtc0 rt rd sel) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MTC0 rt rd sel (ctxOf i o₁) { arch := a } = Ops.MTC0 rt rd sel (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.MTC0]; ofree
-
-theorem cf_bltzal (rs off : W32) (a : Arch) (h : ConsultsOracle (.bltzal rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BLTZAL rs off (ctxOf i o₁) { arch := a } = Ops.BLTZAL rs off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BLTZAL]; ofree
-
-theorem cf_bgezal (rs off : W32) (a : Arch) (h : ConsultsOracle (.bgezal rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BGEZAL rs off (ctxOf i o₁) { arch := a } = Ops.BGEZAL rs off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BGEZAL]; ofree
-
-theorem cf_bltzall (rs off : W32) (a : Arch) (h : ConsultsOracle (.bltzall rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BLTZALL rs off (ctxOf i o₁) { arch := a } = Ops.BLTZALL rs off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BLTZALL]; ofree
-
-theorem cf_bgezall (rs off : W32) (a : Arch) (h : ConsultsOracle (.bgezall rs off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.BGEZALL rs off (ctxOf i o₁) { arch := a } = Ops.BGEZALL rs off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.BGEZALL]; ofree
 
 theorem cf_jalr (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalr rs rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.JALR rs rd (ctxOf i o₁) { arch := a } = Ops.JALR rs rd (ctxOf i o₂) { arch := a } := by
@@ -261,19 +240,6 @@ theorem cf_sc (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sc base rt of
     Ops.SC base rt off (ctxOf i o₁) { arch := a } = Ops.SC base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SC]; ofree_ll
 
-theorem cf_lwr (base rt off : W32) (a : Arch) (h : ConsultsOracle (.lwr base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LWR base rt off (ctxOf i o₁) { arch := a } = Ops.LWR base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LWR]; ofree
-
-theorem cf_swl (base rt off : W32) (a : Arch) (h : ConsultsOracle (.swl base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SWL base rt off (ctxOf i o₁) { arch := a } = Ops.SWL base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SWL]; ofree
-
-theorem cf_swr (base rt off : W32) (a : Arch) (h : ConsultsOracle (.swr base rt off) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SWR base rt off (ctxOf i o₁) { arch := a } = Ops.SWR base rt off (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SWR]; ofree
-
-set_option linter.unusedSimpArgs false in
 theorem cf_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MFHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MFHC1 rt fs (ctxOf i o₂) { arch := a } := by
   simp only [ConsultsOracle, Bool.and_eq_false_iff, OddFPR, bne_eq_false_iff_eq] at h
@@ -311,22 +277,6 @@ theorem cf_ldc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.ldc1 rs ft im
 theorem cf_sdc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.sdc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.SDC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.SDC1 rs ft imm (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SDC1]; ofree
-
-theorem cf_lwxc1 (fd index base : W32) (a : Arch) (h : ConsultsOracle (.lwxc1 fd index base) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LWXC1 fd index base (ctxOf i o₁) { arch := a } = Ops.LWXC1 fd index base (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LWXC1]; ofree
-
-theorem cf_ldxc1 (fd index base : W32) (a : Arch) (h : ConsultsOracle (.ldxc1 fd index base) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.LDXC1 fd index base (ctxOf i o₁) { arch := a } = Ops.LDXC1 fd index base (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LDXC1]; ofree
-
-theorem cf_swxc1 (fs index base : W32) (a : Arch) (h : ConsultsOracle (.swxc1 fs index base) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SWXC1 fs index base (ctxOf i o₁) { arch := a } = Ops.SWXC1 fs index base (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SWXC1]; ofree
-
-theorem cf_sdxc1 (fs index base : W32) (a : Arch) (h : ConsultsOracle (.sdxc1 fs index base) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.SDXC1 fs index base (ctxOf i o₁) { arch := a } = Ops.SDXC1 fs index base (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.SDXC1]; ofree
 
 theorem cf_absS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.absS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.ABS_S fd fs (ctxOf i o₁) { arch := a } = Ops.ABS_S fd fs (ctxOf i o₂) { arch := a } := by
@@ -408,149 +358,6 @@ theorem cf_cvtSD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtSD fd fs) a =
     Ops.CVT_S_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_S_D fd fs (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.CVT_S_D]; ofree
 
-/-- `C.cond.D` when the even operand `y` absorbs the odd one (`CmpAbsorbs`): unordered, Invalid. -/
-theorem cmp_absorbs (cond : W32) (y : BitVec 64) (h : CmpAbsorbs cond y = true) :
-    Mips.Fp.isSNaN64 y = true ∨ (Mips.Fp.isSNaN64 y = false ∧ Mips.Fp.isQNaN64 y = true ∧ bit cond 3 = true) := by
-  simp only [CmpAbsorbs, Bool.or_eq_true, Bool.and_eq_true] at h
-  rcases h with h | ⟨h3, hq⟩
-  · exact Or.inl h
-  · exact Or.inr ⟨qnan64_not_snan y hq, hq, h3⟩
-
-set_option linter.unusedSimpArgs false in
-theorem cf_cCondD (cond cc fs ft : W32) (a : Arch) (h : ConsultsOracle (.cCondD cond cc fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.C_cond_D cond cc fs ft (ctxOf i o₁) { arch := a } = Ops.C_cond_D cond cc fs ft (ctxOf i o₂) { arch := a } := by
-  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
-  obtain ⟨⟨h1, h2⟩, h3⟩ := h
-  cases hs : OddFPR fs <;> cases ht : OddFPR ft <;> simp only [hs, ht, Bool.false_eq_true, false_or,
-    or_false, Bool.true_eq_false, Bool.not_true, Bool.not_false, true_or, or_true] at h1 h2 h3
-  · simp only [OddFPR] at hs ht; simp only [Ops.C_cond_D]; ofree
-  · -- `ft` odd, `fs` even and absorbing (wave 9)
-    simp only [OddFPR] at hs ht
-    rcases cmp_absorbs cond _ h3 with hy | ⟨hy, hq, h3'⟩ <;> simp only [FPRPair] at hy <;>
-      simp only [Ops.C_cond_D, bind, ValueFPR64, FP32RegistersMode, beq_self_eq_true, ↓reduceIte, hs, ht,
-        Bool.false_eq_true, IEEE.isSNaND, IEEE.isQNaND, hy, Bool.or_true, Bool.true_or, Bool.and_true,
-        Bool.true_and, Bool.or_false, Bool.false_or, ctxOf] <;> (try simp only [FPRPair] at hq) <;>
-      (try simp only [hq, h3', Bool.or_true, Bool.true_or, Bool.and_true, Bool.true_and]) <;>
-      (try simp only [↓reduceIte, ite_true]) <;> ofree
-  · simp only [OddFPR] at hs ht
-    rcases cmp_absorbs cond _ h2 with hy | ⟨hy, hq, h3'⟩ <;> simp only [FPRPair] at hy <;>
-      simp only [Ops.C_cond_D, bind, ValueFPR64, FP32RegistersMode, beq_self_eq_true, ↓reduceIte, hs, ht,
-        Bool.false_eq_true, IEEE.isSNaND, IEEE.isQNaND, hy, Bool.or_true, Bool.true_or, Bool.and_true,
-        Bool.true_and, Bool.or_false, Bool.false_or, ctxOf] <;> (try simp only [FPRPair] at hq) <;>
-      (try simp only [hq, h3', Bool.or_true, Bool.true_or, Bool.and_true, Bool.true_and]) <;>
-      (try simp only [↓reduceIte, ite_true]) <;> ofree
-
-theorem cf_movfD (fd fs cc : W32) (a : Arch) (h : ConsultsOracle (.movfD fd fs cc) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MOVF_D fd fs cc (ctxOf i o₁) { arch := a } = Ops.MOVF_D fd fs cc (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MOVF_D]; ofree_all
-
-theorem cf_movtD (fd fs cc : W32) (a : Arch) (h : ConsultsOracle (.movtD fd fs cc) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MOVT_D fd fs cc (ctxOf i o₁) { arch := a } = Ops.MOVT_D fd fs cc (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MOVT_D]; ofree_all
-
-theorem cf_movnD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movnD fd fs rt) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MOVN_D fd fs rt (ctxOf i o₁) { arch := a } = Ops.MOVN_D fd fs rt (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MOVN_D]; ofree_all
-
-theorem cf_movzD (fd fs rt : W32) (a : Arch) (h : ConsultsOracle (.movzD fd fs rt) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MOVZ_D fd fs rt (ctxOf i o₁) { arch := a } = Ops.MOVZ_D fd fs rt (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.MOVZ_D]; ofree_all
-
-theorem env_fpf (a : Arch) (fl : Mips.Fp.Flags) : IEEE.env { a with FCSR := fpf a.FCSR fl } = IEEE.env a :=
-  env_fpResult a fl.toBits
-
-/-- The two corners of `MaddAbsorbs`. -/
-theorem maddAbsorbs_cases (a : Arch) (fr fs ft : W32) (h : MaddAbsorbs a fr fs ft = true) :
-    (OddFPR fs = false ∧ OddFPR ft = true ∧ OddFPR fr = false ∧ Mips.Fp.isQNaN64 (FPRPair a fs) = true ∧
-      bit a.FCSR 11 = false ∧ Mips.Fp.isSNaN64 (FPRPair a fr) = true) ∨
-    (OddFPR fs = false ∧ OddFPR ft = false ∧ OddFPR fr = true ∧
-      (IEEE.mulD a (FPRPair a fs) (FPRPair a ft)).2.invalid = true) := by
-  simp only [MaddAbsorbs, Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
-  rcases h with ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ | ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
-  · exact .inl ⟨h1, h2, h3, h4, h5, h6⟩
-  · exact .inr ⟨h1, h2, h3, h4⟩
-
-set_option linter.unusedSimpArgs false in
-/-- **`MADD.D`/`MSUB.D` in the corner `MaddAbsorbs` do not depend on the oracle** (wave 9; Wave 12a):
-in the first corner the multiply delivers the quiet NaN of `fs` and raises at most Invalid, which does
-not trap (`FCSR` bit 11 is 0); the add of that quiet NaN and the signaling NaN `fr` raises Invalid, so
-the union of the operations' conditions (the instruction's Cause, ORed into the Flags) is Invalid
-either way (`inv_or_true`). In the second the multiply raises Invalid and delivers a quiet NaN
-(`mul_inv_q`), which the add delivers whatever `fr` reads; the add's Invalid is absorbed by the
-union (`or_inv_absorb`). -/
-theorem cf_maddD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.maddD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MADD_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.MADD_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
-  obtain ⟨hd, h | h⟩ := h
-  · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MADD_D]; ofree
-  · rcases maddAbsorbs_cases a fr fs ft h with ⟨hs, ht, hr, hq, h11, h6⟩ | ⟨hs, ht, hr, hm⟩
-    · simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
-      simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
-        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, mul_qnan_left _ _ _ hq,
-        trapC_inv _ _ h11, trapC_fpc, fpf_fpc, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true,
-        add_qnan_left _ _ _ hq, h6, inv_or_true]
-    · simp only [OddFPR, FPRPair, IEEE.mulD] at hd hs ht hr hm
-      have hq := mul_inv_q _ _ _ hm
-      simp only [Ops.MADD_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
-        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.addD, Bool.false_eq_true, ctxOf,
-        beq_self_eq_true, Bool.not_true, add_qnan_left _ _ _ hq, or_inv_absorb _ hm]
-      by_cases htr : trapC a.FCSR (Mips.Fp.f64Mul (IEEE.env a) (a.FPR (reg fs + 1) ++ a.FPR (reg fs))
-          (a.FPR (reg ft + 1) ++ a.FPR (reg ft))).snd = true
-      · simp only [htr, ↓reduceIte]
-      · simp only [htr, Bool.false_eq_true, ↓reduceIte, add_qnan_left _ _ _ hq, or_inv_absorb _ hm, trapC_fpc,
-          fpf_fpc]
-
-set_option linter.unusedSimpArgs false in
-theorem cf_msubD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.msubD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MSUB_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.MSUB_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  simp only [ConsultsOracle, Bool.or_eq_false_iff, Bool.and_eq_false_iff, Bool.not_eq_false'] at h
-  obtain ⟨hd, h | h⟩ := h
-  · simp only [OddFPR] at hd; cf_pre h; simp only [Ops.MSUB_D]; ofree
-  · rcases maddAbsorbs_cases a fr fs ft h with ⟨hs, ht, hr, hq, h11, h6⟩ | ⟨hs, ht, hr, hm⟩
-    · simp only [OddFPR, FPRPair] at hd hs ht hr hq h6
-      simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
-        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, mul_qnan_left _ _ _ hq,
-        trapC_inv _ _ h11, trapC_fpc, fpf_fpc, Bool.false_eq_true, ctxOf, beq_self_eq_true, Bool.not_true,
-        sub_qnan_left _ _ _ hq, h6, inv_or_true]
-    · simp only [OddFPR, FPRPair, IEEE.mulD] at hd hs ht hr hm
-      have hq := mul_inv_q _ _ _ hm
-      simp only [Ops.MSUB_D, bind, ValueFPR64, StoreFPR64, Pseudo.get, FPCheck_eq, FPResult_eq,
-        FP32RegistersMode, hd, hs, ht, hr, ↓reduceIte, IEEE.mulD, IEEE.subD, Bool.false_eq_true, ctxOf,
-        beq_self_eq_true, Bool.not_true, sub_qnan_left _ _ _ hq, or_inv_absorb _ hm]
-      by_cases htr : trapC a.FCSR (Mips.Fp.f64Mul (IEEE.env a) (a.FPR (reg fs + 1) ++ a.FPR (reg fs))
-          (a.FPR (reg ft + 1) ++ a.FPR (reg ft))).snd = true
-      · simp only [htr, ↓reduceIte]
-      · simp only [htr, Bool.false_eq_true, ↓reduceIte, sub_qnan_left _ _ _ hq, or_inv_absorb _ hm, trapC_fpc,
-          fpf_fpc]
-
-theorem cf_nmaddS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddS fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NMADD_S fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMADD_S fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NMADD_S]; ofree
-
-theorem cf_nmaddD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmaddD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NMADD_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMADD_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NMADD_D]; ofree
-
-theorem cf_nmsubS (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmsubS fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NMSUB_S fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMSUB_S fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NMSUB_S]; ofree
-
-theorem cf_nmsubD (fd fr fs ft : W32) (a : Arch) (h : ConsultsOracle (.nmsubD fd fr fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.NMSUB_D fd fr fs ft (ctxOf i o₁) { arch := a } = Ops.NMSUB_D fd fr fs ft (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NMSUB_D]; ofree
-
-theorem cf_div (rs rt : W32) (a : Arch) (h : ConsultsOracle (.div rs rt) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.DIV rs rt (ctxOf i o₁) { arch := a } = Ops.DIV rs rt (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.DIV]; ofree
-
-theorem cf_divu (rs rt : W32) (a : Arch) (h : ConsultsOracle (.divu rs rt) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.DIVU rs rt (ctxOf i o₁) { arch := a } = Ops.DIVU rs rt (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.DIVU]; ofree
-
-theorem cf_mul (rs rt rd : W32) (a : Arch) (h : ConsultsOracle (.mul rs rt rd) a = false) (i : Impl) (o₁ o₂ : Oracle) :
-    Ops.MUL rs rt rd (ctxOf i o₁) { arch := a } = Ops.MUL rs rt rd (ctxOf i o₂) { arch := a } := by
-  cf_pre h
-
 theorem cf_ext (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ext rt rs pos size) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.EXT rt rs pos size (ctxOf i o₁) { arch := a } = Ops.EXT rt rs pos size (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.EXT]; ofree
@@ -570,12 +377,7 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   cases ins <;> simp only [Operation, Option.map_some, Option.some.injEq, Pseudo.run]
   case lw base rt off => exact cf_lw base rt off a h i o₁ o₂
   case sw base rt off => exact cf_sw base rt off a h i o₁ o₂
-  case lwl base rt off => exact cf_lwl base rt off a h i o₁ o₂
   case mtc0 rt rd sel => exact cf_mtc0 rt rd sel a h i o₁ o₂
-  case bltzal rs off => exact cf_bltzal rs off a h i o₁ o₂
-  case bgezal rs off => exact cf_bgezal rs off a h i o₁ o₂
-  case bltzall rs off => exact cf_bltzall rs off a h i o₁ o₂
-  case bgezall rs off => exact cf_bgezall rs off a h i o₁ o₂
   case jalr rs rd => exact cf_jalr rs rd a h i o₁ o₂
   case jalrHb rs rd => exact cf_jalrHb rs rd a h i o₁ o₂
   case mfc0 rt rd sel => exact cf_mfc0 rt rd sel a h i o₁ o₂
@@ -587,9 +389,6 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case sh base rt off => exact cf_sh base rt off a h i o₁ o₂
   case ll base rt off => exact cf_ll base rt off a h i o₁ o₂
   case sc base rt off => exact cf_sc base rt off a h i o₁ o₂
-  case lwr base rt off => exact cf_lwr base rt off a h i o₁ o₂
-  case swl base rt off => exact cf_swl base rt off a h i o₁ o₂
-  case swr base rt off => exact cf_swr base rt off a h i o₁ o₂
   case mfhc1 rt fs => exact cf_mfhc1 rt fs a h i o₁ o₂
   case mthc1 rt fs => exact cf_mthc1 rt fs a h i o₁ o₂
   case cfc1 rt fs => exact cf_cfc1 rt fs a h i o₁ o₂
@@ -598,10 +397,6 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case swc1 rs ft imm => exact cf_swc1 rs ft imm a h i o₁ o₂
   case ldc1 rs ft imm => exact cf_ldc1 rs ft imm a h i o₁ o₂
   case sdc1 rs ft imm => exact cf_sdc1 rs ft imm a h i o₁ o₂
-  case lwxc1 fd index base => exact cf_lwxc1 fd index base a h i o₁ o₂
-  case ldxc1 fd index base => exact cf_ldxc1 fd index base a h i o₁ o₂
-  case swxc1 fs index base => exact cf_swxc1 fs index base a h i o₁ o₂
-  case sdxc1 fs index base => exact cf_sdxc1 fs index base a h i o₁ o₂
   case absS fd fs => exact cf_absS fd fs a h i o₁ o₂
   case negS fd fs => exact cf_negS fd fs a h i o₁ o₂
   case addD fd fs ft => exact cf_addD fd fs ft a h i o₁ o₂
@@ -622,50 +417,29 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
   case cvtDS fd fs => exact cf_cvtDS fd fs a h i o₁ o₂
   case cvtDW fd fs => exact cf_cvtDW fd fs a h i o₁ o₂
   case cvtSD fd fs => exact cf_cvtSD fd fs a h i o₁ o₂
-  case cCondD cond cc fs ft => exact cf_cCondD cond cc fs ft a h i o₁ o₂
-  case movfD fd fs cc => exact cf_movfD fd fs cc a h i o₁ o₂
-  case movtD fd fs cc => exact cf_movtD fd fs cc a h i o₁ o₂
-  case movnD fd fs rt => exact cf_movnD fd fs rt a h i o₁ o₂
-  case movzD fd fs rt => exact cf_movzD fd fs rt a h i o₁ o₂
-  case maddD fd fr fs ft => exact cf_maddD fd fr fs ft a h i o₁ o₂
-  case msubD fd fr fs ft => exact cf_msubD fd fr fs ft a h i o₁ o₂
-  case nmaddS fd fr fs ft => exact cf_nmaddS fd fr fs ft a h i o₁ o₂
-  case nmaddD fd fr fs ft => exact cf_nmaddD fd fr fs ft a h i o₁ o₂
-  case nmsubS fd fr fs ft => exact cf_nmsubS fd fr fs ft a h i o₁ o₂
-  case nmsubD fd fr fs ft => exact cf_nmsubD fd fr fs ft a h i o₁ o₂
-  case div rs rt => exact cf_div rs rt a h i o₁ o₂
-  case divu rs rt => exact cf_divu rs rt a h i o₁ o₂
-  case mul rs rt rd => exact cf_mul rs rt rd a h i o₁ o₂
   case ext rt rs pos size => exact cf_ext rt rs pos size a h i o₁ o₂
   case ins rt rs pos size => exact cf_ins rt rs pos size a h i o₁ o₂
-  case rdhwr rt rd =>
+  case rdhwr rt rd sel =>
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; rcases n with _ | _ | _ | _ | n <;> rfl)
   all_goals first
     | rfl
     | (simp only [
-      Ops.ABS_D, Ops.ABS_S, Ops.ADD, Ops.ADDI, Ops.ADDIU, Ops.ADDU, Ops.ADD_D, Ops.ADD_S, Ops.AND,
-      Ops.ANDI, Ops.BC1F, Ops.BC1FL, Ops.BC1T, Ops.BC1TL, Ops.BEQ, Ops.BEQL, Ops.BGEZ, Ops.BGEZAL,
-      Ops.BGEZALL, Ops.BGEZL, Ops.BGTZ, Ops.BGTZL, Ops.BLEZ, Ops.BLEZL, Ops.BLTZ, Ops.BLTZAL,
-      Ops.BLTZALL, Ops.BLTZL, Ops.BNE, Ops.BNEL, Ops.BREAK, Ops.CEIL_W_D, Ops.CEIL_W_S, Ops.CFC1,
-      Ops.CLO, Ops.CLZ, Ops.CTC1, Ops.CVT_D_S, Ops.CVT_D_W, Ops.CVT_S_D, Ops.CVT_S_W, Ops.CVT_W_D,
-      Ops.CVT_W_S, Ops.C_cond_D, Ops.C_cond_S, Ops.DI, Ops.DIV, Ops.DIVU, Ops.DIV_D, Ops.DIV_S,
-      Ops.EI, Ops.ERET, Ops.EXT, Ops.FLOOR_W_D, Ops.FLOOR_W_S, Ops.INS, Ops.J, Ops.JAL, Ops.JALR,
-      Ops.JALR_HB, Ops.JR, Ops.JR_HB, Ops.LB, Ops.LBU, Ops.LDC1, Ops.LDXC1, Ops.LH, Ops.LHU, Ops.LL,
-      Ops.LUI, Ops.LW, Ops.LWC1, Ops.LWL, Ops.LWR, Ops.LWXC1, Ops.MADD, Ops.MADDU, Ops.MADD_D,
-      Ops.MADD_S, Ops.MFC0, Ops.MFC1, Ops.MFHC1, Ops.MFHI, Ops.MFLO, Ops.MOVF, Ops.MOVF_D,
-      Ops.MOVF_S, Ops.MOVN, Ops.MOVN_D, Ops.MOVN_S, Ops.MOVT, Ops.MOVT_D, Ops.MOVT_S, Ops.MOVZ,
-      Ops.MOVZ_D, Ops.MOVZ_S, Ops.MOV_D, Ops.MOV_S, Ops.MSUB, Ops.MSUBU, Ops.MSUB_D, Ops.MSUB_S,
-      Ops.MTC0, Ops.MTC1, Ops.MTHC1, Ops.MTHI, Ops.MTLO, Ops.MUL, Ops.MULT, Ops.MULTU, Ops.MUL_D,
-      Ops.MUL_S, Ops.NEG_D, Ops.NEG_S, Ops.NMADD_D, Ops.NMADD_S, Ops.NMSUB_D, Ops.NMSUB_S, Ops.NOR,
-      Ops.OR, Ops.ORI, Ops.PREF, Ops.PREFX, Ops.RDHWR, Ops.RDPGPR, Ops.RECIP_D, Ops.RECIP_S,
-      Ops.ROTR, Ops.ROTRV, Ops.ROUND_W_D, Ops.ROUND_W_S, Ops.RSQRT_D, Ops.RSQRT_S, Ops.SB, Ops.SC,
-      Ops.SDC1, Ops.SDXC1, Ops.SEB, Ops.SEH, Ops.SH, Ops.SLL, Ops.SLLV, Ops.SLT, Ops.SLTI,
-      Ops.SLTIU, Ops.SLTU, Ops.SQRT_D, Ops.SQRT_S, Ops.SRA, Ops.SRAV, Ops.SRL, Ops.SRLV, Ops.SUB,
-      Ops.SUBU, Ops.SUB_D, Ops.SUB_S, Ops.SW, Ops.SWC1, Ops.SWL, Ops.SWR, Ops.SWXC1, Ops.SYNC,
-      Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TEQI, Ops.TGE, Ops.TGEI, Ops.TGEIU, Ops.TGEU, Ops.TLT,
-      Ops.TLTI, Ops.TLTIU, Ops.TLTU, Ops.TNE, Ops.TNEI, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT,
-      Ops.WRPGPR, Ops.WSBH, Ops.XOR, Ops.XORI]
+      Ops.ABS_D, Ops.ABS_S, Ops.ADD, Ops.ADDIU, Ops.ADDU, Ops.ADD_D, Ops.ADD_S, Ops.AND,
+      Ops.ANDI, Ops.AUI, Ops.BAL, Ops.BEQ, Ops.BGEZ, Ops.BGTZ, Ops.BLEZ, Ops.BLTZ, Ops.BNE,
+      Ops.BREAK, Ops.CEIL_W_D, Ops.CEIL_W_S, Ops.CFC1, Ops.CLO, Ops.CLZ, Ops.CTC1, Ops.CVT_D_S,
+      Ops.CVT_D_W, Ops.CVT_S_D, Ops.CVT_S_W, Ops.CVT_W_D, Ops.CVT_W_S, Ops.DI, Ops.DIV_D,
+      Ops.DIV_S, Ops.EI, Ops.ERET, Ops.EXT, Ops.FLOOR_W_D, Ops.FLOOR_W_S, Ops.INS, Ops.J,
+      Ops.JAL, Ops.JALR, Ops.JALR_HB, Ops.LB, Ops.LBU, Ops.LDC1, Ops.LH, Ops.LHU, Ops.LL,
+      Ops.LW, Ops.LWC1, Ops.MFC0, Ops.MFC1, Ops.MFHC1, Ops.MOV_D, Ops.MOV_S, Ops.MTC0, Ops.MTC1,
+      Ops.MTHC1, Ops.MUL_D, Ops.MUL_S, Ops.NAL, Ops.NEG_D, Ops.NEG_S, Ops.NOR, Ops.OR, Ops.ORI,
+      Ops.PAUSE, Ops.PREF, Ops.RDHWR, Ops.RDPGPR, Ops.RECIP_D, Ops.RECIP_S, Ops.ROTR, Ops.ROTRV,
+      Ops.ROUND_W_D, Ops.ROUND_W_S, Ops.RSQRT_D, Ops.RSQRT_S, Ops.SB, Ops.SC, Ops.SDC1, Ops.SEB,
+      Ops.SEH, Ops.SH, Ops.SLL, Ops.SLLV, Ops.SLT, Ops.SLTI, Ops.SLTIU, Ops.SLTU, Ops.SQRT_D,
+      Ops.SQRT_S, Ops.SRA, Ops.SRAV, Ops.SRL, Ops.SRLV, Ops.SUB, Ops.SUBU, Ops.SUB_D, Ops.SUB_S,
+      Ops.SW, Ops.SWC1, Ops.SYNC, Ops.SYNCI, Ops.SYSCALL, Ops.TEQ, Ops.TGE, Ops.TGEU, Ops.TLT,
+      Ops.TLTU, Ops.TNE, Ops.TRUNC_W_D, Ops.TRUNC_W_S, Ops.WAIT, Ops.WRPGPR, Ops.WSBH, Ops.XOR,
+      Ops.XORI]
        ofree)
 
 end Refine

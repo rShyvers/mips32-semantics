@@ -3,27 +3,29 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DelaySlot
 
 /-!
-# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`, `wait`, `rdpgpr`/`wrpgpr`
+# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`, `wait`, `rdpgpr`/`wrpgpr`; and `pause`
 
-Constructors: `mfc0` `mtc0` `di` `ei` `eret` `wait` `rdpgpr` `wrpgpr`.
+Constructors: `mfc0` `mtc0` `di` `ei` `eret` `wait` `rdpgpr` `wrpgpr`, and `pause` (not a
+coprocessor-0 instruction; here because it enters standby like `wait`).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   MFC0 p.266; MTC0 p.290-291; DI p.164; EI p.176; ERET p.177-178; WAIT p.442-443; RDPGPR p.335;
-  WRPGPR p.444.
+  WRPGPR p.444; PAUSE p.317-318.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)".
 
-Every one of these instructions needs coprocessor 0: outside Kernel Mode with `Status.CU0 = 0`
+Every one of these instructions except `pause` needs coprocessor 0: outside Kernel Mode with `Status.CU0 = 0`
 it raises Coprocessor Unusable with `Cause.CE = 0` and does nothing else
 (`cp0_instruction_user_mode_unusable`, one theorem for all eight; MD00090 Vol III Rev 6.02
 §6.2.22, p.100). The per-instruction `_spec_raw` theorems state the other case: they assume
 `hcp0 : cp0Usable s = true` (Kernel Mode, or `Status.CU0 = 1`; §3.5.3, p.23).
 
-## Theorems in this file (15)
+## Theorems in this file (17)
 
   `mfc0_spec_raw` `mtc0_spec_raw` `causeWriteMask_eq` `statusWriteMask_eq` `di_spec_raw`
   `ei_spec_raw` `eret_spec_raw` `eret_clears_llBit` `eret_in_delay_slot_reserved_instruction`
-  `wait_spec_raw` `wait_preserves_state` `rdpgpr_spec_raw` `wrpgpr_spec_raw`
+  `wait_spec_raw` `wait_preserves_state` `pause_spec_raw` `pause_llbit_clear` `rdpgpr_spec_raw`
+  `wrpgpr_spec_raw`
   `cp0_instruction_user_mode_unusable`
   `usesCop1_of_usesCop0`
 -/
@@ -69,7 +71,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
+      | 16, 0 => read (0x80000980#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x80000001#32
       | 16, 2 => read 0x80000000#32
@@ -221,11 +223,33 @@ theorem wait_preserves_state (s : State) (w code : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.wait code))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ s'.regs = s.regs ∧ s'.fpRegs = s.fpRegs ∧
-      s'.hi = s.hi ∧ s'.lo = s.lo ∧ s'.physMem = s.physMem ∧
+      s'.physMem = s.physMem ∧
       s'.cp0Status = s.cp0Status ∧ s'.cp0Cause = s.cp0Cause ∧ s'.cp0Epc = s.cp0Epc ∧
       s'.pc = s.pc + 4#32 ∧ s'.standby = true := by
-  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0 hexec, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+  refine ⟨_, wait_spec_raw s w code hfetch hdecode hpb hcp0 hexec, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
     rfl⟩
+
+/-- **`pause` with `LLbit` set records `EPC` = the next instruction and enters standby; with
+`LLbit` clear it is a no-op** (MD00086 Vol II-A Rev 6.06, PAUSE, p.317: `if LLBit ≠ 0 then EPC ←
+PC + 4; DescheduleInstructionStream() endif`). Pin (`Semantics/Exec/System.lean`): the
+descheduled stream is the standby state after `wait` (`State.standby`, `pc` = the next
+instruction); on this single hart nothing else clears `LLbit`, so only an interrupt or a reset
+restarts it (`Specs/Interrupt.lean`). PAUSE is not a coprocessor-0 instruction: no `hcp0`. In a
+delay slot it raises Reserved Instruction (`branch_in_delay_slot_reserved_instruction`). -/
+theorem pause_spec_raw (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .pause)
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      if s.llBit then { s with cp0Epc := s.pc + 4#32, standby := true, pc := s.pc + 4#32 }
+      else { s with pc := s.pc + 4#32 }) := by
+  step_spec
+
+/-- Corollary of `pause_spec_raw`: with `LLbit` clear, `pause` only advances `pc`. -/
+theorem pause_llbit_clear (s : State) (w : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some .pause)
+    (hpb : s.pendingBranch = none) (hll : s.llBit = false) (hexec : executesInstr s = true) :
+    step s = timerTick { s with pc := s.pc + 4#32 } := by
+  rw [pause_spec_raw s w hfetch hdecode hpb hexec, hll]; rfl
 
 /-- **`rdpgpr $rd, $rt`** (MD00086 Vol II-A Rev 6.06, RDPGPR, p.335: "GPR[rd] ← SGPR[SRSCtlPSS,
 rt]"): with only the normal GPRs (`SRSCtl.HSS = 0`, `PSS = 0`, MD00090 Vol III Rev 6.02 Table 9.49,

@@ -1,6 +1,9 @@
-# Data layout of .byte/.half/.word/.asciiz/.space/.align/.float/.double (big-endian) as seen through memory.
+# Data layout of .byte/.half/.word/.asciiz/.space/.align/.float/.double (little-endian: byte k of a datum at address a+k holds
+# bits 8k+7..8k; the .double -2.0 = 0xc0000000_00000000 has its low word first) as seen through memory.
 # The final-memory comparison checks every nonzero word of the data pages.
-# oracle: expect mem:0x10010000=0x01020304 mem:0x10010004=0x05060708 mem:0x10010008=0x12345678 mem:0x1001000c=0x68690000
+# oracle: expect mem:0x10010000=0x04030201 mem:0x10010004=0x07080605 mem:0x10010008=0x12345678 mem:0x1001000c=0x00006968
+# oracle: expect mem:0x10010018=0x00000000 mem:0x1001001c=0xc0000000 gpr:s0=0 gpr:s1=0xc0000000
+# oracle: known-model-bug fpr:f3 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (Status.FR read-only in Release 6, FR = 1 required with a 64-bit FPU) and DECISIONS D2: W5: the model's ldc1 still fills the even/odd pair (f3 = high word); QEMU (FR = 1) leaves FPR 3 alone
 .data
 b: .byte 1, 2, 3, 4, 5, 6
 .half 0x0708

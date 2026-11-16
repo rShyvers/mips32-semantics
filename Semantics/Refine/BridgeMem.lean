@@ -55,6 +55,24 @@ theorem funct_codeFormat (code fn : W32) : codeFormat code fn &&& 0x3F#32 = fn &
   simp only [codeFormat, fld, BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
 
+theorem opcode_off9Format (base rt off fn : W32) : opcode (off9Format base rt off fn) = 0x1F#32 := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [opcode, off9Format, fld, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_or,
+    BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft]
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
+
+theorem funct_off9Format (base rt off fn : W32) :
+    off9Format base rt off fn &&& 0x3F#32 = fn &&& 0x3F#32 := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [off9Format, fld, BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft]
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
+
+/-- `sign_extend(offset)` of the 9-bit offset is the model's `signExt9`. -/
+theorem offset9 (imm : W32) : sign_extend (imm9 imm) = signExt9 imm := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [sign_extend, imm9, signExt9, BitVec.getLsbD_signExtend, BitVec.getLsbD_extractLsb',
+    BitVec.getLsbD_extractLsb, BitVec.msb_eq_getLsbD_last]
+
 /-! ## Exceptions -/
 
 /-- The common end of a conditional trap: the manual's `if c then SignalException(Trap)` against the
@@ -168,51 +186,50 @@ theorem readMemByte_eq (s : State) (va : W32) :
 
 /-! ## Byte lanes of loads and stores -/
 
-theorem byte_idx (va : W32) : (bits va 1 0 ^^^ BitVec.fill 2 true).toNat = 3 - va.toNat % 4 := by
-  have hlow : (bits va 1 0).toNat = va.toNat % 4 := by
-    simp only [bits, BitVec.extractLsb'_toNat]; omega
-  rw [← hlow]
-  generalize bits va 1 0 = x
-  obtain ⟨n, rfl, hn⟩ : ∃ n, x = BitVec.ofNat 2 n ∧ n < 4 := ⟨x.toNat, by simp, x.isLt⟩
-  rcases n with _|_|_|_|n
-  all_goals first | decide | omega | (simp at h2)
+/-- The byte index of a byte access on this little-endian profile (`BigEndianCPU = 0`): the address
+offset itself. -/
+theorem byte_idx (va : W32) : (bits va 1 0 ^^^ BitVec.fill 2 false).toNat = va.toNat % 4 := by
+  simp only [BitVec.fill_false, BitVec.xor_zero, bits, BitVec.extractLsb'_toNat]; omega
 
-theorem half_idx (va : W32) (h : va.toNat % 2 = 0) :
-    (bits va 1 0 ^^^ (BitVec.ofBool true ++ 0#1)).toNat = 2 - va.toNat % 4 := by
-  have hlow : (bits va 1 0).toNat = va.toNat % 4 := by
-    simp only [bits, BitVec.extractLsb'_toNat]; omega
-  have h2 : va.toNat % 4 = 0 ∨ va.toNat % 4 = 2 := by omega
-  rw [← hlow] at h2 ⊢
-  generalize bits va 1 0 = x at h2 ⊢
-  obtain ⟨n, rfl, hn⟩ : ∃ n, x = BitVec.ofNat 2 n ∧ n < 4 := ⟨x.toNat, by simp, x.isLt⟩
-  rcases n with _|_|_|_|n
-  all_goals first | decide | omega | (simp at h2)
+/-- The byte index of a halfword access on this little-endian profile. -/
+theorem half_idx (va : W32) :
+    (bits va 1 0 ^^^ (BitVec.ofBool false ++ 0#1)).toNat = va.toNat % 4 := by
+  rw [show (BitVec.ofBool false ++ 0#1 : BitVec 2) = 0#2 from rfl, BitVec.xor_zero]
+  simp only [bits, BitVec.extractLsb'_toNat]; omega
+
+/-- `BigEndianCPU` on this profile (little-endian, `ReverseEndian = 0`). -/
+theorem bigEndianCPU_abs (s : State) : BigEndianCPU (abs s) = false := rfl
 
 theorem misaligned2_eq (va : W32) : bit va 0 = decide (va.toNat % 2 ≠ 0) := by
   simp only [bit, BitVec.getLsbD, Nat.testBit_zero]
   rw [Bool.eq_iff_iff]; simp only [decide_eq_true_eq]; omega
 
 theorem memElem_byte (M : PAddr → UInt8) (P : W32) :
-    (MemElemAt M P).extractLsb' (8 * (3 - P.toNat % 4)) 8 = (M P).toBitVec := by
+    (MemElemAt M P).extractLsb' (8 * (P.toNat % 4)) 8 = (M P).toBitVec := by
   unfold MemElemAt
+  simp only [laneShift, BigEndianMem, Bool.false_eq_true, ↓reduceIte]
   have hP := base_add_off P
   generalize P &&& ~~~3#32 = B at hP ⊢
   rcases (show P.toNat % 4 = 0 ∨ P.toNat % 4 = 1 ∨ P.toNat % 4 = 2 ∨ P.toNat % 4 = 3 by omega)
     with h | h | h | h <;> rw [h] at hP ⊢ <;> rw [hP] <;> (try simp only [BitVec.add_zero]) <;>
   · apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp only [BitVec.getLsbD_extractLsb', BitVec.getLsbD_append]
+    simp only [BitVec.getLsbD_extractLsb', BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft,
+      BitVec.getLsbD_setWidth]
     rcases i with _|_|_|_|_|_|_|_|i <;> simp <;> omega
 
 theorem memElem_half (M : PAddr → UInt8) (P : W32) (h2 : P.toNat % 2 = 0) :
-    (MemElemAt M P).extractLsb' (8 * (2 - P.toNat % 4)) 16 = (M P).toBitVec ++ (M (P + 1#32)).toBitVec := by
+    (MemElemAt M P).extractLsb' (8 * (P.toNat % 4)) 16 =
+      (M (P + 1#32)).toBitVec ++ (M P).toBitVec := by
   unfold MemElemAt
+  simp only [laneShift, BigEndianMem, Bool.false_eq_true, ↓reduceIte]
   have hP := base_add_off P
   generalize P &&& ~~~3#32 = B at hP ⊢
   rcases (show P.toNat % 4 = 0 ∨ P.toNat % 4 = 2 by omega)
     with h | h <;> rw [h] at hP ⊢ <;> rw [hP] <;>
     simp only [BitVec.add_assoc, BitVec.reduceAdd, BitVec.add_zero] <;>
   · apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp only [BitVec.getLsbD_extractLsb', BitVec.getLsbD_append]
+    simp only [BitVec.getLsbD_extractLsb', BitVec.getLsbD_append, BitVec.getLsbD_or,
+      BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth]
     rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
 
 theorem addr_recombine_half (P : W32) :
@@ -236,16 +253,16 @@ theorem zeroExtByte_eq (b : UInt8) : zeroExtByte b = zero_extend b.toBitVec := b
   have : b.toNat < 2 ^ 8 := b.toBitVec.isLt
   omega
 
-theorem half_bits (hi lo : UInt8) :
-    (BitVec.ofNat 32 hi.toNat <<< 8) ||| BitVec.ofNat 32 lo.toNat = zero_extend (hi.toBitVec ++ lo.toBitVec) := by
+theorem half_bits (b0 b1 : UInt8) :
+    join2 profile.bigEndianMem b0 b1 = zero_extend (b1.toBitVec ++ b0.toBitVec) := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi'
-  simp only [zero_extend, BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, getLsbD_ofNat_byte,
-    BitVec.getLsbD_setWidth, BitVec.getLsbD_append]
+  simp only [join2, byteInValue, byteShift, profile, zero_extend, BitVec.getLsbD_or,
+    BitVec.getLsbD_shiftLeft, getLsbD_ofNat_byte, BitVec.getLsbD_setWidth, BitVec.getLsbD_append,
+    Bool.false_eq_true, ↓reduceIte]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
 
-theorem signExt16_half (hi lo : UInt8) :
-    signExt16 ((BitVec.ofNat 32 hi.toNat <<< 8) ||| BitVec.ofNat 32 lo.toNat) =
-      sign_extend (hi.toBitVec ++ lo.toBitVec) := by
+theorem signExt16_half (b0 b1 : UInt8) :
+    signExt16 (join2 profile.bigEndianMem b0 b1) = sign_extend (b1.toBitVec ++ b0.toBitVec) := by
   rw [half_bits]
   apply BitVec.eq_of_getLsbD_eq; intro i hi'
   simp only [signExt16, zero_extend, sign_extend, BitVec.getLsbD_signExtend, BitVec.getLsbD_extractLsb,
@@ -278,9 +295,10 @@ theorem store_half_fold (M : PAddr → UInt8) (P v : W32) (h2 : P.toNat % 2 = 0)
       BitVec.add_assoc, BitVec.reduceAdd] <;> rfl
 
 theorem lane_sb (v : W32) (N : Nat) (hN : N < 4) :
-    laneByte ((low v (32 - 8 * (3 - N)) ++ BitVec.zero (8 * (3 - N))).setWidth 32) N =
+    laneByte ((low v (32 - 8 * N) ++ BitVec.zero (8 * N)).setWidth 32) N =
       (v &&& 0xff#32).toNat.toUInt8 := by
   rw [laneByte_eq _ _ hN]
+  simp only [byteOfValue, byteShift, profile, Bool.false_eq_true, ↓reduceIte]
   congr 2
   rcases N with _|_|_|_|N
   all_goals first
@@ -291,11 +309,12 @@ theorem lane_sb (v : W32) (N : Nat) (hN : N < 4) :
        rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega)
 
 theorem lane_sh (v : W32) (N : Nat) (hN : N = 0 ∨ N = 2) :
-    laneByte ((low v (32 - 8 * (2 - N)) ++ BitVec.zero (8 * (2 - N))).setWidth 32) N =
-      ((v >>> 8) &&& 0xff#32).toNat.toUInt8 ∧
-    laneByte ((low v (32 - 8 * (2 - N)) ++ BitVec.zero (8 * (2 - N))).setWidth 32) (N + 1) =
-      (v &&& 0xff#32).toNat.toUInt8 := by
+    laneByte ((low v (32 - 8 * N) ++ BitVec.zero (8 * N)).setWidth 32) N =
+      byteOfValue profile.bigEndianMem 2 v 0 ∧
+    laneByte ((low v (32 - 8 * N) ++ BitVec.zero (8 * N)).setWidth 32) (N + 1) =
+      byteOfValue profile.bigEndianMem 2 v 1 := by
   rw [laneByte_eq _ _ (by omega), laneByte_eq _ _ (by omega)]
+  simp only [byteOfValue, byteShift, profile, Bool.false_eq_true, ↓reduceIte]
   rcases hN with rfl | rfl <;> constructor <;> congr 2 <;>
   · apply BitVec.eq_of_getLsbD_eq; intro i hi
     simp only [low, BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_setWidth,
@@ -313,9 +332,11 @@ macro "s2_open" opn:ident op:term : tactic => `(tactic| (
   have h0 := hg.2.2
   cases hw
   rw [execInstr_body s _ rfl rfl rfl, execute_run modelCtx _ _ _ $op rfl
-    (by simp [InCop1Space, opcode_iFormat, opcode_trapFormat, funct_trapFormat, opcode_codeFormat,
-      funct_codeFormat, opcode_rFormat, funct_rFormat])
-    (by simp [InCop0Space, opcode_iFormat, opcode_trapFormat, opcode_codeFormat, opcode_rFormat]) rfl]
-  simp only [Pseudo.run, $opn:ident, bind, GPR, readGPR_abs s h0, ← regIdx_eq_reg, offset16]))
+    (by simp [InCop1Space, opcode_iFormat, opcode_trapFormat, opcode_codeFormat, opcode_rFormat,
+      opcode_off9Format])
+    (by simp [InCop0Space, opcode_iFormat, opcode_trapFormat, opcode_codeFormat, opcode_rFormat,
+      opcode_off9Format, funct_trapFormat, funct_codeFormat, funct_rFormat, funct_off9Format]) rfl]
+  simp only [Pseudo.run, $opn:ident, bind, GPR, readGPR_abs s h0, ← regIdx_eq_reg, offset16,
+    offset9]))
 
 end Refine

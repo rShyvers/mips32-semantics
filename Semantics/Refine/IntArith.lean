@@ -24,9 +24,9 @@ theorem add_refines (s : State) (hg : Good s) (rs rt rd w : W32)
     have : enc (.add rs rt rd) = some (rFormat 0#32 rs rt rd 0#32 0x20#32) := rfl
     rw [this] at hw; exact (Option.some.inj hw).symm
   have hc1 : InCop1Space w = false := by
-    subst hw'; simp only [InCop1Space, opcode_rFormat, funct_rFormat]; decide
+    subst hw'; simp only [InCop1Space, opcode_rFormat]; decide
   have hc0 : InCop0Space w = false := by
-    subst hw'; simp only [InCop0Space, opcode_rFormat]; decide
+    subst hw'; simp only [InCop0Space, opcode_rFormat, funct_rFormat]; decide
   have hex : execInstr s (.add rs rt rd) =
       (let av := readReg s (regIdx rs)
        let bv := readReg s (regIdx rt)
@@ -77,11 +77,11 @@ theorem sub_refines (s : State) (hg : Good s) (rs rt rd w : W32)
   · refine refine_gpr s hg _ _ (Ops.SUB rs rt rd) rd (readReg s (regIdx rs) - readReg s (regIdx rt))
       (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ ?_
     · alu_run [Ops.SUB, readGPR_abs s hg.2.2, hov, sub33_low]
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
+    · rw [execInstr_body s _ rfl rfl rfl]; exec_unfold; simp only [h]; rfl
   · refine refine_exc s _ _ (Ops.SUB rs rt rd) .IntegerOverflow excCodeOv (fun h => nomatch h)
       (by alu_space) (by alu_space) rfl ?_ rfl rfl ?_
     · alu_run [Ops.SUB, readGPR_abs s hg.2.2, hov]; rfl
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
+    · rw [execInstr_body s _ rfl rfl rfl]; exec_unfold; simp only [h]; rfl
 
 /-- **SUBU refines.** -/
 theorem subu_refines (s : State) (hg : Good s) (rs rt rd w : W32)
@@ -154,36 +154,6 @@ theorem sltu_refines (s : State) (hg : Good s) (rs rt rd w : W32)
     (execInstr_body s _ rfl rfl rfl)
   by_cases hc : (readReg s (regIdx rs)).toNat < (readReg s (regIdx rt)).toNat <;>
     alu_run [Ops.SLTU, readGPR_abs s hg.2.2, ult_w, one_w, hc, decide_true, decide_false] <;> rfl
-
-/-- **MOVN refines.** -/
-theorem movn_refines (s : State) (hg : Good s) (rs rt rd w : W32)
-    (hw : enc (.movn rs rt rd) = some w) :
-    Execute modelCtx w (.movn rs rt rd) (abs s) = some (abs (execInstr s (.movn rs rt rd))) := by
-  obtain rfl : rFormat 0#32 rs rt rd 0#32 0x0B#32 = w := Option.some.inj hw
-  cases h : readReg s (regIdx rt) != 0#32
-  · refine refine_ok s s _ _ (Ops.MOVN rs rt rd) (fun h => nomatch h) (by alu_space) (by alu_space) rfl
-      ?_ ?_ rfl rfl
-    · alu_run [Ops.MOVN, readGPR_abs s hg.2.2, h]; rfl
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
-  · refine refine_gpr s hg _ _ (Ops.MOVN rs rt rd) rd (readReg s (regIdx rs))
-      (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ ?_
-    · alu_run [Ops.MOVN, readGPR_abs s hg.2.2, h]
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
-
-/-- **MOVZ refines.** -/
-theorem movz_refines (s : State) (hg : Good s) (rs rt rd w : W32)
-    (hw : enc (.movz rs rt rd) = some w) :
-    Execute modelCtx w (.movz rs rt rd) (abs s) = some (abs (execInstr s (.movz rs rt rd))) := by
-  obtain rfl : rFormat 0#32 rs rt rd 0#32 0x0A#32 = w := Option.some.inj hw
-  cases h : readReg s (regIdx rt) == 0#32
-  · refine refine_ok s s _ _ (Ops.MOVZ rs rt rd) (fun h => nomatch h) (by alu_space) (by alu_space) rfl
-      ?_ ?_ rfl rfl
-    · alu_run [Ops.MOVZ, readGPR_abs s hg.2.2, h]; rfl
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
-  · refine refine_gpr s hg _ _ (Ops.MOVZ rs rt rd) rd (readReg s (regIdx rs))
-      (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ ?_
-    · alu_run [Ops.MOVZ, readGPR_abs s hg.2.2, h]
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
 
 -- 7C S1 integer ALU: end
 

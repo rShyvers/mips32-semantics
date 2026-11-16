@@ -2,23 +2,22 @@ import Semantics.Specs.Tactics
 import Semantics.Specs.Fixtures
 
 /-!
-# Branch — conditional branches (compare two registers, compare with zero, and-link)
+# Branch — conditional branches (compare two registers, compare with zero) and `nal`/`bal`
 
-Constructors: `beq` `bne` `blez` `bgtz` `bltz` `bgez` `bltzal` `bgezal`.
+Constructors: `beq` `bne` `blez` `bgtz` `bltz` `bgez` `nal` `bal`.
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  BEQ p.72; BNE p.103; BLEZ p.94; BGTZ p.88; BLTZ p.97; BGEZ p.75; BLTZAL p.98; BGEZAL p.76.
+  BEQ p.72; BNE p.103; BLEZ p.94; BGTZ p.88; BLTZ p.97; BGEZ p.75; NAL p.306; BAL p.50.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Control flow"; "REGIMM zero-comparison branches (real MIPS32 ISA) — v1.x addition".
 
-## Theorems in this file (27)
+## Theorems in this file (23)
 
   `beq_spec_raw` `bne_spec_raw` `beq_taken_spec` `beq_not_taken_spec` `bne_taken_spec`
   `bne_not_taken_spec` `beq_taken_delay_slot_lands_on_target` `blez_spec_raw` `blez_taken_spec`
   `blez_not_taken_spec` `bgtz_spec_raw` `bgtz_taken_spec` `bgtz_not_taken_spec` `bltz_spec_raw`
   `bltz_taken_spec` `bltz_not_taken_spec` `bgez_spec_raw` `bgez_taken_spec` `bgez_not_taken_spec`
-  `bltzal_spec_raw` `bltzal_taken_spec` `bltzal_not_taken_spec` `bltzal_sets_ra` `bgezal_spec_raw`
-  `bgezal_taken_spec` `bgezal_not_taken_spec` `bgezal_sets_ra`
+  `nal_spec_raw` `nal_sets_ra` `bal_spec_raw` `bal_sets_ra`
 -/
 
 set_option maxRecDepth 4000
@@ -153,11 +152,11 @@ theorem beq_taken_delay_slot_lands_on_target (s : State) (w w2 rs rt imm : W32)
         let s2 := step s1
         s2.pc == textBase + 4#32 + 12#32) = true
 
-/-! ## `blez`/`bgtz` and the REGIMM family `bltz`/`bgez`/`bltzal`/`bgezal`
+/-! ## `blez`/`bgtz`, the REGIMM branches `bltz`/`bgez`, and `nal`/`bal`
 
 Each `_spec_raw` theorem is one equation with an `if … then … else …` on the branch condition;
 the taken / not-taken corollaries follow from it by `ite_of_pos`/`ite_of_neg`, like
-`beq_taken_spec`/`beq_not_taken_spec`. (`j`/`jal`/`jr`/`jalr` are in `Jump.lean`.) -/
+`beq_taken_spec`/`beq_not_taken_spec`. `nal`/`bal` have no condition. (`j`/`jal`/`jalr` are in `Jump.lean`.) -/
 
 /-- **`blez` branch target and condition** — single-register comparison
 against zero, otherwise identical delay-slot shape to `beq`/`bne`: if
@@ -285,114 +284,53 @@ theorem bgez_not_taken_spec (s : State) (w rs imm : W32)
     step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
   rw [bgez_spec_raw s w rs imm hfetch hdecode hpb hexec, ite_of_neg (by omega)]
 
-/-- **`bltzal` links `$ra` to `pc + 8` unconditionally, then — independent
-of the link — branches on `$rs < 0` exactly like `bltz`.** This two-part
-structure (unconditional link, conditional branch) is the real MIPS32
-architectural definition, not a simplification: every execution of
-`bltzal` writes `$ra`, whether or not the branch itself is taken
-(INSTRUCTION-REF "bltzal" section — `GPR[31] <- PC + 8` happens in the
-instruction's own cycle regardless of the branch condition tested one cycle
-later). The branch condition reads `$rs` from the state *before* the link
-write, matching this simulator's documented resolution of the `rs = $ra`
-UNPREDICTABLE case. -/
-theorem bltzal_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
+/-- **`nal` links `$ra` to `pc + 8` and transfers nowhere** (MD00086 Vol II-A Rev 6.06, NAL, p.306:
+Operation `GPR[31] ← PC + 8`; "NAL is considered to be a not-taken branch, with a delay slot"): the
+next instruction is in a delay slot whose transfer is the fall-through `pc + 8`. The offset field
+is ignored. NAL is the Release 6 remnant of BLTZAL with `rs = 0`. -/
+theorem nal_spec_raw (s : State) (w imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nal imm))
+    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
+    step s = timerTick (
+      { (writeReg s 31 (s.pc + 8#32)) with
+          pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
+  step_spec
+
+/-- Corollary of `nal_spec_raw`: `$ra` reads back exactly `pc + 8`. -/
+theorem nal_sets_ra (s : State) (w imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.nal imm))
+    (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32) (hexec : executesInstr s = true) :
+    ∃ s', step s = s' ∧ readReg s' (regIdxSpec 31#32) = s.pc + 8#32 := by
+  refine ⟨_, nal_spec_raw s w imm hfetch hdecode hpb hexec, ?_⟩
+  show readReg (writeReg s 31 (s.pc + 8#32)) (regIdxSpec 31#32) = s.pc + 8#32
+  have h31 : regIdxSpec 31#32 = (31 : Fin 32) := by decide
+  rw [h31, writeReg_reads_back s 31 (s.pc + 8#32) (by decide) hsize32]
+
+/-- **`bal` links `$ra` to `pc + 8` and always schedules `PC_next + (offset << 2)`**
+(MD00086 Vol II-A Rev 6.06, BAL, p.50: `I: target_offset ← sign_extend(offset || 0²);
+GPR[31] ← PC + 8; I+1: PC ← PC + target_offset`). BAL is the Release 6 remnant of BGEZAL with
+`rs = 0`. -/
+theorem bal_spec_raw (s : State) (w imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bal imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
       let pcNext := s.pc + 4#32
-      let s' := writeReg s 31 (pcNext + 4#32)
-      if asSigned (readReg s (regIdxSpec rs)) < 0 then
-        { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
-      else
-        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }) := by
+      { (writeReg s 31 (pcNext + 4#32)) with
+          pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }) := by
   step_spec
 
-/-- **`bltzal`, taken**: `$ra` links to `pc + 8` (as always) and the branch
-also schedules `PC_next + (offset << 2)`. -/
-theorem bltzal_taken_spec (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
-    (hpb : s.pendingBranch = none)
-    (htaken : asSigned (readReg s (regIdxSpec rs)) < 0) (hexec : executesInstr s = true) :
-    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
-  rw [bltzal_spec_raw s w rs imm hfetch hdecode hpb hexec, ite_of_pos htaken]
-
-/-- **`bltzal`, not taken**: `$ra` still links to `pc + 8` (the link is
-unconditional), but no transfer is scheduled — control simply falls
-through to `PC_next`. -/
-theorem bltzal_not_taken_spec (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
-    (hpb : s.pendingBranch = none)
-    (hnot : 0 ≤ asSigned (readReg s (regIdxSpec rs))) (hexec : executesInstr s = true) :
-    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
-  rw [bltzal_spec_raw s w rs imm hfetch hdecode hpb hexec, ite_of_neg (by omega)]
-
-/-- Corollary of `bltzal_taken_spec`/`bltzal_not_taken_spec`: `$ra` reads
-back exactly `pc + 8` regardless of whether the branch is taken — the
-unconditional-link half of `bltzal` stated on its own. -/
-theorem bltzal_sets_ra (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bltzal rs imm))
+/-- Corollary of `bal_spec_raw`: `$ra` reads back exactly `pc + 8`. -/
+theorem bal_sets_ra (s : State) (w imm : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bal imm))
     (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32) (hexec : executesInstr s = true) :
     ∃ s', step s = s' ∧ readReg s' (regIdxSpec 31#32) = s.pc + 8#32 := by
+  refine ⟨_, bal_spec_raw s w imm hfetch hdecode hpb hexec, ?_⟩
+  show readReg (writeReg s 31 ((s.pc + 4#32) + 4#32)) (regIdxSpec 31#32) = s.pc + 8#32
   have h31 : regIdxSpec 31#32 = (31 : Fin 32) := by decide
-  have hreads : readReg (writeReg s 31 ((s.pc + 4#32) + 4#32)) (regIdxSpec 31#32) = s.pc + 8#32 := by
-    rw [h31, writeReg_reads_back s 31 ((s.pc + 4#32) + 4#32) (by decide) hsize32, BitVec.add_assoc]
-    congr 1
-  by_cases htaken : asSigned (readReg s (regIdxSpec rs)) < 0
-  · exact ⟨_, bltzal_taken_spec s w rs imm hfetch hdecode hpb htaken hexec, hreads⟩
-  · exact ⟨_, bltzal_not_taken_spec s w rs imm hfetch hdecode hpb (by omega) hexec, hreads⟩
+  rw [h31, writeReg_reads_back s 31 ((s.pc + 4#32) + 4#32) (by decide) hsize32, BitVec.add_assoc]
+  congr 1
 
-/-- **`bgezal` links `$ra` to `pc + 8` unconditionally, then branches on
-`$rs ≥ 0` exactly like `bgez`** — same unconditional-link/conditional-
-branch structure as `bltzal` (INSTRUCTION-REF "bgezal" section). -/
-theorem bgezal_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let pcNext := s.pc + 4#32
-      let s' := writeReg s 31 (pcNext + 4#32)
-      if 0 ≤ asSigned (readReg s (regIdxSpec rs)) then
-        { s' with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
-      else
-        { s' with pc := pcNext, pendingBranch := some (s.pc + 8#32) }) := by
-  step_spec
-
-/-- **`bgezal`, taken**: `$ra` links to `pc + 8` (as always) and the branch
-also schedules `PC_next + (offset << 2)`. -/
-theorem bgezal_taken_spec (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
-    (hpb : s.pendingBranch = none)
-    (htaken : 0 ≤ asSigned (readReg s (regIdxSpec rs))) (hexec : executesInstr s = true) :
-    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) := by
-  rw [bgezal_spec_raw s w rs imm hfetch hdecode hpb hexec, ite_of_pos htaken]
-
-/-- **`bgezal`, not taken**: `$ra` still links to `pc + 8` (the link is
-unconditional), but no transfer is scheduled. -/
-theorem bgezal_not_taken_spec (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
-    (hpb : s.pendingBranch = none)
-    (hnot : asSigned (readReg s (regIdxSpec rs)) < 0) (hexec : executesInstr s = true) :
-    step s = timerTick ({ (writeReg s 31 ((s.pc + 4#32) + 4#32)) with
-        pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) := by
-  rw [bgezal_spec_raw s w rs imm hfetch hdecode hpb hexec, ite_of_neg (by omega)]
-
-/-- Corollary of `bgezal_taken_spec`/`bgezal_not_taken_spec`: `$ra` reads
-back exactly `pc + 8` regardless of whether the branch is taken. -/
-theorem bgezal_sets_ra (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bgezal rs imm))
-    (hpb : s.pendingBranch = none) (hsize32 : s.regs.size = 32) (hexec : executesInstr s = true) :
-    ∃ s', step s = s' ∧ readReg s' (regIdxSpec 31#32) = s.pc + 8#32 := by
-  have h31 : regIdxSpec 31#32 = (31 : Fin 32) := by decide
-  have hreads : readReg (writeReg s 31 ((s.pc + 4#32) + 4#32)) (regIdxSpec 31#32) = s.pc + 8#32 := by
-    rw [h31, writeReg_reads_back s 31 ((s.pc + 4#32) + 4#32) (by decide) hsize32, BitVec.add_assoc]
-    congr 1
-  by_cases htaken : 0 ≤ asSigned (readReg s (regIdxSpec rs))
-  · exact ⟨_, bgezal_taken_spec s w rs imm hfetch hdecode hpb htaken hexec, hreads⟩
-  · exact ⟨_, bgezal_not_taken_spec s w rs imm hfetch hdecode hpb (by omega) hexec, hreads⟩
-
-/-! ### Satisfiable examples (`blez` … `bgezal`) -/
+/-! ### Satisfiable examples (`blez` … `bal`) -/
 
 -- `blez_taken_spec`/`blez_not_taken_spec`: `-5 ≤ 0` schedules the target;
 -- `5 ≤ 0` is false and falls through.
@@ -431,27 +369,13 @@ theorem bgezal_sets_ra (s : State) (w rs imm : W32)
           (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
         s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32)) = true
 
--- `bltzal_sets_ra`/`bltzal_taken_spec`: `$ra` links unconditionally even
--- though the branch itself is taken here.
-#guard (let s := stepIn (prog1Spec (.bltzal 8#32 3#32))
-          (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
+-- `nal_sets_ra`: `$ra` links to `pc + 8` and the delay slot falls through to `pc + 8` (the offset
+-- field is ignored).
+#guard (let s := stepIn (prog1Spec (.nal 3#32)) (initialState textBase)
         readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 &&
-            s.pendingBranch == some (textBase + 4#32 + 12#32)) = true
+            s.pendingBranch == some (textBase + 8#32)) = true
 
--- `bltzal_not_taken_spec`: `$ra` *still* links even though `5 < 0` is
--- false and no transfer is scheduled — the unconditional-link half fires
--- regardless of the branch outcome.
-#guard (let s := stepIn (prog1Spec (.bltzal 8#32 3#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32)])
-        readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32)) = true
-
--- `bgezal_sets_ra`/`bgezal_not_taken_spec`: same unconditional-link
--- convention as `bltzal`, mirrored branch condition.
-#guard (let s := stepIn (prog1Spec (.bgezal 8#32 3#32))
-          (setRegsSpec (initialState textBase) [(8, 0xfffffffb#32)])
-        readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32)) = true
-
-#guard (let s := stepIn (prog1Spec (.bgezal 8#32 3#32))
-          (setRegsSpec (initialState textBase) [(8, 0#32)])
+-- `bal_sets_ra`: `$ra` links to `pc + 8` and the target is always scheduled.
+#guard (let s := stepIn (prog1Spec (.bal 3#32)) (initialState textBase)
         readReg s 31 == textBase + 8#32 && s.pc == textBase + 4#32 &&
             s.pendingBranch == some (textBase + 4#32 + 12#32)) = true

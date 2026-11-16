@@ -2,26 +2,29 @@ import Semantics.Specs.Tactics
 import Semantics.Specs.Fixtures
 
 /-!
-# FpuMemory — FPU loads, stores and `prefx`
+# FpuMemory — FPU loads and stores
 
-Constructors: `lwc1` `swc1` `ldc1` `sdc1` `lwxc1` `ldxc1` `swxc1` `sdxc1` `prefx`.
+Constructors: `lwc1` `swc1` `ldc1` `sdc1` (Release 6 removed the indexed COP1X forms
+LWXC1/LDXC1/SWXC1/SDXC1 and PREFX).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  LWC1 p.236; SWC1 p.393; LDC1 p.215; SDC1 p.362; LWXC1 p.254; LDXC1 p.218; SWXC1 p.406;
-  SDXC1 p.364; PREFX p.329.
+  LWC1 p.236; SWC1 p.393; LDC1 p.215; SDC1 p.362.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 1)".
 
-## Theorems in this file (13)
+## Theorems in this file (6)
 
-  `lwc1_spec_raw` `swc1_spec_raw` `ldc1_spec_raw` `sdc1_spec_raw` `lwxc1_spec_raw` `ldxc1_spec_raw`
-  `swxc1_spec_raw` `sdxc1_spec_raw` `prefx_spec_raw` `lwc1_misaligned_spec` `swc1_misaligned_spec`
-  `lwxc1_misaligned_spec` `swxc1_misaligned_spec`
+  `lwc1_spec_raw` `swc1_spec_raw` `ldc1_spec_raw` `sdc1_spec_raw` `lwc1_misaligned_spec`
+  `swc1_misaligned_spec`
 -/
+
+-- W5: `ldc1`/`sdc1` are stated for the pre-Release 6 32-bit FPU register model (`Status.FR = 0`,
+-- an even/odd register pair, little-endian word order); W5 replaces them with the `FR = 1` 64-bit
+-- FPR form of the Release 6 target profile.
 
 set_option maxRecDepth 4000
 
-/-! ## Loads, stores, prefetch -/
+/-! ## Loads and stores -/
 
 /-- **`lwc1`**: `FPR[ft] ← MEM32[$rs + sext(imm)]`; Address Error (AdEL) if not word-aligned -/
 theorem lwc1_spec_raw (s : State) (w rs ft imm : W32)
@@ -46,8 +49,9 @@ theorem swc1_spec_raw (s : State) (w rs ft imm : W32)
       | some s' => { s' with llBit := false, pc := s'.pc + 4#32 }) := by
   fp_step_spec
 
-/-- **`ldc1`**: loads a big-endian doubleword into the pair (`FPR[ft+1]` ← the word at `addr`,
-`FPR[ft]` ← the word at `addr + 4`). **Address Error if `addr` is not a multiple of 8**
+/-- **`ldc1`**: loads a little-endian doubleword into the pair (`FPR[ft]`, the low half ← the word
+at `addr`; `FPR[ft+1]`, the high half ← the word at `addr + 4`; LDC1 p.215: `memdoubleword ←
+memmsw || memlsw` with the byte order of the little-endian profile). **Address Error if `addr` is not a multiple of 8**
 (MD00086 Vol II-A Rev 6.06, LDC1, p.215) -/
 theorem ldc1_spec_raw (s : State) (w rs ft imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ldc1 rs ft imm))
@@ -57,12 +61,13 @@ theorem ldc1_spec_raw (s : State) (w rs ft imm : W32)
       if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdEL addr
       else
         match readMemWord s addr, readMemWord s (addr + 4#32) with
-        | some hi, some lo =>
+        | some lo, some hi =>
           { (writeFpReg (writeFpReg s (regIdx ft) lo) (regIdx (ft + 1#32)) hi) with pc := s.pc + 4#32 }
         | _, _ => takeAddressException s excCodeAdEL addr) := by
   fp_step_spec
 
-/-- **`sdc1`**: stores the pair as a big-endian doubleword. **Address Error if `addr` is not a
+/-- **`sdc1`**: stores the pair as a little-endian doubleword (`FPR[ft]`, the low half, at `addr`;
+`FPR[ft+1]` at `addr + 4`). **Address Error if `addr` is not a
 multiple of 8** (MD00086 Vol II-A Rev 6.06, SDC1, p.362) -/
 theorem sdc1_spec_raw (s : State) (w rs ft imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sdc1 rs ft imm))
@@ -71,73 +76,12 @@ theorem sdc1_spec_raw (s : State) (w rs ft imm : W32)
       let addr := readReg s (regIdx rs) + signExt16 imm
       if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdES addr
       else
-        match writeMemWord s addr (readFpReg s (regIdx (ft + 1#32))) with
+        match writeMemWord s addr (readFpReg s (regIdx ft)) with
         | none => takeAddressException s excCodeAdES addr
         | some s' =>
-          match writeMemWord s' (addr + 4#32) (readFpReg s (regIdx ft)) with
+          match writeMemWord s' (addr + 4#32) (readFpReg s (regIdx (ft + 1#32))) with
           | none => takeAddressException s excCodeAdES addr
           | some s'' => { s'' with llBit := false, pc := s''.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`lwxc1`**: as `lwc1` with the address `$base + $index` (MD00086 Vol II-A Rev 6.06, LWXC1, p.254) -/
-theorem lwxc1_spec_raw (s : State) (w fd index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwxc1 fd index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let addr := readReg s (regIdx base) + readReg s (regIdx index)
-      match readMemWord s addr with
-      | none => takeAddressException s excCodeAdEL addr
-      | some v => { (writeFpReg s (regIdx fd) v) with pc := s.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`ldxc1`**: as `ldc1` with the address `$base + $index` (MD00086 Vol II-A Rev 6.06, LDXC1, p.218) -/
-theorem ldxc1_spec_raw (s : State) (w fd index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ldxc1 fd index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let addr := readReg s (regIdx base) + readReg s (regIdx index)
-      if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdEL addr
-      else
-        match readMemWord s addr, readMemWord s (addr + 4#32) with
-        | some hi, some lo =>
-          { (writeFpReg (writeFpReg s (regIdx fd) lo) (regIdx (fd + 1#32)) hi) with pc := s.pc + 4#32 }
-        | _, _ => takeAddressException s excCodeAdEL addr) := by
-  fp_step_spec
-
-/-- **`swxc1`**: as `swc1` with the address `$base + $index` (MD00086 Vol II-A Rev 6.06, SWXC1, p.406) -/
-theorem swxc1_spec_raw (s : State) (w fs index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swxc1 fs index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let addr := readReg s (regIdx base) + readReg s (regIdx index)
-      match writeMemWord s addr (readFpReg s (regIdx fs)) with
-      | none => takeAddressException s excCodeAdES addr
-      | some s' => { s' with llBit := false, pc := s'.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`sdxc1`**: as `sdc1` with the address `$base + $index` (MD00086 Vol II-A Rev 6.06, SDXC1, p.364) -/
-theorem sdxc1_spec_raw (s : State) (w fs index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sdxc1 fs index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let addr := readReg s (regIdx base) + readReg s (regIdx index)
-      if addr.toNat % 8 ≠ 0 then takeAddressException s excCodeAdES addr
-      else
-        match writeMemWord s addr (readFpReg s (regIdx (fs + 1#32))) with
-        | none => takeAddressException s excCodeAdES addr
-        | some s' =>
-          match writeMemWord s' (addr + 4#32) (readFpReg s (regIdx fs)) with
-          | none => takeAddressException s excCodeAdES addr
-          | some s'' => { s'' with llBit := false, pc := s''.pc + 4#32 }) := by
-  fp_step_spec
-
-/-- **`prefx`** is a no-op (but, being a COP1X instruction, it needs `Status.CU1`)
-(MD00086 Vol II-A Rev 6.06, PREFX, p.329) -/
-theorem prefx_spec_raw (s : State) (w hint index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.prefx hint index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      { s with pc := s.pc + 4#32 }) := by
   fp_step_spec
 
 /-! ## Misaligned word accesses raise Address Error
@@ -165,27 +109,5 @@ theorem swc1_misaligned_spec (s : State) (w rs ft imm : W32)
     (hmisaligned : (readReg s (regIdx rs) + signExt16 imm).toNat % 4 ≠ 0) (hexec : executesInstr s = true) :
     step s = timerTick (takeAddressException s excCodeAdES (readReg s (regIdx rs) + signExt16 imm)) := by
   rw [swc1_spec_raw s w rs ft imm hfetch hdecode hpb hcu hexec]
-  dsimp only
-  rw [writeMemWord_misaligned s _ _ hmisaligned]
-
-/-- **A misaligned `lwxc1` raises Address Error (AdEL) on `$base + $index`.** -/
-theorem lwxc1_misaligned_spec (s : State) (w fd index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwxc1 fd index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
-    (hmisaligned : (readReg s (regIdx base) + readReg s (regIdx index)).toNat % 4 ≠ 0) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      takeAddressException s excCodeAdEL (readReg s (regIdx base) + readReg s (regIdx index))) := by
-  rw [lwxc1_spec_raw s w fd index base hfetch hdecode hpb hcu hexec]
-  dsimp only
-  rw [readMemWord_misaligned s _ hmisaligned]
-
-/-- **A misaligned `swxc1` raises Address Error (AdES) on `$base + $index`.** -/
-theorem swxc1_misaligned_spec (s : State) (w fs index base : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.swxc1 fs index base))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
-    (hmisaligned : (readReg s (regIdx base) + readReg s (regIdx index)).toNat % 4 ≠ 0) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      takeAddressException s excCodeAdES (readReg s (regIdx base) + readReg s (regIdx index))) := by
-  rw [swxc1_spec_raw s w fs index base hfetch hdecode hpb hcu hexec]
   dsimp only
   rw [writeMemWord_misaligned s _ _ hmisaligned]

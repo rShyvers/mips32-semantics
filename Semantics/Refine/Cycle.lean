@@ -11,7 +11,6 @@ decoded instruction:
   `Manual.InterruptTaken` and the general exception processing with `ExcCode = Int`):
   `interruptTaken_abs`, `takeInterrupt_abs`;
 * the lower power mode of `WAIT` (`standbyStep` against `Manual.LowPowerTime`): `standbyStep_abs`;
-* the nullified delay slot of a not-taken branch-likely: `nullifiedStep_abs`;
 * instruction fetch (`readMemWord s s.pc` against `Manual.InstructionFetch`; a misaligned `PC` or a
   kernel address in User Mode is an Address Error): `fetch_run`, `fetchError_abs`;
 * a word `decode` rejects (Reserved Instruction, Coprocessor Unusable by encoding space, and the
@@ -139,7 +138,7 @@ theorem takeInterrupt_abs (s : State) (h : interruptTaken s = true) :
   simp only [takeInterrupt, exceptionEntry, hm, Bool.false_eq_true, ite_false]
   rfl
 
-/-! ## Lower power mode and the nullified slot -/
+/-! ## Lower power mode -/
 
 /-- **The lower power mode of `WAIT`**: `standbyStep` is `Manual.LowPowerTime` with the model's
 `WaitRestartsOnNotEnabled = true`. -/
@@ -151,11 +150,6 @@ theorem standbyStep_abs (s : State) : abs (standbyStep s) = LowPowerTime modelIm
   · simp only [h, ne_eq, not_false_eq_true, decide_true, ite_true, Bool.and_true,
       show modelImpl.WaitRestartsOnNotEnabled = true from rfl]
     rfl
-
-/-- **A nullified instruction** (`Manual.InstructionTime`, point 3). -/
-theorem nullifiedStep_abs (s : State) :
-    abs (nullifiedStep s) =
-      { abs s with PC := (abs s).PC + 4#32, BranchDelay := none, Nullify := false } := rfl
 
 /-! ## Instruction fetch -/
 
@@ -211,39 +205,36 @@ theorem opcode_toNat (w : W32) : fldOf w 31 26 = (opcode w).toNat := by
   have := w.isLt; rw [Nat.shiftRight_eq_div_pow]; omega
 
 theorem isCop0Word_eq (w : W32) : isCop0Word w = InCop0Space w := by
-  rw [isCop0Word, InCop0Space, opcode_eq]
+  rw [isCop0Word, InCop0Space, opcode_eq, funct_eq]
 
 theorem isCop2Word_eq (w : W32) : isCop2Word w = InCop2Space w := by
   rw [isCop2Word, InCop2Space, opcode_eq]
-  cases opcodeOf w == 0x12#32 <;> cases opcodeOf w == 0x32#32 <;> cases opcodeOf w == 0x36#32 <;>
-    cases opcodeOf w == 0x3a#32 <;> cases opcodeOf w == 0x3e#32 <;> rfl
 
 theorem op_ne_of_decode_none (w : W32) (hd : decode w = none) (n : Nat)
     (hn : n = 0x31 ∨ n = 0x39 ∨ n = 0x35 ∨ n = 0x3D) : (opcodeOf w == BitVec.ofNat 32 n) = false := by
   rw [beq_eq_false_iff_ne]; intro h
   have ht : (opcodeOf w).toNat = n := by rw [h]; simp; omega
-  rcases hn with rfl | rfl | rfl | rfl <;> simp [decode, ht] at hd
+  rcases hn with rfl | rfl | rfl | rfl <;> simp [decode, decodeFor, decodePrimary, ht] at hd
 
 /-- For a word `decode` rejects, the COP1 encoding space is the model's `isCop1Word` (the words of
 opcodes `LWC1`, `SWC1`, `LDC1`, `SDC1` all decode). -/
 theorem isCop1Word_eq (w : W32) (hd : decode w = none) : isCop1Word w = InCop1Space w := by
-  rw [isCop1Word, InCop1Space, opcode_eq, funct_eq,
+  rw [isCop1Word, InCop1Space, opcode_eq,
     op_ne_of_decode_none w hd 0x31 (by omega), op_ne_of_decode_none w hd 0x39 (by omega),
     op_ne_of_decode_none w hd 0x35 (by omega), op_ne_of_decode_none w hd 0x3D (by omega)]
   simp only [Bool.or_false]
 
 theorem cop01_disjoint (w : W32) : (InCop0Space w && InCop1Space w) = false := by
   simp only [InCop0Space, InCop1Space]
-  cases h : opcode w == 0x10#32 <;> cases h' : opcode w == 0x2F#32 <;> simp_all
+  cases h : opcode w == 0x10#32 <;> cases h' : opcode w == 0x1F#32 <;> simp_all
 
 /-- An UNPREDICTABLE encoding is in no coprocessor 2 space. -/
 theorem cop2_of_unpredictable (w : W32) (hu : UnpredictableEncoding w = true) :
     InCop2Space w = false := by
   rw [Bool.eq_false_iff]; intro h
-  simp only [InCop2Space, Bool.or_eq_true, beq_iff_eq] at h
+  simp only [InCop2Space, beq_iff_eq] at h
   have hf := opcode_toNat w
-  rcases h with (((h | h) | h) | h) | h <;> rw [h] at hf <;>
-    simp only [BitVec.toNat_ofNat] at hf <;> simp [UnpredictableEncoding, hf] at hu
+  rw [h] at hf; simp only [BitVec.toNat_ofNat] at hf; simp [UnpredictableEncoding, hf] at hu
 
 /-- **A word `decode` rejects** (`Manual.FetchExecute`, the `dec w = none` arm, under the model's
 choices) against the model's `execute`: Coprocessor Unusable for the space of an unusable coprocessor

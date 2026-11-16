@@ -37,11 +37,6 @@ abbrev isBranchLikeSpec := isBranchLike
 /-- Spec-side name for `Step.lean`'s `zeroExtByte` — the same definition, not a copy. -/
 abbrev zeroExtByteSpec := zeroExtByte
 
-/-- Spec-side name for `Step.lean`'s `setByteSlot` — the same definition, not a copy. -/
-abbrev setByteSlotSpec := setByteSlot
-
-/-- Spec-side name for `Step.lean`'s `getByteSlot` — the same definition, not a copy. -/
-abbrev getByteSlotSpec := getByteSlot
 
 /-- Spec-side name for `Step.lean`'s `countLeadingZerosFrom` — the same definition, not a copy. -/
 abbrev countLeadingZerosFromSpec := countLeadingZerosFrom
@@ -118,12 +113,3 @@ def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State
             (regIdx (fd + 1#32)).val (r.1.extractLsb' 32 32)
           fcsr := Mips.Fp.raiseFlags s.fcsr r.2
           pc := s.pc + 4#32 }
-
-/-- As `fpCompletesS`, for a compare: the "result" is the Boolean `r.1`
-written to condition code `cc`; no FP register changes. -/
-def fpCompletesCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) : State :=
-  if Mips.Fp.fpeEnabled s.fcsr r.2 then
-    takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
-  else
-    { s with fcsr := Mips.Fp.setCC (Mips.Fp.raiseFlags s.fcsr r.2) (ccIdx cc) r.1,
-               pc := s.pc + 4#32 }

@@ -7,7 +7,9 @@
 # MD00082 Vol I-A Rev 6.01 sec 6.7.2.3 p.101 ("When an underflow trap is enabled (through the FCSR Enable field bit), underflow is
 # signaled when tininess is detected regardless of loss of accuracy"; "When an underflow trap is not enabled, underflow is signaled
 # only when both tininess and loss of accuracy have been detected"); sec 6.7.1 p.99 (a trap whenever a Cause bit and its Enable are set).
-# QEMU 24Kf signals Underflow only for an inexact tiny result, also with the trap enabled: the exact cases do not trap there.
+# Doubles are loaded with mtc1/mthc1 and read with mfhc1 (the same with Status.FR = 0 and FR = 1); FCSR reads are masked to drop the
+# read-only NAN2008/ABS2008 bits 19..18 (checked in fp_fcsr_nan2008_abs2008).
+# QEMU mips32r6-generic signals Underflow only for an inexact tiny result, also with the trap enabled: the exact cases do not trap there.
 # oracle: expect gpr:s4=3
 # oracle: expect gpr:s6=0x000f0f0f
 # oracle: expect mem:0x10010000=0x12345678 mem:0x10010004=0x00000100 mem:0x10010008=0x00002100
@@ -20,7 +22,6 @@
 # oracle: expect-deviation mem:0x10010008 MD00082 Vol I-A Rev 6.01 sec 6.7.2.3 p.101: "When an underflow trap is enabled ..., underflow is signaled when tininess is detected regardless of loss of accuracy": FCSR at the trap for mul.s is Enables.U|Cause.U (model 0x00002100); QEMU does not trap (0)
 # oracle: expect-deviation mem:0x1001000c MD00082 Vol I-A Rev 6.01 sec 6.7.2.3 p.101: "When an underflow trap is enabled ..., underflow is signaled when tininess is detected regardless of loss of accuracy": mul.d exact tiny with Enables.U traps, fd not written (model sentinel 0x12345678); QEMU writes 2^-1023 (high word 0x00080000)
 # oracle: expect-deviation mem:0x10010014 MD00082 Vol I-A Rev 6.01 sec 6.7.2.3 p.101: "When an underflow trap is enabled ..., underflow is signaled when tininess is detected regardless of loss of accuracy": FCSR at the trap for mul.d is Enables.U|Cause.U (model 0x00002100); QEMU does not trap (0)
-# oracle: expect-deviation fpr:f11 MD00082 Vol I-A Rev 6.01 sec 6.7.2.3 p.101: "When an underflow trap is enabled ..., underflow is signaled when tininess is detected regardless of loss of accuracy": high word of the mul.d destination (not written by the model, as mem:0x1001000c); QEMU 0x00080000
 .data
 res: .space 96
 .ktext
@@ -31,6 +32,9 @@ sll $s6, $s6, 8
 or $s6, $s6, $k0
 addiu $s4, $s4, 1
 cfc1 $s5, $31
+lui $k1, 0xfff3
+ori $k1, $k1, 0xffff
+and $s5, $s5, $k1
 li $k1, 0xfffc0fff
 and $k1, $s5, $k1
 ctc1 $k1, $31
@@ -55,6 +59,9 @@ ctc1 $t8, $31
 mul.s $f10, $f6, $f8
 mfc1 $t0, $f10
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 0($s7)
 sw $t1, 4($s7)
@@ -63,18 +70,21 @@ sw $s5, 8($s7)
 li $s5, 0
 li $t9, 0x12345678
 mtc1 $t9, $f10
-mtc1 $t9, $f11
-li $t9, 0x3fe00000
-mtc1 $t9, $f7
+mthc1 $t9, $f10
 mtc1 $zero, $f6
-li $t9, 0x00100000
-mtc1 $t9, $f9
+li $t9, 0x3fe00000
+mthc1 $t9, $f6
 mtc1 $zero, $f8
+li $t9, 0x00100000
+mthc1 $t9, $f8
 li $t8, 0x00000100
 ctc1 $t8, $31
 mul.d $f10, $f6, $f8
-mfc1 $t0, $f11
+mfhc1 $t0, $f10
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 12($s7)
 sw $t1, 16($s7)
@@ -91,6 +101,9 @@ ctc1 $zero, $31
 mul.s $f10, $f6, $f8
 mfc1 $t0, $f10
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 24($s7)
 sw $t1, 28($s7)
@@ -108,7 +121,13 @@ ctc1 $t8, $31
 mul.s $f10, $f6, $f8
 mfc1 $t0, $f10
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 ctc1 $zero, $31
 sw $t0, 36($s7)
 sw $t1, 40($s7)
 sw $s5, 44($s7)
+mthc1 $zero, $f6               # the final FPR dump of an FR = 1 FPU holds only low words (results are in memory)
+mthc1 $zero, $f8
+mthc1 $zero, $f10

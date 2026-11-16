@@ -9,7 +9,7 @@ Initial-state construction, register
 read/write (with the `$zero`-is-write-ignored rule), the operating mode (`kernelMode`, `userMode`),
 the **Fixed Mapping MMU** (`fixedMappingPA`, `translate`: virtual → physical address with the
 User-Mode address check), and byte/halfword/word memory access through it (instruction fetch is a
-word read, `Step.lean`'s `step`) with MIPS alignment and big-endian composition rules (SPEC-NOTES
+word read, `Step.lean`'s `step`) with MIPS alignment and the byte order of `profile` (little-endian) (SPEC-NOTES
 §1,§4,§7; INSTRUCTION-REF Global rules §2,§4,§5).
 
 Depends only on the foundation (`Word`, `Types`); read-only there.
@@ -31,8 +31,6 @@ This is *not* the reset state: `Step.lean`'s `resetState` is `resetException pow
 def powerOnState : State :=
   { pc := 0#32
     regs := Array.replicate 32 (0#32)
-    hi := 0#32
-    lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
     physMem := ∅
@@ -57,7 +55,7 @@ def powerOnState : State :=
 
 /-- The initial machine state at program counter `pc`: all general-purpose
 registers are `0` except `$sp` (register 29), which is seeded with `spInit`;
-`hi`/`lo` are `0`; all 32 FP registers (`fpRegs`) are `0`; memory is empty
+all 32 FP registers (`fpRegs`) are `0`; memory is empty
 (the loader, `Semantics/Env.lean`'s `load`, then writes the program image into it);
 `llBit` is `false` (no `ll` has executed yet); `pendingBranch` is `none` (not in a delay slot).
 
@@ -78,8 +76,6 @@ equals `initialState textBase` (`Specs/Reset.lean`, `hostedStart_is_reset_then_b
 def initialState (pc : W32) : State :=
   { pc := pc
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
-    hi := 0#32
-    lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
     physMem := ∅
@@ -222,7 +218,7 @@ def translate (s : State) (va : VAddr) : Option PAddr :=
 /-! ## Memory access
 
 Every memory access of the processor — instruction fetch (`readMemWord s s.pc`, `Step.lean`),
-loads and stores, including `lwl`/`lwr`/`swl`/`swr` byte by byte — goes through the six functions
+loads and stores — goes through the six functions
 below. Each takes a **virtual** address, checks alignment (halfword, word), translates it with
 `translate` (Address Error ⇒ `none`) and reads or writes `State.physMem` at the **physical**
 address. An aligned halfword or word never crosses a 512 MB segment boundary, so its bytes are at
@@ -239,24 +235,23 @@ def readMemByte (s : State) (addr : VAddr) : Option UInt8 :=
   | none => none
   | some pa => some (s.physMem.get? pa |>.getD 0)
 
-/-- Read a big-endian halfword (2 bytes) starting at virtual address `addr`. The byte at
-`addr` is the most-significant byte, the byte at `addr + 1` the least-significant. Returns
-`none` if `addr` is not halfword-aligned (a multiple of 2) or not accessible (`translate`).
-Unwritten bytes read as `0`. -/
+/-- Read a halfword (2 bytes) starting at virtual address `addr`, in the byte order of `profile`
+(`join2`; little-endian: the byte at `addr` is the least-significant). Returns `none` if `addr` is
+not halfword-aligned (a multiple of 2) or not accessible (`translate`). Unwritten bytes read as `0`. -/
 def readMemHalf (s : State) (addr : VAddr) : Option W32 :=
   if addr.toNat % 2 ≠ 0 then none
   else
     match translate s addr with
     | none => none
     | some pa =>
-      let hi := s.physMem.get? pa |>.getD 0
-      let lo := s.physMem.get? (pa + 1#32) |>.getD 0
-      some ((BitVec.ofNat 32 hi.toNat <<< 8) ||| BitVec.ofNat 32 lo.toNat)
+      let b0 := s.physMem.get? pa |>.getD 0
+      let b1 := s.physMem.get? (pa + 1#32) |>.getD 0
+      some (join2 profile.bigEndianMem b0 b1)
 
-/-- Read a big-endian word (4 bytes) starting at virtual address `addr`. The byte at `addr`
-is the most-significant byte, down to `addr + 3` as the least-significant.
-Returns `none` if `addr` is not word-aligned (a multiple of 4) or not accessible (`translate`).
-Unwritten bytes read as `0`. Instruction fetch is `readMemWord s s.pc` (`Step.lean`). -/
+/-- Read a word (4 bytes) starting at virtual address `addr`, in the byte order of `profile`
+(`join4`; little-endian: the byte at `addr` is the least-significant, the byte at `addr + 3` the
+most-significant). Returns `none` if `addr` is not word-aligned (a multiple of 4) or not accessible
+(`translate`). Unwritten bytes read as `0`. Instruction fetch is `readMemWord s s.pc` (`Step.lean`). -/
 def readMemWord (s : State) (addr : VAddr) : Option W32 :=
   if addr.toNat % 4 ≠ 0 then none
   else
@@ -267,8 +262,7 @@ def readMemWord (s : State) (addr : VAddr) : Option W32 :=
       let b1 := s.physMem.get? (pa + 1#32) |>.getD 0
       let b2 := s.physMem.get? (pa + 2#32) |>.getD 0
       let b3 := s.physMem.get? (pa + 3#32) |>.getD 0
-      some ((BitVec.ofNat 32 b0.toNat <<< 24) ||| (BitVec.ofNat 32 b1.toNat <<< 16) |||
-            (BitVec.ofNat 32 b2.toNat <<< 8) ||| BitVec.ofNat 32 b3.toNat)
+      some (join4 profile.bigEndianMem b0 b1 b2 b3)
 
 /-- Write a single byte `v` at virtual address `addr`. Byte access has no alignment
 requirement; `none` only for a kernel address from User Mode (nothing is written). -/
@@ -277,21 +271,21 @@ def writeMemByte (s : State) (addr : VAddr) (v : UInt8) : Option State :=
   | none => none
   | some pa => some { s with physMem := s.physMem.insert pa v }
 
-/-- Write a big-endian halfword `v` (low 16 bits used) at virtual address `addr`:
-the most-significant byte goes to `addr`, the least-significant to
-`addr + 1`. Returns `none` if `addr` is not halfword-aligned or not accessible. -/
+/-- Write the halfword `v` (low 16 bits used) at virtual address `addr`, in the byte order of
+`profile` (`byteOfValue`; little-endian: the least-significant byte goes to `addr`). Returns `none`
+if `addr` is not halfword-aligned or not accessible. -/
 def writeMemHalf (s : State) (addr : VAddr) (v : W32) : Option State :=
   if addr.toNat % 2 ≠ 0 then none
   else
     match translate s addr with
     | none => none
     | some pa =>
-      let hi : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
-      let lo : UInt8 := (v &&& 0xff#32).toNat.toUInt8
-      some { s with physMem := (s.physMem.insert pa hi).insert (pa + 1#32) lo }
+      let b0 : UInt8 := byteOfValue profile.bigEndianMem 2 v 0
+      let b1 : UInt8 := byteOfValue profile.bigEndianMem 2 v 1
+      some { s with physMem := (s.physMem.insert pa b0).insert (pa + 1#32) b1 }
 
-/-- Write a big-endian word `v` at virtual address `addr`: the most-significant
-byte goes to `addr`, down to the least-significant byte at `addr + 3`.
+/-- Write the word `v` at virtual address `addr`, in the byte order of `profile` (`byteOfValue`;
+little-endian: the least-significant byte goes to `addr`, the most-significant to `addr + 3`).
 Returns `none` if `addr` is not word-aligned or not accessible. -/
 def writeMemWord (s : State) (addr : VAddr) (v : W32) : Option State :=
   if addr.toNat % 4 ≠ 0 then none
@@ -299,10 +293,10 @@ def writeMemWord (s : State) (addr : VAddr) (v : W32) : Option State :=
     match translate s addr with
     | none => none
     | some pa =>
-      let b0 : UInt8 := ((v >>> 24) &&& 0xff#32).toNat.toUInt8
-      let b1 : UInt8 := ((v >>> 16) &&& 0xff#32).toNat.toUInt8
-      let b2 : UInt8 := ((v >>> 8) &&& 0xff#32).toNat.toUInt8
-      let b3 : UInt8 := (v &&& 0xff#32).toNat.toUInt8
+      let b0 : UInt8 := byteOfValue profile.bigEndianMem 4 v 0
+      let b1 : UInt8 := byteOfValue profile.bigEndianMem 4 v 1
+      let b2 : UInt8 := byteOfValue profile.bigEndianMem 4 v 2
+      let b3 : UInt8 := byteOfValue profile.bigEndianMem 4 v 3
       some { s with
         physMem := (((s.physMem.insert pa b0).insert (pa + 1#32) b1).insert
                   (pa + 2#32) b2).insert (pa + 3#32) b3 }

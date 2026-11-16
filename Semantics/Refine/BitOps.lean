@@ -29,7 +29,7 @@ theorem clz_run (rs rd : W32) (c : Ctx) (f : Frame) :
 theorem clo_refines (s : State) (hg : Good s) (rs rd w : W32)
     (hw : enc (.clo rs rd) = some w) :
     Execute modelCtx w (.clo rs rd) (abs s) = some (abs (execInstr s (.clo rs rd))) := by
-  obtain rfl : rFormat 0x1C#32 rs rd rd 0#32 0x21#32 = w := Option.some.inj hw
+  obtain rfl : rFormat 0#32 rs 0#32 rd 1#32 0x11#32 = w := Option.some.inj hw
   refine refine_gpr s hg _ _ (Ops.CLO rs rd) rd
     (BitVec.ofNat 32 (countLeadingOnes (readReg s (regIdx rs))))
     (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ (execInstr_body s _ rfl rfl rfl)
@@ -40,7 +40,7 @@ theorem clo_refines (s : State) (hg : Good s) (rs rd w : W32)
 theorem clz_refines (s : State) (hg : Good s) (rs rd w : W32)
     (hw : enc (.clz rs rd) = some w) :
     Execute modelCtx w (.clz rs rd) (abs s) = some (abs (execInstr s (.clz rs rd))) := by
-  obtain rfl : rFormat 0x1C#32 rs rd rd 0#32 0x20#32 = w := Option.some.inj hw
+  obtain rfl : rFormat 0#32 rs 0#32 rd 1#32 0x10#32 = w := Option.some.inj hw
   refine refine_gpr s hg _ _ (Ops.CLZ rs rd) rd
     (BitVec.ofNat 32 (countLeadingZeros (readReg s (regIdx rs))))
     (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ (execInstr_body s _ rfl rfl rfl)
@@ -145,7 +145,8 @@ theorem ext_refines (s : State) (hg : Good s) (rt rs pos size w : W32)
     Execute modelCtx w (.ext rt rs pos size) (abs s) = some (abs (execInstr s (.ext rt rs pos size))) := by
   obtain rfl : rFormat 0x1F#32 rs rt (size - 1#32) pos 0x00#32 = w := Option.some.inj hw
   have hex := execInstr_body s (.ext rt rs pos size) rfl rfl rfl
-  simp only [execBody, and31] at hex
+  simp only [execBody, execTables, List.findSome?, execIntArith, execShift, execBitOps, Option.getD,
+    and31] at hex
   by_cases hr : (low pos 5).toNat + (low (size - 1#32) 5).toNat > 31
   · rw [ite_eq_left_of_eq_true _ _ (eq_true hr)] at hex
     refine refine_exc s _ _ (Ops.EXT rt rs pos size) .ReservedInstruction excCodeRI (fun h => nomatch h)
@@ -165,7 +166,8 @@ theorem ins_refines (s : State) (hg : Good s) (rt rs pos size w : W32)
     Execute modelCtx w (.ins rt rs pos size) (abs s) = some (abs (execInstr s (.ins rt rs pos size))) := by
   obtain rfl : rFormat 0x1F#32 rs rt (pos + size - 1#32) pos 0x04#32 = w := Option.some.inj hw
   have hex := execInstr_body s (.ins rt rs pos size) rfl rfl rfl
-  simp only [execBody, and31] at hex
+  simp only [execBody, execTables, List.findSome?, execIntArith, execShift, execBitOps, Option.getD,
+    and31] at hex
   by_cases hr : (low pos 5).toNat > (low (pos + size - 1#32) 5).toNat
   · rw [ite_eq_left_of_eq_true _ _ (eq_true hr)] at hex
     have hr' : ((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int) := by omega

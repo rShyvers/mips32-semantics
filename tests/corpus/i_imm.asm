@@ -1,8 +1,8 @@
-# i_imm.asm — addi, andi, ori, xori, lui.
+# i_imm.asm — addiu, andi, ori, xori, lui.
 .text
 main:
     li    $t0, 10
-    addi  $t1, $t0, 5      # 15
+    addiu $t1, $t0, 5     # 15
     andi  $t2, $t0, 0x7    # 10 & 7 = 2
     ori   $t3, $t0, 0x5    # 10 | 5 = 15
     xori  $t4, $t0, 0x3    # 10 ^ 3 = 9

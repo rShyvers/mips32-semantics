@@ -13,7 +13,7 @@ import Semantics.Specs.Lemmas
   `writeMemByte_getD_regs` `advance_regs` `zeroKept_next` `zeroKept_mkNext`
   `zeroKept_takeException` `zeroKept_takeException'` `zeroKept_takeAddressException`
   `zeroKept_exceptionEntry` `zeroKept_takeCoprocessorUnusable` `zeroKept_fpFinishS`
-  `zeroKept_fpFinishD` `zeroKept_fpFinishCmp` `execInstr_zeroKept` `step_preserves_zero_register`
+  `zeroKept_fpFinishD` `execInstr_zeroKept` `step_preserves_zero_register`
   `step_zero_register_reads_zero` `run_preserves_zero_register`
   `run_initialState_zero_register` `zero_write_not_observable`
   `step_preserves_zero_register_nontrivial`
@@ -118,8 +118,8 @@ theorem zeroKept_takeCoprocessorUnusable (s : State) :
   iff_true_intro rfl
 
 /-- The three ways an FP computational instruction completes
-(`fpFinishS`/`fpFinishD`/`fpFinishCmp`: Floating Point exception, or FCSR
-update plus an FP-register / condition-code write) never touch `regs`. -/
+(`fpFinishS`/`fpFinishD`: Floating Point exception, or FCSR
+update plus an FP-register write) never touch `regs`. -/
 theorem zeroKept_fpFinishS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) :
     ZeroKept s (fpFinishS s fd r) ↔ True :=
   iff_true_intro (by
@@ -142,17 +142,6 @@ theorem zeroKept_fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flag
     · show (advance _ _).regs.getD 0 0#32 = _
       rw [advance_regs]; rfl)
 
-theorem zeroKept_fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) :
-    ZeroKept s (fpFinishCmp s cc r) ↔ True :=
-  iff_true_intro (by
-    show readReg (fpFinishCmp s _ r) 0 = readReg s 0
-    unfold fpFinishCmp
-    dsimp only
-    split
-    · rfl
-    · show (advance _ _).regs.getD 0 0#32 = _
-      rw [advance_regs]; rfl)
-
 /-- One FP operation completed through `fpThen` keeps `$zero` when every
 continuation does, from the state with the FCSR updated. -/
 theorem zeroKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
@@ -161,17 +150,6 @@ theorem zeroKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : S
     ZeroKept s (fpThen s r k) := by
   unfold fpThen
   dsimp only
-  split
-  · rfl
-  · exact h _
-
-/-- One operation of a multiply-add (`fpStep`) keeps `$zero` when every continuation does, from the
-state with the new Cause. -/
-theorem zeroKept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
-    (h : ∀ p, ZeroKept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
-      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
-    ZeroKept s (fpStep s r k) := by
-  unfold fpStep
   split
   · rfl
   · exact h _
@@ -199,7 +177,7 @@ that through every state-update primitive (plus any `regs` equations
 macro "zk_simp" : tactic => `(tactic|
   simp only [zeroKept_mkNext, zeroKept_takeException,
     zeroKept_takeException', zeroKept_takeAddressException, zeroKept_takeCoprocessorUnusable, zeroKept_fpFinishS,
-    zeroKept_fpFinishD, zeroKept_fpFinishCmp,
+    zeroKept_fpFinishD,
     writeReg_regs_zero, writeFpReg_regs, writeFpD_regs, writeMemByte_getD_regs, *])
 
 /-- The fallback of the loop below, for a result built directly as `{ s with … }` (branches,
@@ -209,7 +187,7 @@ macro "zk_simp_next" : tactic => `(tactic|
   simp only [zeroKept_next, writeReg_regs_zero, writeFpReg_regs, writeFpD_regs,
     writeMemByte_getD_regs, *])
 
--- ~180 constructors through one generic tactic loop
+-- ~120 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **Every instruction keeps `$zero`.** `execInstr` (the dispatch
 `step` calls after fetch/decode) never changes what register `0` reads,
@@ -225,15 +203,14 @@ theorem execInstr_zeroKept (s : State) (instr : Instruction) :
     · exact (zeroKept_takeCoprocessorUnusable _).mpr trivial
     · split
       · exact (zeroKept_exceptionEntry _ _ _).mpr trivial
-      · unfold execBody
-        cases instr <;> dsimp only <;>
+      · cases instr <;> exec_unfold <;>
           repeat' (first | (zk_fwd; zk_simp; done) | (zk_fwd; zk_simp_next; done) | split |
-            (apply zeroKept_fpThen; intro _) | (apply zeroKept_fpStep; intro _))
+            (apply zeroKept_fpThen; intro _))
 
 /-- **Global invariant: `$zero` is never changed by a step.** Register `0` reads the same thing
 after a step as before — for **every** state and instruction, with no side conditions
 (INSTRUCTION-REF Global rule 2, "writes to `$zero` are a no-op"). Proof: `step` is an interrupt
-entry, a standby step, a nullified step (none writes a GPR), or fetch/decode (whose failures are exceptions)
+entry, a standby step (neither writes a GPR), or fetch/decode (whose failures are exceptions)
 followed by `execInstr`; see `execInstr_zeroKept`. -/
 theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg s 0 := by
   unfold step stepCore
@@ -241,8 +218,6 @@ theorem step_preserves_zero_register (s : State) : readReg (step s) 0 = readReg 
   · rfl
   split
   · unfold standbyStep; split <;> rfl
-  split
-  · rfl
   unfold execute
   split
   · rfl

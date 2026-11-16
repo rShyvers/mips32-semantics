@@ -36,7 +36,6 @@ open Manual
 structure WP where
   lc : Bool := false
   sc : Bool := true
-  hl : W32 × W32 := (0#32, 0#32)
   cf : W32 := 0#32
   rd : BitVec 64 := QA64
   anr : AbsNegNaN := .A'
@@ -48,20 +47,15 @@ def sigRI : Outcome := .signal .ReservedInstruction
 
 /-- **The witness oracle** with value parameters `p` and `Cause.CE` constant `ce`. -/
 def wo (p : WP) (ce : BitVec 2) : Oracle where
-  ctiInSlot := fun _ _ => sigRI
   cp0Undefined := fun _ _ => sigRI
   storeClearsLL := fun _ => p.sc
   causeCE := fun _ _ => ce
   resetUndefined := modelOracle.resetUndefined
-  linkSourceIs31 := fun _ _ => sigRI
   jalrRsIsRd := fun _ _ => sigRI
   fprOddRead := fun _ _ => p.rd
   fprOddWrite := fun _ _ _ => sigRI
   cfc1Unpredictable := fun _ _ => p.cf
   ctc1Unpredictable := fun _ _ _ => sigRI
-  divByZero := fun _ => p.hl
-  divuByZero := fun _ => p.hl
-  mulHILO := fun _ => p.hl
   extOutOfRange := fun _ => sigRI
   insLsbAboveMsb := fun _ => sigRI
   unpredictableEncoding := fun _ _ => sigRI
@@ -73,8 +67,7 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-    ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split
@@ -120,8 +113,8 @@ theorem gep_CE (i : Impl) (p : WP) (ce : BitVec 2) (e : Exception) (x : Arch) (h
 /-! ## What two completed instructions are compared on -/
 
 /-- The parts of the state the rows compare. -/
-def Obs (x : Arch) : Bool × W32 × (Fin 32 → W32) × (Fin 32 → W32) × W32 × (PAddr → UInt8) :=
-  (x.LLbit, x.HI, x.GPR, x.FPR, x.FCSR, x.Mem)
+def Obs (x : Arch) : Bool × (Fin 32 → W32) × (Fin 32 → W32) × W32 × (PAddr → UInt8) :=
+  (x.LLbit, x.GPR, x.FPR, x.FCSR, x.Mem)
 
 theorem obs_timerTick (i : Impl) (x : Arch) : Obs (TimerTick i x) = Obs x := rfl
 theorem ce_timerTick (i : Impl) (x : Arch) : CEof (TimerTick i x) = CEof x := rfl
@@ -150,8 +143,6 @@ def RowWitness (ins : Instruction) (a : Arch) : Prop :=
 /-! ## Simplification lemmas for the rows -/
 
 @[simp] theorem writeGPR_LLbit (a : Arch) (x : Fin 32) (v : W32) : (writeGPR a x v).LLbit = a.LLbit := by
-  unfold writeGPR; split <;> rfl
-@[simp] theorem writeGPR_HI (a : Arch) (x : Fin 32) (v : W32) : (writeGPR a x v).HI = a.HI := by
   unfold writeGPR; split <;> rfl
 @[simp] theorem writeGPR_FPR (a : Arch) (x : Fin 32) (v : W32) : (writeGPR a x v).FPR = a.FPR := by
   unfold writeGPR; split <;> rfl

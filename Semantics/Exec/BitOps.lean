@@ -1,0 +1,58 @@
+import Semantics.Exec.Base
+
+/-!
+# Exec.BitOps — bit counting, sign extension, byte swap and bit-field instructions
+
+The execution of bit counting, sign extension, byte swap and bit-field instructions (`execBody`, `Step.lean`, dispatches here through `execTables`). Each arm is
+the instruction's effect after `execInstr`'s guards (no control transfer in a delay slot; coprocessor
+usable); `none` for every instruction of another family.
+-/
+
+/-- The effect of bit counting, sign extension, byte swap and bit-field instructions; `none` for every other instruction. -/
+def execBitOps (s : State) : Instruction → Option State
+  -- SPECIAL2 bit-count (MIPS32)
+  | .clo rs rd => some <|
+    mkNext s (writeReg s (regIdx rd) (BitVec.ofNat 32 (countLeadingOnes (readReg s (regIdx rs)))))
+  | .clz rs rd => some <|
+    mkNext s (writeReg s (regIdx rd) (BitVec.ofNat 32 (countLeadingZeros (readReg s (regIdx rs)))))
+  -- SPECIAL3 BSHFL sign-extend (MIPS32r2)
+  | .seb rd rt => some <|
+    mkNext s (writeReg s (regIdx rd) (signExtLowByte (readReg s (regIdx rt))))
+  | .seh rd rt => some <|
+    mkNext s (writeReg s (regIdx rd) (signExt16 (readReg s (regIdx rt))))
+  -- SPECIAL3 BSHFL word-swap-bytes-within-halfwords (MIPS32r2): swap the
+  -- two bytes of each 16-bit half of `$rt` independently; the halfwords
+  -- themselves stay in their original word positions (not a full 32-bit
+  -- byte-reverse -- that's `wsbh` + `rotr 16`, not modeled as a single op).
+  | .wsbh rd rt => some <|
+    let v := readReg s (regIdx rt)
+    let b0 := v &&& 0xff#32
+    let b1 := (v >>> 8) &&& 0xff#32
+    let b2 := (v >>> 16) &&& 0xff#32
+    let b3 := (v >>> 24) &&& 0xff#32
+    let result := (b2 <<< 24) ||| (b3 <<< 16) ||| (b0 <<< 8) ||| b1
+    mkNext s (writeReg s (regIdx rd) result)
+  -- SPECIAL3 bitfield extract/insert (MIPS32r2; MD00086 Vol II-A Rev 6.06,
+  -- EXT p.183, INS p.192-193). The constructor's `pos`/`size` are mapped to
+  -- the diagram's 5-bit fields as `encode` writes them: EXT `lsb = pos`,
+  -- `msbd = size - 1`; INS `lsb = pos`, `msb = pos + size - 1` (each mod 32).
+  -- The UNPREDICTABLE ranges (EXT `lsb + msbd > 31`, INS `lsb > msb`) raise
+  -- Reserved Instruction, as `decode` does for such words (SPEC-NOTES §11).
+  | .ext rt rs pos size => some <|
+    let lsb := (pos &&& 31#32).toNat
+    let msbd := ((size - 1#32) &&& 31#32).toNat
+    if lsb + msbd > 31 then takeException s excCodeRI
+    else
+      let field := (readReg s (regIdx rs) >>> lsb) &&& lowBitsMask (msbd + 1)
+      mkNext s (writeReg s (regIdx rt) field)
+  | .ins rt rs pos size => some <|
+    let lsb := (pos &&& 31#32).toNat
+    let msb := ((pos + size - 1#32) &&& 31#32).toNat
+    if lsb > msb then takeException s excCodeRI
+    else
+      let mask := lowBitsMask (msb + 1 - lsb)
+      let srcField := (readReg s (regIdx rs) &&& mask) <<< lsb
+      let clearMask := ~~~(mask <<< lsb)
+      let newVal := (readReg s (regIdx rt) &&& clearMask) ||| srcField
+      mkNext s (writeReg s (regIdx rt) newVal)
+  | _ => none

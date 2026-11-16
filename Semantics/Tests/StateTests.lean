@@ -13,8 +13,6 @@ example : (initialState textBase).regs[29]! = spInit := by decide
 example : (initialState textBase).regs[0]! = 0#32 := by decide
 example : (initialState textBase).regs[1]! = 0#32 := by decide
 example : (initialState textBase).regs[31]! = 0#32 := by decide
-example : (initialState textBase).hi = 0#32 := by decide
-example : (initialState textBase).lo = 0#32 := by decide
 example : (initialState textBase).fpRegs.size = 32 := by decide
 example : (initialState textBase).fpRegs[0]! = 0#32 := by decide
 example : (initialState textBase).fpRegs[31]! = 0#32 := by decide
@@ -60,7 +58,7 @@ example : readFpReg (writeFpReg (initialState textBase) 8 0x12345678#32) 9 = 0#3
 #guard readFpReg (writeFpReg (initialState textBase) 0 0x3f800000#32) 0 = 0x3f800000#32
 
 -- Instruction fetch is `readMemWord s s.pc`: alignment failure, a loaded word, unloaded memory
--- (reads as 0). The word is placed big-endian with `writeMemWord`.
+-- (reads as 0). The word is placed little-endian (`profile`) with `writeMemWord`.
 def testFetchState : State :=
   (writeMemWord (initialState textBase) textBase 0xdeadbeef#32).getD (initialState textBase)
 -- alignment failure short-circuits before touching the map, so `decide` works;
@@ -74,24 +72,24 @@ example : readMemWord (initialState textBase) (textBase + 1#32) = none := by dec
 -- `readMemByte`: absent bytes read as 0
 #guard readMemByte (initialState textBase) 0x10010000#32 = some 0
 
--- big-endian composition for half: bytes 0x12,0x34 at a,a+1 → 0x1234
+-- little-endian composition for half: bytes 0x34,0x12 at a,a+1 → 0x1234
 def halfTestState : State :=
   { (initialState textBase) with
       -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
-      physMem := ((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x12)
-               |>.insert 0x50010001#32 0x34 }
+      physMem := ((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x34)
+               |>.insert 0x50010001#32 0x12 }
 #guard readMemHalf halfTestState 0x10010000#32 = some 0x1234#32
 
 -- half misalignment rejected
 example : readMemHalf halfTestState 0x10010001#32 = none := by decide
 #guard readMemHalf halfTestState 0x10010001#32 = none
 
--- big-endian composition for word: bytes 0x12,0x34,0x56,0x78 at a..a+3 → 0x12345678
+-- little-endian composition for word: bytes 0x78,0x56,0x34,0x12 at a..a+3 → 0x12345678
 def wordTestState : State :=
   { (initialState textBase) with
       -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
-      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x12).insert 0x50010001#32 0x34
-                |>.insert 0x50010002#32 0x56).insert 0x50010003#32 0x78 }
+      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010000#32 0x78).insert 0x50010001#32 0x56
+                |>.insert 0x50010002#32 0x34).insert 0x50010003#32 0x12 }
 #guard readMemWord wordTestState 0x10010000#32 = some 0x12345678#32
 
 -- word misalignment rejected
@@ -110,11 +108,16 @@ example : readMemWord wordTestState 0x10010002#32 = none := by decide
 #guard (writeMemWord (initialState textBase) 0x10010000#32 0x12345678#32).bind
         (fun s => readMemWord s 0x10010000#32) = some 0x12345678#32
 
--- big-endian byte layout after a word write: MSB at addr, LSB at addr+3
+-- little-endian byte layout after a word write: LSB at addr, MSB at addr+3
 #guard (writeMemWord (initialState textBase) 0x10010000#32 0x12345678#32).bind
-        (fun s => readMemByte s 0x10010000#32) = some 0x12
+        (fun s => readMemByte s 0x10010000#32) = some 0x78
 #guard (writeMemWord (initialState textBase) 0x10010000#32 0x12345678#32).bind
-        (fun s => readMemByte s 0x10010003#32) = some 0x78
+        (fun s => readMemByte s 0x10010003#32) = some 0x12
+-- … and after a halfword write: LSB at addr, MSB at addr+1
+#guard (writeMemHalf (initialState textBase) 0x10010000#32 0x1234#32).bind
+        (fun s => readMemByte s 0x10010000#32) = some 0x34
+#guard (writeMemHalf (initialState textBase) 0x10010000#32 0x1234#32).bind
+        (fun s => readMemByte s 0x10010001#32) = some 0x12
 
 -- misaligned writes rejected
 example : writeMemHalf (initialState textBase) 0x10010001#32 0x1234#32 = none := by decide

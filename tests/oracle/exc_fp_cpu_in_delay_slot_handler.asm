@@ -14,12 +14,16 @@ lui $t9, 0x2000
 or $k0, $k0, $t9
 mtc0 $k0, $12
 cfc1 $k0, $31
+lui $t9, 0xfff3
+ori $t9, $t9, 0xffff
+and $k0, $k0, $t9
 sw $k0, 8($s7)
 addiu $s7, $s7, 12
 addiu $s4, $s4, 1
-li $k0, 0xfffc0fff
+li $k0, 0xfff30fff
 cfc1 $t9, $31
 and $k0, $k0, $t9
+and $t9, $t9, $k0
 ctc1 $k0, $31
 addiu $k1, $k1, 8
 mtc0 $k1, $14

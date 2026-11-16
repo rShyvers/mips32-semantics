@@ -9,20 +9,6 @@
     slti $s5, $s1, 0
     sltiu $s6, $t1, -1
     sltiu $s7, $s1, 1
-    multu $s1, $s1
-    mfhi $t2
-    mflo $t3
-    li $t4, -7
-    li $t5, 2
-    div $t4, $t5
-    mfhi $t6
-    mflo $t7
-    divu $t4, $t5
-    mfhi $t8
-    mflo $t9
-    mult $t4, $t0
-    mfhi $a1
-    mflo $a2
     lui $a3, 0x8000
     xori $v1, $s1, 0xffff
     move $a0, $s0

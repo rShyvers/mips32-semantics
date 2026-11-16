@@ -4,19 +4,18 @@ import Semantics.Specs.Fixtures
 /-!
 # Trap — conditional traps and `break`
 
-Constructors: `teq` `tne` `tlt` `tge` `tltu` `tgeu` `teqi` `tnei` `tgei` `tgeiu` `tlti` `tltiu` `break`.
+Constructors: `teq` `tne` `tlt` `tge` `tltu` `tgeu` `break` (Release 6 removed the trap-immediate
+instructions TEQI/TNEI/TGEI/TGEIU/TLTI/TLTIU).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
-  TEQ p.416; TNE p.438; TLT p.434; TGE p.418; TLTU p.437; TGEU p.421; TEQI p.417; TNEI p.439;
-  TGEI p.419; TGEIU p.420; TLTI p.435; TLTIU p.436; BREAK p.109.
+  TEQ p.416; TNE p.438; TLT p.434; TGE p.418; TLTU p.437; TGEU p.421; BREAK p.109.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)"; "Summary table".
 
-## Theorems in this file (13)
+## Theorems in this file (7)
 
   `break_spec_raw` `teq_spec_raw` `tne_spec_raw` `tlt_spec_raw` `tge_spec_raw` `tltu_spec_raw`
-  `tgeu_spec_raw` `teqi_spec_raw` `tnei_spec_raw` `tgei_spec_raw` `tgeiu_spec_raw` `tlti_spec_raw`
-  `tltiu_spec_raw`
+  `tgeu_spec_raw`
 -/
 
 set_option maxRecDepth 4000
@@ -169,162 +168,4 @@ theorem tgeu_spec_raw (s : State) (w rs rt code : W32)
 
 #guard (let s := stepIn (prog1Spec (.tgeu 8#32 9#32 0#32))
           (setRegsSpec (initialState textBase) [(8, 0xffffffff#32), (9, 1#32)])
-        s.pc == exceptionVectorAddr) = true
-
-/-! ## `teqi`, `tnei`, `tgei`, `tgeiu`, `tlti`, `tltiu`
-
-`docs/spec/INSTRUCTION-REF.md` REGIMM trap-immediate subsection, `docs/spec/MIPS-COVERAGE-GAPS.md`
-§3.8. Same shape as the register-register traps above, comparing `$rs` with `signExt16 imm`.
-`tgeiu`/`tltiu` sign-extend the immediate first, exactly like `sltiu`, and only then compare the
-two bit patterns as unsigned (not zero-extension, and not a signed comparison). -/
-
-/-- **`teqi` traps iff `$rs == sext16(imm)`**, taking the shared
-coprocessor-0 exception with `excCode = excCodeTr`; otherwise it is a
-complete no-op beyond the ordinary fallthrough to `pc + 4#32` (REGIMM
-trap-immediate subsection; mirrors `teq_spec_raw` with `sext16 imm` in
-place of `$rt`). -/
-theorem teqi_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.teqi rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdxSpec rs) == signExt16 imm then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`tnei` traps iff `$rs ≠ sext16(imm)`** — the mirror image of `teqi`
-(REGIMM trap-immediate subsection). -/
-theorem tnei_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tnei rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdxSpec rs) ≠ signExt16 imm then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`tgei` traps iff `$rs ≥s sext16(imm)`**, a *signed* comparison
-(REGIMM trap-immediate subsection; mirrors `tge_spec_raw`). -/
-theorem tgei_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgei rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if asSigned (readReg s (regIdxSpec rs)) ≥ asSigned (signExt16 imm) then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`tgeiu` sign-extends the 16-bit immediate to a full 32-bit value
-first, exactly like `tgei`, then compares the resulting bit patterns as
-*unsigned*** — the "u" affects only the comparison, not the immediate's
-extension (same convention as `sltiu`; confirmed against `Step.lean`'s
-`.tgeiu` case, which calls `signExt16 imm` and then compares `.toNat`
-values). -/
-theorem tgeiu_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tgeiu rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if (readReg s (regIdxSpec rs)).toNat ≥ (signExt16 imm).toNat then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`tlti` traps iff `$rs <s sext16(imm)`**, a *signed* comparison
-(REGIMM trap-immediate subsection; mirrors `tlt_spec_raw`). -/
-theorem tlti_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tlti rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if asSigned (readReg s (regIdxSpec rs)) < asSigned (signExt16 imm) then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
-/-- **`tltiu` sign-extends the 16-bit immediate to a full 32-bit value
-first, exactly like `tlti`, then compares the resulting bit patterns as
-*unsigned*** — the mirror image of `tgeiu` (same convention as `sltiu`;
-confirmed against `Step.lean`'s `.tltiu` case, which calls `signExt16 imm`
-and then compares `.toNat` values). -/
-theorem tltiu_spec_raw (s : State) (w rs imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.tltiu rs imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if (readReg s (regIdxSpec rs)).toNat < (signExt16 imm).toNat then
-        takeException s excCodeTr
-      else
-        { s with pc := s.pc + 4#32 }) := by
-  step_spec
-
--- `teqi_spec_raw`/`tnei_spec_raw`: `$rs == sext16(imm)` traps under `teqi`
--- (and is a no-op under `tnei`); a mismatch is the mirror image. One
--- `#guard` per instruction per branch, matching the house style used for
--- `teq`/`tne` above.
-#guard (let s := stepIn (prog1Spec (.teqi 8#32 5#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32)])
-        s.cp0Epc == textBase && s.cp0Cause == (excCodeTr <<< 2) &&
-            s.cp0Status == (statusCu1Mask ||| statusExlMask) && s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.teqi 8#32 5#32))
-          (setRegsSpec (initialState textBase) [(8, 6#32)])
-        s.pc == textBase + 4#32 && s.cp0Status == statusCu1Mask) = true
-
-#guard (let s := stepIn (prog1Spec (.tnei 8#32 5#32))
-          (setRegsSpec (initialState textBase) [(8, 6#32)])
-        s.cp0Epc == textBase && s.cp0Cause == (excCodeTr <<< 2) &&
-            s.cp0Status == (statusCu1Mask ||| statusExlMask) && s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.tnei 8#32 5#32))
-          (setRegsSpec (initialState textBase) [(8, 5#32)])
-        s.pc == textBase + 4#32 && s.cp0Status == statusCu1Mask) = true
-
--- `tgei_spec_raw`/`tlti_spec_raw`: `sext16 0xffff = -1`, so `-1` (as
--- `0xffffffff`) is signed-greater-or-equal to `-1` under `tgei` (traps) but
--- not signed-less-than `-1` under `tlti` (no trap); `1 < 1` is false so
--- `tlti 1` also does not trap on `$rs = 1`.
-#guard (let s := stepIn (prog1Spec (.tgei 8#32 0xffff#32))
-          (setRegsSpec (initialState textBase) [(8, 0xffffffff#32)])
-        s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.tgei 8#32 0xffff#32))
-          (setRegsSpec (initialState textBase) [(8, 0xfffffffe#32)])
-        s.pc == textBase + 4#32) = true
-
-#guard (let s := stepIn (prog1Spec (.tlti 8#32 1#32))
-          (setRegsSpec (initialState textBase) [(8, 0xffffffff#32)])
-        s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.tlti 8#32 1#32))
-          (setRegsSpec (initialState textBase) [(8, 1#32)])
-        s.pc == textBase + 4#32) = true
-
--- `tgeiu_spec_raw`/`tltiu_spec_raw`: `sext16 1 = 1`, and `0xffffffff` is the
--- *largest* unsigned value, so `$rs = 0xffffffff` is never `<u 1` under
--- `tltiu` but always `≥u 1` under `tgeiu` — the same edge case
--- `sltiu`/`tltu`/`tgeu` above use. A second pair with `sext16 0xffff =
--- 0xffffffff` and `$rs = 1` confirms `tgeiu` really compares unsigned
--- (`1 ≥u 0xffffffff` is false), not signed like `tgei` (where the same
--- inputs trap, since `1 ≥s -1`).
-#guard (let s := stepIn (prog1Spec (.tgeiu 8#32 1#32))
-          (setRegsSpec (initialState textBase) [(8, 0xffffffff#32)])
-        s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.tltiu 8#32 1#32))
-          (setRegsSpec (initialState textBase) [(8, 0xffffffff#32)])
-        s.pc == textBase + 4#32) = true
-
-#guard (let s := stepIn (prog1Spec (.tltiu 8#32 1#32))
-          (setRegsSpec (initialState textBase) [(8, 0#32)])
-        s.pc == exceptionVectorAddr) = true
-
-#guard (let s := stepIn (prog1Spec (.tgeiu 8#32 0xffff#32))
-          (setRegsSpec (initialState textBase) [(8, 1#32)])
-        s.pc == textBase + 4#32) = true
-
-#guard (let s := stepIn (prog1Spec (.tgei 8#32 0xffff#32))
-          (setRegsSpec (initialState textBase) [(8, 1#32)])
         s.pc == exceptionVectorAddr) = true

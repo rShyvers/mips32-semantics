@@ -120,24 +120,18 @@ theorem readCString_mem (s s' : State) (h : s.physMem = s'.physMem)
 def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) : String :=
   readCString { initialState 0#32 with physMem := m, cp0Status := st } a f
 
-theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (hi lo : W32) (fpRegs : Array W32)
+theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (fpRegs : Array W32)
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
     (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (cnt cmp : W32) (ti : Bool)
-    (hwre : W32) (hw : BitVec 6) (sb nl : Bool) (f : Nat) :
-    readCString ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-        k23, ku, cnt, cmp, ti, hwre, hw, sb, nl⟩ a f
+    (hwre : W32) (hw : BitVec 6) (sb : Bool) (f : Nat) :
+    readCString ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
+        k23, ku, cnt, cmp, ti, hwre, hw, sb⟩ a f
       = readCStringOfMem mem st a f :=
-  readCString_mem ⟨pc, regs, hi, lo, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
-      k23, ku, cnt, cmp, ti, hwre, hw, sb, nl⟩
+  readCString_mem ⟨pc, regs, fpRegs, fcsr, mem, pb, llBit, st, ca, epc, bva, eepc, lla, eb, k0,
+      k23, ku, cnt, cmp, ti, hwre, hw, sb⟩
     { initialState 0#32 with physMem := mem, cp0Status := st } rfl rfl a f
 
 theorem writeReg_proj_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
-  unfold writeReg; split <;> rfl
-
-theorem writeReg_proj_hi (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).hi = s.hi := by
-  unfold writeReg; split <;> rfl
-
-theorem writeReg_proj_lo (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).lo = s.lo := by
   unfold writeReg; split <;> rfl
 
 theorem writeReg_proj_fpRegs (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).fpRegs = s.fpRegs := by
@@ -203,10 +197,6 @@ theorem writeReg_proj_hwInt (s : State) (i : Fin 32) (v : W32) : (writeReg s i v
 theorem writeReg_proj_standby (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).standby = s.standby := by
   unfold writeReg; split <;> rfl
 
-theorem writeReg_proj_nullified (s : State) (i : Fin 32) (v : W32) :
-    (writeReg s i v).nullified = s.nullified := by
-  unfold writeReg; split <;> rfl
-
 /-! ### `timerTick` touches only `Count` and `Cause.TI`
 
 Every other field of `timerTick s` is the field of `s` (by definition: `timerTick` is a record
@@ -215,8 +205,6 @@ through the timer to the instruction's own effect. -/
 
 @[simp] theorem timerTick_pc (s : State) : (timerTick s).pc = s.pc := rfl
 @[simp] theorem timerTick_regs (s : State) : (timerTick s).regs = s.regs := rfl
-@[simp] theorem timerTick_hi (s : State) : (timerTick s).hi = s.hi := rfl
-@[simp] theorem timerTick_lo (s : State) : (timerTick s).lo = s.lo := rfl
 @[simp] theorem timerTick_fpRegs (s : State) : (timerTick s).fpRegs = s.fpRegs := rfl
 @[simp] theorem timerTick_fcsr (s : State) : (timerTick s).fcsr = s.fcsr := rfl
 @[simp] theorem timerTick_physMem (s : State) : (timerTick s).physMem = s.physMem := rfl
@@ -236,10 +224,8 @@ through the timer to the instruction's own effect. -/
 @[simp] theorem timerTick_cp0HWREna (s : State) : (timerTick s).cp0HWREna = s.cp0HWREna := rfl
 @[simp] theorem timerTick_hwInt (s : State) : (timerTick s).hwInt = s.hwInt := rfl
 @[simp] theorem timerTick_standby (s : State) : (timerTick s).standby = s.standby := rfl
-@[simp] theorem timerTick_nullified (s : State) : (timerTick s).nullified = s.nullified := rfl
-
 /-- **When the step executes the instruction** (`executesInstr`: no interrupt is taken, the
-processor is not in standby and the instruction is not nullified), `step` is the instruction followed by the timer. Every
+processor is not in standby), `step` is the instruction followed by the timer. Every
 per-instruction theorem about `step` goes through this. -/
 theorem step_of_executesInstr (s : State) (h : executesInstr s = true) :
     step s = timerTick (execute s) := by
@@ -248,20 +234,8 @@ theorem step_of_executesInstr (s : State) (h : executesInstr s = true) :
     cases hh : interruptTaken s <;> simp_all
   have hs : s.standby = false := by
     cases hh : s.standby <;> simp_all
-  have hn : s.nullified = false := by
-    cases hh : s.nullified <;> simp_all
   unfold step stepCore
-  rw [hi, hs, hn]
-  rfl
-
-/-- **The step of a nullified instruction** (`State.nullified`: the delay slot of a not-taken
-branch-likely, MD00086 Vol II-A Rev 6.06, BEQL p.73, NullifyCurrentInstruction §2.2.2.5.4 p.26):
-when no interrupt is taken and the processor is not in standby, `step` consumes the slot without
-fetching it (`nullifiedStep`) and then advances the timer. -/
-theorem step_nullified (s : State) (hi : interruptTaken s = false) (hs : s.standby = false)
-    (hn : s.nullified = true) : step s = timerTick (nullifiedStep s) := by
-  unfold step stepCore
-  rw [hi, hs, hn]
+  rw [hi, hs]
   rfl
 
 theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :
@@ -272,13 +246,6 @@ theorem writeReg_proj_regs (s : State) (i : Fin 32) (v : W32) :
 the register file. Used throughout to simplify the "next state" shape that
 `step` produces after an instruction writes a register. -/
 theorem writeReg_pc (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).pc = s.pc := by
-  unfold writeReg; split <;> rfl
-
-/-- A `writeReg` call never changes `hi` or `lo` — only the register file. -/
-theorem writeReg_hi (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).hi = s.hi := by
-  unfold writeReg; split <;> rfl
-
-theorem writeReg_lo (s : State) (i : Fin 32) (v : W32) : (writeReg s i v).lo = s.lo := by
   unfold writeReg; split <;> rfl
 
 /-- Writing `v` to a nonzero register `i` and immediately reading `i` back
@@ -388,17 +355,6 @@ theorem fpFinishD_eq (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags)
     rw [ite_of_neg h, ite_of_neg h, Mips.Fp.fpUpdate_fst_of_not_enabled _ _ h',
       mkNext_of_none _ _ hpb]
     rfl
-
-theorem fpFinishCmp_eq (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags)
-    (hpb : s.pendingBranch = none) : fpFinishCmp s cc r = fpCompletesCmp s cc r := by
-  unfold fpFinishCmp fpCompletesCmp
-  dsimp only
-  rw [Mips.Fp.fpUpdate_snd]
-  by_cases h : Mips.Fp.fpeEnabled s.fcsr r.2 = true
-  · rw [ite_of_pos h, ite_of_pos h, Mips.Fp.fpUpdate_fst_of_enabled _ _ h]; rfl
-  · have h' : Mips.Fp.fpeEnabled s.fcsr r.2 = false := by simpa using h
-    rw [ite_of_neg h, ite_of_neg h, Mips.Fp.fpUpdate_fst_of_not_enabled _ _ h',
-      mkNext_of_none _ _ hpb]
 
 /-- `readMemWord` fails exactly on a non-word-aligned address (`State.lean`): the `none` arm of
 every word load is the misaligned case. -/

@@ -6,7 +6,7 @@
 # sec 6.2.9 p.92-93 ("A reference is made to a kernel address space from User Mode"; AdEL: "load or an
 # instruction fetch", AdES: "store"; BadVAddr = "failing address"); Appendix A.1.1 p.313 ("address error
 # checking is still done before the translation process. Therefore, an attempt to reference kseg0 from
-# User Mode still results in an address error exception"); MD00086 Vol II-A Rev 6.06 LWL p.240-241.
+# User Mode still results in an address error exception"); MD00086 Vol II-A Rev 6.06 LH p.219.
 # oracle: expect gpr:s4=6 gpr:s5=77
 .data
 res: .space 96
@@ -50,7 +50,7 @@ user:
     lui   $t2, 0xe000
     sh    $t3, 6($t2)            # kseg3: AdES, BadVAddr 0xE000_0006
     lui   $t2, 0x8000
-    lwl   $t3, 1($t2)            # unaligned load of kseg0: AdEL, BadVAddr 0x8000_0001
+    lh    $t3, 1($t2)            # unaligned load of kseg0: AdEL, BadVAddr 0x8000_0001
     la    $t5, res               # useg: legal
     li    $t6, 77
     sw    $t6, 92($t5)

@@ -26,7 +26,7 @@ theorem roundWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.roundWS fd fs) (abs s) =
       some (abs (execInstr s (.roundWS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.ROUND_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.roundWS fd fs) =
       fpFinishS s fd (Mips.Fp.f32ToW32 .RN (readFpReg s (regIdx fs))) from rfl]
@@ -42,7 +42,7 @@ theorem roundWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.roundWD fd fs) (abs s) =
       some (abs (execInstr s (.roundWD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.ROUND_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.roundWD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToW32 .RN (readFpD s fs)) from rfl]
@@ -57,7 +57,7 @@ theorem truncWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.truncWS fd fs) (abs s) =
       some (abs (execInstr s (.truncWS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.TRUNC_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.truncWS fd fs) =
       fpFinishS s fd (Mips.Fp.f32ToW32 .RZ (readFpReg s (regIdx fs))) from rfl]
@@ -73,7 +73,7 @@ theorem truncWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.truncWD fd fs) (abs s) =
       some (abs (execInstr s (.truncWD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.TRUNC_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.truncWD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToW32 .RZ (readFpD s fs)) from rfl]
@@ -88,7 +88,7 @@ theorem ceilWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.ceilWS fd fs) (abs s) =
       some (abs (execInstr s (.ceilWS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CEIL_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.ceilWS fd fs) =
       fpFinishS s fd (Mips.Fp.f32ToW32 .RP (readFpReg s (regIdx fs))) from rfl]
@@ -104,7 +104,7 @@ theorem ceilWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.ceilWD fd fs) (abs s) =
       some (abs (execInstr s (.ceilWD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CEIL_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.ceilWD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToW32 .RP (readFpD s fs)) from rfl]
@@ -119,7 +119,7 @@ theorem floorWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.floorWS fd fs) (abs s) =
       some (abs (execInstr s (.floorWS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.FLOOR_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.floorWS fd fs) =
       fpFinishS s fd (Mips.Fp.f32ToW32 .RM (readFpReg s (regIdx fs))) from rfl]
@@ -135,7 +135,7 @@ theorem floorWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.floorWD fd fs) (abs s) =
       some (abs (execInstr s (.floorWD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.FLOOR_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.floorWD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToW32 .RM (readFpD s fs)) from rfl]
@@ -150,7 +150,7 @@ theorem cvtWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtWS fd fs) (abs s) =
       some (abs (execInstr s (.cvtWS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtWS fd fs) =
       fpFinishS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs))) from rfl]
@@ -166,7 +166,7 @@ theorem cvtWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtWD fd fs) (abs s) =
       some (abs (execInstr s (.cvtWD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtWD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToW32 (Mips.Fp.getRM s.fcsr) (readFpD s fs)) from rfl]
@@ -182,7 +182,7 @@ theorem cvtDS_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtDS fd fs) (abs s) =
       some (abs (execInstr s (.cvtDS fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_D_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtDS fd fs) =
       fpFinishD s fd (Mips.Fp.f32ToF64 (readFpReg s (regIdx fs))) from rfl]
@@ -198,7 +198,7 @@ theorem cvtDW_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtDW fd fs) (abs s) =
       some (abs (execInstr s (.cvtDW fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_D_W fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtDW fd fs) =
       fpFinishD s fd (Mips.Fp.w32ToF64F (readFpReg s (regIdx fs))) from rfl]
@@ -213,7 +213,7 @@ theorem cvtSD_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtSD fd fs) (abs s) =
       some (abs (execInstr s (.cvtSD fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_S_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtSD fd fs) =
       fpFinishS s fd (Mips.Fp.f64ToF32 (fpEnv s) (readFpD s fs)) from rfl]
@@ -229,7 +229,7 @@ theorem cvtSW_refines (s : State) (hg : Good s) (fd fs w : W32)
     Execute modelCtx w (.cvtSW fd fs) (abs s) =
       some (abs (execInstr s (.cvtSW fd fs))) := by
   obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ (.inl rfl) rfl hw
+  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.CVT_S_W fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.cvtSW fd fs) =
       fpFinishS s fd (Mips.Fp.w32ToF32 (fpEnv s) (readFpReg s (regIdx fs))) from rfl]

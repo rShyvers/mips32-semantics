@@ -16,29 +16,27 @@ import Semantics.Manual.Reset
    pipeline restarts as the result of an enabled interrupt, that interrupt is taken between the WAIT
    instruction and the following instruction" (MD00086 Vol II-A Rev 6.06, WAIT, p.442).
 2. **Lower power mode** (`WAIT`): `LowPowerTime`.
-3. **Nullified instruction**: the previous instruction's `I+1:` statements called
-   `NullifyCurrentInstruction()` (MD00086 Vol II-A Rev 6.06 §2.2.2.5.4, p.26): the instruction is
-   neither fetched nor executed and raises no exception; no statement assigns `PC`, so it advances by
-   4 (§1.3, Table 1.1, p.6).
+3. (Release 6 has no branch-likely instruction, so no instruction time is nullified.)
 4. **Fetch** (`InstructionFetch`, §2.2.2.4.2, Figure 2.29, p.25), **decode** by the format diagrams
    (`dec`, `DecoderSound`), and **execute**: a word that matches a diagram but has an UNPREDICTABLE
    field value is resolved by the oracle (`UnpredictableEncoding`, `Unpredictable`; §2.1.1, p.12);
-   a CTI in a delay slot is UNPREDICTABLE (BEQ p.72;
-   `Oracle.ctiInSlot`); an instruction of an unusable coprocessor's encoding space raises Coprocessor
+   a CTI in a delay slot signals Reserved Instruction ("Release 6: If a control transfer instruction
+   (CTI) is executed in the delay slot of a branch or jump, Release 6 implementations are required to
+   signal a Reserved Instruction exception", BEQ, Restrictions, p.72); an instruction of an unusable coprocessor's encoding space raises Coprocessor
    Unusable (Vol III §6.2.22, p.100), which "takes priority over the Reserved Instruction exception"
    (MD00086 Vol II-A Rev 6.06 Table A.1, p.449); a word that matches no format diagram raises Reserved
    Instruction (§6.2.21; Table A.1, p.449: "Executing such an instruction must cause a Reserved
    Instruction exception"); otherwise the Operation runs.
 5. **Completion.** A signalled exception enters the general exception processing from the state the
    Operation had reached. Otherwise `PC` becomes, in this order: the delay slot `PC + 4` when the
-   Operation scheduled `I+1:` statements (and those are recorded in `BranchDelay`/`Nullify`); a `PC`
+   Operation scheduled `I+1:` statements (and those are recorded in `BranchDelay`); a `PC`
    assigned at time `I`; the target of the previous branch's `I+1: PC ← …` (`BranchDelay`); else
    `PC + 4`.
 6. **Timer** (`TimerTick`), after the instruction.
 
 **Representation of `I+1:` (stated here, as the plan requires).** `BranchDelay` holds the `PC` that
 follows the delay-slot instruction: a taken branch's target, and for a not-taken branch (`I+1`
-assigns nothing) or a nullifying one `branchPC + 8`, which is "PC + 4" of the delay slot at
+assigns nothing, and `NAL`) `branchPC + 8`, which is "PC + 4" of the delay slot at
 `branchPC + 4`. Both give the next `PC` the manual gives; `BranchDelay.isSome` is
 `InstructionInBranchDelaySlot`.
 -/
@@ -47,14 +45,12 @@ namespace Manual
 
 /-- **The control transfer instructions** that may not be placed in a delay slot (MD00086 Vol II-A
 Rev 6.06, BEQ, Restrictions, p.72: "CTIs include all branches and jumps, NAL, ERET, ERETNC, DERET,
-WAIT, and PAUSE"; `NAL` is the encoding of `BLTZAL r0`, `ERETNC`/`DERET` do not exist on this
-profile). -/
+WAIT, and PAUSE"; `ERETNC`/`DERET` are not on this profile).
+-- W3: the compact branches and jumps; W2: ERETNC. -/
 def IsCTI : Instruction → Bool
-  | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .bltzal .. | .bgezal ..
-  | .j .. | .jal .. | .jr .. | .jalr .. | .jrHb .. | .jalrHb ..
-  | .beql .. | .bnel .. | .blezl .. | .bgtzl .. | .bltzl .. | .bgezl .. | .bltzall .. | .bgezall ..
-  | .bc1f .. | .bc1t .. | .bc1fl .. | .bc1tl .. | .eret | .wait .. => true
-  | i => IsPAUSE i
+  | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .nal .. | .bal ..
+  | .j .. | .jal .. | .jalr .. | .jalrHb .. | .eret | .wait .. | .pause => true
+  | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
 (`enc`; every constructor has a diagram since 7B). The model's `decode` satisfies it since 7R (the
@@ -73,8 +69,7 @@ def Complete (a : Arch) (f : Frame) : Arch :=
   | some d =>
     { f.arch with
         PC := a.PC + 4#32
-        BranchDelay := some (match d with | .jump t => t | _ => a.PC + 8#32)
-        Nullify := d == .nullify }
+        BranchDelay := some (match d with | .jump t => t | .fallThrough => a.PC + 8#32) }
   | none =>
     match f.pcSet with
     | some p => { f.arch with PC := p, BranchDelay := none }
@@ -83,12 +78,9 @@ def Complete (a : Arch) (f : Frame) : Arch :=
 /-- **Execute instruction `i`, fetched as `w`** (points 4-5). `none` only if `Operation i = none`,
 which no constructor has since 7B. -/
 def Execute (c : Ctx) (w : W32) (i : Instruction) (a : Arch) : Option Arch :=
-  let gep := fun e (x : Arch) => GeneralExceptionProcessing c.impl c.oracle e x
   if IsCTI i && a.BranchDelay.isSome then
-    match c.oracle.ctiInSlot a i with
-    | .signal e => some (gep e a)
-    | .arbitrary a' => some a'
-    | .proceed => runOperation
+    -- Release 6: a CTI in a delay slot signals Reserved Instruction (BEQ, Restrictions, p.72)
+    some (GeneralExceptionProcessing c.impl c.oracle .ReservedInstruction a)
   else runOperation
 where
   /-- The coprocessor-usability checks, then the Operation (points 4-5). -/
@@ -151,7 +143,6 @@ def InstructionTime (i : Impl) (o : Oracle) (dec : W32 → Option Instruction) (
       -- an interrupt also restarts a pipeline stopped by `WAIT` (WAIT, p.442)
       some { GeneralExceptionProcessing i o .Interrupt a with LowPower := false }
     else if a.LowPower then some (LowPowerTime i a)
-    else if a.Nullify then some { a with PC := a.PC + 4#32, BranchDelay := none, Nullify := false }
     else FetchExecute c dec a
   r.map (TimerTick i)
 

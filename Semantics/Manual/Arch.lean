@@ -11,9 +11,13 @@ is projected onto it by `Refine.abs` (`Semantics/Refine/Abs.lean`), which is not
 
 Sources (printed pages):
 
-* GPRs, `HI`/`LO`, `PC`: MD00082 Vol I-A Rev 6.01 §2.8.4 ("CPU Registers"); MD00086 Vol II-A Rev
-  6.06 §1.3, Table 1.1, p.5-6 (`GPR[x]`, `HI`, `LO`, `PC`, `LLbit`, `I:`/`I+n:`).
+* GPRs, `PC`: MD00082 Vol I-A Rev 6.01 §2.8.4 ("CPU Registers"); MD00086 Vol II-A Rev
+  6.06 §1.3, Table 1.1, p.5-6 (`GPR[x]`, `PC`, `LLbit`, `I:`/`I+n:`). Release 6 has no `HI`/`LO`
+  (the instructions that used them are removed) and no branch-likely instructions, so no
+  `NullifyCurrentInstruction()`.
 * FPRs and `FCSR`: MD00082 Vol I-A Rev 6.01 §6.4-6.5 (32-bit FPU, `Status.FR = 0`).
+  -- W5: the Release 6 FPU of this profile is 64-bit (`Status.FR = 1`) with `FIR.Has2008 = 1`;
+  -- the FPR file and FCSR below still describe the pre-Release 6 FR = 0 / legacy-NaN FPU.
 * CP0 registers: MD00090 Vol III Rev 6.02 chapter 9, by name (`Status` §9.32, `Cause` §9.36, `EPC`
   §9.38, `BadVAddr` §9.24, `ErrorEPC` §9.68, `EBase` §9.41, `Config` §9.45, `Count` §9.27,
   `Compare` §9.30, `HWREna` §9.23).
@@ -36,12 +40,10 @@ following instruction"). Only branches and jumps have `I+1:` statements in the m
 inductive Delay where
   /-- `I+1: PC ← target` (a taken branch, a jump). -/
   | jump (target : W32)
-  /-- `I+1:` assigns nothing (a not-taken ordinary branch): the following instruction is still in
-  the branch's delay slot, and `PC` is "automatically incremented by ... 4" after it (Table 1.1,
-  p.6). -/
+  /-- `I+1:` assigns nothing (a not-taken ordinary branch, and `NAL`, "considered to be a not-taken
+  branch, with a delay slot", NAL p.306): the following instruction is still in the branch's delay
+  slot, and `PC` is "automatically incremented by ... 4" after it (Table 1.1, p.6). -/
   | fallThrough
-  /-- `I+1: NullifyCurrentInstruction()` (a not-taken branch-likely; §2.2.2.5.4, p.26). -/
-  | nullify
   deriving DecidableEq, Repr
 
 /-- **The architectural state between two instruction times.** -/
@@ -51,10 +53,6 @@ structure Arch where
   /-- `GPR[x]` (Table 1.1, p.5). `GPR[0]` is read through `Manual.readGPR`, which returns 0 (Vol I-A
   §2.8.4: "r0 is hard-wired to a value of zero"); the stored value at index 0 is never read. -/
   GPR : Fin 32 → W32
-  /-- `HI` (Table 1.1, p.5). -/
-  HI : W32
-  /-- `LO` (Table 1.1, p.5). -/
-  LO : W32
   /-- `FPR[x]`, the 32 32-bit floating-point registers of a 32-bit FPU (`Status.FR = 0`, so
   `FP32RegistersMode = 0`: `Manual.FP32RegistersMode`; MD00082 Vol I-A Rev 6.01 §6.4.1). -/
   FPR : Fin 32 → W32
@@ -104,13 +102,10 @@ structure Arch where
   LowPower : Bool
   /-- The `I+1:` effect of the previous instruction, still to happen in this instruction time
   (`Delay`), represented as the target `PC` after the current instruction: `some t` for `jump t`;
-  `some (branchPC + 8)` for `fallThrough` and `nullify` (the current instruction is the delay slot
+  `some (branchPC + 8)` for `fallThrough` (the current instruction is the delay slot
   at `branchPC + 4`, and "If no value is assigned to PC during an instruction time ... it is
   automatically incremented by ... 4", Table 1.1, p.6). `isSome` is exactly "the instruction at
   `PC` is in a branch delay slot" (`InstructionInBranchDelaySlot`, Vol III §6.2.3, p.87). -/
   BranchDelay : Option W32
-  /-- The previous instruction's `I+1:` statements called `NullifyCurrentInstruction()`: the
-  instruction of this instruction time is nullified (MD00086 Vol II-A Rev 6.06 §2.2.2.5.4, p.26). -/
-  Nullify : Bool
 
 end Manual

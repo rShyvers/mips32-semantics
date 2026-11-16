@@ -151,20 +151,6 @@ theorem sizesKept_fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Fla
       · show (advance _ _).fpRegs.size = _
         rw [advance_fpRegs, writeFpD_fpRegs_size])
 
-theorem sizesKept_fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) :
-    SizesKept s (fpFinishCmp s cc r) ↔ True :=
-  iff_true_intro (by
-    show SizesKept s (fpFinishCmp s _ r)
-    unfold fpFinishCmp SizesKept
-    dsimp only
-    split
-    · exact ⟨rfl, rfl⟩
-    · refine ⟨?_, ?_⟩
-      · show (advance _ _).regs.size = _
-        rw [advance_regs']
-      · show (advance _ _).fpRegs.size = _
-        rw [advance_fpRegs])
-
 /-- Forward step for the tactic loop below: for every hypothesis
 `writeMem{Byte,Half,Word} s a v = some s'` in the context, add `s'.regs = s.regs` and
 `s'.fpRegs = s.fpRegs`. -/
@@ -193,24 +179,13 @@ theorem sizesKept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : 
   · exact ⟨rfl, rfl⟩
   · exact h _
 
-/-- One operation of a multiply-add (`fpStep`) keeps the sizes when every continuation does, from
-the state with the new Cause. -/
-theorem sizesKept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
-    (h : ∀ p, SizesKept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
-      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
-    SizesKept s (fpStep s r k) := by
-  unfold fpStep
-  split
-  · exact ⟨rfl, rfl⟩
-  · exact h _
-
 /-- Simp set for the tactic loop below: reduce a `SizesKept` goal about one of `execInstr`'s
 result shapes to statements about `regs.size` / `fpRegs.size`, and push those through every
 state-update primitive (plus the equations `sk_fwd` put in the context). -/
 macro "sk_simp" : tactic => `(tactic|
   simp only [sizesKept_mkNext, sizesKept_takeException,
     sizesKept_takeException', sizesKept_takeAddressException, sizesKept_takeCoprocessorUnusable,
-    sizesKept_fpFinishS, sizesKept_fpFinishD, sizesKept_fpFinishCmp,
+    sizesKept_fpFinishS, sizesKept_fpFinishD,
     writeReg_regs_size, writeReg_proj_fpRegs, writeFpReg_regs', writeFpReg_fpRegs_size,
     writeFpD_regs', writeFpD_fpRegs_size, writeMemByte_getD_regs', writeMemByte_getD_fpRegs,
     and_self, *])
@@ -222,7 +197,7 @@ macro "sk_simp_next" : tactic => `(tactic|
     writeFpReg_fpRegs_size, writeFpD_regs', writeFpD_fpRegs_size, writeMemByte_getD_regs',
     writeMemByte_getD_fpRegs, and_self, *])
 
--- ~180 constructors through one generic tactic loop
+-- ~120 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **No instruction changes the size of `regs` or `fpRegs`**, in any state (including one with
 a pending delay-slot transfer). Proved structurally, not by a per-instruction case list. -/
@@ -235,10 +210,9 @@ theorem execInstr_sizesKept (s : State) (instr : Instruction) :
     · exact (sizesKept_takeCoprocessorUnusable _).mpr trivial
     · split
       · exact (sizesKept_exceptionEntry _ _ _).mpr trivial
-      · unfold execBody
-        cases instr <;> dsimp only <;>
+      · cases instr <;> exec_unfold <;>
           repeat' (first | (sk_fwd; sk_simp; done) | (sk_fwd; sk_simp_next; done) | split |
-            (apply sizesKept_fpThen; intro _) | (apply sizesKept_fpStep; intro _))
+            (apply sizesKept_fpThen; intro _))
 
 /-! ## Statements -/
 
@@ -251,8 +225,6 @@ theorem step_preserves_regfile_sizes (s : State) :
   · exact ⟨rfl, rfl⟩
   split
   · unfold standbyStep; split <;> exact ⟨rfl, rfl⟩
-  split
-  · exact ⟨rfl, rfl⟩
   unfold execute
   split
   · exact ⟨rfl, rfl⟩

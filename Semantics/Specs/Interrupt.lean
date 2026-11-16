@@ -99,13 +99,12 @@ theorem no_interrupt_masked (s : State) (h : interruptRequests s = 0#32) :
   unfold interruptTaken; simp [h]
 
 /-- **The hypothesis of every per-instruction theorem**, unfolded: no interrupt is taken, the
-processor is not in standby, and the instruction at `pc` is not nullified (the delay slot of a
-not-taken branch-likely). -/
+processor is not in standby. (Release 6 has no branch-likely instructions, so no instruction is
+nullified.) -/
 theorem executesInstr_iff (s : State) :
-    executesInstr s = true ↔
-      interruptTaken s = false ∧ s.standby = false ∧ s.nullified = false := by
+    executesInstr s = true ↔ interruptTaken s = false ∧ s.standby = false := by
   unfold executesInstr
-  cases interruptTaken s <;> cases s.standby <;> cases s.nullified <;> simp
+  cases interruptTaken s <;> cases s.standby <;> simp
 
 /-! ## The entry -/
 
@@ -147,17 +146,17 @@ theorem takeInterrupt_in_delay_slot (s : State) (t : W32)
   · show causeExcCode (exceptionEntry s excCodeInt 0#32) = _
     rw [exceptionEntry_excCode]; rfl
 
-/-- **Interrupt entry touches nothing else**: no GPR, `HI`/`LO`, memory, FPR, `FCSR`, `BadVAddr`,
+/-- **Interrupt entry touches nothing else**: no GPR, memory, FPR, `FCSR`, `BadVAddr`,
 `ErrorEPC`, timer state or hardware line changes; `LLbit` is cleared. -/
 theorem takeInterrupt_keeps (s : State) :
-    (takeInterrupt s).regs = s.regs ∧ (takeInterrupt s).hi = s.hi ∧ (takeInterrupt s).lo = s.lo ∧
+    (takeInterrupt s).regs = s.regs ∧
       (takeInterrupt s).physMem = s.physMem ∧ (takeInterrupt s).fpRegs = s.fpRegs ∧
       (takeInterrupt s).fcsr = s.fcsr ∧ (takeInterrupt s).cp0BadVAddr = s.cp0BadVAddr ∧
       (takeInterrupt s).cp0ErrorEpc = s.cp0ErrorEpc ∧ (takeInterrupt s).cp0Count = s.cp0Count ∧
       (takeInterrupt s).cp0Compare = s.cp0Compare ∧
       (takeInterrupt s).cp0TimerInt = s.cp0TimerInt ∧ (takeInterrupt s).hwInt = s.hwInt ∧
       (takeInterrupt s).llBit = false :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-! ## The vector -/
 
@@ -257,8 +256,7 @@ theorem execInstr_hwInt (s : State) (instr : Instruction) : (execInstr s instr).
     · rfl
     split
     · rfl
-    unfold execBody
-    dsimp only
+    exec_unfold
     split <;> first | rfl | (unfold mkNext advance; split <;> rfl)
 
 /-- **The hardware interrupt lines are inputs**: no step changes them (MD00090 Vol III Rev 6.02
@@ -271,8 +269,6 @@ theorem step_hwInt (s : State) : (step s).hwInt = s.hwInt := by
   · rfl
   split
   · unfold standbyStep; split <;> rfl
-  split
-  · rfl
   unfold execute
   split
   · rfl

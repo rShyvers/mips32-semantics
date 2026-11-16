@@ -13,7 +13,7 @@ first index `i`, counting down from 31, at which `x_i = b`. -/
 private def firstFrom31 (x : W32) (b : Bool) : Option Nat :=
   (List.range 32).reverse.find? (fun i => bit x i == b)
 
-/-- **CLO rd, rs** — MD00086 Vol II-A Rev 6.06, CLO, p.134 (pre-Release 6 encoding: SPECIAL2).
+/-- **CLO rd, rs** — MD00086 Vol II-A Rev 6.06, CLO, p.134 (Release 6 diagram: SPECIAL, `rt = 00000`, `sa = 00001`).
 ```
 temp ← 32
 for i in 31 .. 0
@@ -24,8 +24,8 @@ for i in 31 .. 0
 endfor
 GPR[rd] ← temp
 ```
-Restrictions (p.134): "The operation of the instruction is UNPREDICTABLE if the rt and rd fields of
-the instruction contain different values"; `Instruction.clo` has no `rt`, and `Manual.enc` puts `rt = rd`. -/
+The pre-Release 6 restriction on `rt` and `rd` does not apply: "Release 6's new instruction encoding
+does not contain an rt field" (Restrictions, p.134). -/
 def CLO (rs rd : W32) : Pseudo Unit := do
   let x ← GPR (reg rs)
   -- temp ← 32; for i in 31 .. 0: if GPR[rs]i = 0 then temp ← 31 - i; break
@@ -35,7 +35,7 @@ def CLO (rs rd : W32) : Pseudo Unit := do
   -- GPR[rd] ← temp
   setGPR (reg rd) (BitVec.ofNat 32 temp)
 
-/-- **CLZ rd, rs** — MD00086 Vol II-A Rev 6.06, CLZ, p.135 (pre-Release 6 encoding: SPECIAL2).
+/-- **CLZ rd, rs** — MD00086 Vol II-A Rev 6.06, CLZ, p.135 (Release 6 diagram: SPECIAL, `rt = 00000`, `sa = 00001`).
 ```
 temp ← 32
 for i in 31 .. 0
@@ -46,7 +46,7 @@ for i in 31 .. 0
 endfor
 GPR[rd] ← temp
 ```
-The `rt = rd` restriction is as for `CLO`. -/
+As for `CLO`, the Release 6 encoding has no `rt` field (p.135). -/
 def CLZ (rs rd : W32) : Pseudo Unit := do
   let x ← GPR (reg rs)
   -- temp ← 32; for i in 31 .. 0: if GPR[rs]i = 1 then temp ← 31 - i; break

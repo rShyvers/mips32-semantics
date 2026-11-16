@@ -1,9 +1,9 @@
-# All twelve trap instructions, each taken and not taken, with a handler that counts.
-# MD00086 Vol II-A Rev 6.06: TEQ p.416, TEQI p.417, TGE p.418, TGEI p.419, TGEIU p.420, TGEU p.421, TLT p.434,
-# TLTI p.435, TLTIU p.436, TLTU p.437, TNE p.438, TNEI p.439. a=-1 (0xffffffff), b=1.
-# Taken: teq(a,a) tne(a,b) tge(b,a) tlt(a,b) tgeu(a,b) tltu(b,a) teqi(a,-1) tnei(a,1) tgei(b,-1) tlti(a,1) tgeiu(a,1) tltiu(b,-1)
-# = 12 traps; not taken: the 12 complementary cases. => $s7 = 12 exactly.
-# oracle: expect gpr:s7=12
+# All six Release 6 trap instructions (the trap-immediate forms are removed in Release 6), each taken and not taken,
+# with a handler that counts.
+# MD00086 Vol II-A Rev 6.06: TEQ p.416, TGE p.418, TGEU p.421, TLT p.434, TLTU p.437, TNE p.438. a=-1 (0xffffffff), b=1.
+# Taken: teq(a,a) tne(a,b) tge(b,a) tlt(a,b) tgeu(a,b) tltu(b,a)
+# = 6 traps; not taken: the 6 complementary cases. => $s7 = 6 exactly.
+# oracle: expect gpr:s7=6
 .ktext
 # handler: record Cause/EPC/BadVAddr, count in $s7, ExcCode history in $s6 (shifted 8 bits per exception),
 # skip the faulting instruction (EPC += 4; if Cause.BD: the branch target is branch+8 in these tests), eret.
@@ -34,22 +34,10 @@ tge $t1, $t0
 tlt $t0, $t1
 tgeu $t0, $t1
 tltu $t1, $t0
-teqi $t0, -1
-tnei $t0, 1
-tgei $t1, -1
-tlti $t0, 1
-tgeiu $t0, 1
-tltiu $t1, -1
 teq $t0, $t1
 tne $t0, $t0
 tge $t0, $t1
 tlt $t1, $t0
 tgeu $t1, $t0
 tltu $t0, $t1
-teqi $t0, 1
-tnei $t0, -1
-tgei $t0, 1
-tlti $t1, -1
-tgeiu $t1, -1
-tltiu $t0, 1
 nop

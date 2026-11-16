@@ -27,9 +27,9 @@ which only kuseg with `ERL = 1` reaches), so there is no two-sided inverse. What
 physical address outside `0x2000_0000`-`0x3FFF_FFFF` (`loadAddr_canonicalVAddr`,
 `loadAddr_not_hole`).
 
-## Theorems in this file (21)
+## Theorems in this file (22)
 
-  `loadAddr_mod4` `addr_ne_of_aligned` `get?_loadWord_other` `get?_loadWord_same`
+  `loadAddr_mod4` `addr_ne_of_aligned` `get?_loadWord_other` `get?_loadWord_bytes` `get?_loadWord_same`
   `foldl_loadWord_other` `foldl_loadWord_mem` `loadImage_readMemWord` `translate_hostedStart`
   `load_readMemWord` `executesInstr_load` `load_step_fetches_image` `loadAtReset_readMemWord_kseg`
   `loadAddr_examples` `ofNat_0` `and_1fff_toNat` `loadAddr_toNat` `canonicalVAddr_toNat`
@@ -81,12 +81,13 @@ theorem get?_loadWord_other (m : Std.HashMap W32 UInt8) (q pa w : W32) (hq : q.t
   simp only [Std.HashMap.get?_insert]
   simp only [e0, e1, e2, e3, Bool.false_eq_true, ↓reduceIte]
 
-/-- After `loadWord m pa w`, the four bytes at `pa` are `w`'s, big-endian. -/
-theorem get?_loadWord_same (m : Std.HashMap W32 UInt8) (pa w : W32) :
-    (loadWord m pa w).get? pa = some ((w >>> 24) &&& 0xff#32).toNat.toUInt8 ∧
-    (loadWord m pa w).get? (pa + 1#32) = some ((w >>> 16) &&& 0xff#32).toNat.toUInt8 ∧
-    (loadWord m pa w).get? (pa + 2#32) = some ((w >>> 8) &&& 0xff#32).toNat.toUInt8 ∧
-    (loadWord m pa w).get? (pa + 3#32) = some (w &&& 0xff#32).toNat.toUInt8 := by
+/-- After `loadWord m pa w`, the four bytes at `pa` are `w`'s bytes in the byte order of
+`profile` (proof device for `get?_loadWord_same` and `loadImage_readMemWord`). -/
+theorem get?_loadWord_bytes (m : Std.HashMap W32 UInt8) (pa w : W32) :
+    (loadWord m pa w).get? pa = some (byteOfValue profile.bigEndianMem 4 w 0) ∧
+    (loadWord m pa w).get? (pa + 1#32) = some (byteOfValue profile.bigEndianMem 4 w 1) ∧
+    (loadWord m pa w).get? (pa + 2#32) = some (byteOfValue profile.bigEndianMem 4 w 2) ∧
+    (loadWord m pa w).get? (pa + 3#32) = some (byteOfValue profile.bigEndianMem 4 w 3) := by
   have d1 : (pa + 1#32 == pa) = false := by simp
   have d2 : (pa + 2#32 == pa) = false := by simp
   have d3 : (pa + 3#32 == pa) = false := by simp
@@ -96,6 +97,17 @@ theorem get?_loadWord_same (m : Std.HashMap W32 UInt8) (pa w : W32) :
   unfold loadWord
   simp only [Std.HashMap.get?_insert, d1, d2, d3, d21, d31, d32,
     beq_self_eq_true, ↓reduceIte, Bool.false_eq_true, and_self]
+
+/-- After `loadWord m pa w`, the four bytes at `pa` are `w`'s, **little-endian** (the byte order of
+`profile`): the least significant byte at `pa`, the most significant at `pa + 3`. -/
+theorem get?_loadWord_same (m : Std.HashMap W32 UInt8) (pa w : W32) :
+    (loadWord m pa w).get? pa = some (w &&& 0xff#32).toNat.toUInt8 ∧
+    (loadWord m pa w).get? (pa + 1#32) = some ((w >>> 8) &&& 0xff#32).toNat.toUInt8 ∧
+    (loadWord m pa w).get? (pa + 2#32) = some ((w >>> 16) &&& 0xff#32).toNat.toUInt8 ∧
+    (loadWord m pa w).get? (pa + 3#32) = some ((w >>> 24) &&& 0xff#32).toNat.toUInt8 := by
+  have h := get?_loadWord_bytes m pa w
+  simp only [byteOfValue, byteShift, profile, Bool.false_eq_true, ↓reduceIte] at h
+  simpa using h
 
 /-- The four bytes at `pa` after loading a list of words none of which is loaded at `pa`. -/
 theorem foldl_loadWord_other (l : List (W32 × W32)) (m : Std.HashMap W32 UInt8) (pa : W32)
@@ -138,8 +150,8 @@ theorem foldl_loadWord_mem (l : List (W32 × W32)) (m : Std.HashMap W32 UInt8) (
       subst hxw
       rw [foldl_loadWord_other rest _ _ hal
         (fun y hy => hl y (List.mem_cons_of_mem _ hy) (hrest y hy)) i hi]
-      have hs := get?_loadWord_same m (loadAddr a) w
-      have hs0 := get?_loadWord_same (∅ : Std.HashMap W32 UInt8) (loadAddr a) w
+      have hs := get?_loadWord_bytes m (loadAddr a) w
+      have hs0 := get?_loadWord_bytes (∅ : Std.HashMap W32 UInt8) (loadAddr a) w
       rcases (by omega : i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3) with h | h | h | h <;> subst h
       · rw [ofNat_0, hs.1, hs0.1]
       · exact hs.2.1.trans hs0.2.1.symm
@@ -172,7 +184,7 @@ theorem loadImage_readMemWord (p : Program) (s : State) (a w : W32) (hw : p.get?
     exact ⟨by rw [loadAddr_mod4]; exact halign _ _ hx', hdisj _ _ hx' hne⟩
   have key := fun i hi => foldl_loadWord_mem p.toList s.physMem a w hmem
     Std.HashMap.distinct_keys_toList hpal hl i hi
-  have hs0 := get?_loadWord_same (∅ : Std.HashMap W32 UInt8) (loadAddr a) w
+  have hs0 := get?_loadWord_bytes (∅ : Std.HashMap W32 UInt8) (loadAddr a) w
   have tr : translate (loadImage p s) a = some (loadAddr a) := by
     rw [translate_congr (loadImage p s) s rfl a, htr]
   unfold readMemWord
@@ -184,8 +196,8 @@ theorem loadImage_readMemWord (p : Program) (s : State) (a w : W32) (hw : p.get?
   have k2 := key 2 (by omega); rw [show BitVec.ofNat 32 2 = (2#32 : W32) from rfl, hs0.2.2.1] at k2
   have k3 := key 3 (by omega); rw [show BitVec.ofNat 32 3 = (3#32 : W32) from rfl, hs0.2.2.2] at k3
   rw [k0, k1, k2, k3]
-  simp only [Option.getD_some, byte_toUInt8_toNat]
-  rw [word_of_bytes]
+  simp only [Option.getD_some]
+  rw [join4_byteOfValue]
 
 /-- The hosted start state (Kernel Mode, `ERL = 0`) translates every address by `loadAddr`. -/
 theorem translate_hostedStart (p : Program) (a : W32) : translate (load p) a = some (loadAddr a) := by

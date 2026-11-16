@@ -9,10 +9,10 @@ Coprocessor Unusable when `Status.CU1 = 0`, and what the `fpCompletes*` right-ha
 arithmetic specs mean: an enabled exception traps (destination not written), otherwise the result is
 written and the flags accumulate.
 
-## Theorems in this file (8)
+## Theorems in this file (6)
 
   `fp_coprocessor_unusable` `takeCoprocessorUnusable_spec` `fpCompletesS_trap` `fpCompletesD_trap`
-  `fpCompletesCmp_trap` `fpCompletesS_ok` `fpCompletesCmp_ok` `fpCompletesS_exact`
+  `fpCompletesS_ok` `fpCompletesS_exact`
 -/
 
 set_option maxRecDepth 4000
@@ -25,7 +25,7 @@ functions of `Semantics/FpOps.lean` (`Mips.Fp`). Every theorem takes
 covers `CU1 = 0` for all of them at once.
 
 How an FP computational instruction completes is stated once, by
-`fpCompletesS` / `fpCompletesD` / `fpCompletesCmp` (`Defs.lean`; written with
+`fpCompletesS` / `fpCompletesD` (`Defs.lean`; written with
 `fpeEnabled` / `raiseFlags`, independently of `Step.lean`'s `fpFinish*`,
 which go through `fpUpdate`); the per-instruction theorems then only name
 the `Mips.Fp` function applied to the operands. -/
@@ -97,20 +97,6 @@ theorem fpCompletesD_trap (s s' : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Fl
   refine ⟨?_, rfl, rfl, rfl, rfl, rfl⟩
   rw [exceptionEntry_excCode]; decide
 
-/-- The FP trap, for a compare: no condition code is written. -/
-theorem fpCompletesCmp_trap (s s' : State) (cc : W32) (r : Bool × Mips.Fp.Flags)
-    (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = true)
-    (h : fpCompletesCmp s cc r = s') :
-    causeExcCode s' = 15#32 ∧ s'.fpRegs = s.fpRegs ∧ s'.fcsr = fcsrTrapped s.fcsr r.2 ∧
-      s'.pc = exceptionVector s := by
-  unfold fpCompletesCmp at h
-  rw [ite_of_pos hen] at h
-  try unfold takeException at h
-  try unfold takeCoprocessorUnusable at h
-  subst h
-  refine ⟨?_, rfl, rfl, rfl⟩
-  rw [exceptionEntry_excCode]; decide
-
 /-- **No trap: result bits and FCSR.** When no enabled exception was raised,
 the instruction completes: `FPR[fd]` holds exactly the result bits (given a
 32-entry FP register file), FCSR is `raiseFlags` of the old FCSR (Cause =
@@ -127,21 +113,6 @@ theorem fpCompletesS_ok (s s' : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flag
   subst h
   refine ⟨?_, rfl, rfl, rfl⟩
   exact writeFpReg_reads_back s (regIdx fd) r.1 hsize
-
-/-- **A compare writes exactly `FCC[cc]`.** When it does not trap, condition
-code `cc` becomes the comparison result and every other condition code keeps
-its value; no FP register changes. -/
-theorem fpCompletesCmp_ok (s s' : State) (cc : W32) (r : Bool × Mips.Fp.Flags)
-    (hen : Mips.Fp.fpeEnabled s.fcsr r.2 = false)
-    (h : fpCompletesCmp s cc r = s') (cc' : Fin 8) :
-    Mips.Fp.getCC s'.fcsr cc' = (if cc' = ccIdx cc then r.1 else Mips.Fp.getCC s.fcsr cc') ∧
-      s'.fpRegs = s.fpRegs ∧ s'.pc = s.pc + 4#32 := by
-  unfold fpCompletesCmp at h
-  rw [ite_of_neg (by simp [hen])] at h
-  try unfold takeException at h
-  try unfold takeCoprocessorUnusable at h
-  subst h
-  exact ⟨Mips.Fp.getCC_setCC_raiseFlags _ _ _ _ _, rfl, rfl⟩
 
 /-- An operation that raises no exception never traps, and leaves
 FCSR.Flags, the condition codes, the enables and the rounding mode alone

@@ -16,6 +16,59 @@ abbrev VAddr := W32
 /-- A **physical address**: an index into `State.physMem`. Only a name for `W32`. -/
 abbrev PAddr := W32
 
+/-! ## Release and profile
+
+The model implements one **profile** of the architecture. Release differences are keyed the way the
+manual keys them (its pseudocode tests `ArchitectureRevision()`, `Config.AR` and configuration
+bits): by *which decoder table* a release uses (`Instruction.lean`, `decodeFor`) and by the
+configuration values of `profile`. One union `Instruction` type serves every release; an
+instruction is available in a release exactly when that release's decoder emits it. -/
+
+/-- An architecture release. MIPS32 Release 6 (`Config.AR = 2`: "Encoding 2 is new for Release 6",
+MD00090 Vol III Rev 6.02 §9.45, Table 9.64, p.234) is the only release modeled; pre-Release 6
+releases would be sibling constructors with their own decoder tables. -/
+inductive Release where
+  /-- MIPS32 Release 6. -/
+  | r6
+  deriving DecidableEq, Repr
+
+/-- The configuration a processor of the model is built with. -/
+structure Profile where
+  /-- The release whose decoder and pseudocode the processor follows. -/
+  release : Release
+  /-- `BigEndianMem` (MD00086 Vol II-A Rev 6.06 §1.3, Table 1.1, p.6; MD00082 Vol I-A Rev 6.01
+  p.16): "Endian mode as configured at chip reset (0 → Little-Endian, 1 → Big-Endian)". -/
+  bigEndianMem : Bool
+  deriving DecidableEq, Repr
+
+/-- **The profile of this model**: Release 6, little-endian. Release 6 requires little-endian
+support ("`Config5.DEC` 0: Only Little-Endian mode supported. Any implementation must support
+Little-endian mode", MD00090 Vol III Rev 6.02 §9.50, p.261); a big-endian profile changes only
+`bigEndianMem` (the byte-order helpers below and every memory access read it). -/
+def profile : Profile := { release := .r6, bigEndianMem := false }
+
+/-- The bit position of byte `k` (0 = the byte at the lowest address) inside an `n`-byte memory
+value: for little-endian memory byte `k` holds bits `8k+7..8k`; for big-endian memory byte `k` is
+the `k`-th most significant ("For big-endian ordering this is the most-significant byte",
+MD00086 Vol II-A Rev 6.06 §2.2.2.2, p.18). -/
+def byteShift (be : Bool) (n k : Nat) : Nat := 8 * (if be then n - 1 - k else k)
+
+/-- Byte `k` (0 = lowest address) of the `n`-byte memory value `v` in byte order `be`. -/
+def byteOfValue (be : Bool) (n : Nat) (v : W32) (k : Nat) : UInt8 :=
+  ((v >>> byteShift be n k) &&& 0xff#32).toNat.toUInt8
+
+/-- A byte placed at byte `k` of an `n`-byte memory value in byte order `be`. -/
+def byteInValue (be : Bool) (n : Nat) (b : UInt8) (k : Nat) : W32 :=
+  BitVec.ofNat 32 b.toNat <<< byteShift be n k
+
+/-- The halfword made of the bytes at addresses `a`, `a + 1`. -/
+def join2 (be : Bool) (b0 b1 : UInt8) : W32 :=
+  byteInValue be 2 b0 0 ||| byteInValue be 2 b1 1
+
+/-- The word made of the bytes at addresses `a`, `a + 1`, `a + 2`, `a + 3`. -/
+def join4 (be : Bool) (b0 b1 b2 b3 : UInt8) : W32 :=
+  byteInValue be 4 b0 0 ||| byteInValue be 4 b1 1 ||| byteInValue be 4 b2 2 ||| byteInValue be 4 b3 3
+
 /-- An assembled program image: a sparse map from word-aligned **virtual** addresses to 32-bit
 words (text, data, `.ktext`, `.kdata`). This is **not** processor state: it is what the assembler
 (`Asm.lean`) produces and what the loader (`Semantics/Env.lean`, `load`) writes into
@@ -34,10 +87,6 @@ structure State where
   pc : W32
   /-- General-purpose registers, size 32; index = register number. -/
   regs : Array W32
-  /-- `hi` register (mult/div results). -/
-  hi : W32
-  /-- `lo` register (mult/div results). -/
-  lo : W32
   /-- Coprocessor-1 (FPU) registers `$f0`..`$f31`, size 32; index = FP
   register number. Each holds a raw 32-bit pattern (same raw-bit-pattern
   storage convention as `regs`): an IEEE-754 single, or one half of a double.
@@ -80,19 +129,15 @@ structure State where
 
   Representing "not taken" as a pending fall-through target (rather than a
   separate Boolean) keeps one field for one fact: `pendingBranch.isSome` *is*
-  "in a delay slot", for taken and not-taken branches alike.
-
-  A **not-taken branch-likely** also sets this to `some (pc + 8)` (its delay-slot
-  instruction is in a delay slot, `Cause.BD` rules apply) and additionally sets
-  `nullified` (below): the delay-slot instruction is then nullified in its own
-  instruction time. -/
+  "in a delay slot", for taken and not-taken branches alike. (Release 6 has no
+  branch-likely instructions, so no delay-slot instruction is ever nullified;
+  a pre-Release 6 profile would add the `nullified` marker back.) -/
   pendingBranch : Option W32 := none
   /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
   Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure), by `eret`,
   and by every exception entry ("Exceptions between the LL and SC cause SC
   to fail"). Pinned model choice: every store-class
-  instruction (`sb`, `sh`, `sw`, `swl`, `swr`, `swc1`, `sdc1`, `swxc1`, `sdxc1`) also clears
-  it. MD00086 "SC": when a memory access instruction (load, store or
+  instruction (`sb`, `sh`, `sw`, `swc1`, `sdc1`) also clears it. MD00086 "SC": when a memory access instruction (load, store or
   prefetch) executes on the same processor between `ll` and `sc`, "the SC
   may succeed or it may fail; the success or failure is not predictable".
   Failing the `sc` after an intervening store is therefore one legal
@@ -116,8 +161,8 @@ structure State where
     (`userMode`, `Step.lean`; Vol III §3.2-3.4, p.21-22).
   * `BEV` (bit 22) — selects the bootstrap exception vector; set by Reset.
   * `CU0` (bit 28) — coprocessor 0 usable outside Kernel Mode (`cp0Usable`).
-  * `CU1` (bit 29) — coprocessor 1 usable. When it is 0 every COP1/COP1X
-    instruction, `lwc1`/`swc1`/`ldc1`/`sdc1` and `movf`/`movt` raises
+  * `CU1` (bit 29) — coprocessor 1 usable. When it is 0 every COP1
+    instruction and `lwc1`/`swc1`/`ldc1`/`sdc1` raises
     Coprocessor Unusable (MD00090 Vol III Rev 6.02 §6.2.22, p.100).
 
   **Not modeled** (read as zero, writes ignored, as Table 9.47 requires for an
@@ -222,25 +267,6 @@ structure State where
   restarts (`Step.lean`, `step`) and by the Reset exception ("The assertion of any reset or NMI must
   restart the pipeline", p.442). `false` at power-on. -/
   standby : Bool := false
-  /-- **The instruction at `pc` is nullified**: it is the delay-slot instruction of a branch-likely
-  instruction whose branch was not taken. The branch-likely's Operation (MD00086 Vol II-A Rev 6.06,
-  BEQL, p.73) is "I+1: if condition then PC ← PC + target_offset else NullifyCurrentInstruction()",
-  and its `I+1` statements take effect in the instruction time of the delay-slot instruction
-  (§1.3, Table 1.1, p.6: "The effect of pseudocode statements for the current instruction labeled
-  I+1 appears to occur “at the same time” as the effect of pseudocode statements labeled I for the
-  following instruction"). NullifyCurrentInstruction (§2.2.2.5.4, p.26): "The instruction is
-  aborted, inhibiting not only the functional effect of the instruction, but also inhibiting all
-  exceptions detected during fetch, decode, or execution of the instruction in question. For
-  branch-likely instructions, nullification kills the instruction in the delay slot of the branch
-  likely instruction."
-
-  So the nullified instruction occupies its own instruction time (`step`): `Count` advances, and an
-  interrupt can be taken at it (with `pendingBranch = some _` set alongside, the usual delay-slot
-  rule gives `EPC` = the branch-likely, `Cause.BD = 1`; MD00090 Vol III Rev 6.02 Table 6.11, p.87).
-  Set only by a not-taken branch-likely (always together with `pc := pc + 4` and
-  `pendingBranch := some (pc + 8)`); cleared by the nullifying step (`nullifiedStep`, `Step.lean`),
-  by every exception entry and by the Reset exception. `false` at power-on. -/
-  nullified : Bool := false
 
 /-- Mask `w` to `n` bits and shift it left by `shift`. Internal helper for the
 instruction-word constructors below. -/
@@ -306,9 +332,9 @@ def excCodeRI : W32 := 10
 coprocessor-2 encoding, or a coprocessor-0 instruction outside Kernel Mode with
 `Status.CU0 = 0` (MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
 def excCodeCpU : W32 := 11
-/-- Integer Overflow (`add`/`addi`/`sub`). -/
+/-- Integer Overflow (`add`/`sub`). -/
 def excCodeOv : W32 := 12
-/-- Trap (`teq`/`tne`/`tlt`/`tge`/`tltu`/`tgeu` and their immediate forms).
+/-- Trap (`teq`/`tne`/`tlt`/`tge`/`tltu`/`tgeu`; Release 6 removed the immediate forms).
 All share this one code; `Cause` does not say which condition fired. -/
 def excCodeTr : W32 := 13
 /-- Floating Point exception (MD00090 Vol III Rev 6.02 §6.2.23, p.100;

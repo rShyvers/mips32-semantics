@@ -8,26 +8,6 @@ namespace Manual.Ops
 
 open Manual
 
-/-- **ADDI rt, rs, immediate** — MD00086 Vol II-A Rev 6.06, ADDI, p.35.
-```
-temp ← (GPR[rs]31||GPR[rs]31..0) + sign_extend(immediate)
-if temp32 ≠ temp31 then
-   SignalException(IntegerOverflow)
-else
-   GPR[rt] ← temp
-endif
-```
-`sign_extend(immediate)` is taken at the 33-bit width of `temp` (its sign bit repeated). -/
-def ADDI (rs rt imm : W32) : Pseudo Unit := do
-  let x ← GPR (reg rs)
-  let se := sign_extend (imm16 imm)
-  -- temp ← (GPR[rs]31||GPR[rs]31..0) + sign_extend(immediate)
-  let temp : BitVec 33 := (BitVec.ofBool (bit x 31) ++ x) + (BitVec.ofBool (bit se 31) ++ se)
-  -- if temp32 ≠ temp31 then SignalException(IntegerOverflow)
-  if bit temp 32 != bit temp 31 then SignalException .IntegerOverflow
-  -- else GPR[rt] ← temp
-  else setGPR (reg rt) (low temp 32)
-
 /-- **ADDIU rt, rs, immediate** — MD00086 Vol II-A Rev 6.06, ADDIU, p.36.
 ```
 temp ← GPR[rs] + sign_extend(immediate)
@@ -93,12 +73,15 @@ def XORI (rs rt imm : W32) : Pseudo Unit := do
   -- GPR[rt] ← GPR[rs] xor zero_extend(immediate)
   setGPR (reg rt) ((← GPR (reg rs)) ^^^ zero_extend (imm16 imm))
 
-/-- **LUI rt, immediate** — MD00086 Vol II-A Rev 6.06, LUI, p.233 (pre-Release 6: `rs` field `00000`).
+/-- **AUI rt, rs, immediate** — MD00086 Vol II-A Rev 6.06, AUI, p.47 (Release 6; "In Release 6, LUI is
+an assembly idiom for AUI with rs=0").
 ```
-GPR[rt] ← immediate || 016
-``` -/
-def LUI (rt imm : W32) : Pseudo Unit := do
-  -- GPR[rt] ← immediate || 0^16
-  setGPR (reg rt) ((imm16 imm ++ 0#16).setWidth 32)
+GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)
+```
+`immediate << 16` is the 32-bit string `immediate || 0^16` ("The 16 bit immediate is shifted left 16
+bits, sign-extended, and added to the register rs", p.47). -/
+def AUI (rs rt imm : W32) : Pseudo Unit := do
+  -- GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)
+  setGPR (reg rt) ((← GPR (reg rs)) + sign_extend (imm16 imm ++ 0#16))
 
 end Manual.Ops

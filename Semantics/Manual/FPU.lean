@@ -4,8 +4,11 @@ import Semantics.FpOps
 /-!
 # Manual.FPU — floating-point registers, FCSR, and the IEEE core
 
-MD00086 Vol II-A Rev 6.06 §2.2.2.3 (p.21-24): `ValueFPR`, `StoreFPR`, `CheckFPException`,
-`FPConditionCode`, `SetFPConditionCode`. FCSR fields: MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8
+MD00086 Vol II-A Rev 6.06 §2.2.2.3 (p.21-24): `ValueFPR`, `StoreFPR`, `CheckFPException`
+(Release 6 has no FP condition codes: `FPConditionCode`/`SetFPConditionCode` belong to the removed
+C.cond.fmt, BC1F/BC1T and MOVF/MOVT).
+-- W5: the FPU here is the pre-Release 6 32-bit FPU (`Status.FR = 0`, `FIR.Has2008 = 0`); this
+-- profile's Release 6 FPU (`FR = 1`, NAN2008/ABS2008) replaces it. FCSR fields: MD00082 Vol I-A Rev 6.01 §6.5.4, Table 6.8
 (p.92-95). Exception handling: §6.7.1 (p.98-99).
 
 **Shared dependency.** The IEEE 754 arithmetic itself (the exact result, the one correctly rounded
@@ -26,9 +29,6 @@ kept out of the core where they are cheap to lift:
   `Oracle.absNegNaN`; the core's `f32Abs`/`f32Neg` are not used.
 * `RECIP.fmt`/`RSQRT.fmt`: `Impl.recipS/D`, `Impl.rsqrtS/D` (accuracy and rounding-mode dependence
   implementation dependent, p.336, p.343).
-* `MADD/MSUB/NMADD/NMSUB.fmt`: written in `Manual.Ops.FpuArith` as the separate multiply, add
-  (subtract) and negate operations the pages describe (`FPCheck`, then `FPResult` with the union of the
-  operations' exceptions); the core's `f32Madd` … are not used.
 * The QNaN of a format conversion (`CVT.D.S`, `CVT.S.D`): `Oracle.cvtQNaNToD/ToS`.
 * **Remaining core choice — which QNaN an operation with several QNaN operands returns.** "When
   possible, this QNaN result is one of the operand QNaN values" (MD00082 Vol I-A Rev 6.01 §6.3.1.5,
@@ -111,22 +111,6 @@ def FPResult {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
   Pseudo.modify fun a => { a with FCSR := (a.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (fl <<< 12) }
   CheckFPException
   Pseudo.modify fun a => { a with FCSR := a.FCSR ||| (fl <<< 2) }
-  pure r.1
-
-/-- **The FCSR side of one operation of an instruction made of several FP operations** (`MADD.fmt`,
-`MSUB.fmt`, `NMADD.fmt`, `NMSUB.fmt`, MD00086 Vol II-A Rev 6.06 p.256, p.287, p.308, p.310: "The results
-and flags are as if separate floating-point multiply and add [and negate] instructions were executed
-... The Cause bits are ORed into the Flag bits if no exception is taken"). `r.2` is the union of the
-exceptions of the instruction's operations so far: Cause is written with it ("A bit is set to 1 if the
-corresponding exception condition arises during the execution of an instruction and is set to 0
-otherwise", MD00082 Vol I-A Rev 6.01, Table 6.8 `Cause`, p.94), then `CheckFPException`; the Flags are
-not written ("instructions that trap do not update the Flag bits", §6.7.1, p.99) — the instruction's
-last operation goes through `FPResult` with the union of all the exceptions, which ORs them into the
-Flags. Returns the value. -/
-def FPCheck {α} (r : α × Mips.Fp.Flags) : Pseudo α := do
-  let fl : W32 := r.2.toBits.setWidth 32
-  Pseudo.modify fun a => { a with FCSR := (a.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (fl <<< 12) }
-  CheckFPException
   pure r.1
 
 /-! ## 7B S4 FPU: the rest of the FP vocabulary -/
@@ -222,15 +206,6 @@ def isQNaNS (x : W32) : Bool := Mips.Fp.isQNaN32 x
 def isSNaND (x : BitVec 64) : Bool := Mips.Fp.isSNaN64 x
 /-- `QNaN(x)`, double. -/
 def isQNaND (x : BitVec 64) : Bool := Mips.Fp.isQNaN64 x
-/-- `x <S y` (IEEE less than; false when unordered). -/
-def ltS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).less
-/-- `x =S y` (IEEE equal; `+0 = -0`, false when unordered). -/
-def eqS (x y : W32) : Bool := (Mips.Fp.f32Relation x y).equal
-/-- `x <D y`. -/
-def ltD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).less
-/-- `x =D y`. -/
-def eqD (x y : BitVec 64) : Bool := (Mips.Fp.f64Relation x y).equal
-
 end IEEE
 
 /-! ### `ValueFPR` / `StoreFPR` for the 64-bit formats (Figures 2.22, 2.23, p.22-23) -/
@@ -272,20 +247,6 @@ def StoreFPR64 (fpr : Fin 32) (value : BitVec 64) : Pseudo Unit := fun c f =>
     (.ok (), { f with arch := { f.arch with
       FPR := update (update f.arch.FPR fpr (value.extractLsb' 0 32)) (fpr + 1)
         (value.extractLsb' 32 32) } })
-
-/-! ### Condition codes (Figures 2.25, 2.26, p.23-24) -/
-
-/-- **`FPConditionCode(cc)`** (Figure 2.25, p.23): `cc = 0: FCSR23`, else `FCSR24+cc`. -/
-def FPConditionCode (cc : Nat) : Pseudo Bool := do
-  let a ← Pseudo.get
-  if cc == 0 then pure (bit a.FCSR 23) else pure (bit a.FCSR (24 + cc))
-
-/-- **`SetFPConditionCode(cc, tf)`** (Figure 2.26, p.24): `cc = 0: FCSR <- FCSR31..24 || tf || FCSR22..0`,
-else `FCSR <- FCSR31..25+cc || tf || FCSR23+cc..0`: bit `23` (cc = 0) or `24+cc` becomes `tf`. -/
-def SetFPConditionCode (cc : Nat) (tf : Bool) : Pseudo Unit :=
-  let p := if cc == 0 then 23 else 24 + cc
-  Pseudo.modify fun a =>
-    { a with FCSR := (a.FCSR &&& ~~~(1#32 <<< p)) ||| ((BitVec.ofBool tf).setWidth 32 <<< p) }
 
 
 end Manual

@@ -8,13 +8,9 @@
     sllv $t6, $t0, $t2
     li $s0, 7
     li $s1, 9
-    movn $s0, $s1, $t1
     li $s2, 7
-    movn $s2, $s1, $zero
     li $s3, 7
-    movz $s3, $s1, $zero
     li $s4, 7
-    movz $s4, $s1, $t1
     move $a0, $t3
     li $v0, 1
     syscall

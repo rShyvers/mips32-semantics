@@ -21,7 +21,8 @@ set_option maxRecDepth 4000
 state `s`: `PC ← 0xBFC0_0000`; `Status.BEV ← 1`, `Status.ERL ← 1` (so the processor is in Kernel
 Mode, §3.2 p.21, and the bootstrap exception vector `0xBFC0_0380` is in use); `Cause.DC ← 0`;
 `EBase` reads `0x8000_0000` (`EBaseExceptionBase ← 0`); `Config` is its configuration state with
-`K0 = 2`, and the pinned `K23 = KU = 2`, with `MT = 3` (`0xA400_8582`); `ErrorEPC ←` the restart PC (the branch, if `s` was in a delay slot);
+`K0 = 2`, and the pinned `K23 = KU = 2`, with `BE = 0` (little-endian), `AR = 2` (Release 6)
+and `MT = 3` (`0xA400_0982`); `ErrorEPC ←` the restart PC (the branch, if `s` was in a delay slot);
 no branch is pending. `Status.RP/TS/SR/NMI ← 0` hold because those bits are not implemented and
 read 0. -/
 theorem resetException_spec (s : State) :
@@ -30,7 +31,7 @@ theorem resetException_spec (s : State) :
     (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
     (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
     ebaseValue (resetException s) = 0x80000000#32 ∧
-    configValue (resetException s) = 0xA4008582#32 ∧
+    configValue (resetException s) = 0xA4000982#32 ∧
     (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
     (resetException s).pendingBranch = none ∧
     kernelMode (resetException s) = true ∧
@@ -44,7 +45,7 @@ theorem resetException_spec (s : State) :
     rw [BitVec.and_assoc, show ~~~causeDcMask &&& causeDcMask = 0#32 by decide, BitVec.and_zero]
   · show (ebaseFixedBits &&& ebaseWriteMask) ||| ebaseFixedBits = _
     decide
-  · show 0x80008580#32 ||| ((2#3).setWidth 32 <<< 28) ||| ((2#3).setWidth 32 <<< 25) |||
+  · show 0x80000980#32 ||| ((2#3).setWidth 32 <<< 28) ||| ((2#3).setWidth 32 <<< 25) |||
       (2#3).setWidth 32 = _
     decide
   · unfold kernelMode
@@ -59,34 +60,32 @@ theorem resetException_spec (s : State) :
     rfl
 
 /-- **What the Reset exception leaves alone**: every register whose reset state the manual
-leaves undefined keeps its value (a pin; any value is legal): the GPRs, `HI`/`LO`, the FPRs,
+leaves undefined keeps its value (a pin; any value is legal): the GPRs, the FPRs,
 `FCSR`, memory, `EPC`, `BadVAddr`, and every `Status` bit other than `BEV` and `ERL`. -/
 theorem resetException_keeps (s : State) :
-    (resetException s).regs = s.regs ∧ (resetException s).hi = s.hi ∧
-    (resetException s).lo = s.lo ∧ (resetException s).fpRegs = s.fpRegs ∧
+    (resetException s).regs = s.regs ∧ (resetException s).fpRegs = s.fpRegs ∧
     (resetException s).fcsr = s.fcsr ∧ (resetException s).physMem = s.physMem ∧
     (resetException s).cp0Epc = s.cp0Epc ∧ (resetException s).cp0BadVAddr = s.cp0BadVAddr ∧
     (resetException s).cp0Status &&& ~~~(statusBevMask ||| statusErlMask) =
       s.cp0Status &&& ~~~(statusBevMask ||| statusErlMask) := by
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
   show (s.cp0Status ||| statusBevMask ||| statusErlMask) &&& ~~~(statusBevMask ||| statusErlMask) = _
   rw [BitVec.or_assoc, or_and_disjoint _ _ _ (by decide)]
 
 /-- **The state after a cold reset** (`resetState = resetException powerOnState`): `pc =
 0xBFC0_0000`, `Status = 0x0040_0004` (`BEV = ERL = 1`, every other bit 0: Kernel Mode, `CU0 =
 CU1 = 0`), `Cause = 0`, `EPC = BadVAddr = ErrorEPC = 0`, `EBase` reads `0x8000_0000`, `Config`
-reads `0xA400_8582` (`MT = 3`, `K23 = KU = K0 = 2`), the general exception vector is the bootstrap one
-(`0xBFC0_0380`), no branch is pending, `LLbit` clear, and every GPR, `HI`, `LO`, FPR and `FCSR`
+reads `0xA400_0982` (`BE = 0`, `AR = 2`, `MT = 3`, `K23 = KU = K0 = 2`), the general exception vector is the bootstrap one
+(`0xBFC0_0380`), no branch is pending, `LLbit` clear, and every GPR, FPR and `FCSR`
 is 0 (pins of undefined reset values, `powerOnState`), and so are `Count` and `Compare`, with no
 timer interrupt pending; `HWREna = 0` (§6.2.5, p.89: "HWREna ← 0"). -/
 theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
     resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
-    configValue resetState = 0xA4008582#32 ∧ kernelMode resetState = true ∧
+    configValue resetState = 0xA4000982#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
-    resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
     resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 := by

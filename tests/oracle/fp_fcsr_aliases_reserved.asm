@@ -1,146 +1,138 @@
-# ctc1/cfc1 on FCSR ($31), FCCR ($25), FEXR ($26), FENR ($28) and FIR ($0): reserved FCSR bits (22..18) read as zero, the aliases are views of FCSR,
-# writes through FCCR/FEXR/FENR touch only their fields. Values are stored after each step (enables are kept clear so no trap is taken).
-# MD00082 Vol I-A Rev 6.01 FIR/FCCR/FEXR/FENR/FCSR register layouts (p.88-95); MD00086 Vol II-A Rev 6.06 CTC1 p.151 / CFC1 p.129-130.
+# ctc1/cfc1 on FCSR ($31), FEXR ($26), FENR ($28) and FIR ($0): the aliases are views of FCSR, writes through FEXR/FENR touch only their
+# fields. Values are stored after each step. Release 6: the FP condition codes and FCCR ($25) are removed (FCSR.FCC is R0, FCCR reserved) and FCSR
+# writes with bits 20..18 set are UNPREDICTABLE, so the written values keep only FS, Cause, Enables, Flags and RM (mask 0x0103ffff); FCSR reads drop
+# the read-only NAN2008/ABS2008 bits. (The first value sets Cause.E, which always traps: the run ends at that ctc1.)
+# MD00082 Vol I-A Rev 6.01 FIR/FEXR/FENR/FCSR register layouts (p.88-97; FCSR Table 6.8 p.92: FCC 'pre-Release 6 feature' R0; 6.5.5 p.96: 'Release 6 removes the FCCs and FCCR');
+# MD00086 Vol II-A Rev 6.06 CTC1 p.149-150 (FCSR: 'temp20..18 != 0 ... UNPREDICTABLE') / CFC1 p.129-130.
 .data
-res: .space 272
+res: .space 196
 .text
 la $s7, res
-li $t0, 0xfffff07f
+li $t0, 0x0103f07f
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 0($s7)
-sw $t2, 4($s7)
-sw $t3, 8($s7)
-sw $t4, 12($s7)
-li $t0, 0x0083f07f
+sw $t3, 4($s7)
+sw $t4, 8($s7)
+li $t0, 0x0003f07f
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 16($s7)
-sw $t2, 20($s7)
-sw $t3, 24($s7)
-sw $t4, 28($s7)
+sw $t1, 12($s7)
+sw $t3, 16($s7)
+sw $t4, 20($s7)
 li $t0, 0x00000003
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 32($s7)
-sw $t2, 36($s7)
-sw $t3, 40($s7)
-sw $t4, 44($s7)
+sw $t1, 24($s7)
+sw $t3, 28($s7)
+sw $t4, 32($s7)
 li $t0, 0x01000000
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 48($s7)
-sw $t2, 52($s7)
-sw $t3, 56($s7)
-sw $t4, 60($s7)
-li $t0, 0xfe800000
-ctc1 $t0, $31
-cfc1 $t1, $31
-cfc1 $t2, $25
-cfc1 $t3, $26
-cfc1 $t4, $28
-sw $t1, 64($s7)
-sw $t2, 68($s7)
-sw $t3, 72($s7)
-sw $t4, 76($s7)
+sw $t1, 36($s7)
+sw $t3, 40($s7)
+sw $t4, 44($s7)
 li $t0, 0x00000000
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 80($s7)
-sw $t2, 84($s7)
-sw $t3, 88($s7)
-sw $t4, 92($s7)
+sw $t1, 48($s7)
+sw $t3, 52($s7)
+sw $t4, 56($s7)
+li $t0, 0x00000000
+ctc1 $t0, $31
+cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
+cfc1 $t3, $26
+cfc1 $t4, $28
+sw $t1, 60($s7)
+sw $t3, 64($s7)
+sw $t4, 68($s7)
 li $t0, 0x0000007c
 ctc1 $t0, $31
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 96($s7)
-sw $t2, 100($s7)
-sw $t3, 104($s7)
-sw $t4, 108($s7)
-ctc1 $zero, $31
-li $t0, 0x000000ff
-ctc1 $t0, $25
-cfc1 $t1, $31
-cfc1 $t2, $25
-cfc1 $t3, $26
-cfc1 $t4, $28
-sw $t1, 112($s7)
-sw $t2, 116($s7)
-sw $t3, 120($s7)
-sw $t4, 124($s7)
-ctc1 $zero, $31
-li $t0, 0x0000000a
-ctc1 $t0, $25
-cfc1 $t1, $31
-cfc1 $t2, $25
-cfc1 $t3, $26
-cfc1 $t4, $28
-sw $t1, 128($s7)
-sw $t2, 132($s7)
-sw $t3, 136($s7)
-sw $t4, 140($s7)
+sw $t1, 72($s7)
+sw $t3, 76($s7)
+sw $t4, 80($s7)
 ctc1 $zero, $31
 li $t0, 0x0003007c
 ctc1 $t0, $26
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 144($s7)
-sw $t2, 148($s7)
-sw $t3, 152($s7)
-sw $t4, 156($s7)
+sw $t1, 84($s7)
+sw $t3, 88($s7)
+sw $t4, 92($s7)
 ctc1 $zero, $31
 li $t0, 0x00000000
 ctc1 $t0, $26
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 160($s7)
-sw $t2, 164($s7)
-sw $t3, 168($s7)
-sw $t4, 172($s7)
+sw $t1, 96($s7)
+sw $t3, 100($s7)
+sw $t4, 104($s7)
 ctc1 $zero, $31
 li $t0, 0x00000003
 ctc1 $t0, $28
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 176($s7)
-sw $t2, 180($s7)
-sw $t3, 184($s7)
-sw $t4, 188($s7)
+sw $t1, 108($s7)
+sw $t3, 112($s7)
+sw $t4, 116($s7)
 ctc1 $zero, $31
 li $t0, 0x00000004
 ctc1 $t0, $28
 cfc1 $t1, $31
-cfc1 $t2, $25
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
-sw $t1, 192($s7)
-sw $t2, 196($s7)
-sw $t3, 200($s7)
-sw $t4, 204($s7)
+sw $t1, 120($s7)
+sw $t3, 124($s7)
+sw $t4, 128($s7)
 cfc1 $t5, $0
 li $v0, 10
 syscall

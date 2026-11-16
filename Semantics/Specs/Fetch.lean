@@ -3,8 +3,8 @@ import Semantics.Specs.Lemmas
 /-!
 # Fetch — instruction fetch from memory, and fetch / decode failures
 
-`step` fetches the big-endian word at `pc` from `State.physMem` (`readMemWord s s.pc`). What happens
-when that word is not an instruction: misaligned `pc` (Address Error), a word `decode` rejects
+`step` fetches the word at `pc` (little-endian, the byte order of `profile`) from `State.physMem`
+(`readMemWord s s.pc`). What happens when that word is not an instruction: misaligned `pc` (Address Error), a word `decode` rejects
 (Reserved Instruction, or Coprocessor Unusable for an unusable coprocessor's encoding space). There
 is no "no instruction" case in the processor: memory that was never written reads as 0
 (`sll $0, $0, 0`). The hosted run's stopping conventions are in `Hosted.lean`.
@@ -30,7 +30,7 @@ theorem step_misaligned_pc (s : State) (h : s.pc.toNat % 4 ≠ 0) (hexec : execu
   rw [step_of_executesInstr s hexec]; unfold execute
   rw [readMemWord_misaligned s s.pc h]
 
-/-- **`step` executes the word in memory at `pc`**: if the big-endian word at `pc` decodes to
+/-- **`step` executes the word in memory at `pc`**: if the word at `pc` (little-endian) decodes to
 `instr`, the step is `execInstr s instr`, whatever else memory holds. -/
 theorem step_fetches_from_memory (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr) (hexec : executesInstr s = true) :
@@ -83,10 +83,7 @@ theorem step_reserved_cop1_unusable (s : State) (w : W32)
   have hc0 : isCop0Word w = false := by
     unfold isCop1Word at hc1
     unfold isCop0Word
-    rcases Bool.or_eq_true_iff.mp hc1 with h | h
-    · rcases Bool.or_eq_true_iff.mp h with h | h <;>
-        · rw [beq_iff_eq] at h; rw [h]; decide
-    · rw [Bool.and_eq_true, beq_iff_eq] at h; rw [h.1]; decide
+    rw [beq_iff_eq] at hc1; rw [hc1]; simp
   rw [step_undecodable s w hfetch hdecode hexec, hc0, hc1, hcu]
   rfl
 

@@ -83,11 +83,6 @@ def nextPcEq (r : Outcome) (pc : W32) : Bool :=
   | .next s => s.pc == pc
   | .halt _ => false
 
-def nextHiLoEq (r : Outcome) (hi lo : W32) : Bool :=
-  match r with
-  | .next s => s.hi == hi && s.lo == lo
-  | .halt _ => false
-
 def nextFpRegEq (r : Outcome) (i : Fin 32) (v : W32) : Bool :=
   match r with
   | .next s => readFpReg s i == v
@@ -150,7 +145,7 @@ to confirm a genuinely-no-op instruction (`sync`/`synci`) touches *no*
 state at all, not just the few fields any individual existing test happens
 to check. -/
 def sameStateExceptPc (s s' : State) : Bool :=
-  s'.regs == s.regs && s'.hi == s.hi && s'.lo == s.lo && s'.fpRegs == s.fpRegs &&
+  s'.regs == s.regs && s'.fpRegs == s.fpRegs &&
     s'.fcsr == s.fcsr && s'.physMem == s.physMem &&
     s'.pendingBranch == s.pendingBranch && s'.llBit == s.llBit &&
     s'.cp0Status == s.cp0Status && s'.cp0Cause == s.cp0Cause && s'.cp0Epc == s.cp0Epc &&

@@ -3,7 +3,7 @@ import Semantics.Refine.Determinism
 import Semantics.Refine.ChoiceExact
 import Semantics.Refine.ImplValid
 import Semantics.FpOpsCorrectApi
-import Semantics.FpOpsCorrectStep
+import Semantics.FpOpsCorrectIEEE
 
 /-!
 # StatementsProofs — the solution module for `lake comparator`
@@ -62,7 +62,6 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).cp0Status = s.cp0Status ||| statusExlMask ∧
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
-      (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
       (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
@@ -197,29 +196,6 @@ theorem add_overflow_not_wrapped (s : State) (w : W32)
       (exceptionEntry s excCodeOv).regs = s.regs :=
   _root_.add_overflow_not_wrapped s w hfetch hdecode hpb ha hb hexec
 
-/-! ## Immediates -/
-
-theorem addi_spec_raw (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let av := readReg s (regIdxSpec rs)
-      let bv := signExt16 imm
-      let sumBV := av + bv
-      if addOverflowsSpec (asSigned av) (asSigned bv) (asSigned sumBV) then
-        takeException s excCodeOv
-      else
-        { (writeReg s (regIdxSpec rt) sumBV) with
-            pc := (writeReg s (regIdxSpec rt) sumBV).pc + 4#32 }) :=
-  _root_.addi_spec_raw s w rs rt imm hfetch hdecode hpb hexec
-
-theorem addi_overflow_raises_ov (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.addi rs rt imm))
-    (hov : addOverflowsSpec (asSigned (readReg s (regIdxSpec rs))) (asSigned (signExt16 imm))
-      (asSigned (readReg s (regIdxSpec rs) + signExt16 imm)) = true) (hexec : executesInstr s = true) :
-    step s = timerTick (takeException s excCodeOv) :=
-  _root_.addi_overflow_raises_ov s w rs rt imm hfetch hdecode hov hexec
-
 /-! ## Shifts -/
 
 theorem sll_spec_raw (s : State) (w rd rt shamt : W32)
@@ -229,37 +205,6 @@ theorem sll_spec_raw (s : State) (w rd rt shamt : W32)
       { (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)) with
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt) <<< shamt.toNat)).pc + 4#32 }) :=
   _root_.sll_spec_raw s w rd rt shamt hfetch hdecode hpb hexec
-
-/-! ## Multiply / divide -/
-
-theorem mult_spec_raw (s : State) (w rs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mult rs rt))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let a := asSigned (readReg s (regIdxSpec rs))
-      let b := asSigned (readReg s (regIdxSpec rt))
-      let prod64 : BitVec 64 := BitVec.ofInt 64 (a * b)
-      { s with lo := prod64.extractLsb 31 0, hi := prod64.extractLsb 63 32, pc := s.pc + 4#32 }) :=
-  _root_.mult_spec_raw s w rs rt hfetch hdecode hpb hexec
-
-theorem div_spec_raw (s : State) (w rs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let a := asSigned (readReg s (regIdxSpec rs))
-      let b := asSigned (readReg s (regIdxSpec rt))
-      if b == 0 then
-        { s with pc := s.pc + 4#32 }
-      else
-        { s with lo := ofInt32 (a.tdiv b), hi := ofInt32 (a.tmod b), pc := s.pc + 4#32 }) :=
-  _root_.div_spec_raw s w rs rt hfetch hdecode hpb hexec
-
-theorem div_by_zero_spec (s : State) (w rs rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.div rs rt))
-    (hpb : s.pendingBranch = none)
-    (hzero : readReg s (regIdxSpec rt) = 0#32) (hexec : executesInstr s = true) :
-    step s = timerTick ({ s with pc := s.pc + 4#32 }) :=
-  _root_.div_by_zero_spec s w rs rt hfetch hdecode hpb hzero hexec
 
 /-! ## Bit operations -/
 
@@ -322,7 +267,7 @@ theorem ll_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ll rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
-      let addr := readReg s (regIdxSpec rs) + signExt16 imm
+      let addr := readReg s (regIdxSpec rs) + signExt9 imm
       match readMemWord s addr with
       | none => takeAddressException s excCodeAdEL addr
       | some v =>
@@ -334,7 +279,7 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.sc rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
-      let addr := readReg s (regIdxSpec rs) + signExt16 imm
+      let addr := readReg s (regIdxSpec rs) + signExt9 imm
       match writeMemWord s addr (readReg s (regIdxSpec rt)) with
       | none => takeAddressException s excCodeAdES addr
       | some stored =>
@@ -345,36 +290,6 @@ theorem sc_spec_raw (s : State) (w rs rt imm : W32)
           { ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }) with
               pc := ({ (writeReg s (regIdxSpec rt) 0#32) with llBit := false }).pc + 4#32 }) :=
   _root_.sc_spec_raw s w rs rt imm hfetch hdecode hpb hexec
-
-theorem lwl_spec_raw (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lwl rs rt imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      let addr := readReg s (regIdxSpec rs) + signExt16 imm
-      match readMemByte s addr with
-      | none => takeAddressException s excCodeAdEL addr
-      | some b0 =>
-        let off := addr.toNat % 4
-        let old := readReg s (regIdxSpec rt)
-        let v :=
-          match off with
-          | 0 =>
-            let b1 := (readMemByte s (addr + 1#32)).getD 0
-            let b2 := (readMemByte s (addr + 2#32)).getD 0
-            let b3 := (readMemByte s (addr + 3#32)).getD 0
-            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2) 3 b3
-          | 1 =>
-            let b1 := (readMemByte s (addr + 1#32)).getD 0
-            let b2 := (readMemByte s (addr + 2#32)).getD 0
-            setByteSlotSpec (setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1) 2 b2
-          | 2 =>
-            let b1 := (readMemByte s (addr + 1#32)).getD 0
-            setByteSlotSpec (setByteSlotSpec old 0 b0) 1 b1
-          | _ =>  -- off = 3 (Nat match needs a default; addr.toNat % 4 is always < 4)
-            setByteSlotSpec old 0 b0
-        { (writeReg s (regIdxSpec rt) v) with
-            pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }) :=
-  _root_.lwl_spec_raw s w rs rt imm hfetch hdecode hpb hexec
 
 /-! ## Branches and jumps -/
 
@@ -394,31 +309,6 @@ theorem beq_taken_spec (s : State) (w rs rt imm : W32)
     (htaken : readReg s (regIdxSpec rs) = readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
     step s = timerTick ({ s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }) :=
   _root_.beq_taken_spec s w rs rt imm hfetch hdecode hpb htaken hexec
-
-theorem beql_spec_raw (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
-    (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readReg s (regIdxSpec rs) == readReg s (regIdxSpec rt) then
-        { s with pc := s.pc + 4#32, pendingBranch := some ((s.pc + 4#32) + (signExt16 imm <<< 2)) }
-      else
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true }) :=
-  _root_.beql_spec_raw s w rs rt imm hfetch hdecode hpb hexec
-
-theorem beql_not_taken_squashes_delay_slot (s : State) (w rs rt imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.beql rs rt imm))
-    (hpb : s.pendingBranch = none)
-    (hnot : readReg s (regIdxSpec rs) ≠ readReg s (regIdxSpec rt)) (hexec : executesInstr s = true) :
-    step s = timerTick
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32), nullified := true } ∧
-      (interruptTaken (step s) = false →
-        run s 2 = timerTick (timerTick { s with pc := s.pc + 8#32 })) :=
-  _root_.beql_not_taken_squashes_delay_slot s w rs rt imm hfetch hdecode hpb hnot hexec
-
-theorem step_nullified (s : State) (hi : interruptTaken s = false) (hs : s.standby = false)
-    (hn : s.nullified = true) :
-    step s = timerTick { s with pc := s.pc + 4#32, pendingBranch := none, nullified := false } :=
-  _root_.step_nullified s hi hs hn
 
 theorem j_spec_raw (s : State) (w target : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.j target))
@@ -496,7 +386,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 14, 0 => read s.cp0Epc
       | 15, 0 => read 0x00010000#32
       | 15, 1 => read ((s.cp0EBase &&& 0x3ffff000#32) ||| 0x80000000#32)
-      | 16, 0 => read (0x80008580#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
+      | 16, 0 => read (0x80000980#32 ||| (s.cp0ConfigK23.setWidth 32 <<< 28) |||
           (s.cp0ConfigKU.setWidth 32 <<< 25) ||| s.cp0ConfigK0.setWidth 32)
       | 16, 1 => read 0x80000001#32
       | 16, 2 => read 0x80000000#32
@@ -601,7 +491,7 @@ theorem resetException_spec (s : State) :
     (resetException s).cp0Status &&& statusErlMask = statusErlMask ∧
     (resetException s).cp0Cause &&& causeDcMask = 0#32 ∧
     ebaseValue (resetException s) = 0x80000000#32 ∧
-    configValue (resetException s) = 0xA4008582#32 ∧
+    configValue (resetException s) = 0xA4000982#32 ∧
     (resetException s).cp0ErrorEpc = (if s.pendingBranch.isSome then s.pc - 4#32 else s.pc) ∧
     (resetException s).pendingBranch = none ∧
     kernelMode (resetException s) = true ∧
@@ -612,10 +502,9 @@ theorem resetState_spec :
     resetState.pc = 0xBFC00000#32 ∧ resetState.cp0Status = 0x00400004#32 ∧
     resetState.cp0Cause = 0#32 ∧ resetState.cp0Epc = 0#32 ∧ resetState.cp0BadVAddr = 0#32 ∧
     resetState.cp0ErrorEpc = 0#32 ∧ ebaseValue resetState = 0x80000000#32 ∧
-    configValue resetState = 0xA4008582#32 ∧ kernelMode resetState = true ∧
+    configValue resetState = 0xA4000982#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
-    resetState.hi = 0#32 ∧ resetState.lo = 0#32 ∧
     resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 :=
@@ -665,17 +554,18 @@ theorem causeValue_timer (s : State) (h : s.cp0TimerInt = true) :
     causeValue s = s.cp0Cause ||| hwIntBits s ||| causeTiMask ||| causeIp7Mask :=
   _root_.causeValue_timer s h
 
-theorem rdhwr_spec_raw (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+theorem rdhwr_spec_raw (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
+      if sel != 0#32 then takeException s excCodeRI else
       match hwrValue s rd with
       | some v =>
         if rdhwrAllowed s rd then
           { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 }
         else takeException s excCodeRI
       | none => takeException s excCodeRI) :=
-  _root_.rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec
+  _root_.rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec
 
 theorem hwrValue_cpuNum (s : State) : hwrValue s 0#32 = some 0#32 :=
   _root_.hwrValue_cpuNum s
@@ -692,21 +582,27 @@ theorem hwrValue_ccRes (s : State) : hwrValue s 3#32 = some 1#32 :=
 theorem hwrValue_unimplemented (s : State) (rd : W32) (h : 4 ≤ rd.toNat) : hwrValue s rd = none :=
   _root_.hwrValue_unimplemented s rd h
 
-theorem rdhwr_reserved_unimplemented (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+theorem rdhwr_reserved_unimplemented (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) :=
-  _root_.rdhwr_reserved_unimplemented s w rt rd hfetch hdecode hpb hrd hexec
+  _root_.rdhwr_reserved_unimplemented s w rt rd sel hfetch hdecode hpb hrd hexec
 
-theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+theorem rdhwr_reserved_sel (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
+    (hpb : s.pendingBranch = none) (hsel : sel ≠ 0#32) (hexec : executesInstr s = true) :
+    step s = timerTick (takeException s excCodeRI) :=
+  _root_.rdhwr_reserved_sel s w rt rd sel hfetch hdecode hpb hsel hexec
+
+theorem rdhwr_reserved_not_enabled (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = false)
     (hen : (s.cp0HWREna >>> rd) &&& 1#32 = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) :=
-  _root_.rdhwr_reserved_not_enabled s w rt rd hfetch hdecode hpb hcp0 hen hexec
+  _root_.rdhwr_reserved_not_enabled s w rt rd sel hfetch hdecode hpb hcp0 hen hexec
 
 theorem rdhwr_allowed (s : State) (w rt rd v : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd 0#32))
     (hpb : s.pendingBranch = none) (hv : hwrValue s rd = some v)
     (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) (hexec : executesInstr s = true) :
     step s = timerTick
@@ -772,34 +668,6 @@ theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
       fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs)))) :=
   _root_.cvtWS_spec_raw s w fd fs hfetch hdecode hpb hcu hexec
 
-theorem cCondS_spec_raw (s : State) (w cond cc fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cCondS cond cc fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      fpCompletesCmp s cc
-        (Mips.Fp.f32Compare (cond.setWidth 4) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)))) :=
-  _root_.cCondS_spec_raw s w cond cc fs ft hfetch hdecode hpb hcu hexec
-
-theorem c_lt_s_sets_cc (s s' : State) (w cc fs ft : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cCondS 12#32 cc fs ft))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true)
-    (hen : Mips.Fp.fpeEnabled s.fcsr (Mips.Fp.f32Compare Mips.Fp.Cond.lt
-      (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))).2 = false)
-    (hstep : step s = s') (hexec : executesInstr s = true) :
-    Mips.Fp.getCC s'.fcsr (ccIdx cc) = true ↔
-      Mips.Fp.F32Lt (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft)) :=
-  _root_.c_lt_s_sets_cc s s' w cc fs ft hfetch hdecode hpb hcu hen hstep hexec
-
-theorem movf_spec_raw (s : State) (w rs cc rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.movf rs cc rd))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then { s with pc := s.pc + 4#32 }
-      else
-        { (writeReg s (regIdx rd) (readReg s (regIdx rs))) with
-            pc := (writeReg s (regIdx rd) (readReg s (regIdx rs))).pc + 4#32 }) :=
-  _root_.movf_spec_raw s w rs cc rd hfetch hdecode hpb hcu hexec
-
 theorem mfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.mfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -848,15 +716,6 @@ theorem fcsr_ctc1_cfc1_roundtrip (fcsr v : W32) :
     ∃ f, Mips.Fp.writeControl fcsr 31 v = some f ∧ f = v &&& Mips.Fp.fcsrWritableMask ∧
       Mips.Fp.readControl f 31 = some (v &&& Mips.Fp.fcsrWritableMask) :=
   _root_.fcsr_ctc1_cfc1_roundtrip fcsr v
-
-theorem bc1t_spec_raw (s : State) (w cc imm : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.bc1t cc imm))
-    (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    step s = timerTick (
-      if readFcc s cc then
-        { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 4#32 + (signExt16 imm <<< 2)) }
-      else { s with pc := s.pc + 4#32, pendingBranch := some (s.pc + 8#32) }) :=
-  _root_.bc1t_spec_raw s w cc imm hfetch hdecode hpb hcu hexec
 
 /-! ## Address translation: the Fixed Mapping MMU, and the loader -/
 
@@ -1464,85 +1323,5 @@ theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :
 theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 32} {t1 t2 : Bool}
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 :=
   _root_.Mips.Fp.fcsrSpec_unique h1 h2
-
-theorem maddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.maddS fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
-        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
-  _root_.maddS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem msubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.msubS fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
-        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
-  _root_.msubS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem nmaddS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.nmaddS fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
-        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
-  _root_.nmaddS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem nmsubS_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.nmsubS fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary32 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
-        (readFpReg s (regIdx fr)).toNat (readFpReg s (regIdx fs)).toNat (readFpReg s (regIdx ft)).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpReg { s with fcsr := c } (regIdx fd) (BitVec.ofNat 32 v))) :=
-  _root_.nmsubS_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem maddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.maddD fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 0 s.fcsr
-        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
-  _root_.maddD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem msubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.msubD fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 1 s.fcsr
-        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
-  _root_.msubD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem nmaddD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.nmaddD fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 2 s.fcsr
-        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
-  _root_.nmaddD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
-
-theorem nmsubD_separate (s : State) (w fd fr fs ft : W32) (hfetch : readMemWord s s.pc = some w)
-    (hdecode : decode w = some (.nmsubD fd fr fs ft)) (hpb : s.pendingBranch = none)
-    (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
-    ∃ out : Mips.Fp.FpOutcome Nat, Mips.Fp.MaddSpec Mips.Fp.binary64 (Mips.Fp.envOf s.fcsr) 3 s.fcsr
-        (readFpD s fr).toNat (readFpD s fs).toNat (readFpD s ft).toNat out ∧
-      step s = timerTick (match out with
-        | .trap c => takeException { s with fcsr := c } excCodeFPE
-        | .done c v => mkNext s (writeFpD { s with fcsr := c } fd (BitVec.ofNat 64 v))) :=
-  _root_.nmsubD_separate s w fd fr fs ft hfetch hdecode hpb hcu hexec
 
 end Trusted

@@ -12,10 +12,9 @@ import Semantics.Env
 The assembly of the independent correctness theorem:
 
 * **The invariant** `Inv` (`Refine/Defs.lean`: `Good`, `FcsrReservedZero`, `StatusImplemented`).
-  No path of the cycle needs anything else (`s.nullified = false` on the execute path comes from
-  `stepCore`'s own case split, `enc i = some w` from `decode_enc`). `step` preserves it
+  No path of the cycle needs anything else (`enc i = some w` comes from `decode_enc`). `step` preserves it
   (`step_preserves_inv`), `resetState`, `hostedStart` and `load p` establish it.
-* **The paths** (`Refine/Cycle.lean`) and the per-instruction refinements of all 183 constructors
+* **The paths** (`Refine/Cycle.lean`) and the per-instruction refinements of all 119 constructors
   (`allInstrRefines`, `Refine/Instr.lean`), assembled: `execute_abs`, `stepCore_abs`.
 * **The top theorems**, unconditional on every state of the invariant: `step_eq_manual`,
   `run_refines_manual`, and the reset theorems (`step_refines_manual` and the determinism results
@@ -60,7 +59,7 @@ theorem inv_load (p : Program) : Inv (load p) :=
 
 /-- **Fetch, decode, execute** (`Manual.FetchExecute` under the model's choices, with the model's
 `decode`) is the model's `execute`. -/
-theorem execute_abs (s : State) (hg : Inv s) (hn : s.nullified = false) :
+theorem execute_abs (s : State) (hg : Inv s) :
     FetchExecute modelCtx decode (abs s) = some (abs (execute s)) := by
   unfold FetchExecute
   rw [fetch_run]
@@ -74,7 +73,7 @@ theorem execute_abs (s : State) (hg : Inv s) (hn : s.nullified = false) :
       simp only
       rw [← undecodable_abs s w hd]
       cases UnpredictableEncoding w <;> rfl
-    | some i => exact allInstrRefines i s w hg hn hd (decode_enc w i hd)
+    | some i => exact allInstrRefines i s w hg hd (decode_enc w i hd)
 
 /-- **The processor's part of the instruction time** (`Manual.InstructionTime` before the timer)
 is `stepCore`. -/
@@ -83,8 +82,6 @@ theorem stepCore_abs (s : State) (hg : Inv s) :
         some { GeneralExceptionProcessing modelImpl modelOracle .Interrupt (abs s) with
           LowPower := false }
       else if (abs s).LowPower then some (LowPowerTime modelImpl (abs s))
-      else if (abs s).Nullify then
-        some { abs s with PC := (abs s).PC + 4#32, BranchDelay := none, Nullify := false }
       else FetchExecute modelCtx decode (abs s)) = some (abs (stepCore s)) := by
   rw [interruptTaken_abs]
   unfold stepCore
@@ -93,11 +90,7 @@ theorem stepCore_abs (s : State) (hg : Inv s) :
     show (if s.standby then _ else _) = _
     cases hs : s.standby
     · simp only [Bool.false_eq_true, ite_false]
-      show (if s.nullified then _ else _) = _
-      cases hn : s.nullified
-      · simp only [Bool.false_eq_true, ite_false]
-        exact execute_abs s hg hn
-      · simp only [ite_true]; rfl
+      exact execute_abs s hg
     · simp only [ite_true]; rw [standbyStep_abs]
   · simp only [ite_true]; rw [takeInterrupt_abs s hi]
 

@@ -1,12 +1,13 @@
-# Double-precision arithmetic and conversions through memory (ldc1/sdc1, big-endian: first word = high word).
+# Double-precision arithmetic and conversions through memory (ldc1/sdc1, little-endian: first word = low word). The high words of
+# the even FPRs are cleared before exit (the final FPR dump of an FR = 1 FPU holds only low words; results are in memory).
 # MD00086 Vol II-A Rev 6.06: LDC1 p.215, SDC1 p.362, ADD.fmt p.34, SUB.fmt p.389, MUL.fmt p.302, DIV.fmt p.170,
 # SQRT.fmt p.382, ABS.fmt p.32, NEG.fmt p.307, CVT.D.fmt p.153, CVT.S.fmt p.159, CVT.W.fmt p.160.
-# x=1.5 (3ff8000000000000) y=0.25 (3fd0000000000000): x+y=1.75 x-y=1.25 x*y=0.375 x/y=6.0 sqrt(2.25)=1.5
+# x=1.5 (3ff8000000000000) y=0.25 (3fd0000000000000) s=4.0: x+y=1.75 x-y=1.25 x*y=0.375 x/y=6.0 sqrt(s)=2.0
 .data
 .align 3
-x: .word 0x3ff80000, 0x00000000
-y: .word 0x3fd00000, 0x00000000
-s: .word 0x40100000, 0x00000000
+x: .double 1.5
+y: .double 0.25
+s: .double 4.0
 out: .space 64
 .text
 la $t0, x
@@ -32,5 +33,21 @@ li $t2, 5
 mtc1 $t2, $f26
 cvt.d.w $f28, $f26
 cvt.w.d $f30, $f12
+mthc1 $zero, $f0
+mthc1 $zero, $f2
+mthc1 $zero, $f4
+mthc1 $zero, $f6
+mthc1 $zero, $f8
+mthc1 $zero, $f10
+mthc1 $zero, $f12
+mthc1 $zero, $f14
+mthc1 $zero, $f16
+mthc1 $zero, $f18
+mthc1 $zero, $f20
+mthc1 $zero, $f22
+mthc1 $zero, $f24
+mthc1 $zero, $f26
+mthc1 $zero, $f28
+mthc1 $zero, $f30
 li $v0, 10
 syscall

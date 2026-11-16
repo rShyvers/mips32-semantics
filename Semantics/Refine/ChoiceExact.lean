@@ -1,4 +1,4 @@
-import Semantics.Refine.ChoiceRowsFma
+import Semantics.Refine.ChoiceRowsFp
 
 /-!
 # Refine.ChoiceExact — `ChoiceFree` is exact (wave 9)
@@ -36,39 +36,21 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case lh x₁ x₂ x₃ => exact rw_lh x₁ x₂ x₃ a h
   case lhu x₁ x₂ x₃ => exact rw_lhu x₁ x₂ x₃ a h
   case lw x₁ x₂ x₃ => exact rw_lw x₁ x₂ x₃ a h
-  case lwl x₁ x₂ x₃ => exact rw_lwl x₁ x₂ x₃ a h
-  case lwr x₁ x₂ x₃ => exact rw_lwr x₁ x₂ x₃ a h
   case lwc1 x₁ x₂ x₃ => exact rw_lwc1 x₁ x₂ x₃ a h
-  case lwxc1 x₁ x₂ x₃ => exact rw_lwxc1 x₁ x₂ x₃ a h
   case sb x₁ x₂ x₃ => exact rw_sb x₁ x₂ x₃ a h
   case sh x₁ x₂ x₃ => exact rw_sh x₁ x₂ x₃ a h
   case sw x₁ x₂ x₃ => exact rw_sw x₁ x₂ x₃ a h
-  case swl x₁ x₂ x₃ => exact rw_swl x₁ x₂ x₃ a h
-  case swr x₁ x₂ x₃ => exact rw_swr x₁ x₂ x₃ a h
   case swc1 x₁ x₂ x₃ => exact rw_swc1 x₁ x₂ x₃ a h
-  case swxc1 x₁ x₂ x₃ => exact rw_swxc1 x₁ x₂ x₃ a h
   case ldc1 x₁ x₂ x₃ => exact rw_ldc1 x₁ x₂ x₃ a h
   case sdc1 x₁ x₂ x₃ => exact rw_sdc1 x₁ x₂ x₃ a h
-  case ldxc1 x₁ x₂ x₃ => exact rw_ldxc1 x₁ x₂ x₃ a h
-  case sdxc1 x₁ x₂ x₃ => exact rw_sdxc1 x₁ x₂ x₃ a h
   case mfc0 x₁ x₂ x₃ => exact rw_mfc0 x₁ x₂ x₃ a h
   case mtc0 x₁ x₂ x₃ => exact rw_mtc0 x₁ x₂ x₃ a h
   case addD x₁ x₂ x₃ => exact rw_addD x₁ x₂ x₃ a h
   case subD x₁ x₂ x₃ => exact rw_subD x₁ x₂ x₃ a h
   case mulD x₁ x₂ x₃ => exact rw_mulD x₁ x₂ x₃ a h
   case divD x₁ x₂ x₃ => exact rw_divD x₁ x₂ x₃ a h
-  case movfD x₁ x₂ x₃ => exact rw_movfD x₁ x₂ x₃ a h
-  case movtD x₁ x₂ x₃ => exact rw_movtD x₁ x₂ x₃ a h
-  case movnD x₁ x₂ x₃ => exact rw_movnD x₁ x₂ x₃ a h
-  case movzD x₁ x₂ x₃ => exact rw_movzD x₁ x₂ x₃ a h
-  case div x₁ x₂ => exact rw_div x₁ x₂ a h
-  case divu x₁ x₂ => exact rw_divu x₁ x₂ a h
   case cfc1 x₁ x₂ => exact rw_cfc1 x₁ x₂ a h
   case ctc1 x₁ x₂ => exact rw_ctc1 x₁ x₂ a h
-  case bltzal x₁ x₂ => exact rw_bltzal x₁ x₂ a h
-  case bgezal x₁ x₂ => exact rw_bgezal x₁ x₂ a h
-  case bltzall x₁ x₂ => exact rw_bltzall x₁ x₂ a h
-  case bgezall x₁ x₂ => exact rw_bgezall x₁ x₂ a h
   case jalr x₁ x₂ => exact rw_jalr x₁ x₂ a h
   case jalrHb x₁ x₂ => exact rw_jalrHb x₁ x₂ a h
   case absS x₁ x₂ => exact rw_absS x₁ x₂ a h
@@ -91,14 +73,6 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case mthc1 x₁ x₂ => exact rw_mthc1 x₁ x₂ a h
   case ext x₁ x₂ x₃ x₄ => exact rw_ext x₁ x₂ x₃ x₄ a h
   case ins x₁ x₂ x₃ x₄ => exact rw_ins x₁ x₂ x₃ x₄ a h
-  case nmaddS x₁ x₂ x₃ x₄ => exact rw_nmaddS x₁ x₂ x₃ x₄ a h
-  case nmsubS x₁ x₂ x₃ x₄ => exact rw_nmsubS x₁ x₂ x₃ x₄ a h
-  case nmaddD x₁ x₂ x₃ x₄ => exact rw_nmaddD x₁ x₂ x₃ x₄ a h
-  case nmsubD x₁ x₂ x₃ x₄ => exact rw_nmsubD x₁ x₂ x₃ x₄ a h
-  case maddD x₁ x₂ x₃ x₄ => exact rw_maddD x₁ x₂ x₃ x₄ a h
-  case msubD x₁ x₂ x₃ x₄ => exact rw_msubD x₁ x₂ x₃ x₄ a h
-  case cCondD x₁ x₂ x₃ x₄ => exact rw_cCondD x₁ x₂ x₃ x₄ a h
-  case mul x₁ x₂ x₃ => exact rw_mul x₁ x₂ x₃ a
   all_goals simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/
@@ -113,20 +87,20 @@ theorem sep_ne (i : Impl) (x y : Arch) (h : Sep x y) : some (TimerTick i x) ≠ 
   · apply h; rw [← obs_timerTick i x, ← obs_timerTick i y, he]
 
 theorem it_eq (o : Oracle) (dec : W32 → Option Instruction) (a : Arch) (hi : InterruptTaken modelImpl a = false)
-    (hl : a.LowPower = false) (hn : a.Nullify = false) :
+    (hl : a.LowPower = false) :
     InstructionTime modelImpl o dec a = (FetchExecute (ctxOf modelImpl o) dec a).map (TimerTick modelImpl) := by
-  simp only [InstructionTime, hi, hl, hn, Bool.false_eq_true, ↓reduceIte]; rfl
+  simp only [InstructionTime, hi, hl, Bool.false_eq_true, ↓reduceIte]; rfl
 
 /-- Two witness oracles whose fetch-and-execute results are separated give different instruction
 times. -/
 theorem exact_of (dec : W32 → Option Instruction) (a : Arch) (hi : InterruptTaken modelImpl a = false)
-    (hl : a.LowPower = false) (hn : a.Nullify = false) (p₁ p₂ : WP) (x y : Arch)
+    (hl : a.LowPower = false) (p₁ p₂ : WP) (x y : Arch)
     (h₁ : FetchExecute (ctxOf modelImpl (wo p₁ (ceA a))) dec a = some x)
     (h₂ : FetchExecute (ctxOf modelImpl (wo p₂ (ceB a))) dec a = some y) (hs : Sep x y) :
     ∃ o₁ o₂ : Oracle, o₁.Valid ∧ o₂.Valid ∧
       InstructionTime modelImpl o₁ dec a ≠ InstructionTime modelImpl o₂ dec a :=
   ⟨_, _, wo_valid p₁ (ceA a), wo_valid p₂ (ceB a), by
-    rw [it_eq _ dec a hi hl hn, it_eq _ dec a hi hl hn, h₁, h₂]; exact sep_ne _ x y hs⟩
+    rw [it_eq _ dec a hi hl, it_eq _ dec a hi hl, h₁, h₂]; exact sep_ne _ x y hs⟩
 
 theorem sep_gep (a : Arch) (p₁ p₂ : WP) (e₁ e₂ : Exception) (x y : Arch) (h₁ : NotCpU e₁) (h₂ : NotCpU e₂) :
     Sep (GeneralExceptionProcessing modelImpl (wo p₁ (ceA a)) e₁ x)
@@ -177,9 +151,7 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
   simp only [hi, Bool.false_eq_true, ↓reduceIte] at h
   cases hl : a.LowPower
   case true => simp [hl] at h
-  cases hn : a.Nullify
-  case true => simp [hl, hn] at h
-  simp only [hl, hn, Bool.false_eq_true, ↓reduceIte] at h
+  simp only [hl, Bool.false_eq_true, ↓reduceIte] at h
   have hF : ∀ o, InstructionFetch.run (ctxOf modelImpl o) { arch := a } =
       InstructionFetch.run (ctxOf modelImpl modelOracle) { arch := a } := fun o => fetch_oracleFree _ _ a
   have hFE : ∀ o, FetchExecute (ctxOf modelImpl o) dec a =
@@ -198,7 +170,7 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
   cases r with
   | signal e =>
     have he := fetch_notCpU _ a e f hR
-    exact exact_of dec a hi hl hn {} {} _ _ (hFE _) (hFE _) (sep_gep a {} {} e e _ _ he he)
+    exact exact_of dec a hi hl {} {} _ _ (hFE _) (hFE _) (sep_gep a {} {} e e _ _ he he)
   | ok w =>
     simp only at h hFE
     cases hd : dec w with
@@ -210,19 +182,19 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
         have hU : ∀ p ce, Unpredictable (ctxOf modelImpl (wo p ce)) w a =
             GeneralExceptionProcessing modelImpl (wo p ce) .ReservedInstruction a := by
           intro p ce; simp only [Unpredictable, h1, h0, Bool.false_eq_true, ↓reduceIte, ctxOf, wo, sigRI]
-        exact exact_of dec a hi hl hn {} {} _ _ (by rw [hFE, hU]) (by rw [hFE, hU])
+        exact exact_of dec a hi hl {} {} _ _ (by rw [hFE, hU]) (by rw [hFE, hU])
           (sep_gep a {} {} _ _ _ _ notCpU_RI notCpU_RI)
       · simp only [hu, Bool.false_eq_true, ↓reduceIte] at h hFE
         have hU : NotCpU (Undecodable w a) := by
           intro u hu'; rw [hu'] at h; simp at h
-        exact exact_of dec a hi hl hn {} {} _ _ (hFE _) (hFE _) (sep_gep a {} {} _ _ _ _ hU hU)
+        exact exact_of dec a hi hl {} {} _ _ (hFE _) (hFE _) (sep_gep a {} {} _ _ _ _ hU hU)
     | some ins =>
       rw [hd] at h hFE
       by_cases hc : (IsCTI ins && a.BranchDelay.isSome) = true
       · have hE : ∀ p ce, Execute (ctxOf modelImpl (wo p ce)) w ins a =
             some (GeneralExceptionProcessing modelImpl (wo p ce) .ReservedInstruction a) := by
           intro p ce; simp only [Execute, hc, ↓reduceIte, ctxOf, wo, sigRI]
-        exact exact_of dec a hi hl hn {} {} _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
+        exact exact_of dec a hi hl {} {} _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
           (sep_gep a {} {} _ _ _ _ notCpU_RI notCpU_RI)
       simp only [Bool.not_eq_true] at hc
       simp only [hc, Bool.not_false, Bool.true_and] at h
@@ -241,7 +213,7 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
         cases res <;> rfl
       by_cases hco : ConsultsOracle ins a = true
       · obtain ⟨p₁, p₂, P₁, P₂, hobs, hrun⟩ := consults_row ins a hco
-        exact exact_of dec a hi hl hn p₁ p₂ _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
+        exact exact_of dec a hi hl p₁ p₂ _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
           (sep_run a p₁ p₂ P₁ P₂ hobs _ _ (hrun op (ceA a) hop).1 (hrun op (ceB a) hop).2)
       · simp only [Bool.not_eq_true] at hco
         simp only [hco, Bool.not_false, Bool.true_and, hop] at h
@@ -255,7 +227,7 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Arch)
           have he : NotCpU e := by intro u hu; subst hu; simp at h
           have hrun : ∀ ce, RunP a (fun _ => False) (op.run (ctxOf modelImpl (wo {} ce)) { arch := a }) := by
             intro ce; rw [hcf ce]; exact he
-          exact exact_of dec a hi hl hn {} {} _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
+          exact exact_of dec a hi hl {} {} _ _ (by rw [hFE]; exact hE _ _) (by rw [hFE]; exact hE _ _)
             (sep_run a {} {} _ _ (fun _ _ hx => hx.elim) _ _ (hrun _) (hrun _))
 
 /-- **`ChoiceFree` characterizes determinism** (with `manual_step_deterministic`). -/

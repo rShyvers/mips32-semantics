@@ -28,9 +28,9 @@ theorem ll_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.ll base rt off) = some w) :
     Execute modelCtx w (.ll base rt off) (abs s) = some (abs (execInstr s (.ll base rt off))) := by
   s2_open Ops.LL (Ops.LL base rt off)
-  simp only [execBody]
-  rw [BitVec.add_comm (signExt16 off)]
-  generalize readReg s (regIdx base) + signExt16 off = va
+  exec_unfold
+  rw [BitVec.add_comm (signExt9 off)]
+  generalize readReg s (regIdx base) + signExt9 off = va
   by_cases hal : va.toNat % 4 = 0
   · have hm : (bits va 1 0 != 0#2) = false := by rw [misaligned_eq]; simp [hal]
     simp only [hm, Bool.false_eq_true, ↓reduceIte]
@@ -85,9 +85,9 @@ theorem sc_refines (s : State) (hg : Good s) (base rt off w : W32)
     (hw : enc (.sc base rt off) = some w) :
     Execute modelCtx w (.sc base rt off) (abs s) = some (abs (execInstr s (.sc base rt off))) := by
   s2_open Ops.SC (Ops.SC base rt off)
-  simp only [execBody]
-  rw [BitVec.add_comm (signExt16 off)]
-  generalize readReg s (regIdx base) + signExt16 off = va
+  exec_unfold
+  rw [BitVec.add_comm (signExt9 off)]
+  generalize readReg s (regIdx base) + signExt9 off = va
   by_cases hal : va.toNat % 4 = 0
   · have hm : (bits va 1 0 != 0#2) = false := by rw [misaligned_eq]; simp [hal]
     simp only [hm, Bool.false_eq_true, ↓reduceIte]

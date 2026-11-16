@@ -11,8 +11,10 @@ import Semantics.Instruction
 
 /-- Field-range conditions under which `encode` is injective / `decode`
 inverts it: register numbers and shift amounts `< 32`, 16-bit immediates
-`< 2 ^ 16`, 26-bit jump targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
-bitfield inside the word; `mfc0`/`mtc0` need a modeled CP0 register. -/
+`< 2 ^ 16` (the 9-bit offsets of `ll`/`sc`/`pref` `< 2 ^ 9`, `rdhwr`'s `sel` `< 8`), 26-bit jump
+targets `< 2 ^ 26`; `ext`/`ins` need a non-empty
+bitfield inside the word; `mfc0`/`mtc0` need a modeled CP0 register; `sll $0,$0,5` is
+not an `sll` but `pause` (MD00086 Vol II-A Rev 6.06, PAUSE, p.317). -/
 def Instruction.WellFormed : Instruction → Prop
   | .add rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .addu rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
@@ -24,9 +26,9 @@ def Instruction.WellFormed : Instruction → Prop
   | .nor rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .slt rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
   | .sltu rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
-  | .movn rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
-  | .movz rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
-  | .sll rd rt shamt => rd.toNat < 32 ∧ rt.toNat < 32 ∧ shamt.toNat < 32
+  | .sll rd rt shamt => rd.toNat < 32 ∧ rt.toNat < 32 ∧ shamt.toNat < 32 ∧
+      ¬(rd = 0#32 ∧ rt = 0#32 ∧ shamt = 5#32)
+  | .pause => True
   | .srl rd rt shamt => rd.toNat < 32 ∧ rt.toNat < 32 ∧ shamt.toNat < 32
   | .sra rd rt shamt => rd.toNat < 32 ∧ rt.toNat < 32 ∧ shamt.toNat < 32
   | .sllv rd rt rs => rd.toNat < 32 ∧ rt.toNat < 32 ∧ rs.toNat < 32
@@ -34,39 +36,23 @@ def Instruction.WellFormed : Instruction → Prop
   | .srav rd rt rs => rd.toNat < 32 ∧ rt.toNat < 32 ∧ rs.toNat < 32
   | .rotr rd rt sa => rd.toNat < 32 ∧ rt.toNat < 32 ∧ sa.toNat < 32
   | .rotrv rd rt rs => rd.toNat < 32 ∧ rt.toNat < 32 ∧ rs.toNat < 32
-  | .mult rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .multu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .div rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .divu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .mflo rd => rd.toNat < 32
-  | .mfhi rd => rd.toNat < 32
-  | .mthi rs => rs.toNat < 32
-  | .mtlo rs => rs.toNat < 32
-  | .jr rs => rs.toNat < 32
   | .jalr rs rd => rs.toNat < 32 ∧ rd.toNat < 32
-  | .jrHb rs => rs.toNat < 32
   | .jalrHb rs rd => rs.toNat < 32 ∧ rd.toNat < 32
   | .clo rs rd => rs.toNat < 32 ∧ rd.toNat < 32
   | .clz rs rd => rs.toNat < 32 ∧ rd.toNat < 32
-  | .mul rs rt rd => rs.toNat < 32 ∧ rt.toNat < 32 ∧ rd.toNat < 32
-  | .madd rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .maddu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .msub rs rt => rs.toNat < 32 ∧ rt.toNat < 32
-  | .msubu rs rt => rs.toNat < 32 ∧ rt.toNat < 32
   | .seb rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .seh rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .wsbh rd rt => rd.toNat < 32 ∧ rt.toNat < 32
   | .ext rt rs pos size => rt.toNat < 32 ∧ rs.toNat < 32 ∧ pos.toNat < 32 ∧ 1 ≤ size.toNat ∧ pos.toNat + size.toNat ≤ 32
   | .ins rt rs pos size => rt.toNat < 32 ∧ rs.toNat < 32 ∧ pos.toNat < 32 ∧ 1 ≤ size.toNat ∧ pos.toNat + size.toNat ≤ 32
-  | .rdhwr rt rd => rt.toNat < 32 ∧ rd.toNat < 32
-  | .addi rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .rdhwr rt rd sel => rt.toNat < 32 ∧ rd.toNat < 32 ∧ sel.toNat < 8
   | .addiu rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .slti rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sltiu rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .andi rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .ori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .xori rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .lui rt imm => rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .aui rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .lw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sw rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .lb rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
@@ -75,34 +61,16 @@ def Instruction.WellFormed : Instruction → Prop
   | .lhu rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sh rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .sb rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .ll rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .sc rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .lwl rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .lwr rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .swl rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .swr rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .ll rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 9
+  | .sc rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 9
   | .beq rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .bne rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .blez rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .bgtz rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .bltz rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .bgez rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bltzal rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bgezal rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .beql rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bnel rs rt imm => rs.toNat < 32 ∧ rt.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .blezl rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bgtzl rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bltzl rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bgezl rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bltzall rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .bgezall rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .teqi rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .tnei rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .tgei rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .tgeiu rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .tlti rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
-  | .tltiu rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .nal imm => imm.toNat < 2 ^ 16
+  | .bal imm => imm.toNat < 2 ^ 16
   | .synci rs imm => rs.toNat < 32 ∧ imm.toNat < 2 ^ 16
   | .j target => target.toNat < 2 ^ 26
   | .jal target => target.toNat < 2 ^ 26
@@ -115,7 +83,7 @@ def Instruction.WellFormed : Instruction → Prop
   | .tgeu rs rt code => rs.toNat < 32 ∧ rt.toNat < 32 ∧ code.toNat < 2 ^ 10
   | .break code => code.toNat < 2 ^ 20
   | .sync stype => stype.toNat < 32
-  | .pref rs hint imm => rs.toNat < 32 ∧ hint.toNat < 32 ∧ imm.toNat < 2 ^ 16
+  | .pref rs hint imm => rs.toNat < 32 ∧ hint.toNat < 32 ∧ imm.toNat < 2 ^ 9
   | .mfc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
   | .mtc0 rt rd sel => rt.toNat < 32 ∧ isModeledCp0Reg rd sel = true
   | .di rt => rt.toNat < 32
@@ -160,11 +128,6 @@ def Instruction.WellFormed : Instruction → Prop
   | .ctc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .mfhc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
   | .mthc1 rt fs => rt.toNat < 32 ∧ fs.toNat < 32
-  | .lwxc1 fd index base => fd.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
-  | .ldxc1 fd index base => fd.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
-  | .swxc1 fs index base => fs.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
-  | .sdxc1 fs index base => fs.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
-  | .prefx hint index base => hint.toNat < 32 ∧ index.toNat < 32 ∧ base.toNat < 32
   | .recipS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .rsqrtS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .recipD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
@@ -173,27 +136,3 @@ def Instruction.WellFormed : Instruction → Prop
   | .truncWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .ceilWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
   | .floorWD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
-  | .cCondS cond cc fs ft => cond.toNat < 16 ∧ cc.toNat < 8 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .cCondD cond cc fs ft => cond.toNat < 16 ∧ cc.toNat < 8 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .movfS fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
-  | .movtS fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
-  | .movfD fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
-  | .movtD fd fs cc => fd.toNat < 32 ∧ fs.toNat < 32 ∧ cc.toNat < 8
-  | .movnS fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
-  | .movzS fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
-  | .movnD fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
-  | .movzD fd fs rt => fd.toNat < 32 ∧ fs.toNat < 32 ∧ rt.toNat < 32
-  | .movf rs cc rd => rs.toNat < 32 ∧ cc.toNat < 8 ∧ rd.toNat < 32
-  | .movt rs cc rd => rs.toNat < 32 ∧ cc.toNat < 8 ∧ rd.toNat < 32
-  | .maddS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .msubS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .nmaddS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .nmsubS fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .maddD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .msubD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .nmaddD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .nmsubD fd fr fs ft => fd.toNat < 32 ∧ fr.toNat < 32 ∧ fs.toNat < 32 ∧ ft.toNat < 32
-  | .bc1f cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
-  | .bc1t cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
-  | .bc1fl cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16
-  | .bc1tl cc imm => cc.toNat < 8 ∧ imm.toNat < 2 ^ 16

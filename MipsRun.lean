@@ -238,7 +238,6 @@ def stateJson (s : State) : String :=
   "{" ++
   s!"\"pc\": {s.pc.toNat}, " ++
   s!"\"gpr\": {jsonNums (s.regs.toList.map (·.toNat))}, " ++
-  s!"\"hi\": {s.hi.toNat}, \"lo\": {s.lo.toNat}, " ++
   s!"\"fpr\": {jsonNums (s.fpRegs.toList.map (·.toNat))}, " ++
   s!"\"fcsr\": {(fcsrOf s).toNat}, " ++
   s!"\"fp_cond_flag\": {(fcsrOf s).getLsbD 23}, " ++
@@ -246,7 +245,6 @@ def stateJson (s : State) : String :=
   s!"\"ll_addr\": {s.llAddr.toNat}, " ++
   s!"\"pending_branch\": {match s.pendingBranch with | some t => toString t.toNat | none => "null"}, " ++
   s!"\"standby\": {s.standby}, " ++
-  s!"\"nullified\": {s.nullified}, " ++
   s!"\"hw_int\": {s.hwInt.toNat}, " ++
   s!"\"fir\": {Mips.Fp.firValue.toNat}, " ++
   s!"\"fcr\": {fcrJson s}, " ++

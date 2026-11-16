@@ -1,7 +1,8 @@
-# sb/lb/lbu/sh/lh/lhu byte order and sign/zero extension, big-endian.
+# sb/lb/lbu/sh/lh/lhu byte order and sign/zero extension, little-endian (DECISIONS D1; MD00090 Vol III Rev 6.02 Config.BE = 0).
 # MD00086 Vol II-A Rev 6.06: SB p.344-345, SH p.373, LB p.211, LBU p.213, LH p.219, LHU p.221.
-# Word 0x8182F384: byte0=81 byte1=82 byte2=F3 byte3=84; half0=8182 half1=F384.
-# oracle: expect gpr:s0=0xffffff81 gpr:s1=0x00000081 gpr:s2=0xfffff384 gpr:s3=0x0000f384 gpr:s4=0xffff8182
+# Word 0x8182F384: byte0=84 byte1=F3 byte2=82 byte3=81; half0=F384 half1=8182 (byte k at address a+k holds bits 8k+7..8k).
+# oracle: expect gpr:s0=0xffffff84 gpr:s1=0x00000084 gpr:s2=0xffff8182 gpr:s3=0x00008182 gpr:s4=0xfffff384 gpr:s5=0xffffff81 gpr:s6=0x82
+# oracle: expect gpr:s7=0x56787878 gpr:t3=0x78005678
 .data
 w: .word 0x8182F384
 out: .space 16

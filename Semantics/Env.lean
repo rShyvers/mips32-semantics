@@ -75,19 +75,20 @@ def canonicalVAddr (pa : PAddr) : VAddr :=
   else if pa.toNat < 0xC0000000 then pa - 0x40000000#32
   else pa
 
-/-- The big-endian word of physical memory `m` at physical address `pa` (no translation, no
-alignment check: an observer's read, not the processor's). -/
+/-- The word of physical memory `m` at physical address `pa`, in the byte order of `profile`
+(`join4`, as `readMemWord`; no translation, no alignment check: an observer's read, not the
+processor's). -/
 def physWord (m : Std.HashMap PAddr UInt8) (pa : PAddr) : W32 :=
-  let b (a : PAddr) : W32 := BitVec.ofNat 32 ((m.get? a).getD 0).toNat
-  (b pa <<< 24) ||| (b (pa + 1#32) <<< 16) ||| (b (pa + 2#32) <<< 8) ||| b (pa + 3#32)
+  let b (a : PAddr) : UInt8 := (m.get? a).getD 0
+  join4 profile.bigEndianMem (b pa) (b (pa + 1#32)) (b (pa + 2#32)) (b (pa + 3#32))
 
-/-- Write the 32-bit word `w` big-endian at physical address `pa` (the byte layout of
-`writeMemWord`), without an alignment check: the loader's own memory write. -/
+/-- Write the 32-bit word `w` at physical address `pa` in the byte order of `profile` (the byte
+layout of `writeMemWord`), without an alignment check: the loader's own memory write. -/
 def loadWord (m : Std.HashMap PAddr UInt8) (pa : PAddr) (w : W32) : Std.HashMap PAddr UInt8 :=
-  let b0 : UInt8 := ((w >>> 24) &&& 0xff#32).toNat.toUInt8
-  let b1 : UInt8 := ((w >>> 16) &&& 0xff#32).toNat.toUInt8
-  let b2 : UInt8 := ((w >>> 8) &&& 0xff#32).toNat.toUInt8
-  let b3 : UInt8 := (w &&& 0xff#32).toNat.toUInt8
+  let b0 : UInt8 := byteOfValue profile.bigEndianMem 4 w 0
+  let b1 : UInt8 := byteOfValue profile.bigEndianMem 4 w 1
+  let b2 : UInt8 := byteOfValue profile.bigEndianMem 4 w 2
+  let b3 : UInt8 := byteOfValue profile.bigEndianMem 4 w 3
   (((m.insert pa b0).insert (pa + 1#32) b1).insert (pa + 2#32) b2).insert (pa + 3#32) b3
 
 /-- Write every word of the image `p` (virtual addresses) into the physical memory of `s`, each at
@@ -110,7 +111,7 @@ Every other register keeps its reset value. This is an environment convention, n
 architectural requirement. -/
 def bootConvention (entry : W32) (s : State) : State :=
   { (writeReg s 29 spInit) with
-      cp0Status := statusCu1Mask, pc := entry, pendingBranch := none, nullified := false }
+      cp0Status := statusCu1Mask, pc := entry, pendingBranch := none }
 
 /-- **The hosted start state**: the architectural reset state (`resetState`, MD00090 Vol III
 Rev 6.02 §6.2.5, p.89-90) followed by the boot convention with entry point `textBase`

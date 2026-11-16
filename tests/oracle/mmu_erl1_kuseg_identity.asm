@@ -6,6 +6,8 @@
 # The ERL = 1 window runs from kseg0 (.ktext): executing from kuseg with ERL = 1 is UNDEFINED (A.1.2 p.316).
 # QEMU's kuseg is TLB-mapped while ERL = 0, so only the ERL = 1 identity map and kseg0/kseg1 are compared.
 # oracle: expect gpr:s1=0x5a5a1234 gpr:s2=0x5a5a1234 gpr:s3=0x5a5a1234 gpr:s5=0
+# oracle: known-model-bug gpr:t0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
+# oracle: known-model-bug gpr:t1 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
 .ktext
 erlwin:
     mfc0  $t0, $12

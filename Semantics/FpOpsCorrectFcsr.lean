@@ -3,7 +3,7 @@ import Semantics.FpOpsSpec
 /-!
 # FpOpsCorrectFcsr — the FCSR update of an FP operation
 
-`Mips.Fp.fpUpdate` (used by `step` through `fpFinishS`/`fpFinishD`/`fpFinishCmp`/`fpThen`) meets
+`Mips.Fp.fpUpdate` (used by `step` through `fpFinishS`/`fpFinishD`/`fpThen`) meets
 `FcsrSpec` (MD00082 Vol I-A Rev 6.01 §6.7.1, p.99; CheckFPException, MD00086 Vol II-A Rev 6.06
 §2.2.2.3.3, Figure 2.24, p.23), and `FcsrSpec` determines the new FCSR and the trap decision
 uniquely (`fcsrSpec_unique`), so the reference is a complete description, not a loose constraint.

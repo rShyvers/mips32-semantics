@@ -3,16 +3,17 @@ import Semantics.Manual.Memory
 /-!
 # Manual.Ops.Atomic — LL and SC (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7B S2. The pre-Release-6 forms (`LL` opcode `110000`, `SC` opcode `111000`; the Release 6
-SPECIAL3 encodings are out of scope).
+Sub-wave 7B S2; Release 6 diagrams (wave R6-1): SPECIAL3 with a 9-bit offset in bits 15..7 (`LL`
+function `110110`, p.223; `SC` function `100110`, p.347). "Release 6 implements a 9-bit offset" (LL,
+Programming Notes, p.224): `sign_extend(offset)` extends the 9-bit field (`imm9`).
 -/
 
 namespace Manual.Ops
 
 open Manual
 
-/-- **LL rt, offset(base)** — MD00086 Vol II-A Rev 6.06, LL, p.223-224 (diagram and the first lines of
-the Operation on p.223, the rest on p.224).
+/-- **LL rt, offset(base)** — MD00086 Vol II-A Rev 6.06, LL, p.223-224 (Release 6 diagram and the first lines
+of the Operation on p.223, the rest on p.224).
 ```
 vAddr ← sign_extend(offset) + GPR[base]
 if vAddr1..0 ≠ 02 then
@@ -30,7 +31,7 @@ any other sequence that was active." `SC` compares its own address with "that of
 Operation does not name that state. -/
 def LL (base rt offset : W32) : Pseudo Unit := do
   -- vAddr ← sign_extend(offset) + GPR[base]
-  let vAddr := sign_extend (imm16 offset) + (← GPR (reg base))
+  let vAddr := sign_extend (imm9 offset) + (← GPR (reg base))
   -- if vAddr1..0 ≠ 0^2 then SignalException(AddressError) endif
   if bits vAddr 1 0 != 0#2 then SignalException (.AddressErrorLoad vAddr)
   else
@@ -43,7 +44,7 @@ def LL (base rt offset : W32) : Pseudo Unit := do
     -- LLbit ← 1   (and the address of the sequence, for the SC comparison, SC p.347)
     Pseudo.modify fun a => { a with LLbit := true, LLAddr := vAddr }
 
-/-- **SC rt, offset(base)** — MD00086 Vol II-A Rev 6.06, SC, p.347-349 (Operation on p.349).
+/-- **SC rt, offset(base)** — MD00086 Vol II-A Rev 6.06, SC, p.347-349 (Release 6 diagram p.347, Operation on p.349).
 ```
 vAddr ← sign_extend(offset) + GPR[base]
 if vAddr1..0 ≠ 02 then
@@ -67,7 +68,7 @@ of the `SC` itself is not "between the LL and SC" (p.347), so the oracle choice 
 `LLbit` (`Oracle.storeClearsLL`) does not apply to it; `LLbit ← 0` follows in any case. -/
 def SC (base rt offset : W32) : Pseudo Unit := do
   -- vAddr ← sign_extend(offset) + GPR[base]
-  let vAddr := sign_extend (imm16 offset) + (← GPR (reg base))
+  let vAddr := sign_extend (imm9 offset) + (← GPR (reg base))
   -- if vAddr1..0 ≠ 0^2 then SignalException(AddressError) endif
   if bits vAddr 1 0 != 0#2 then SignalException (.AddressErrorStore vAddr)
   else

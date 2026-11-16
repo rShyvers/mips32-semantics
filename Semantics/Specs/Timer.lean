@@ -31,9 +31,9 @@ file proves:
 * `mtc0`/`mfc0` of `Count`, and `Cause` as read (`TI`, `IP7`): `mtc0_count_spec`,
   `causeValue_timer`.
 * **`rdhwr`**: `rdhwr_spec_raw`; the access rule (`rdhwr_reserved_unimplemented`,
-  `rdhwr_reserved_not_enabled`, `rdhwr_allowed`); the register values (`hwrValue_*`).
+  `rdhwr_reserved_sel`, `rdhwr_reserved_not_enabled`, `rdhwr_allowed`); the register values (`hwrValue_*`).
 
-## Theorems in this file (50)
+## Theorems in this file (51)
 
   `step_eq_timerTick_stepCore` `timerTick_count` `step_timer_match_sets_ti` `timerKept_advance`
   `countEnabled_exceptionEntry` `stepCore_timerKept` `writeMemWord_timerFields` `writeMemHalf_timerFields`
@@ -41,7 +41,7 @@ file proves:
   `step_count_stopped` `step_timerInt` `mtc0_count_spec` `mtc0_compare_clears_ti`
   `mtc0_compare_no_match_clears_ti` `causeValue_timer` `causeValue_no_timer` `rdhwr_spec_raw`
   `hwrValue_cpuNum` `hwrValue_synciStep` `hwrValue_cc` `hwrValue_ccRes` `hwrValue_unimplemented`
-  `rdhwrAllowed_iff` `rdhwr_reserved_unimplemented` `rdhwr_reserved_not_enabled` `rdhwr_allowed`
+  `rdhwrAllowed_iff` `rdhwr_reserved_unimplemented` `rdhwr_reserved_sel` `rdhwr_reserved_not_enabled` `rdhwr_allowed`
   `rdhwr_cc_reads_count` `hwrena_write_masked` `resetException_timer` `advance_cp0Count`
   `advance_cp0Compare` `advance_cp0TimerInt` `advance_cp0Cause` `advance_hwInt` `mkNext_eq_advance`
   `exceptionEntry_cp0Count` `exceptionEntry_cp0Compare` `exceptionEntry_cp0TimerInt` `exceptionEntry_hwInt`
@@ -212,9 +212,9 @@ macro "tk_simp" : tactic => `(tactic|
     exceptionEntry_cp0Compare, exceptionEntry_cp0TimerInt, exceptionEntry_dc, exceptionEntry_hwInt,
     writeReg_proj_cp0Count, writeReg_proj_cp0Compare, writeReg_proj_cp0TimerInt, writeReg_proj_hwInt,
     writeReg_proj_cp0Cause, writeFpReg_timer, writeFpD_timer, writeMemByte_getD_timer,
-    fpFinishS, fpFinishD, fpFinishCmp, and_self, *])
+    fpFinishS, fpFinishD, and_self, *])
 
--- ~190 constructors through one generic tactic loop
+-- 119 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **No instruction other than `mtc0` to `Count`, `Compare` or `Cause` changes `Count`, `Compare`,
 `Cause.TI` or `Cause.DC`**, in any state (in or out of a delay slot, with or without an
@@ -228,11 +228,9 @@ theorem execInstr_timerKept (s : State) (instr : Instruction) (hw : writesTimer 
     · tk_simp
     · split
       · tk_simp
-      · unfold execBody
-        cases instr <;> simp only [writesTimer] at hw <;> dsimp only <;>
+      · cases instr <;> simp only [writesTimer] at hw <;> exec_unfold <;>
           repeat' (first | (tk_fwd; tk_simp; done) | split | (unfold fpFinishS; dsimp only) |
-            (unfold fpThen; dsimp only) | (unfold fpStep; dsimp only) |
-            (unfold fpFinishD; dsimp only) | (unfold fpFinishCmp; dsimp only) |
+            (unfold fpThen; dsimp only) | (unfold fpFinishD; dsimp only) |
             (simp [*] at hw; done))
 
 /-- **`execute` (fetch, decode, execute) keeps the timer state** unless the fetched instruction is
@@ -257,8 +255,7 @@ theorem execute_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
 
 /-- **`stepCore` keeps the timer state** unless it executes an `mtc0` to `Count`, `Compare` or
 `Cause`: the Interrupt exception is an exception entry (which writes only `BD`, `CE`, `ExcCode` of
-`Cause`), a standby step changes only `standby`, and a nullified step only `pc`, `pendingBranch` and
-`nullified`. -/
+`Cause`), and a standby step changes only `standby`. -/
 theorem stepCore_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
     TimerKept s (stepCore s) := by
   unfold stepCore
@@ -267,8 +264,6 @@ theorem stepCore_timerKept (s : State) (hw : fetchesTimerWrite s = false) :
     exact ⟨rfl, rfl, rfl, exceptionEntry_dc s _ _, rfl⟩
   split
   · unfold standbyStep; split <;> exact ⟨rfl, rfl, rfl, rfl, rfl⟩
-  split
-  · exact ⟨rfl, rfl, rfl, rfl, rfl⟩
   exact execute_timerKept s hw
 
 /-! ## Count, TI and Compare at the level of `step` -/
@@ -369,11 +364,14 @@ theorem causeValue_no_timer (s : State) (h : s.cp0TimerInt = false) :
 is implemented (`hwrValue s rd = some v`) and access is allowed (`rdhwrAllowed`: Coprocessor 0
 enabled, or bit `rd` of `HWREna`), `$rt ← v` and `pc` advances; otherwise Reserved Instruction
 ("If access is not allowed or the register is not implemented, a Reserved Instruction Exception is
-signaled", p.333). -/
-theorem rdhwr_spec_raw (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+signaled", p.333). A nonzero `sel` raises Reserved Instruction (Release 6: "when the 3-bit sel is
+undefined for use with a specific register number, then a Reserved Instruction Exception is
+signaled", p.333; `sel = 0` is the only value defined for the registers the model implements). -/
+theorem rdhwr_spec_raw (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
     step s = timerTick (
+      if sel != 0#32 then takeException s excCodeRI else
       match hwrValue s rd with
       | some v =>
         if rdhwrAllowed s rd then
@@ -413,25 +411,40 @@ theorem rdhwrAllowed_iff (s : State) (rd : W32) :
 
 /-- **`rdhwr` of an unimplemented register raises Reserved Instruction**, in every mode
 (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4 and Restrictions, p.333). -/
-theorem rdhwr_reserved_unimplemented (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+theorem rdhwr_reserved_unimplemented (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hrd : 4 ≤ rd.toNat) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec, hwrValue_unimplemented s rd hrd]
+  rw [rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec, hwrValue_unimplemented s rd hrd]
+  split <;> rfl
+
+/-- **`rdhwr` with a nonzero `sel` raises Reserved Instruction** (Release 6: "when the 3-bit sel is
+undefined for use with a specific register number, then a Reserved Instruction Exception is
+signaled", MD00086 Vol II-A Rev 6.06, RDHWR, p.333; `sel = 0` is the only value defined for the
+registers the model implements), in every mode. -/
+theorem rdhwr_reserved_sel (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
+    (hpb : s.pendingBranch = none) (hsel : sel ≠ 0#32) (hexec : executesInstr s = true) :
+    step s = timerTick (takeException s excCodeRI) := by
+  rw [rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec]
+  have h : (sel != 0#32) = true := by simpa using hsel
+  rw [ite_of_pos h]
 
 /-- **`rdhwr` outside Kernel Mode with `Status.CU0 = 0` and the `HWREna` bit clear raises Reserved
 Instruction** (not Coprocessor Unusable): "Access to the specified hardware register is enabled if
 Coprocessor 0 is enabled, or if the corresponding bit is set in the HWREna register. If access is
 not allowed ... a Reserved Instruction Exception is signaled" (MD00086 Vol II-A Rev 6.06, RDHWR,
 p.333). -/
-theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+theorem rdhwr_reserved_not_enabled (s : State) (w rt rd sel : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd sel))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = false)
     (hen : (s.cp0HWREna >>> rd) &&& 1#32 = 0#32) (hexec : executesInstr s = true) :
     step s = timerTick (takeException s excCodeRI) := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec]
+  rw [rdhwr_spec_raw s w rt rd sel hfetch hdecode hpb hexec]
   have ha : rdhwrAllowed s rd = false := by
     unfold rdhwrAllowed; rw [hcp0, hen]; rfl
+  split
+  · rfl
   split
   · rw [ha]; rfl
   · rfl
@@ -439,20 +452,21 @@ theorem rdhwr_reserved_not_enabled (s : State) (w rt rd : W32)
 /-- **`rdhwr` of an implemented register with access allowed** writes the register's value to
 `$rt` and advances `pc`. -/
 theorem rdhwr_allowed (s : State) (w rt rd v : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd))
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt rd 0#32))
     (hpb : s.pendingBranch = none) (hv : hwrValue s rd = some v)
     (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> rd) &&& 1#32 ≠ 0#32) (hexec : executesInstr s = true) :
     step s = timerTick
       { (writeReg s (regIdxSpec rt) v) with pc := (writeReg s (regIdxSpec rt) v).pc + 4#32 } := by
-  rw [rdhwr_spec_raw s w rt rd hfetch hdecode hpb hexec, hv]
+  rw [rdhwr_spec_raw s w rt rd 0#32 hfetch hdecode hpb hexec, hv]
   have ha : rdhwrAllowed s rd = true := (rdhwrAllowed_iff s rd).2 hacc
   simp only [ha, ↓reduceIte]
+  rfl
 
 /-- **`rdhwr $rt, $2` reads `Count`** — in User Mode too, when `HWREna` bit 2 is set — the value
 the step started with (MD00086 Vol II-A Rev 6.06, RDHWR, Table 5.4, p.332: "CC ... provides read
 access to the coprocessor 0 Count Register"). -/
 theorem rdhwr_cc_reads_count (s : State) (w rt : W32)
-    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt 2#32))
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.rdhwr rt 2#32 0#32))
     (hpb : s.pendingBranch = none)
     (hacc : cp0Usable s = true ∨ (s.cp0HWREna >>> 2#32) &&& 1#32 ≠ 0#32)
     (hrt : regIdxSpec rt ≠ 0) (hsize : s.regs.size = 32) (hexec : executesInstr s = true) :
@@ -498,15 +512,17 @@ theorem resetException_timer (s : State) :
           (setRegsSpec { initialState textBase with cp0TimerInt := true } [(8, 1000#32)])
         !s.cp0TimerInt && s.cp0Compare == 1000#32)
 -- `rdhwr_allowed`: Kernel Mode reads CC = Count (the value before the step's tick).
-#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 2#32)) { initialState textBase with cp0Count := 77#32 }
+#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 2#32 0#32)) { initialState textBase with cp0Count := 77#32 }
         readReg s 8 == 77#32 && s.cp0Count == 78#32)
 -- `rdhwr_reserved_not_enabled`: User Mode, HWREna = 0b0101: register 1 is Reserved Instruction.
-#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 1#32))
+#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 1#32 0#32))
           { initialState textBase with cp0Status := statusUmMask, cp0HWREna := 5#32 }
         causeExcCode s == excCodeRI)
 -- … and register 2 (bit 2 set) is readable there.
-#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 2#32))
+#guard (let s := stepIn (prog1Spec (.rdhwr 8#32 2#32 0#32))
           { initialState textBase with cp0Status := statusUmMask, cp0HWREna := 5#32, cp0Count := 5#32 }
         readReg s 8 == 5#32 && s.pc == textBase + 4#32)
 -- `rdhwr_reserved_unimplemented`: register 29 (ULR) in Kernel Mode.
-#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 29#32)) (initialState textBase)) == excCodeRI
+#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 29#32 0#32)) (initialState textBase)) == excCodeRI
+-- `rdhwr_reserved_sel`: `rdhwr $8, $2, 1` (sel = 1) is Reserved Instruction even in Kernel Mode.
+#guard causeExcCode (stepIn (prog1Spec (.rdhwr 8#32 2#32 1#32)) (initialState textBase)) == excCodeRI

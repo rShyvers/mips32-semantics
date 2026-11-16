@@ -3,7 +3,12 @@
 # bit is set in the HWREna register"); MD00090 Vol III Rev 6.02 sec 3.5.3 p.23 (Coprocessor 0 is enabled when "The CU0 bit in the Status register
 # is 1"), Table 9.39 p.175 (HWREna reset/zero). SYNCI_Step and CCRes are implementation-dependent (rdhwr_kernel), so their raw values are not
 # compared: the check is that no exception happens (s6 = 0).
-# oracle: expect gpr:s0=0 gpr:s2=777 gpr:s6=0
+# Release 6: this premise no longer holds (bit 28 is RW, not CU0): with HWREna = 0 every rdhwr in User Mode is a Reserved Instruction on
+# QEMU; the model still treats bit 28 as CU0 (W2).
+# oracle: expect gpr:s0=0
+# oracle: known-model-bug gpr:s2 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables RDHWR in User Mode through bit 28 (pre-Release 6 CU0)
+# oracle: known-model-bug gpr:s6 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables RDHWR in User Mode through bit 28 (pre-Release 6 CU0)
+# oracle: known-model-bug gpr:k0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.190 (an image page; read in the PDF): in Release 6 the CU field is CU3..CU1 (bits 31..29) and bit 28 is "RW: Read/write field. This bit can be written by software without side-effects"; Coprocessor 0 is not enabled in User Mode by bit 28; W2: the model still enables RDHWR in User Mode through bit 28 (pre-Release 6 CU0)
 # oracle: unpredictable gpr:s1 MD00090 Vol III Rev 6.02 Table 9.40 p.176: SYNCI_Step is implementation-dependent (QEMU 24Kf: 32; model: 0)
 # oracle: unpredictable gpr:s3 MD00090 Vol III Rev 6.02 Table 9.40 p.176: CCRes is implementation-dependent (QEMU 24Kf: 2; model: 1)
 .ktext

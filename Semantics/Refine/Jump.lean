@@ -16,7 +16,7 @@ namespace Refine
 open Manual
 
 /-- **J refines.** -/
-theorem j_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w : W32)
+theorem j_refines (s : State) (hg : Good s) (target w : W32)
     (hw : enc (.j target) = some w) :
     Execute modelCtx w (.j target) (abs s) = some (abs (execInstr s (.j target))) := by
   obtain ⟨-, -, h0⟩ := hg
@@ -26,7 +26,7 @@ theorem j_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w
   have hbl : isBranchLike (.j target) = true := rfl
   cases hpb : s.pendingBranch with
   | some t =>
-    rw [execute_cti_slot w _ s t rfl rfl hpb]
+    rw [execute_cti_slot w _ s t rfl hpb]
     unfold execInstr; rw [hbl, hpb]; rfl
   | none =>
     rw [execute_cti_run w _ s (Ops.J target) hpb hc1 hc0 rfl]
@@ -37,10 +37,10 @@ theorem j_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w
       unfold execInstr; rw [hbl, hpb]; rfl
     rw [hex]
     simp only [Pseudo.run, Ops.J, bind, PC, jump_target]
-    simp [I1, Complete, abs, hn, readReg, readFpReg]
+    simp [I1, Complete, abs, readReg, readFpReg]
 
 /-- **JAL refines.** -/
-theorem jal_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target w : W32)
+theorem jal_refines (s : State) (hg : Good s) (target w : W32)
     (hw : enc (.jal target) = some w) :
     Execute modelCtx w (.jal target) (abs s) = some (abs (execInstr s (.jal target))) := by
   obtain ⟨hsz, -, h0⟩ := hg
@@ -50,7 +50,7 @@ theorem jal_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target
   have hbl : isBranchLike (.jal target) = true := rfl
   cases hpb : s.pendingBranch with
   | some t =>
-    rw [execute_cti_slot w _ s t rfl rfl hpb]
+    rw [execute_cti_slot w _ s t rfl hpb]
     unfold execInstr; rw [hbl, hpb]; rfl
   | none =>
     rw [execute_cti_run w _ s (Ops.JAL target) hpb hc1 hc0 rfl]
@@ -63,7 +63,7 @@ theorem jal_refines (s : State) (hg : Good s) (hn : s.nullified = false) (target
     rw [hex]
     simp only [Pseudo.run, Ops.JAL, bind, PC, setGPR, jump_target, abs_pc_pb, abs_writeReg _ _ _ hsz,
       pc_add_eight]
-    simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg]
+    simp [I1, Complete, writeGPR, abs, readReg, readFpReg]
 
 /-- The model's oracle lets `JALR`/`JALR.HB` with `rs = rd` proceed: `temp` is read before
 `GPR[rd]` is written, the model's order too. -/
@@ -78,50 +78,8 @@ theorem unpredictable_proceed (p : Prop) [Decidable p] (body : Pseudo Unit) :
 /-- `Config1.CA` (bit 2) is 0 in `modelImpl`: no MIPS16e, so `JR`/`JALR` jump to `temp`. -/
 theorem config1_ca : bit modelImpl.Config1 2 = false := rfl
 
-/-- **JR refines.** -/
-theorem jr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs w : W32)
-    (hw : enc (.jr rs) = some w) :
-    Execute modelCtx w (.jr rs) (abs s) = some (abs (execInstr s (.jr rs))) := by
-  obtain ⟨-, -, h0⟩ := hg
-  obtain rfl : rFormat 0#32 rs 0#32 0#32 0#32 0x08#32 = w := Option.some.inj hw
-  have hbl : isBranchLike (.jr rs) = true := rfl
-  cases hpb : s.pendingBranch with
-  | some t =>
-    rw [execute_cti_slot _ _ s t rfl rfl hpb]
-    unfold execInstr; rw [hbl, hpb]; rfl
-  | none =>
-    rw [execute_cti_run _ _ s (Ops.JR rs) hpb (by alu_space) (by alu_space) rfl]
-    have hex : execInstr s (.jr rs) =
-        { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
-      unfold execInstr; rw [hbl, hpb]; rfl
-    rw [hex]
-    simp only [Pseudo.run, Ops.JR, bind, Pseudo.impl, GPR, show modelCtx.impl = modelImpl from rfl,
-      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg]
-    simp [I1, Complete, abs, hn, readReg, readFpReg]
-
-/-- **JR.HB refines** (`ClearHazards()` has no state on either side). -/
-theorem jrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs w : W32)
-    (hw : enc (.jrHb rs) = some w) :
-    Execute modelCtx w (.jrHb rs) (abs s) = some (abs (execInstr s (.jrHb rs))) := by
-  obtain ⟨-, -, h0⟩ := hg
-  obtain rfl : rFormat 0#32 rs 0#32 0#32 0x10#32 0x08#32 = w := Option.some.inj hw
-  have hbl : isBranchLike (.jrHb rs) = true := rfl
-  cases hpb : s.pendingBranch with
-  | some t =>
-    rw [execute_cti_slot _ _ s t rfl rfl hpb]
-    unfold execInstr; rw [hbl, hpb]; rfl
-  | none =>
-    rw [execute_cti_run _ _ s (Ops.JR_HB rs) hpb (by alu_space) (by alu_space) rfl]
-    have hex : execInstr s (.jrHb rs) =
-        { s with pc := s.pc + 4#32, pendingBranch := some (readReg s (regIdx rs)) } := by
-      unfold execInstr; rw [hbl, hpb]; rfl
-    rw [hex]
-    simp only [Pseudo.run, Ops.JR_HB, bind, Pseudo.impl, GPR, show modelCtx.impl = modelImpl from rfl,
-      config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg]
-    simp [I1, Complete, abs, hn, readReg, readFpReg]
-
 /-- **JALR refines**, `rs = rd` included (`modelOracle_jalrRsIsRd`). -/
-theorem jalr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd w : W32)
+theorem jalr_refines (s : State) (hg : Good s) (rs rd w : W32)
     (hw : enc (.jalr rs rd) = some w) :
     Execute modelCtx w (.jalr rs rd) (abs s) = some (abs (execInstr s (.jalr rs rd))) := by
   obtain ⟨hsz, -, h0⟩ := hg
@@ -129,7 +87,7 @@ theorem jalr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd
   have hbl : isBranchLike (.jalr rs rd) = true := rfl
   cases hpb : s.pendingBranch with
   | some t =>
-    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    rw [execute_cti_slot _ _ s t rfl hpb]
     unfold execInstr; rw [hbl, hpb]; rfl
   | none =>
     rw [execute_cti_run _ _ s (Ops.JALR rs rd) hpb (by alu_space) (by alu_space) rfl]
@@ -142,10 +100,10 @@ theorem jalr_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd
       show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
       config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
       abs_writeReg _ _ _ hsz, pc_add_eight]
-    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg, hd]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg, hd]
 
 /-- **JALR.HB refines**, `rs = rd` included. -/
-theorem jalrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs rd w : W32)
+theorem jalrHb_refines (s : State) (hg : Good s) (rs rd w : W32)
     (hw : enc (.jalrHb rs rd) = some w) :
     Execute modelCtx w (.jalrHb rs rd) (abs s) = some (abs (execInstr s (.jalrHb rs rd))) := by
   obtain ⟨hsz, -, h0⟩ := hg
@@ -153,7 +111,7 @@ theorem jalrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs 
   have hbl : isBranchLike (.jalrHb rs rd) = true := rfl
   cases hpb : s.pendingBranch with
   | some t =>
-    rw [execute_cti_slot _ _ s t rfl rfl hpb]
+    rw [execute_cti_slot _ _ s t rfl hpb]
     unfold execInstr; rw [hbl, hpb]; rfl
   | none =>
     rw [execute_cti_run _ _ s (Ops.JALR_HB rs rd) hpb (by alu_space) (by alu_space) rfl]
@@ -166,6 +124,6 @@ theorem jalrHb_refines (s : State) (hg : Good s) (hn : s.nullified = false) (rs 
       show modelCtx.impl = modelImpl from rfl, modelOracle_jalrRsIsRd, unpredictable_proceed,
       config1_ca, Bool.not_false, ↓reduceIte, readGPR_abs s h0, ← regIdx_eq_reg, abs_pc_pb,
       abs_writeReg _ _ _ hsz, pc_add_eight]
-    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, hn, readReg, readFpReg, hd]
+    by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg, hd]
 
 end Refine

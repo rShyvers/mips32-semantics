@@ -1,9 +1,11 @@
-# div_pow2_base.asm — $t9 = $a0 / 4, signed, truncating toward zero (MIPS
-# `div`'s actual rounding rule — INSTRUCTION-REF "div").
+# div_pow2_base.asm — $t9 = $a0 / 4, signed, truncating toward zero, branch-free: add the bias 3
+# only for a negative dividend (the sign mask shifted right logically by 30), then sra by 2.
+# Release 6 removed DIV/MFLO; the Release 6 DIV is not modeled yet (W4).
 .text
 main:
-    li   $t0, 4
-    div  $a0, $t0
-    mflo $t9
+    sra  $t1, $a0, 31        # 0 or -1
+    srl  $t1, $t1, 30        # 0 or 3
+    addu $t1, $a0, $t1
+    sra  $t9, $t1, 2
     li   $v0, 10
     syscall

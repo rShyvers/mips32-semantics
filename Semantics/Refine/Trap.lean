@@ -63,48 +63,6 @@ theorem tgeu_refines (s : State) (hg : Good s) (rs rt code w : W32)
   s2_open Ops.TGEU (Ops.TGEU rs rt code)
   exact trap_finish s _ _ (ule_ext _ _)
 
-/-- **TEQI refines.** -/
-theorem teqi_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.teqi rs imm) = some w) :
-    Execute modelCtx w (.teqi rs imm) (abs s) = some (abs (execInstr s (.teqi rs imm))) := by
-  s2_open Ops.TEQI (Ops.TEQI rs imm)
-  exact trap_finish s _ _ rfl
-
-/-- **TNEI refines.** -/
-theorem tnei_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.tnei rs imm) = some w) :
-    Execute modelCtx w (.tnei rs imm) (abs s) = some (abs (execInstr s (.tnei rs imm))) := by
-  s2_open Ops.TNEI (Ops.TNEI rs imm)
-  exact trap_finish s _ _ (by rw [Bool.eq_iff_iff]; simp)
-
-/-- **TGEI refines.** -/
-theorem tgei_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.tgei rs imm) = some w) :
-    Execute modelCtx w (.tgei rs imm) (abs s) = some (abs (execInstr s (.tgei rs imm))) := by
-  s2_open Ops.TGEI (Ops.TGEI rs imm)
-  exact trap_finish s _ _ (by rw [BitVec.sle]; rfl)
-
-/-- **TGEIU refines.** -/
-theorem tgeiu_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.tgeiu rs imm) = some w) :
-    Execute modelCtx w (.tgeiu rs imm) (abs s) = some (abs (execInstr s (.tgeiu rs imm))) := by
-  s2_open Ops.TGEIU (Ops.TGEIU rs imm)
-  exact trap_finish s _ _ (ule_ext _ _)
-
-/-- **TLTI refines.** -/
-theorem tlti_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.tlti rs imm) = some w) :
-    Execute modelCtx w (.tlti rs imm) (abs s) = some (abs (execInstr s (.tlti rs imm))) := by
-  s2_open Ops.TLTI (Ops.TLTI rs imm)
-  exact trap_finish s _ _ (by rw [BitVec.slt]; rfl)
-
-/-- **TLTIU refines.** -/
-theorem tltiu_refines (s : State) (hg : Good s) (rs imm w : W32)
-    (hw : enc (.tltiu rs imm) = some w) :
-    Execute modelCtx w (.tltiu rs imm) (abs s) = some (abs (execInstr s (.tltiu rs imm))) := by
-  s2_open Ops.TLTIU (Ops.TLTIU rs imm)
-  exact trap_finish s _ _ (ult_ext _ _)
-
 /-- **BREAK refines.** -/
 theorem break_refines (s : State) (hg : Good s) (code w : W32)
     (hw : enc (.break code) = some w) :

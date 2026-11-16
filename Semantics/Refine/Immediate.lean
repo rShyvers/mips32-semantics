@@ -4,38 +4,23 @@ import Semantics.Refine.BridgeIntAlu
 # Refine.Immediate — arithmetic and logical with a 16-bit immediate against `execInstr`
 (sub-wave 7C S1)
 
-`Refine.<ctor>_refines` for `ADDI`, `ADDIU`, `SLTI`, `SLTIU`, `ANDI`, `ORI`, `XORI`, `LUI`.
-`sign_extend(immediate)` is the model's `signExt16` (`offset16`), `zero_extend(immediate)` its
-`zeroExt16`; the overflow test of `ADDI` is `ADD`'s (`add_ovf`).
+`Refine.<ctor>_refines` for `ADDIU`, `SLTI`, `SLTIU`, `ANDI`, `ORI`, `XORI`, `AUI` (Release 6
+removed `ADDI`; LUI is AUI with `rs = 0`). `sign_extend(immediate)` is the model's `signExt16`
+(`offset16`), `zero_extend(immediate)` its `zeroExt16`.
 -/
 
 namespace Refine
 
 open Manual
 
-/-- `immediate || 0^16` is the model's `zeroExt16 imm <<< 16`. -/
-theorem lui_eq (imm : W32) : (imm16 imm ++ 0#16).setWidth 32 = zeroExt16 imm <<< 16 := by
+/-- `sign_extend(immediate << 16)` (the 32-bit `immediate || 0^16`) is the model's
+`zeroExt16 imm <<< 16`. -/
+theorem aui_eq (imm : W32) : sign_extend (imm16 imm ++ 0#16) = zeroExt16 imm <<< 16 := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [imm16, zeroExt16, BitVec.getLsbD_setWidth, BitVec.getLsbD_append, BitVec.getLsbD_shiftLeft,
-    BitVec.getLsbD_extractLsb', BitVec.getLsbD_extractLsb, BitVec.truncate_eq_setWidth, BitVec.getLsbD_zero]
+  simp only [sign_extend, imm16, zeroExt16, BitVec.signExtend_eq, BitVec.getLsbD_setWidth,
+    BitVec.getLsbD_append, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_extractLsb',
+    BitVec.getLsbD_extractLsb, BitVec.truncate_eq_setWidth, BitVec.getLsbD_zero]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
-
-/-- **ADDI refines.** -/
-theorem addi_refines (s : State) (hg : Good s) (rs rt imm w : W32)
-    (hw : enc (.addi rs rt imm) = some w) :
-    Execute modelCtx w (.addi rs rt imm) (abs s) = some (abs (execInstr s (.addi rs rt imm))) := by
-  obtain rfl : iFormat 0x08#32 rs rt imm = w := Option.some.inj hw
-  have hov := add_ovf_bne (readReg s (regIdx rs)) (signExt16 imm)
-  cases h : addOverflows (asSigned (readReg s (regIdx rs))) (asSigned (signExt16 imm))
-      (asSigned (readReg s (regIdx rs) + signExt16 imm)) <;> rw [h] at hov
-  · refine refine_gpr s hg _ _ (Ops.ADDI rs rt imm) rt (readReg s (regIdx rs) + signExt16 imm)
-      (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ ?_
-    · alu_run [Ops.ADDI, readGPR_abs s hg.2.2, offset16, hov, add33_low]
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
-  · refine refine_exc s _ _ (Ops.ADDI rs rt imm) .IntegerOverflow excCodeOv (fun h => nomatch h)
-      (by alu_space) (by alu_space) rfl ?_ rfl rfl ?_
-    · alu_run [Ops.ADDI, readGPR_abs s hg.2.2, offset16, hov]; rfl
-    · rw [execInstr_body s _ rfl rfl rfl]; simp only [execBody, h]; rfl
 
 /-- **ADDIU refines.** -/
 theorem addiu_refines (s : State) (hg : Good s) (rs rt imm w : W32)
@@ -100,13 +85,13 @@ theorem xori_refines (s : State) (hg : Good s) (rs rt imm w : W32)
   alu_run [Ops.XORI, readGPR_abs s hg.2.2]
   rfl
 
-/-- **LUI refines.** -/
-theorem lui_refines (s : State) (hg : Good s) (rt imm w : W32)
-    (hw : enc (.lui rt imm) = some w) :
-    Execute modelCtx w (.lui rt imm) (abs s) = some (abs (execInstr s (.lui rt imm))) := by
-  obtain rfl : iFormat 0x0F#32 0#32 rt imm = w := Option.some.inj hw
-  refine refine_gpr s hg _ _ (Ops.LUI rt imm) rt (zeroExt16 imm <<< 16)
+/-- **AUI refines** (Release 6; LUI is AUI with `rs = 0`). -/
+theorem aui_refines (s : State) (hg : Good s) (rs rt imm w : W32)
+    (hw : enc (.aui rs rt imm) = some w) :
+    Execute modelCtx w (.aui rs rt imm) (abs s) = some (abs (execInstr s (.aui rs rt imm))) := by
+  obtain rfl : iFormat 0x0F#32 rs rt imm = w := Option.some.inj hw
+  refine refine_gpr s hg _ _ (Ops.AUI rs rt imm) rt (readReg s (regIdx rs) + (zeroExt16 imm <<< 16))
     (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ (execInstr_body s _ rfl rfl rfl)
-  alu_run [Ops.LUI, lui_eq]
+  alu_run [Ops.AUI, readGPR_abs s hg.2.2, aui_eq]
 
 end Refine

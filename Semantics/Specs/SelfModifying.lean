@@ -11,9 +11,10 @@ stream is visible to the next fetch. The manual defines this (it is what SYNCI e
 effective relative to an instruction fetch", MD00086 Vol II-A Rev 6.06, SYNCI, p.412); the model
 has no caches, so no SYNCI is needed for the store to take effect (`synci` is a no-op, `Step.lean`).
 
-## Theorems in this file (7)
+## Theorems in this file (9)
 
-  `getLsbD_255` `word_of_bytes` `byte_toUInt8_toNat` `readMemWord_writeMemWord_alias`
+  `getLsbD_255` `word_of_bytes` `byte_toUInt8_toNat` `word_of_bytes_le` `join4_byteOfValue`
+  `readMemWord_writeMemWord_alias`
   `readMemWord_writeMemWord_same`
   `sw_next_instruction_is_fetched` `store_changes_next_instruction`
 -/
@@ -56,6 +57,40 @@ theorem byte_toUInt8_toNat (x : W32) :
   rw [h]
   exact BitVec.ofNat_toNat _ _ |>.trans (by simp)
 
+/-- `word_of_bytes` with the bytes in little-endian order (proof device). -/
+theorem word_of_bytes_le (v : W32) :
+    (v >>> 0 &&& 0xff#32) <<< 0 ||| (v >>> 8 &&& 0xff#32) <<< 8 |||
+      (v >>> 16 &&& 0xff#32) <<< 16 ||| (v >>> 24 &&& 0xff#32) <<< 24 = v := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft,
+    BitVec.getLsbD_ushiftRight, getLsbD_255]
+  by_cases h1 : i < 8
+  · simp [h1, show i < 16 by omega, show i < 24 by omega, hi]
+  · by_cases h2 : i < 16
+    · rw [show 8 + (i - 8) = i by omega]
+      simp [h1, h2, show i < 24 by omega, show i - 8 < 8 by omega, hi]
+    · by_cases h3 : i < 24
+      · rw [show 16 + (i - 16) = i by omega]
+        simp [h1, h2, h3, show i - 16 < 8 by omega, show ¬ (i - 8 < 8) by omega, hi]
+      · rw [show 24 + (i - 24) = i by omega]
+        simp [h1, h2, h3, show i - 24 < 8 by omega, show ¬ (i - 8 < 8) by omega,
+          show ¬ (i - 16 < 8) by omega, hi]
+
+/-- **Reading back the bytes of a stored word gives the word**, in either byte order (the profile's
+`byteOfValue`/`join4` are inverse; proof device). -/
+theorem join4_byteOfValue (be : Bool) (v : W32) :
+    join4 be (byteOfValue be 4 v 0) (byteOfValue be 4 v 1) (byteOfValue be 4 v 2)
+      (byteOfValue be 4 v 3) = v := by
+  unfold join4 byteInValue byteOfValue
+  simp only [byte_toUInt8_toNat]
+  cases be
+  · exact word_of_bytes_le v
+  · show (v >>> 24 &&& 0xff#32) <<< 24 ||| (v >>> 16 &&& 0xff#32) <<< 16 |||
+      (v >>> 8 &&& 0xff#32) <<< 8 ||| (v >>> 0 &&& 0xff#32) <<< 0 = v
+    rw [BitVec.ushiftRight_zero, BitVec.shiftLeft_zero]
+    exact word_of_bytes v
+
 /-- **A word written through one virtual address is read through any other virtual address that
 translates to the same physical address** (the store changes `physMem` only, so the translation
 of the second address is unchanged). -/
@@ -81,10 +116,10 @@ theorem readMemWord_writeMemWord_alias (s s' : State) (a b v : W32)
       have d31 : (pa + 3#32 == pa + 1#32) = false := by simp
       have d32 : (pa + 3#32 == pa + 2#32) = false := by simp
       simp only [Std.HashMap.get?_insert, d1, d2, d3, d21, d31, d32, beq_self_eq_true, ↓reduceIte,
-        Bool.false_eq_true, Option.getD_some, byte_toUInt8_toNat]
-      rw [word_of_bytes]
+        Bool.false_eq_true, Option.getD_some]
+      rw [join4_byteOfValue]
 
-/-- **A word read returns the word just written there** (big-endian, both ways). -/
+/-- **A word read returns the word just written there** (in the byte order of `profile`, both ways). -/
 theorem readMemWord_writeMemWord_same (s s' : State) (a v : W32)
     (h : writeMemWord s a v = some s') : readMemWord s' a = some v := by
   have hal : a.toNat % 4 = 0 := by

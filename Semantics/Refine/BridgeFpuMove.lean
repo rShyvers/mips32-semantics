@@ -6,16 +6,15 @@ import Semantics.Refine.Invariant
 # Refine.BridgeFpuMove — bridge lemmas of the FPU memory/move/control/branch group (7C S4b)
 
 Proved once for the refinement theorems of `Refine/FpuMemory.lean`, `FpuMove.lean`,
-`FpuControl.lean` and `FpuBranch.lean`:
+`FpuControl.lean`:
 
-* `cop1_execute` / `cop1_cti_execute`: `Execute` of an instruction of the COP1 encoding space against
+* `cop1_execute`: `Execute` of an instruction of the COP1 encoding space against
   `execInstr`'s Coprocessor Unusable check (`Cause.CE = 1`, MD00090 Vol III Rev 6.02 §6.2.22, p.100),
   so that each refinement only compares the Operation with the model's `execBody` arm;
 * the FPR pair (`ValueFPR64`/`StoreFPR64` under `modelOracle`, whose odd-register outcomes are the
   even-register formula) against `readFpD`/`writeFpD`;
-* `FPConditionCode` of the 3-bit `cc` field against `readFcc`;
-* the doubleword accesses (`LDC1`, `SDC1`, `LDXC1`, `SDXC1`): translation of `vAddr + 4`, the
-  `pAddr xor 0b100` of a big-endian CPU, and the order of the two word stores;
+* the doubleword accesses (`LDC1`, `SDC1`): translation of `vAddr + 4` and the `pAddr xor 0b100`
+  of the second word (the first is at `pAddr` on this little-endian CPU, `endian_xor`);
 * the FP control registers (`CFC1`/`CTC1`) against `Mips.Fp.readControl`/`writeControl`, and
   `CheckFPException` against `Mips.Fp.fcsrTrapPending`.
 -/
@@ -52,39 +51,6 @@ theorem cop1_execute (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
   · simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte, hop]
     exact hbody hu
 
-/-- **A CTI of the COP1 encoding space** (`BC1F` … `BC1TL`): in a delay slot both sides take
-Reserved Instruction (`Oracle.ctiInSlot`, checked before the coprocessor), otherwise as
-`cop1_execute`. -/
-theorem cop1_cti_execute (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
-    (hcti : IsCTI i = true) (hp : IsPAUSE i = false) (h1 : InCop1Space w = true)
-    (h0 : InCop0Space w = false) (hop : Operation i = some op) (hbl : isBranchLike i = true)
-    (hc1 : usesCop1 i = true) (hc0 : usesCop0 i = false)
-    (hbody : s.pendingBranch = none → cu1Enabled s = true →
-      (match op.run modelCtx { arch := abs s } with
-       | (.ok (), f) => some (Complete (abs s) f)
-       | (.signal e, f) => some (GeneralExceptionProcessing modelImpl modelOracle e f.arch))
-        = some (abs (execBody s i))) :
-    Execute modelCtx w i (abs s) = some (abs (execInstr s i)) := by
-  cases hpb : s.pendingBranch with
-  | some t =>
-    rw [execute_cti_slot w i s t hcti hp hpb]
-    unfold execInstr; rw [hbl, hpb]; rfl
-  | none =>
-    have hex : execInstr s i =
-        if (!cu1Enabled s) = true then takeCoprocessorUnusable s else execBody s i := by
-      unfold execInstr; rw [hbl, hc1, hc0, hpb]; simp
-    have hb : (abs s).BranchDelay.isSome = false := by simp [abs, hpb]
-    rw [hex]
-    simp only [Execute, Execute.runOperation, hb, Bool.and_false, Bool.false_eq_true, ite_false,
-      h1, h0, Bool.false_and, Bool.true_and, cu1_abs]
-    cases hu : cu1Enabled s
-    · simp only [Bool.not_false, ↓reduceIte]
-      rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
-        gep_eq s (.CoprocessorUnusable 1) (by intro h; cases h) (by intro u h; cases h; omega)]
-      rfl
-    · simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte, hop]
-      exact hbody hpb hu
-
 /-! ## Registers -/
 
 theorem update_self (f : Fin 32 → W32) (i : Fin 32) : update f i (f i) = f := by
@@ -109,17 +75,6 @@ theorem append_lo (hi lo : W32) : (hi ++ lo).extractLsb' 0 32 = lo := by
 theorem append_hi (hi lo : W32) : (hi ++ lo).extractLsb' 32 32 = hi := by
   ext i hi'
   simp only [BitVec.getElem_extractLsb', BitVec.getLsbD_append]; simp [hi', BitVec.getLsbD_eq_getElem]
-
-/-! ## Condition codes -/
-
-/-- `FPConditionCode` of the 3-bit `cc` field is the model's condition-code read (`readFcc`). -/
-theorem fpcc_run (c : Ctx) (f : Frame) (cc : W32) :
-    FPConditionCode (low cc 3).toNat c f = (.ok (Mips.Fp.getCC f.arch.FCSR (ccIdx cc)), f) := by
-  have hl : (low cc 3).toNat = cc.toNat % 8 := by
-    simp only [low, BitVec.extractLsb'_toNat]; omega
-  simp only [FPConditionCode, bind, Pseudo.get, hl, Mips.Fp.getCC, Mips.Fp.ccBit, ccIdx,
-    Fin.val_ofNat, bit]
-  by_cases h : cc.toNat % 8 = 0 <;> simp [h, pure]
 
 /-! ## Completion of the model's arms -/
 
@@ -164,28 +119,6 @@ macro "word_bits" : tactic => `(tactic| (
   simp only [opcode, fld, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_or, BitVec.getLsbD_and,
     BitVec.getLsbD_shiftLeft]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega))
-
-/-- The `MOVF.fmt`/`MOVT.fmt` and `MOVF`/`MOVT` diagram (`... | cc | 0 | tf | ...`). -/
-theorem opcode_movcf (op a cc tf b c fn : W32) :
-    opcode (fld 6 26 op ||| fld 5 21 a ||| fld 3 18 cc ||| fld 1 16 tf ||| fld 5 11 b ||| fld 5 6 c |||
-      fld 6 0 fn) = op &&& 0x3F#32 := by word_bits
-
-theorem funct_movcf (op a cc tf b c fn : W32) :
-    (fld 6 26 op ||| fld 5 21 a ||| fld 3 18 cc ||| fld 1 16 tf ||| fld 5 11 b ||| fld 5 6 c |||
-      fld 6 0 fn) &&& 0x3F#32 = fn &&& 0x3F#32 := by word_bits
-
-theorem opcode_movci (rs cc tf rd fn : W32) :
-    opcode (fld 6 26 0#32 ||| fld 5 21 rs ||| fld 3 18 cc ||| fld 1 16 tf ||| fld 5 11 rd |||
-      fld 6 0 fn) = 0#32 := by word_bits
-
-theorem funct_movci (rs cc tf rd fn : W32) :
-    (fld 6 26 0#32 ||| fld 5 21 rs ||| fld 3 18 cc ||| fld 1 16 tf ||| fld 5 11 rd |||
-      fld 6 0 fn) &&& 0x3F#32 = fn &&& 0x3F#32 := by word_bits
-
-/-- The `BC1F` … `BC1TL` diagram (`COP1 | BC | cc | nd | tf | offset`). -/
-theorem opcode_bc1 (op a cc nd tf imm : W32) :
-    opcode (fld 6 26 op ||| fld 5 21 a ||| fld 3 18 cc ||| fld 1 17 nd ||| fld 1 16 tf |||
-      fld 16 0 imm) = op &&& 0x3F#32 := by word_bits
 
 /-! ## FP control registers -/
 
@@ -288,7 +221,7 @@ theorem toNat_ne_of_ne {fs : W32} {n : Nat} (h : fs ≠ BitVec.ofNat 32 n) (hn :
     fs.toNat ≠ n := by
   intro h'; apply h; apply BitVec.eq_of_toNat_eq; simp [h', Nat.mod_eq_of_lt hn]
 
-/-! ## Doubleword accesses (`LDC1`, `SDC1`, `LDXC1`, `SDXC1`) -/
+/-! ## Doubleword accesses (`LDC1`, `SDC1`) -/
 
 /-- The manual's doubleword alignment test is the model's `% 8`. -/
 theorem misaligned8_eq (va : W32) : (bits va 2 0 != 0#3) = decide (va.toNat % 8 ≠ 0) := by
@@ -360,10 +293,11 @@ theorem fixedMappingPA_aligned8 (erl : Bool) (va : W32) (h : va.toNat % 8 = 0) :
       simp
     · exact h
 
-/-- `BigEndianCPU xor ReverseEndian` is 1 on this profile (big-endian, `Status.RE` reads 0): the
-`pAddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)` of the doubleword pages flips bit 2. -/
+/-- `BigEndianCPU xor ReverseEndian` is 0 on this profile (little-endian, `Status.RE` reads 0): the
+`pAddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)` of the doubleword pages leaves the address, so
+the word at `pAddr` is the least-significant one. -/
 theorem endian_xor (a : Arch) :
-    ((BitVec.ofBool (BigEndianCPU a ^^ ReverseEndian a) ++ 0#2 : BitVec 3).setWidth 32) = 4#32 := by
+    ((BitVec.ofBool (BigEndianCPU a ^^ ReverseEndian a) ++ 0#2 : BitVec 3).setWidth 32) = 0#32 := by
   simp only [BigEndianCPU, ReverseEndian, StatusRE, BigEndianMem, Bool.false_and, Bool.xor_false]
   rfl
 
@@ -406,21 +340,12 @@ theorem xor4_eq (pa : W32) (h : pa.toNat % 8 = 0) : pa ^^^ 4#32 = pa + 4#32 := b
 theorem xor4_xor4 (pa : W32) (h : pa.toNat % 8 = 0) : (pa + 4#32) ^^^ 4#32 = pa := by
   rw [← xor4_eq pa h, BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
 
-/-- The model's four byte inserts of a big-endian word store at `p` (`writeMemWord`). -/
+/-- The model's four byte inserts of a word store at `p` (`writeMemWord`, the profile's byte
+order). -/
 def ins4 (m : Std.HashMap PAddr UInt8) (p : PAddr) (v : W32) : Std.HashMap PAddr UInt8 :=
-  (((m.insert p ((v >>> 24) &&& 0xff#32).toNat.toUInt8).insert (p + 1#32)
-    ((v >>> 16) &&& 0xff#32).toNat.toUInt8).insert (p + 2#32) ((v >>> 8) &&& 0xff#32).toNat.toUInt8).insert
-    (p + 3#32) (v &&& 0xff#32).toNat.toUInt8
-
-/-- The two word stores of a doubleword commute (their bytes are disjoint): the manual stores the
-word at `pAddr + 4` first (`paddr xor 0b100`), the model the word at `pAddr`. -/
-theorem memOf_ins4_swap (m : Std.HashMap PAddr UInt8) (pa v w : W32) :
-    memOf (ins4 (ins4 m (pa + 4#32) w) pa v) = memOf (ins4 (ins4 m pa v) (pa + 4#32) w) := by
-  simp only [ins4, memOf_insert]
-  funext x
-  simp only [updMem, beq_iff_eq]
-  repeat' split
-  all_goals first | rfl | (exfalso; bv_omega)
+  (((m.insert p (byteOfValue profile.bigEndianMem 4 v 0)).insert (p + 1#32)
+    (byteOfValue profile.bigEndianMem 4 v 1)).insert (p + 2#32)
+    (byteOfValue profile.bigEndianMem 4 v 2)).insert (p + 3#32) (byteOfValue profile.bigEndianMem 4 v 3)
 
 /-- `writeMemWord` of an aligned, translated address: the four inserts. -/
 theorem writeMemWord_eq (s : State) (va : W32) (v : W32) (h : va.toNat % 4 = 0) :

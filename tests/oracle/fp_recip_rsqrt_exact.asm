@@ -1,5 +1,11 @@
 # recip/rsqrt .s/.d on operands where the exact result is representable (powers of two, +-0, Inf); result bits and FCSR.
 # MD00086 Vol II-A Rev 6.06: RECIP.fmt p.336 / RSQRT.fmt p.343: 'The numeric accuracy of this operation is implementation dependent ... differs from the exact result by no more than one ULP'.
+# oracle: known-model-bug mem:0x10010048 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): single 0x7fc00000; W5: the model still creates the legacy 0x7fbfffff
+# oracle: known-model-bug mem:0x10010098 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): single 0x7fc00000; W5: the model still creates the legacy 0x7fbfffff
+# oracle: known-model-bug mem:0x1001010c MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (low word)
+# oracle: known-model-bug mem:0x10010114 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (high word)
+# oracle: known-model-bug mem:0x10010184 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (low word)
+# oracle: known-model-bug mem:0x1001018c MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (high word)
 .data
 res: .space 464
 .text
@@ -10,12 +16,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 0($s7)
 sw $t1, 4($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 8($s7)
 sw $t1, 12($s7)
 li $t9, 0x40000000
@@ -24,12 +36,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 16($s7)
 sw $t1, 20($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 24($s7)
 sw $t1, 28($s7)
 li $t9, 0x40800000
@@ -38,12 +56,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 32($s7)
 sw $t1, 36($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 40($s7)
 sw $t1, 44($s7)
 li $t9, 0x3f000000
@@ -52,12 +76,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 48($s7)
 sw $t1, 52($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 56($s7)
 sw $t1, 60($s7)
 li $t9, 0xc0000000
@@ -66,12 +96,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 64($s7)
 sw $t1, 68($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 72($s7)
 sw $t1, 76($s7)
 li $t9, 0x00000000
@@ -80,12 +116,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 80($s7)
 sw $t1, 84($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 88($s7)
 sw $t1, 92($s7)
 li $t9, 0x7f800000
@@ -94,12 +136,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 96($s7)
 sw $t1, 100($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 104($s7)
 sw $t1, 108($s7)
 li $t9, 0x3e800000
@@ -108,12 +156,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 112($s7)
 sw $t1, 116($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 120($s7)
 sw $t1, 124($s7)
 li $t9, 0x41800000
@@ -122,12 +176,18 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 128($s7)
 sw $t1, 132($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 136($s7)
 sw $t1, 140($s7)
 li $t9, 0xbf800000
@@ -136,213 +196,313 @@ ctc1 $zero, $31
 recip.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 144($s7)
 sw $t1, 148($s7)
 ctc1 $zero, $31
 rsqrt.s $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 152($s7)
 sw $t1, 156($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3ff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 160($s7)
 sw $t1, 164($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 168($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 172($s7)
 sw $t1, 176($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 180($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x40000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 184($s7)
 sw $t1, 188($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 192($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 196($s7)
 sw $t1, 200($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 204($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x40100000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 208($s7)
 sw $t1, 212($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 216($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 220($s7)
 sw $t1, 224($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 228($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3fe00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 232($s7)
 sw $t1, 236($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 240($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 244($s7)
 sw $t1, 248($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 252($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0xc0000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 256($s7)
 sw $t1, 260($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 264($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 268($s7)
 sw $t1, 272($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 276($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x00000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 280($s7)
 sw $t1, 284($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 288($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 292($s7)
 sw $t1, 296($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 300($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x7ff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 304($s7)
 sw $t1, 308($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 312($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 316($s7)
 sw $t1, 320($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 324($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3fd00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 328($s7)
 sw $t1, 332($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 336($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 340($s7)
 sw $t1, 344($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 348($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x40300000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 352($s7)
 sw $t1, 356($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 360($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 364($s7)
 sw $t1, 368($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 372($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0xbff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 ctc1 $zero, $31
 recip.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 376($s7)
 sw $t1, 380($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 384($s7)
 ctc1 $zero, $31
 rsqrt.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 388($s7)
 sw $t1, 392($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 396($s7)
+move $t0, $zero
+move $t2, $zero
+mtc1 $zero, $f0
+mtc1 $zero, $f2
+mtc1 $zero, $f4
+mtc1 $zero, $f6
+mtc1 $zero, $f8
+mtc1 $zero, $f10
+mtc1 $zero, $f12
+mtc1 $zero, $f14
+mtc1 $zero, $f16
+mtc1 $zero, $f18
+mtc1 $zero, $f20
+mtc1 $zero, $f22
+mtc1 $zero, $f24
+mtc1 $zero, $f26
+mtc1 $zero, $f28
+mtc1 $zero, $f30
+mthc1 $zero, $f0
+mthc1 $zero, $f2
+mthc1 $zero, $f4
+mthc1 $zero, $f6
+mthc1 $zero, $f8
+mthc1 $zero, $f10
+mthc1 $zero, $f12
+mthc1 $zero, $f14
+mthc1 $zero, $f16
+mthc1 $zero, $f18
+mthc1 $zero, $f20
+mthc1 $zero, $f22
+mthc1 $zero, $f24
+mthc1 $zero, $f26
+mthc1 $zero, $f28
+mthc1 $zero, $f30
 li $v0, 10
 syscall

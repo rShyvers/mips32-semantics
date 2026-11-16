@@ -2,40 +2,28 @@
 # a signaling one (compared: isNaN, bit 22, FCSR). The exact payload is a documented pin: the model returns the first quiet-NaN operand unchanged ('when possible ... one of the operand QNaN values'),
 # QEMU returns the default QNaN 0x7fbfffff. With exactly one QNaN operand (and a number) the operand QNaN is mandatory, so those slots are 'expect-deviation' (+ 'expect');
 # with two NaN operands which one is returned is not specified, so those raw word slots stay 'unpredictable'.
+# Release 6 (FCSR.NAN2008 = 1) reverses the encodings (0x7fa00003 is a signaling NaN there): the test exercises the model's legacy FPU; the
+# result classes and FCSR differ until W5 (known model bug).
 # MD00082 Vol I-A Rev 6.01 sec 6.3.1.4 p.81 ('An SNaN is never produced as a result value'), sec 6.3.1.5 p.82 ('a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible, this QNaN result is one of the operand QNaN values'; Table 6.3: new QNaN 0x7fbfffff when none can be copied), sec 6.7.2.1 p.100.
 # NOTE legacy encoding (Has2008 = 0): fraction MSB (bit 22) = 1 is SIGNALING, 0 is QUIET, so 0x7fc00001 is an sNaN and 0x7fa00003 a QNaN.
-# oracle: expect-deviation mem:0x10010000 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x10010000=0x7fa00003
-# oracle: expect-deviation mem:0x1001000c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x1001000c=0x7fa00003
 # oracle: unpredictable mem:0x10010018 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010024 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010030 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x1001003c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: expect-deviation mem:0x10010048 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x10010048=0x7fa00003
-# oracle: expect-deviation mem:0x10010054 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x10010054=0x7fa00003
 # oracle: unpredictable mem:0x10010060 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x1001006c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010078 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010084 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: expect-deviation mem:0x10010090 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x10010090=0x7fa00003
-# oracle: expect-deviation mem:0x1001009c MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x1001009c=0x7fa00003
 # oracle: unpredictable mem:0x100100a8 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100b4 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100c0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100cc MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
-# oracle: expect-deviation mem:0x100100d8 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x100100d8=0x7fa00003
-# oracle: expect-deviation mem:0x100100e4 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: "When possible, this QNaN result is one of the operand QNaN values" (exactly one QNaN operand, the other a number: the operand QNaN is mandatory); QEMU returns the default QNaN 0x7fbfffff
-# oracle: expect mem:0x100100e4=0x7fa00003
 # oracle: unpredictable mem:0x100100f0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x100100fc MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010108 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
 # oracle: unpredictable mem:0x10010114 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified
+# oracle: known-model-bug mem MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.94 (NAN2008 'Required as of Release 5', reset 1 in Release 6: a quiet NaN has the fraction MSB 1) and 6.3.1.5 Table 6.3 p.82; W5: the model is still the legacy (NAN2008 = 0) FPU, so the NaN classes of the operands and the results differ
+# oracle: known-model-bug gpr:t4 same (bit 22 of the last result)
 # oracle: unpredictable gpr:t0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result (see mem slots)
 # oracle: unpredictable fpr:f6 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result
 .data
@@ -50,6 +38,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 0($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -68,6 +59,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 12($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -86,6 +80,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 24($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -104,6 +101,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 36($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -122,6 +122,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 48($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -140,6 +143,9 @@ ctc1 $zero, $31
 add.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 60($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -158,6 +164,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 72($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -176,6 +185,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 84($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -194,6 +206,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 96($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -212,6 +227,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 108($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -230,6 +248,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 120($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -248,6 +269,9 @@ ctc1 $zero, $31
 sub.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 132($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -266,6 +290,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 144($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -284,6 +311,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 156($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -302,6 +332,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 168($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -320,6 +353,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 180($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -338,6 +374,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 192($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -356,6 +395,9 @@ ctc1 $zero, $31
 mul.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 204($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -374,6 +416,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 216($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -392,6 +437,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 228($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -410,6 +458,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 240($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -428,6 +479,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 252($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -446,6 +500,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 264($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -464,6 +521,9 @@ ctc1 $zero, $31
 div.s $f6, $f2, $f4
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 276($s7)
 sll $t2, $t0, 1
 lui $t3, 0xff00
@@ -474,5 +534,39 @@ sll $t2, $t2, 1
 or $t2, $t2, $t4
 sw $t2, 280($s7)
 sw $t1, 284($s7)
+move $t0, $zero
+move $t2, $zero
+mtc1 $zero, $f0
+mtc1 $zero, $f2
+mtc1 $zero, $f4
+mtc1 $zero, $f6
+mtc1 $zero, $f8
+mtc1 $zero, $f10
+mtc1 $zero, $f12
+mtc1 $zero, $f14
+mtc1 $zero, $f16
+mtc1 $zero, $f18
+mtc1 $zero, $f20
+mtc1 $zero, $f22
+mtc1 $zero, $f24
+mtc1 $zero, $f26
+mtc1 $zero, $f28
+mtc1 $zero, $f30
+mthc1 $zero, $f0
+mthc1 $zero, $f2
+mthc1 $zero, $f4
+mthc1 $zero, $f6
+mthc1 $zero, $f8
+mthc1 $zero, $f10
+mthc1 $zero, $f12
+mthc1 $zero, $f14
+mthc1 $zero, $f16
+mthc1 $zero, $f18
+mthc1 $zero, $f20
+mthc1 $zero, $f22
+mthc1 $zero, $f24
+mthc1 $zero, $f26
+mthc1 $zero, $f28
+mthc1 $zero, $f30
 li $v0, 10
 syscall

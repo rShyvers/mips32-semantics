@@ -4,10 +4,19 @@ Formal semantics of MIPS32 in Lean 4: decode/encode, assembler, small-step `step
 Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals by review.
 
 ## Target profile (do not drift)
-- Pre-Release-6 MIPS32, Release 2 feature set, big-endian, legacy FP (`FIR.Has2008=0`).
-- The latest manual revisions in `manuals/` (Vol I 6.01, Vol II-A 6.06, Vol III 6.02)
-  are NORMATIVE, read for the pre-R6 wording. R6-only instructions/registers are out of scope.
-- MARS is only a differential oracle. When MARS and the architecture disagree, the architecture wins;
+- MIPS32 **Release 6** (the final MIPS32), owner decision 2026-11-16, on branch `dev/r6` until it is complete.
+  Little-endian only (`Config5.DEC=0`, `Config.BE=0`), 64-bit FPU (`Status.FR=1`), IEEE 754-2008 NaN
+  (`FIR.Has2008=1`, `FCSR.NAN2008=ABS2008=1`), Fixed Mapping MMU, no optional modules (MSA, microMIPS, VZ, MT, DSP,
+  EVA, XPA, MCU, CRC, GINV, VP, EJTAG). Misaligned load/store = Address Error. The pre-R6 Release 2 model is kept
+  only at tag `mips32r2-final`; it is replaced in place, with no compatibility layer.
+- Earlier releases will be added later, backwards (R5, R3, R2, R1), as profiles. Key release-specific pieces
+  cheaply now (a `Release`/`Profile` with one arm; decoder tables per release; a CP0 layout table) and do not
+  implement other releases.
+- The manual revisions in `manuals/` (Vol I 6.01, Vol II-A 6.06, Vol III 6.02) are NORMATIVE.
+- Style: clever is fine, a massive if/match block is not. Prefer tables keyed by opcode/format, per-format
+  helpers and shared combinators; the trusted, auditor-facing files stay plain and readable.
+- QEMU (`qemu-system-mipsel -cpu mips32r6-generic`) and LLVM (`-mcpu=mips32r6`) are the oracles. MARS cannot run
+  R6; it is only a differential oracle for the corpus programs that are valid R6. When MARS and the architecture disagree, the architecture wins;
   record the divergence in `docs/spec/SPEC-NOTES.md`.
 
 ## Hard rules

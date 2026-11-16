@@ -3,9 +3,14 @@ import Semantics.Manual.Memory
 /-!
 # Manual.Ops.Memory — aligned loads and stores (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7A transcribes the pilots `LW` and `SW`. The pre-Release-6 alignment rule is in each page's
-Restrictions section (the Release 6 Operation leaves it out: "The pseudocode is not completely adapted
-for Release 6 misalignment support"); it is transcribed as the first statement.
+Sub-wave 7A transcribes the pilots `LW` and `SW`. The alignment rule is in each page's Restrictions
+section (the Release 6 Operation leaves it out: "The pseudocode is not completely adapted for Release 6
+misalignment support"); it is transcribed as the first statement: this profile takes an Address Error
+for every misaligned access ("Release 6 allows hardware to provide address misalignment support in lieu
+of requiring natural alignment", e.g. LDC1 p.215; the pin of DECISIONS D3).
+-- W4: the misaligned-access pin is recorded with its citation in SPEC-NOTES.
+The byte-lane selection (`byte ← vAddr1..0 xor BigEndianCPU^2`) follows `BigEndianMem`, little-endian
+on this profile (`Manual.BigEndianMem`).
 -/
 
 namespace Manual.Ops
@@ -230,8 +235,8 @@ def SH (base rt offset : W32) : Pseudo Unit := do
     -- StoreMemory (CCA, HALFWORD, dataword, pAddr, vAddr, DATA)
     StoreMemory CCA HALFWORD dataword pAddr vAddr
 
-/-- **PREF hint, offset(base)** — MD00086 Vol II-A Rev 6.06, PREF, p.321 (diagram, Description) and
-p.323 (Operation).
+/-- **PREF hint, offset(base)** — MD00086 Vol II-A Rev 6.06, PREF, p.321 (Release 6 diagram: SPECIAL3,
+9-bit offset in bits 15..7, function `110101`; Description) and p.323 (Operation).
 ```
 vAddr ← GPR[base] + sign_extend(offset)
 (pAddr, CCA) ← AddressTranslation(vAddr, DATA, LOAD)
@@ -247,7 +252,7 @@ manual allows to change state, and is not taken). So the translation, whose fail
 `Prefetch` leave the state unchanged, and only the effective address is computed. -/
 def PREF (base _hint offset : W32) : Pseudo Unit := do
   -- vAddr ← GPR[base] + sign_extend(offset)
-  let _vAddr := (← GPR (reg base)) + sign_extend (imm16 offset)
+  let _vAddr := (← GPR (reg base)) + sign_extend (imm9 offset)
   -- (pAddr, CCA) ← AddressTranslation(vAddr, DATA, LOAD): a failure is ignored (p.321)
   -- Prefetch(CCA, pAddr, vAddr, DATA, hint): no architecturally visible action (p.321)
   pure ()

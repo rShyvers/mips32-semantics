@@ -1,7 +1,7 @@
 import Semantics.Tests.StepFixtures
 
 /-!
-# `step` tests: integer arithmetic, logic, shifts, multiply/divide, bit manipulation, immediates
+# `step` tests: integer arithmetic, logic, shifts, bit manipulation, immediates
 
 Moved verbatim out of `Semantics/Step.lean` (reviewability restructuring): the definition file now holds definitions only.
 Every check that calls `step`/`run` is a `#guard` (see `StepFixtures.lean` for why).
@@ -66,18 +66,6 @@ example : raisesAddr (hstep (∅ : Program) misalignedState) excCodeAdEL (textBa
         | .next s' => readReg s' 0 == 0#32 && s'.pc == textBase + 4#32
         | .halt _ => false)
 
--- ### movn/movz: conditional move -- the "condition fails" case must leave
--- `$rd` at its *preset* value (99 below), not zero it (a real no-op, per
--- docs/spec/INSTRUCTION-REF.md's movn/movz entries).
-#guard nextRegEq (hstep (prog1 (.movn 8#32 9#32 10#32)) (setRegs regs0 [(8, 5#32), (9, 1#32), (10, 99#32)]))
-  10 5#32   -- movn, $rt != 0: moves
-#guard nextRegEq (hstep (prog1 (.movn 8#32 9#32 10#32)) (setRegs regs0 [(8, 5#32), (9, 0#32), (10, 99#32)]))
-  10 99#32  -- movn, $rt == 0: $rd unchanged
-#guard nextRegEq (hstep (prog1 (.movz 8#32 9#32 10#32)) (setRegs regs0 [(8, 5#32), (9, 0#32), (10, 99#32)]))
-  10 5#32   -- movz, $rt == 0: moves
-#guard nextRegEq (hstep (prog1 (.movz 8#32 9#32 10#32)) (setRegs regs0 [(8, 5#32), (9, 1#32), (10, 99#32)]))
-  10 99#32  -- movz, $rt != 0: $rd unchanged
-
 -- ### add/sub overflow traps
 
 #guard raises (hstep (prog1 (.add 8#32 9#32 10#32)) (setRegs regs0 [(8, 0x7fffffff#32), (9, 1#32)])) excCodeOv
@@ -100,98 +88,10 @@ example : raisesAddr (hstep (∅ : Program) misalignedState) excCodeAdEL (textBa
 #guard nextRegEq (hstep (prog1 (.slti 8#32 9#32 0x0000#32)) (setRegs regs0 [(8, 0xffffffff#32)])) 9 1#32  -- -1 < 0
 #guard nextRegEq (hstep (prog1 (.sltiu 8#32 9#32 0x0000#32)) (setRegs regs0 [(8, 0xffffffff#32)])) 9 0#32 -- 0xffffffff </u 0 is false
 
--- ### mult / multu / div / divu / mflo / mfhi
+-- (Release 6 removed MOVN/MOVZ, MULT/MULTU/DIV/DIVU/MFHI/MFLO/MTHI/MTLO, MUL (SPECIAL2) and
+-- MADD/MADDU/MSUB/MSUBU, and the HI/LO registers; their tests are gone.)
 
--- mult: positive × positive
-#guard nextHiLoEq (hstep (prog1 (.mult 8#32 9#32)) (setRegs regs0 [(8, 6#32), (9, 7#32)])) 0#32 42#32
--- mult: negative × negative, hi ≠ 0
-#guard nextHiLoEq (hstep (prog1 (.mult 8#32 9#32)) (setRegs regs0 [(8, 0x88ca6c00#32), (9, 0x88ca6c00#32)]))
-  0x3782dace#32 0x9d900000#32
--- mflo/mfhi read both halves back out
-#guard (match stepState (prog1 (.mult 8#32 9#32)) (setRegs regs0 [(8, 0x88ca6c00#32), (9, 0x88ca6c00#32)]) with
-        | some s' =>
-          let s'' := { s' with pc := textBase }
-          nextRegEq (hstep (prog1 (.mflo 10#32)) s'') 10 0x9d900000#32 &&
-          nextRegEq (hstep (prog1 (.mfhi 11#32)) s'') 11 0x3782dace#32
-        | none => false)
--- multu: both operands > 2^31
-#guard nextHiLoEq (hstep (prog1 (.multu 8#32 9#32)) (setRegs regs0 [(8, 0xb2d05e00#32), (9, 0xb2d05e00#32)]))
-  0x7ce66c50#32 0xe2840000#32
-
--- div: positive dividend
-#guard nextHiLoEq (hstep (prog1 (.div 8#32 9#32)) (setRegs regs0 [(8, 17#32), (9, 5#32)])) 2#32 3#32
--- div: negative dividend — remainder takes the dividend's sign
-#guard nextHiLoEq (hstep (prog1 (.div 8#32 9#32)) (setRegs regs0 [(8, 0xffffffef#32), (9, 5#32)]))
-  0xfffffffe#32 0xfffffffd#32  -- hi = -2, lo = -3  (tdiv(-17,5)=-3, tmod(-17,5)=-2)
--- div: zero divisor with pre-seeded hi/lo — unchanged, no exception
-private def seededHiLo : State := { regs0 with hi := 0xdeadbeef#32, lo := 0xcafef00d#32 }
-#guard isNext (hstep (prog1 (.div 8#32 9#32)) (setRegs seededHiLo [(8, 10#32), (9, 0#32)]))
-#guard nextHiLoEq (hstep (prog1 (.div 8#32 9#32)) (setRegs seededHiLo [(8, 10#32), (9, 0#32)]))
-  0xdeadbeef#32 0xcafef00d#32
--- div: INT_MIN / -1 wraps silently (no exception, no overflow concept for div)
-#guard nextHiLoEq (hstep (prog1 (.div 8#32 9#32)) (setRegs regs0 [(8, 0x80000000#32), (9, 0xffffffff#32)]))
-  0#32 0x80000000#32
--- divu: basic
-#guard nextHiLoEq (hstep (prog1 (.divu 8#32 9#32)) (setRegs regs0 [(8, 17#32), (9, 5#32)])) 2#32 3#32
--- divu: zero divisor unchanged, no exception
-#guard isNext (hstep (prog1 (.divu 8#32 9#32)) (setRegs seededHiLo [(8, 10#32), (9, 0#32)]))
-
--- ### mul (MIPS32 SPECIAL2 GPR multiply; docs/spec/MIPS-COVERAGE-GAPS.md §3.5)
--- `mul`'s result must match the low 32 bits `mult`+`mflo` would produce, for
--- the same operand pairs already exercised above -- including one whose
--- 64-bit product overflows 32 bits signed, confirming the wraparound -- and
--- `mul` must leave `hi`/`lo` unchanged (the pinned dialect choice).
-#guard nextRegEq (hstep (prog1 (.mul 8#32 9#32 10#32)) (setRegs regs0 [(8, 6#32), (9, 7#32)])) 10 42#32  -- matches mult/mflo's lo above (0#32 42#32)
-#guard nextRegEq (hstep (prog1 (.mul 8#32 9#32 10#32)) (setRegs regs0 [(8, 0x88ca6c00#32), (9, 0x88ca6c00#32)]))
-  10 0x9d900000#32  -- matches mult/mflo's lo above (overflows 32-bit signed: hi was nonzero, 0x3782dace)
-#guard nextHiLoEq (hstep (prog1 (.mul 8#32 9#32 10#32)) (setRegs seededHiLo [(8, 6#32), (9, 7#32)]))
-  0xdeadbeef#32 0xcafef00d#32  -- hi/lo unchanged by mul
-#guard nextRegEq (hstep (prog1 (.mul 8#32 9#32 10#32)) (setRegs regs0 [(8, 0xffffffff#32), (9, 2#32)])) 10 0xfffffffe#32  -- (-1) * 2 = -2, wraps
-
--- ### madd/maddu/msub/msubu/mthi/mtlo (MIPS32 multiply-accumulate and HI/LO
--- register moves; docs/spec/MIPS-COVERAGE-GAPS.md §3.5). The key property
--- that distinguishes these from mult/multu/mul: starting from a nonzero
--- `seededHiLo` accumulator, the result must be the *sum* (or difference) of
--- the prior accumulator and the product, never just the product alone.
-
--- madd: positive × positive (product 42, same pair as the plain mult test
--- above) accumulated on top of seededHiLo instead of overwriting it
-#guard nextHiLoEq (hstep (prog1 (.madd 8#32 9#32)) (setRegs seededHiLo [(8, 6#32), (9, 7#32)]))
-  0xdeadbeef#32 0xcafef037#32
--- madd: negative × negative (same pair as the mult test whose product is
--- 0x3782dace_9d900000), accumulated onto seededHiLo with a 64-bit carry
--- into the hi word
-#guard nextHiLoEq (hstep (prog1 (.madd 8#32 9#32)) (setRegs seededHiLo [(8, 0x88ca6c00#32), (9, 0x88ca6c00#32)]))
-  0x163099be#32 0x688ef00d#32
--- maddu: unsigned operands > 2^31 (same pair as the multu test above)
-#guard nextHiLoEq (hstep (prog1 (.maddu 8#32 9#32)) (setRegs seededHiLo [(8, 0xb2d05e00#32), (9, 0xb2d05e00#32)]))
-  0x5b942b40#32 0xad82f00d#32
--- msub: subtracts the product from the prior accumulator (inverse of the
--- positive madd case above)
-#guard nextHiLoEq (hstep (prog1 (.msub 8#32 9#32)) (setRegs seededHiLo [(8, 6#32), (9, 7#32)]))
-  0xdeadbeef#32 0xcafeefe3#32
--- msubu: unsigned subtract
-#guard nextHiLoEq (hstep (prog1 (.msubu 8#32 9#32)) (setRegs seededHiLo [(8, 0xb2d05e00#32), (9, 0xb2d05e00#32)]))
-  0x61c7529e#32 0xe87af00d#32
-
--- mthi/mtlo: write-direction counterparts to mfhi/mflo. Each sets only its
--- own half, leaving the other half (0 on regs0) untouched
-#guard nextHiLoEq (hstep (prog1 (.mthi 8#32)) (setRegs regs0 [(8, 0x12345678#32)])) 0x12345678#32 0#32
-#guard nextHiLoEq (hstep (prog1 (.mtlo 8#32)) (setRegs regs0 [(8, 0x87654321#32)])) 0#32 0x87654321#32
--- round trip through the register file: mthi $8 then mfhi $9 reads back
--- $8's original value (symmetric for mtlo/mflo)
-#guard (match stepState (prog1 (.mthi 8#32)) (setRegs regs0 [(8, 0x12345678#32)]) with
-        | some s' =>
-          let s'' := { s' with pc := textBase }
-          nextRegEq (hstep (prog1 (.mfhi 9#32)) s'') 9 0x12345678#32
-        | none => false)
-#guard (match stepState (prog1 (.mtlo 8#32)) (setRegs regs0 [(8, 0x87654321#32)]) with
-        | some s' =>
-          let s'' := { s' with pc := textBase }
-          nextRegEq (hstep (prog1 (.mflo 9#32)) s'') 9 0x87654321#32
-        | none => false)
-
--- ### clo/clz/movn/movz/seb/seh (MIPS32/MIPS32r2 additions; see
+-- ### clo/clz/seb/seh (MIPS32/MIPS32r2 additions; see
 -- docs/spec/INSTRUCTION-REF.md)
 
 -- clo: all-ones -> 32; a mixed pattern; all-zero -> 0 leading ones
@@ -303,10 +203,9 @@ private def extInsRoundTripProg : Program :=
 
 -- ### addi overflow trap vs addiu wrap; andi/ori/xori high-imm-bits; lui
 
-#guard raises (hstep (prog1 (.addi 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x7fffffff#32)])) excCodeOv
 #guard nextRegEq (hstep (prog1 (.addiu 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x7fffffff#32)])) 9 0x80000000#32
 -- `andi`/`ori`/`xori` zero-extend the immediate (imm bit 15 set must NOT sign-extend)
 #guard nextRegEq (hstep (prog1 (.andi 8#32 9#32 0x8001#32)) (setRegs regs0 [(8, 0xffffffff#32)])) 9 0x00008001#32
 #guard nextRegEq (hstep (prog1 (.ori 8#32 9#32 0x8001#32)) (setRegs regs0 [(8, 0#32)])) 9 0x00008001#32
 #guard nextRegEq (hstep (prog1 (.xori 8#32 9#32 0x8001#32)) (setRegs regs0 [(8, 0#32)])) 9 0x00008001#32
-#guard nextRegEq (hstep (prog1 (.lui 9#32 0x8001#32)) regs0) 9 0x80010000#32
+#guard nextRegEq (hstep (prog1 (.aui 0#32 9#32 0x8001#32)) regs0) 9 0x80010000#32

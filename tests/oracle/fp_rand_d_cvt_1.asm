@@ -1,5 +1,17 @@
 # Randomised (seeded 401) cvtw/cvtsd/rndround/rndtrunc/rndceil/rndfloor on .d over edge-value pools and random normals, in all four rounding modes: result bits + FCSR. No NaN operands (payload choice is unspecified).
 # MD00082 Vol I-A Rev 6.01 sec 6.7.2 p.99-102, Table 6.14 p.100 (IEEE default results, flags, rounding modes); MD00086 Vol II-A Rev 6.06 ADD/SUB/MUL/DIV/SQRT.fmt, CVT/ROUND/TRUNC/CEIL/FLOOR.
+# oracle: known-model-bug mem:0x100102c0 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x100102c8 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x100102d0 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x100102d8 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010300 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010308 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010310 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010318 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010480 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010488 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010490 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
+# oracle: known-model-bug mem:0x10010498 MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff
 .data
 res: .space 1728
 .text
@@ -7,16 +19,19 @@ la $s7, res
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3fe00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xcb711eaa
 mtc1 $t9, $f4
 li $t9, 0xbf992052
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 0($s7)
 sw $t1, 4($s7)
 li $t8, 1
@@ -24,6 +39,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 8($s7)
 sw $t1, 12($s7)
 li $t8, 2
@@ -31,6 +49,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 16($s7)
 sw $t1, 20($s7)
 li $t8, 3
@@ -38,65 +59,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 24($s7)
 sw $t1, 28($s7)
 li $t9, 0xffffffff
 mtc1 $t9, $f2
 li $t9, 0x7fefffff
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x43400000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 32($s7)
 sw $t1, 36($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 40($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 44($s7)
 sw $t1, 48($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 52($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 56($s7)
 sw $t1, 60($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 64($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 68($s7)
 sw $t1, 72($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 76($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3ff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xad5400b7
 mtc1 $t9, $f4
 li $t9, 0xbf81b2a0
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 80($s7)
 sw $t1, 84($s7)
 li $t8, 1
@@ -104,6 +143,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 88($s7)
 sw $t1, 92($s7)
 li $t8, 2
@@ -111,6 +153,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 96($s7)
 sw $t1, 100($s7)
 li $t8, 3
@@ -118,21 +163,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 104($s7)
 sw $t1, 108($s7)
 li $t9, 0xf86b9efa
 mtc1 $t9, $f2
 li $t9, 0xc07bf4c9
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 112($s7)
 sw $t1, 116($s7)
 li $t8, 1
@@ -140,6 +191,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 120($s7)
 sw $t1, 124($s7)
 li $t8, 2
@@ -147,6 +201,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 128($s7)
 sw $t1, 132($s7)
 li $t8, 3
@@ -154,21 +211,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 136($s7)
 sw $t1, 140($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x7fd00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x66f4fc46
 mtc1 $t9, $f4
 li $t9, 0xc092a56b
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 144($s7)
 sw $t1, 148($s7)
 li $t8, 1
@@ -176,6 +239,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 152($s7)
 sw $t1, 156($s7)
 li $t8, 2
@@ -183,6 +249,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 160($s7)
 sw $t1, 164($s7)
 li $t8, 3
@@ -190,21 +259,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 168($s7)
 sw $t1, 172($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x00100000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0xfff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 176($s7)
 sw $t1, 180($s7)
 li $t8, 1
@@ -212,6 +287,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 184($s7)
 sw $t1, 188($s7)
 li $t8, 2
@@ -219,6 +297,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 192($s7)
 sw $t1, 196($s7)
 li $t8, 3
@@ -226,21 +307,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 200($s7)
 sw $t1, 204($s7)
 li $t9, 0x2994f8a9
 mtc1 $t9, $f2
 li $t9, 0x6529e50a
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x55865ddc
 mtc1 $t9, $f4
 li $t9, 0xbf745a72
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 208($s7)
 sw $t1, 212($s7)
 li $t8, 1
@@ -248,6 +335,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 216($s7)
 sw $t1, 220($s7)
 li $t8, 2
@@ -255,6 +345,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 224($s7)
 sw $t1, 228($s7)
 li $t8, 3
@@ -262,65 +355,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 232($s7)
 sw $t1, 236($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x7fd00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xce9b2d9b
 mtc1 $t9, $f4
 li $t9, 0x406cc5e0
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 240($s7)
 sw $t1, 244($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 248($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 252($s7)
 sw $t1, 256($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 260($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 264($s7)
 sw $t1, 268($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 272($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 276($s7)
 sw $t1, 280($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 284($s7)
 li $t9, 0xbd004f4e
 mtc1 $t9, $f2
 li $t9, 0x40bbf0f6
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x01f63300
 mtc1 $t9, $f4
 li $t9, 0x8ddaa517
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 288($s7)
 sw $t1, 292($s7)
 li $t8, 1
@@ -328,6 +439,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 296($s7)
 sw $t1, 300($s7)
 li $t8, 2
@@ -335,6 +449,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 304($s7)
 sw $t1, 308($s7)
 li $t8, 3
@@ -342,21 +459,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 312($s7)
 sw $t1, 316($s7)
 li $t9, 0x4a292309
 mtc1 $t9, $f2
 li $t9, 0xbf392df6
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xa1f72886
 mtc1 $t9, $f4
 li $t9, 0xbfb0cc16
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 320($s7)
 sw $t1, 324($s7)
 li $t8, 1
@@ -364,6 +487,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 328($s7)
 sw $t1, 332($s7)
 li $t8, 2
@@ -371,6 +497,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 336($s7)
 sw $t1, 340($s7)
 li $t8, 3
@@ -378,21 +507,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 344($s7)
 sw $t1, 348($s7)
 li $t9, 0xd0b49a7f
 mtc1 $t9, $f2
 li $t9, 0x545df9ab
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x40000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 352($s7)
 sw $t1, 356($s7)
 li $t8, 1
@@ -400,6 +535,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 360($s7)
 sw $t1, 364($s7)
 li $t8, 2
@@ -407,6 +545,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 368($s7)
 sw $t1, 372($s7)
 li $t8, 3
@@ -414,21 +555,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 376($s7)
 sw $t1, 380($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x80000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x9999999a
 mtc1 $t9, $f4
 li $t9, 0x3fb99999
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 384($s7)
 sw $t1, 388($s7)
 li $t8, 1
@@ -436,6 +583,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 392($s7)
 sw $t1, 396($s7)
 li $t8, 2
@@ -443,6 +593,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 400($s7)
 sw $t1, 404($s7)
 li $t8, 3
@@ -450,21 +603,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 408($s7)
 sw $t1, 412($s7)
 li $t9, 0x73a36f6a
 mtc1 $t9, $f2
 li $t9, 0x54dad9ef
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 416($s7)
 sw $t1, 420($s7)
 li $t8, 1
@@ -472,6 +631,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 424($s7)
 sw $t1, 428($s7)
 li $t8, 2
@@ -479,6 +641,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 432($s7)
 sw $t1, 436($s7)
 li $t8, 3
@@ -486,65 +651,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 440($s7)
 sw $t1, 444($s7)
 li $t9, 0x00000001
 mtc1 $t9, $f2
 li $t9, 0x00100000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x7d35c9a3
 mtc1 $t9, $f4
 li $t9, 0xe8c7a7a5
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 448($s7)
 sw $t1, 452($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 456($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 460($s7)
 sw $t1, 464($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 468($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 472($s7)
 sw $t1, 476($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 480($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 484($s7)
 sw $t1, 488($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 492($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x7fd00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x43400000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 496($s7)
 sw $t1, 500($s7)
 li $t8, 1
@@ -552,6 +735,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 504($s7)
 sw $t1, 508($s7)
 li $t8, 2
@@ -559,6 +745,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 512($s7)
 sw $t1, 516($s7)
 li $t8, 3
@@ -566,21 +755,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 520($s7)
 sw $t1, 524($s7)
 li $t9, 0xffffffff
 mtc1 $t9, $f2
 li $t9, 0x000fffff
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xc2167af5
 mtc1 $t9, $f4
 li $t9, 0x3f7ea583
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 528($s7)
 sw $t1, 532($s7)
 li $t8, 1
@@ -588,6 +783,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 536($s7)
 sw $t1, 540($s7)
 li $t8, 2
@@ -595,6 +793,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 544($s7)
 sw $t1, 548($s7)
 li $t8, 3
@@ -602,21 +803,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 552($s7)
 sw $t1, 556($s7)
 li $t9, 0x12c0b1e3
 mtc1 $t9, $f2
 li $t9, 0x400749d1
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 560($s7)
 sw $t1, 564($s7)
 li $t8, 1
@@ -624,6 +831,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 568($s7)
 sw $t1, 572($s7)
 li $t8, 2
@@ -631,6 +841,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 576($s7)
 sw $t1, 580($s7)
 li $t8, 3
@@ -638,21 +851,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 584($s7)
 sw $t1, 588($s7)
 li $t9, 0x10e9f565
 mtc1 $t9, $f2
 li $t9, 0x3fd905a0
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x8ea666b1
 mtc1 $t9, $f4
 li $t9, 0x3f8f720a
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 592($s7)
 sw $t1, 596($s7)
 li $t8, 1
@@ -660,6 +879,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 600($s7)
 sw $t1, 604($s7)
 li $t8, 2
@@ -667,6 +889,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 608($s7)
 sw $t1, 612($s7)
 li $t8, 3
@@ -674,21 +899,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 616($s7)
 sw $t1, 620($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0xbff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x3fe00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 624($s7)
 sw $t1, 628($s7)
 li $t8, 1
@@ -696,6 +927,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 632($s7)
 sw $t1, 636($s7)
 li $t8, 2
@@ -703,6 +937,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 640($s7)
 sw $t1, 644($s7)
 li $t8, 3
@@ -710,65 +947,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 648($s7)
 sw $t1, 652($s7)
 li $t9, 0x2e84dfb5
 mtc1 $t9, $f2
 li $t9, 0x402d459c
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x7ff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 656($s7)
 sw $t1, 660($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 664($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 668($s7)
 sw $t1, 672($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 676($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 680($s7)
 sw $t1, 684($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 688($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 692($s7)
 sw $t1, 696($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 700($s7)
 li $t9, 0xe244cd23
 mtc1 $t9, $f2
 li $t9, 0xeaef9015
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x3ff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 704($s7)
 sw $t1, 708($s7)
 li $t8, 1
@@ -776,6 +1031,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 712($s7)
 sw $t1, 716($s7)
 li $t8, 2
@@ -783,6 +1041,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 720($s7)
 sw $t1, 724($s7)
 li $t8, 3
@@ -790,21 +1051,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 728($s7)
 sw $t1, 732($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x40000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x2abaee0f
 mtc1 $t9, $f4
 li $t9, 0x3eecd6d1
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 736($s7)
 sw $t1, 740($s7)
 li $t8, 1
@@ -812,6 +1079,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 744($s7)
 sw $t1, 748($s7)
 li $t8, 2
@@ -819,6 +1089,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 752($s7)
 sw $t1, 756($s7)
 li $t8, 3
@@ -826,21 +1099,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 760($s7)
 sw $t1, 764($s7)
 li $t9, 0x31bd2a3d
 mtc1 $t9, $f2
 li $t9, 0xe9f34126
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 768($s7)
 sw $t1, 772($s7)
 li $t8, 1
@@ -848,6 +1127,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 776($s7)
 sw $t1, 780($s7)
 li $t8, 2
@@ -855,6 +1137,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 784($s7)
 sw $t1, 788($s7)
 li $t8, 3
@@ -862,21 +1147,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 792($s7)
 sw $t1, 796($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x00100000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0xbff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 800($s7)
 sw $t1, 804($s7)
 li $t8, 1
@@ -884,6 +1175,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 808($s7)
 sw $t1, 812($s7)
 li $t8, 2
@@ -891,6 +1185,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 816($s7)
 sw $t1, 820($s7)
 li $t8, 3
@@ -898,21 +1195,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 824($s7)
 sw $t1, 828($s7)
 li $t9, 0x9999999a
 mtc1 $t9, $f2
 li $t9, 0x3fb99999
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x7fd00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 832($s7)
 sw $t1, 836($s7)
 li $t8, 1
@@ -920,6 +1223,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 840($s7)
 sw $t1, 844($s7)
 li $t8, 2
@@ -927,6 +1233,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 848($s7)
 sw $t1, 852($s7)
 li $t8, 3
@@ -934,65 +1243,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 856($s7)
 sw $t1, 860($s7)
 li $t9, 0x6b9fb7d7
 mtc1 $t9, $f2
 li $t9, 0xbe802edc
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00200000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 864($s7)
 sw $t1, 868($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 872($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 876($s7)
 sw $t1, 880($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 884($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 888($s7)
 sw $t1, 892($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 896($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 900($s7)
 sw $t1, 904($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 908($s7)
 li $t9, 0x00000001
 mtc1 $t9, $f2
 li $t9, 0x00000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x3ca00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 912($s7)
 sw $t1, 916($s7)
 li $t8, 1
@@ -1000,6 +1327,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 920($s7)
 sw $t1, 924($s7)
 li $t8, 2
@@ -1007,6 +1337,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 928($s7)
 sw $t1, 932($s7)
 li $t8, 3
@@ -1014,21 +1347,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 936($s7)
 sw $t1, 940($s7)
 li $t9, 0x55339ae8
 mtc1 $t9, $f2
 li $t9, 0xc0e774ab
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00100000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 944($s7)
 sw $t1, 948($s7)
 li $t8, 1
@@ -1036,6 +1375,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 952($s7)
 sw $t1, 956($s7)
 li $t8, 2
@@ -1043,6 +1385,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 960($s7)
 sw $t1, 964($s7)
 li $t8, 3
@@ -1050,21 +1395,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 968($s7)
 sw $t1, 972($s7)
 li $t9, 0xf72e2df9
 mtc1 $t9, $f2
 li $t9, 0xc07b0dc9
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x04d30e1e
 mtc1 $t9, $f4
 li $t9, 0xc06bf28a
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 976($s7)
 sw $t1, 980($s7)
 li $t8, 1
@@ -1072,6 +1423,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 984($s7)
 sw $t1, 988($s7)
 li $t8, 2
@@ -1079,6 +1433,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 992($s7)
 sw $t1, 996($s7)
 li $t8, 3
@@ -1086,21 +1443,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1000($s7)
 sw $t1, 1004($s7)
 li $t9, 0xeff54f64
 mtc1 $t9, $f2
 li $t9, 0xc1225168
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00200000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1008($s7)
 sw $t1, 1012($s7)
 li $t8, 1
@@ -1108,6 +1471,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1016($s7)
 sw $t1, 1020($s7)
 li $t8, 2
@@ -1115,6 +1481,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1024($s7)
 sw $t1, 1028($s7)
 li $t8, 3
@@ -1122,21 +1491,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1032($s7)
 sw $t1, 1036($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3ca00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0xfff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1040($s7)
 sw $t1, 1044($s7)
 li $t8, 1
@@ -1144,6 +1519,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1048($s7)
 sw $t1, 1052($s7)
 li $t8, 2
@@ -1151,6 +1529,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1056($s7)
 sw $t1, 1060($s7)
 li $t8, 3
@@ -1158,65 +1539,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1064($s7)
 sw $t1, 1068($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3ca00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x3fe00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1072($s7)
 sw $t1, 1076($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1080($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1084($s7)
 sw $t1, 1088($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1092($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1096($s7)
 sw $t1, 1100($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1104($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1108($s7)
 sw $t1, 1112($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1116($s7)
 li $t9, 0xf61762d3
 mtc1 $t9, $f2
 li $t9, 0x08774d1a
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xff3a01dc
 mtc1 $t9, $f4
 li $t9, 0x40973772
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1120($s7)
 sw $t1, 1124($s7)
 li $t8, 1
@@ -1224,6 +1623,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1128($s7)
 sw $t1, 1132($s7)
 li $t8, 2
@@ -1231,6 +1633,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1136($s7)
 sw $t1, 1140($s7)
 li $t8, 3
@@ -1238,21 +1643,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1144($s7)
 sw $t1, 1148($s7)
 li $t9, 0x57d333fe
 mtc1 $t9, $f2
 li $t9, 0xe4e3652e
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1152($s7)
 sw $t1, 1156($s7)
 li $t8, 1
@@ -1260,6 +1671,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1160($s7)
 sw $t1, 1164($s7)
 li $t8, 2
@@ -1267,6 +1681,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1168($s7)
 sw $t1, 1172($s7)
 li $t8, 3
@@ -1274,21 +1691,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1176($s7)
 sw $t1, 1180($s7)
 li $t9, 0x2f07267c
 mtc1 $t9, $f2
 li $t9, 0x87c39764
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x26b12c0d
 mtc1 $t9, $f4
 li $t9, 0xbf76e00a
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1184($s7)
 sw $t1, 1188($s7)
 li $t8, 1
@@ -1296,6 +1719,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1192($s7)
 sw $t1, 1196($s7)
 li $t8, 2
@@ -1303,6 +1729,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1200($s7)
 sw $t1, 1204($s7)
 li $t8, 3
@@ -1310,21 +1739,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1208($s7)
 sw $t1, 1212($s7)
 li $t9, 0xffffffff
 mtc1 $t9, $f2
 li $t9, 0x7fefffff
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x265022e3
 mtc1 $t9, $f4
 li $t9, 0x40b4535c
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1216($s7)
 sw $t1, 1220($s7)
 li $t8, 1
@@ -1332,6 +1767,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1224($s7)
 sw $t1, 1228($s7)
 li $t8, 2
@@ -1339,6 +1777,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1232($s7)
 sw $t1, 1236($s7)
 li $t8, 3
@@ -1346,21 +1787,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1240($s7)
 sw $t1, 1244($s7)
 li $t9, 0xa4a35f34
 mtc1 $t9, $f2
 li $t9, 0xbeba7526
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x312f9449
 mtc1 $t9, $f4
 li $t9, 0xc7f27364
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1248($s7)
 sw $t1, 1252($s7)
 li $t8, 1
@@ -1368,6 +1815,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1256($s7)
 sw $t1, 1260($s7)
 li $t8, 2
@@ -1375,6 +1825,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1264($s7)
 sw $t1, 1268($s7)
 li $t8, 3
@@ -1382,65 +1835,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1272($s7)
 sw $t1, 1276($s7)
 li $t9, 0xc8dc38b8
 mtc1 $t9, $f2
 li $t9, 0x3f25ffd9
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xa14bb20d
 mtc1 $t9, $f4
 li $t9, 0x41446197
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1280($s7)
 sw $t1, 1284($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1288($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1292($s7)
 sw $t1, 1296($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1300($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1304($s7)
 sw $t1, 1308($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1312($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1316($s7)
 sw $t1, 1320($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1324($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x7fd00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xffffffff
 mtc1 $t9, $f4
 li $t9, 0x000fffff
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1328($s7)
 sw $t1, 1332($s7)
 li $t8, 1
@@ -1448,6 +1919,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1336($s7)
 sw $t1, 1340($s7)
 li $t8, 2
@@ -1455,6 +1929,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1344($s7)
 sw $t1, 1348($s7)
 li $t8, 3
@@ -1462,21 +1939,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1352($s7)
 sw $t1, 1356($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x3ff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000001
 mtc1 $t9, $f4
 li $t9, 0x00100000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1360($s7)
 sw $t1, 1364($s7)
 li $t8, 1
@@ -1484,6 +1967,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1368($s7)
 sw $t1, 1372($s7)
 li $t8, 2
@@ -1491,6 +1977,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1376($s7)
 sw $t1, 1380($s7)
 li $t8, 3
@@ -1498,21 +1987,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1384($s7)
 sw $t1, 1388($s7)
 li $t9, 0x9999999a
 mtc1 $t9, $f2
 li $t9, 0x3fb99999
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xf7066ce8
 mtc1 $t9, $f4
 li $t9, 0x40067ceb
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1392($s7)
 sw $t1, 1396($s7)
 li $t8, 1
@@ -1520,6 +2015,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1400($s7)
 sw $t1, 1404($s7)
 li $t8, 2
@@ -1527,6 +2025,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1408($s7)
 sw $t1, 1412($s7)
 li $t8, 3
@@ -1534,21 +2035,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1416($s7)
 sw $t1, 1420($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0xbff00000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x17b06238
 mtc1 $t9, $f4
 li $t9, 0xfbf25228
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1424($s7)
 sw $t1, 1428($s7)
 li $t8, 1
@@ -1556,6 +2063,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1432($s7)
 sw $t1, 1436($s7)
 li $t8, 2
@@ -1563,6 +2073,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1440($s7)
 sw $t1, 1444($s7)
 li $t8, 3
@@ -1570,21 +2083,27 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1448($s7)
 sw $t1, 1452($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x40000000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xc05f22bf
 mtc1 $t9, $f4
 li $t9, 0xf41e8490
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1456($s7)
 sw $t1, 1460($s7)
 li $t8, 1
@@ -1592,6 +2111,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1464($s7)
 sw $t1, 1468($s7)
 li $t8, 2
@@ -1599,6 +2121,9 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1472($s7)
 sw $t1, 1476($s7)
 li $t8, 3
@@ -1606,65 +2131,83 @@ ctc1 $t8, $31
 cvt.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1480($s7)
 sw $t1, 1484($s7)
 li $t9, 0x00000000
 mtc1 $t9, $f2
 li $t9, 0x43400000
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0xfff00000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1488($s7)
 sw $t1, 1492($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1496($s7)
 li $t8, 1
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1500($s7)
 sw $t1, 1504($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1508($s7)
 li $t8, 2
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1512($s7)
 sw $t1, 1516($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1520($s7)
 li $t8, 3
 ctc1 $t8, $31
 cvt.s.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1524($s7)
 sw $t1, 1528($s7)
-mfc1 $t2, $f7
+mfhc1 $t2, $f6
 sw $t2, 1532($s7)
 li $t9, 0x8da4acda
 mtc1 $t9, $f2
 li $t9, 0x4acb9bf8
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x206c8964
 mtc1 $t9, $f4
 li $t9, 0xbf7e8f22
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1536($s7)
 sw $t1, 1540($s7)
 li $t8, 1
@@ -1672,6 +2215,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1544($s7)
 sw $t1, 1548($s7)
 li $t8, 2
@@ -1679,6 +2225,9 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1552($s7)
 sw $t1, 1556($s7)
 li $t8, 3
@@ -1686,21 +2235,27 @@ ctc1 $t8, $31
 round.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1560($s7)
 sw $t1, 1564($s7)
 li $t9, 0xed9e39e5
 mtc1 $t9, $f2
 li $t9, 0x18dc5e3c
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0xc9f18678
 mtc1 $t9, $f4
 li $t9, 0x2bfbeb34
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1568($s7)
 sw $t1, 1572($s7)
 li $t8, 1
@@ -1708,6 +2263,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1576($s7)
 sw $t1, 1580($s7)
 li $t8, 2
@@ -1715,6 +2273,9 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1584($s7)
 sw $t1, 1588($s7)
 li $t8, 3
@@ -1722,21 +2283,27 @@ ctc1 $t8, $31
 trunc.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1592($s7)
 sw $t1, 1596($s7)
 li $t9, 0x08af9fef
 mtc1 $t9, $f2
 li $t9, 0x6eb686b8
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x516ee9b5
 mtc1 $t9, $f4
 li $t9, 0x408ac006
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1600($s7)
 sw $t1, 1604($s7)
 li $t8, 1
@@ -1744,6 +2311,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1608($s7)
 sw $t1, 1612($s7)
 li $t8, 2
@@ -1751,6 +2321,9 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1616($s7)
 sw $t1, 1620($s7)
 li $t8, 3
@@ -1758,21 +2331,27 @@ ctc1 $t8, $31
 ceil.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1624($s7)
 sw $t1, 1628($s7)
 li $t9, 0xc4b812d1
 mtc1 $t9, $f2
 li $t9, 0x3f1b9818
-mtc1 $t9, $f3
+mthc1 $t9, $f2
 li $t9, 0x00000000
 mtc1 $t9, $f4
 li $t9, 0x00000000
-mtc1 $t9, $f5
+mthc1 $t9, $f4
 li $t8, 0
 ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1632($s7)
 sw $t1, 1636($s7)
 li $t8, 1
@@ -1780,6 +2359,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1640($s7)
 sw $t1, 1644($s7)
 li $t8, 2
@@ -1787,6 +2369,9 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1648($s7)
 sw $t1, 1652($s7)
 li $t8, 3
@@ -1794,7 +2379,44 @@ ctc1 $t8, $31
 floor.w.d $f6, $f2
 mfc1 $t0, $f6
 cfc1 $t1, $31
+lui $at, 0xfff3
+ori $at, $at, 0xffff
+and $t1, $t1, $at
 sw $t0, 1656($s7)
 sw $t1, 1660($s7)
+move $t0, $zero
+move $t2, $zero
+mtc1 $zero, $f0
+mtc1 $zero, $f2
+mtc1 $zero, $f4
+mtc1 $zero, $f6
+mtc1 $zero, $f8
+mtc1 $zero, $f10
+mtc1 $zero, $f12
+mtc1 $zero, $f14
+mtc1 $zero, $f16
+mtc1 $zero, $f18
+mtc1 $zero, $f20
+mtc1 $zero, $f22
+mtc1 $zero, $f24
+mtc1 $zero, $f26
+mtc1 $zero, $f28
+mtc1 $zero, $f30
+mthc1 $zero, $f0
+mthc1 $zero, $f2
+mthc1 $zero, $f4
+mthc1 $zero, $f6
+mthc1 $zero, $f8
+mthc1 $zero, $f10
+mthc1 $zero, $f12
+mthc1 $zero, $f14
+mthc1 $zero, $f16
+mthc1 $zero, $f18
+mthc1 $zero, $f20
+mthc1 $zero, $f22
+mthc1 $zero, $f24
+mthc1 $zero, $f26
+mthc1 $zero, $f28
+mthc1 $zero, $f30
 li $v0, 10
 syscall

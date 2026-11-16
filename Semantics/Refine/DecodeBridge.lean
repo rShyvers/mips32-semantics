@@ -40,6 +40,10 @@ theorem enc_mfc0_sel (rt rd sel : W32) : enc (.mfc0 rt rd sel) = enc (.mfc0 rt r
 theorem enc_mtc0_sel (rt rd sel : W32) : enc (.mtc0 rt rd sel) = enc (.mtc0 rt rd (sel &&& 7#32)) := by
   simp only [enc, fld, BitVec.and_assoc, mask3, BitVec.and_self]
 
+theorem enc_rdhwr_sel (rt rd sel : W32) :
+    enc (.rdhwr rt rd sel) = enc (.rdhwr rt rd (sel &&& 7#32)) := by
+  simp only [enc, fld, BitVec.and_assoc, mask3, BitVec.and_self]
+
 theorem and7_lt (x : W32) : (x &&& 7#32).toNat < 8 := by
   rw [BitVec.toNat_and]; exact Nat.lt_of_le_of_lt Nat.and_le_right (by decide)
 
@@ -54,6 +58,8 @@ theorem exists_candidate (i : Instruction) (w : W32) (h : enc i = some w) :
   cases i
   case mfc0 rt rd sel => exact key (.mfc0 rt rd (sel &&& 7#32)) (by rw [← enc_mfc0_sel]; exact h) (and7_lt sel)
   case mtc0 rt rd sel => exact key (.mtc0 rt rd (sel &&& 7#32)) (by rw [← enc_mtc0_sel]; exact h) (and7_lt sel)
+  case rdhwr rt rd sel =>
+    exact key (.rdhwr rt rd (sel &&& 7#32)) (by rw [← enc_rdhwr_sel]; exact h) (and7_lt sel)
   all_goals exact key _ h trivial
 
 /-- **Completeness**: a word that is the diagram of an instruction is decoded to an instruction with
@@ -82,39 +88,56 @@ def Rejected : Instruction → Prop
       ∃ msb : W32, msb.toNat < pos.toNat ∧ size = msb - pos + 1#32
   | _ => False
 
+/-- **The PAUSE word is never decoded as `SLL r0, r0, 5`**: `PAUSE` is the first candidate, and its
+diagram is that word (PAUSE p.317). -/
+theorem decode_ne_sll_pause (w : W32) : Decode w ≠ .instr (.sll 0#32 0#32 5#32) := by
+  intro h
+  have he := decode_diagram_sound w _ h
+  have hp : enc .pause = some w := by rw [← he]; rfl
+  unfold Decode at h
+  simp only [candidates, List.find?_cons, hp, beq_self_eq_true] at h
+  cases h
+
 theorem rejected_selOK (j : Instruction) (h : Rejected j) : SelOK j := by
   cases j <;> simp only [Rejected] at h <;> first | exact h.2.2.1 | trivial
 
 attribute [local simp] fieldAt_rs fieldAt_rt fieldAt_rd fieldAt_sa fieldAt_imm fieldAt_target
-  fieldAt_cc fieldAt_fcc fieldAt_cond fieldAt_code20 fieldAt_code10 fieldAt_code19
-  rsOf_lt rtOf_lt rdOf_lt shamtOf_lt immOf_lt targetOf_lt ccOf_lt fccOf_lt condOf_lt code20Of_lt
-  code10Of_lt code19Of_lt fieldAt_sel_lt
+  fieldAt_off9 fieldAt_code20 fieldAt_code10 fieldAt_code19
+  rsOf_lt rtOf_lt rdOf_lt shamtOf_lt immOf_lt targetOf_lt off9Of_lt code20Of_lt
+  code10Of_lt code19Of_lt fieldAt_sel_lt fieldAt_sel86_lt
   opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT shamtOf_or_mkRT
   functOf_or_mkRT opcodeOf_mkRT rsOf_mkRT rtOf_mkRT rdOf_mkRT shamtOf_mkRT functOf_mkRT
-  fcOf_or_mkRT coOf_or_mkRT and_31 and_7 and_63
+  coOf_or_mkRT and_31 and_7 and_63
 
 set_option maxRecDepth 4000 in
 set_option maxHeartbeats 1000000 in
-/-- **Every candidate is well-formed or `Rejected`.** -/
-theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, j.WellFormed ∨ Rejected j := by
+/-- **Every candidate is well-formed or `Rejected`**, or it is `SLL r0, r0, 5`, whose word is the
+diagram of `PAUSE` (`decode_ne_sll_pause`). -/
+theorem candidate_cases (w : W32) : ∀ j ∈ candidates w,
+    j.WellFormed ∨ Rejected j ∨ j = .sll 0#32 0#32 5#32 := by
   simp only [candidates, List.forall_mem_cons]
   have hrd := rdOf_lt w; have hsa := shamtOf_lt w; have hrs := rsOf_lt w; have hrt := rtOf_lt w
-  have hsel := fieldAt_sel_lt w
-  have himm := immOf_lt w; have htg := targetOf_lt w; have hcc := ccOf_lt w
-  have hfcc := fccOf_lt w; have hcond := condOf_lt w; have hc20 := code20Of_lt w
-  have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
+  have hsel := fieldAt_sel_lt w; have hsel86 := fieldAt_sel86_lt w
+  have himm := immOf_lt w; have htg := targetOf_lt w; have hoff := off9Of_lt w
+  have hc20 := code20Of_lt w; have hc10 := code10Of_lt w; have hc19 := code19Of_lt w
   repeat' apply And.intro
   all_goals first
     | (left; simp only [Instruction.WellFormed, fieldAt_rs, fieldAt_rt, fieldAt_rd, fieldAt_sa,
-        fieldAt_imm, fieldAt_target, fieldAt_cc, fieldAt_fcc, fieldAt_cond, fieldAt_code20,
-        fieldAt_code10, fieldAt_code19]; omega)
+        fieldAt_imm, fieldAt_target, fieldAt_off9, fieldAt_code20, fieldAt_code10, fieldAt_code19];
+        omega)
     | (left; exact trivial)
     | (intro x hx; cases hx)
+    | skip
+  -- sll (the PAUSE word is `SLL r0, r0, 5`)
+  all_goals first
+    | (by_cases hp : fieldAt w 15 11 = 0#32 ∧ fieldAt w 20 16 = 0#32 ∧ fieldAt w 10 6 = 5#32
+       · right; right; obtain ⟨h1, h2, h3⟩ := hp; rw [h1, h2, h3]
+       · left; exact ⟨hrd, hrt, hsa, hp⟩)
     | skip
   -- mfc0 / mtc0
   all_goals first
     | (cases hm : isModeledCp0Reg (rdOf w) (fieldAt w 2 0)
-       · right; exact ⟨hrt, hrd, hsel, hm⟩
+       · right; left; exact ⟨hrt, hrd, hsel, hm⟩
        · left; exact ⟨hrt, hm⟩)
     | skip
   -- ext
@@ -123,7 +146,7 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, j.WellFormed ∨ Rej
        · left; simp only [Instruction.WellFormed, fieldAt_rt, fieldAt_rs, fieldAt_sa, fieldAt_rd]
          refine ⟨hrt, hrs, hsa, ?_, hc⟩
          rw [BitVec.toNat_add]; simp; omega
-       · right; simp only [Rejected, fieldAt_rt, fieldAt_rs, fieldAt_sa, fieldAt_rd]
+       · right; left; simp only [Rejected, fieldAt_rt, fieldAt_rs, fieldAt_sa, fieldAt_rd]
          refine ⟨hrt, hrs, hsa, ?_, ?_, by omega⟩ <;> (rw [BitVec.toNat_add]; simp; omega))
     | skip
   -- ins
@@ -133,7 +156,7 @@ theorem candidate_cases (w : W32) : ∀ j ∈ candidates w, j.WellFormed ∨ Rej
     by_cases hc : (fieldAt w 10 6).toNat ≤ (fieldAt w 15 11).toNat
     · left; simp only [Instruction.WellFormed]
       refine ⟨hrt, hrs, hsa, ?_, ?_⟩ <;> bv_omega
-    · right; exact ⟨hrt, hrs, hsa, fieldAt w 15 11, by omega, rfl⟩
+    · right; left; exact ⟨hrt, hrs, hsa, fieldAt w 15 11, by omega, rfl⟩
 
 /-- **The model's `decode` rejects the `Rejected` diagram words.** -/
 theorem decode_rejected (j : Instruction) (h : Rejected j) : decode (encode j) = none := by
@@ -141,21 +164,21 @@ theorem decode_rejected (j : Instruction) (h : Rejected j) : decode (encode j) =
   case mfc0 rt rd sel =>
     obtain ⟨h1, h2, h3, h4⟩ := h
     have h5 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeIf, h2, h3, h4, h5]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h2, h3, h4, h5]
   case mtc0 rt rd sel =>
     obtain ⟨h1, h2, h3, h4⟩ := h
     have h5 : sel.toNat < 64 := by omega
-    simp [encode, decode, decodeIf, h2, h3, h4, h5]
+    simp [encode, decode, decodeFor, decodePrimary, decodeCop0, decodeIf, h2, h3, h4, h5]
   case ext rt rs pos size =>
     obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
     have e1 : (size - 1#32) &&& 31#32 = size - 1#32 := and_31 _ (by bv_omega)
-    simp [encode, decode, decodeIf, h1, h2, h3, e1]
+    simp [encode, decode, decodeFor, decodePrimary, decodeSpecial3, decodeIf, h1, h2, h3, e1]
     bv_omega
   case ins rt rs pos size =>
     obtain ⟨h1, h2, h3, msb, h4, rfl⟩ := h
     have e0 : pos + (msb - pos + 1#32) - 1#32 = msb := by bv_omega
     have e1 : msb &&& 31#32 = msb := and_31 _ (by omega)
-    simp [encode, decode, decodeIf, h1, h2, h3, e0, e1]
+    simp [encode, decode, decodeFor, decodePrimary, decodeSpecial3, decodeIf, h1, h2, h3, e0, e1]
     omega
 
 /-! ## The bridge -/
@@ -164,21 +187,23 @@ theorem decode_rejected (j : Instruction) (h : Rejected j) : decode (encode j) =
 theorem decode_agrees (w : W32) (i : Instruction) (h : decode w = some i) : Decode w = .instr i := by
   obtain ⟨j, hj, he⟩ := decode_diagram_complete i w (decode_enc w i h)
   have hm := (decode_instr_mem hj).1
-  rcases candidate_cases w j hm with hwf | hr
+  rcases candidate_cases w j hm with hwf | hr | hp
   · rw [decode_of_enc j w hwf he] at h
     cases h; exact hj
   · rw [enc_eq_encode_gen j (rejected_selOK j hr)] at he
     cases Option.some.inj he
     rw [decode_rejected j hr] at h
     cases h
+  · subst hp; exact absurd hj (decode_ne_sll_pause w)
 
 /-- **A word the model's `decode` rejects but `Manual.Decode` decodes is `Rejected`.** -/
 theorem decode_none_rejected (w : W32) (h : decode w = none) (j : Instruction)
     (hj : Decode w = .instr j) : Rejected j := by
   obtain ⟨hm, he⟩ := decode_instr_mem hj
-  rcases candidate_cases w j hm with hwf | hr
+  rcases candidate_cases w j hm with hwf | hr | hp
   · rw [decode_of_enc j w hwf he] at h; cases h
   · exact hr
+  · subst hp; exact absurd hj (decode_ne_sll_pause w)
 
 /-! ## The rejected words reach an oracle choice -/
 

@@ -66,42 +66,28 @@ matrix is `docs/TRACE.md`.
 <!-- BEGIN GENERATED: trace.py --readme -->
 | Family | Constructors | Spec theorem | MARS corpus | QEMU oracle | Mnemonics |
 |---|---:|---:|---:|---:|---|
-| R-type reg/reg/reg | 12 | 12 | 12 | 12 | add, addu, sub, subu, and, or, xor, nor, slt, sltu, movn, movz |
-| R-type shift | 3 | 3 | 3 | 3 | sll, srl, sra |
+| R-type reg/reg/reg | 10 | 10 | 10 | 10 | add, addu, sub, subu, and, or, xor, nor, slt, sltu |
+| R-type shift | 4 | 4 | 3 | 4 | sll, pause, srl, sra |
 | R-type variable shift | 3 | 3 | 3 | 3 | sllv, srlv, srav |
 | R-type rotate | 2 | 2 | 0 | 2 | rotr, rotrv |
-| R-type mult/div | 4 | 4 | 4 | 4 | mult, multu, div, divu |
-| R-type move | 2 | 2 | 2 | 2 | mflo, mfhi |
-| R-type move, write direction | 2 | 2 | 2 | 2 | mthi, mtlo |
-| R-type jump register | 4 | 4 | 2 | 4 | jr, jalr, jr.hb, jalr.hb |
-| R-type SPECIAL2 bit-count | 2 | 2 | 2 | 2 | clo, clz |
-| R-type GPR multiply, SPECIAL2 | 1 | 1 | 1 | 1 | mul |
-| R-type multiply-accumulate, SPECIAL2 | 4 | 4 | 4 | 4 | madd, maddu, msub, msubu |
+| R-type jump register | 2 | 2 | 1 | 2 | jalr, jalr.hb |
+| Bit count | 2 | 2 | 2 | 2 | clo, clz |
 | R-type SPECIAL3 BSHFL sign-extend | 3 | 3 | 0 | 3 | seb, seh, wsbh |
 | R-type SPECIAL3 bitfield extract/insert | 2 | 2 | 0 | 2 | ext, ins |
-| SPECIAL3 RDHWR | 1 | 1 | 0 | 1 | rdhwr |
-| I-type arith/logic | 7 | 7 | 7 | 7 | addi, addiu, slti, sltiu, andi, ori, xori |
-| I-type lui | 1 | 1 | 1 | 1 | lui |
-| I-type load/store | 10 | 10 | 10 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
-| I-type unaligned load/store | 4 | 4 | 0 | 4 | lwl, lwr, swl, swr |
+| SPECIAL3 RDHWR | 8 | 8 | 7 | 8 | rdhwr, addiu, slti, sltiu, andi, ori, xori, aui |
+| I-type load/store | 10 | 10 | 9 | 10 | lw, sw, lb, lbu, lh, lhu, sh, sb, ll, sc |
 | I-type branch reg/reg | 2 | 2 | 2 | 2 | beq, bne |
 | I-type branch reg-only | 2 | 2 | 2 | 2 | blez, bgtz |
-| I-type REGIMM zero-comparison branches | 4 | 4 | 4 | 4 | bltz, bgez, bltzal, bgezal |
-| I-type "branch likely" family | 8 | 8 | 0 | 8 | beql, bnel, blezl, bgtzl, bltzl, bgezl, bltzall, bgezall |
-| I-type REGIMM trap-immediate family | 6 | 6 | 6 | 6 | teqi, tnei, tgei, tgeiu, tlti, tltiu |
+| I-type REGIMM zero-comparison branches | 4 | 4 | 2 | 4 | bltz, bgez, nal, bal |
 | Instruction-cache synchronize hint | 1 | 1 | 0 | 1 | synci |
 | J-type | 2 | 2 | 2 | 2 | j, jal |
 | syscall | 1 | 1 | 1 | 1 | syscall |
 | R-type trap-on-condition | 9 | 9 | 7 | 9 | teq, tne, tlt, tge, tltu, tgeu, break, sync, pref |
 | Coprocessor 0 | 8 | 8 | 0 | 8 | mfc0, mtc0, di, ei, eret, wait, rdpgpr, wrpgpr |
-| Coprocessor 1 | 15 | 15 | 6 | 15 | mfc1, mtc1, mfhc1, mthc1, cfc1, ctc1, lwc1, swc1, ldc1, sdc1, lwxc1, ldxc1, swxc1, sdxc1, prefx |
+| Coprocessor 1 | 10 | 10 | 6 | 10 | mfc1, mtc1, mfhc1, mthc1, cfc1, ctc1, lwc1, swc1, ldc1, sdc1 |
 | Arithmetic, single | 18 | 18 | 16 | 18 | add.s, sub.s, mul.s, div.s, sqrt.s, abs.s, mov.s, neg.s, recip.s, rsqrt.s, round.w.s, trunc.w.s, ceil.w.s, floor.w.s, cvt.w.s, cvt.d.s, cvt.s.w, cvt.d.w |
 | Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
-| Compare | 2 | 2 | 2 | 2 | c.cond.s, c.cond.d |
-| Conditional moves | 10 | 10 | 6 | 10 | movf.s, movt.s, movf.d, movt.d, movn.s, movz.s, movn.d, movz.d, movf, movt |
-| Multiply-add family | 8 | 8 | 0 | 8 | madd.s, msub.s, nmadd.s, nmsub.s, madd.d, msub.d, nmadd.d, nmsub.d |
-| FP branches | 4 | 4 | 2 | 4 | bc1f, bc1t, bc1fl, bc1tl |
-| **Total** | **183** | **183** | **119** | **183** | |
+| **Total** | **119** | **119** | **83** | **119** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->

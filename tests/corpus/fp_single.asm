@@ -43,26 +43,6 @@ buf: .word 0, 0
     round.w.s $f24, $f26
     mfc1 $t4, $f24
     li $t5, 0
-    c.eq.s $f12, $f14
-    bc1f n1
-    nop
-    addiu $t5, $t5, 1
-n1: c.lt.s $f16, $f12
-    bc1t n2
-    nop
-    addiu $t5, $t5, 100
-n2: c.le.s $f12, $f16
-    bc1t n3
-    nop
-    addiu $t5, $t5, 2
-n3: c.lt.s $f12, $f12
-    bc1f n4
-    nop
-    addiu $t5, $t5, 100
-n4: c.le.s $f12, $f12
-    bc1f n5
-    nop
-    addiu $t5, $t5, 4
 n5:
     move $a0, $s0
     li $v0, 1

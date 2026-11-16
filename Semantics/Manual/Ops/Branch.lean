@@ -131,68 +131,38 @@ def BGEZ (rs offset : W32) : Pseudo Unit := do
   -- I+1: if condition then PC ← PC + target_offset endif
   if condition then I1 (.jump ((pc + 4#32) + target_offset)) else I1 .fallThrough
 
-/-- **BLTZAL rs, offset** — MD00086 Vol II-A Rev 6.06, BLTZAL, p.98 (pre-Release 6 only).
+/-- **NAL** — MD00086 Vol II-A Rev 6.06, NAL, p.306 (Release 6: `REGIMM 00000 10000 offset`).
 ```
-I:   target_offset ← sign_extend(offset || 0^2)
-     condition ← GPR[rs] < 0^GPRLEN
-     GPR[31] ← PC + 8
-I+1: if condition then
-        PC ← PC + target_offset
-     endif
+GPR[31] ← PC + 8
 ```
-The comparison with zero is signed (two's complement). In `I+1`, `PC` is the delay slot's address, the
-branch's `PC + 4`.
-Restrictions (p.98): "Branch-and-link Restartability: GPR 31 must not be used for the source register
-rs ... The result of executing such an instruction is UNPREDICTABLE" (`Oracle.linkSourceIs31`).
-The statements are executed in the order written: `condition` is evaluated before the link is
-written. -/
-def BLTZAL (rs offset : W32) : Pseudo Unit := do
-  let o ← Pseudo.oracle
-  let a ← Pseudo.get
-  let body : Pseudo Unit := do
-    -- I: target_offset ← sign_extend(offset || 0^2)
-    let target_offset := sign_extend (imm16 offset ++ 0#2)
-    -- condition ← GPR[rs] < 0^GPRLEN
-    let x ← GPR (reg rs)
-    let condition := x.slt 0#32
-    let pc ← PC
-    -- GPR[31] ← PC + 8
-    setGPR 31 (pc + 8#32)
-    -- I+1: if condition then PC ← PC + target_offset endif
-    if condition then I1 (.jump ((pc + 4#32) + target_offset)) else I1 .fallThrough
-  -- Restrictions: rs = 31 is UNPREDICTABLE
-  if reg rs == 31 then unpredictableOr (o.linkSourceIs31 a (.bltzal rs offset)) body else body
+Restrictions (p.306): "NAL is considered to be a not-taken branch, with a delay slot, and may not be
+followed by instructions not allowed in delay slots"; the 16-bit offset "is ignored". **Pin
+(transcription):** the Operation has no `I+1:` statement; the delay slot that "a not-taken branch,
+with a delay slot" implies is transcribed as the `I+1:` of a not-taken branch, which assigns nothing
+(`Delay.fallThrough`), so the next instruction is in a delay slot (`InstructionInBranchDelaySlot`,
+and a CTI there signals Reserved Instruction) and `PC` then advances past it. -/
+def NAL (_offset : W32) : Pseudo Unit := do
+  let pc ← PC
+  -- GPR[31] ← PC + 8
+  setGPR 31 (pc + 8#32)
+  -- (Restrictions) a not-taken branch, with a delay slot: I+1 assigns nothing
+  I1 .fallThrough
 
-/-- **BGEZAL rs, offset** — MD00086 Vol II-A Rev 6.06, BGEZAL, p.76 (pre-Release 6 only).
+/-- **BAL offset** — MD00086 Vol II-A Rev 6.06, BAL, p.50 (Release 6 diagram: `REGIMM 00000 10001
+offset`; BGEZAL with `rs ≠ 0` "is required to signal a Reserved Instruction exception").
 ```
 I:   target_offset ← sign_extend(offset || 0^2)
-     condition ← GPR[rs] ≥ 0^GPRLEN
      GPR[31] ← PC + 8
-I+1: if condition then
-        PC ← PC + target_offset
-     endif
+I+1: PC ← PC + target_offset
 ```
-The comparison with zero is signed (two's complement). In `I+1`, `PC` is the delay slot's address, the
-branch's `PC + 4`.
-Restrictions (p.76): "Branch-and-link Restartability: GPR 31 must not be used for the source register
-rs ... The result of executing such an instruction is UNPREDICTABLE" (`Oracle.linkSourceIs31`).
-The statements are executed in the order written: `condition` is evaluated before the link is
-written. -/
-def BGEZAL (rs offset : W32) : Pseudo Unit := do
-  let o ← Pseudo.oracle
-  let a ← Pseudo.get
-  let body : Pseudo Unit := do
-    -- I: target_offset ← sign_extend(offset || 0^2)
-    let target_offset := sign_extend (imm16 offset ++ 0#2)
-    -- condition ← GPR[rs] ≥ 0^GPRLEN
-    let x ← GPR (reg rs)
-    let condition := BitVec.sle 0#32 x
-    let pc ← PC
-    -- GPR[31] ← PC + 8
-    setGPR 31 (pc + 8#32)
-    -- I+1: if condition then PC ← PC + target_offset endif
-    if condition then I1 (.jump ((pc + 4#32) + target_offset)) else I1 .fallThrough
-  -- Restrictions: rs = 31 is UNPREDICTABLE
-  if reg rs == 31 then unpredictableOr (o.linkSourceIs31 a (.bgezal rs offset)) body else body
+In `I+1`, `PC` is the delay slot's address, the branch's `PC + 4`. -/
+def BAL (offset : W32) : Pseudo Unit := do
+  -- I: target_offset ← sign_extend(offset || 0^2)
+  let target_offset := sign_extend (imm16 offset ++ 0#2)
+  let pc ← PC
+  -- GPR[31] ← PC + 8
+  setGPR 31 (pc + 8#32)
+  -- I+1: PC ← PC + target_offset
+  I1 (.jump ((pc + 4#32) + target_offset))
 
 end Manual.Ops

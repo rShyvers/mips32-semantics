@@ -98,9 +98,9 @@ main:
         jal   pint
         nop
         ctc1  $zero, $31
-        li    $t0, 0x40040000     # 2.5 as a double: high word in $f5, low in $f4
-        mtc1  $t0, $f5
+        li    $t0, 0x40040000     # 2.5 as a double: low word 0, high word via mthc1 (FR = 0: $f5; FR = 1: the upper half of $f4)
         mtc1  $zero, $f4
+        mthc1 $t0, $f4
         round.w.d $f2, $f4
         mfc1  $a0, $f2
         jal   pint

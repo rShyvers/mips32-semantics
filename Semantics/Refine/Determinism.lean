@@ -56,16 +56,13 @@ theorem qnan64_to32 (e : Mips.Fp.Env) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = 
   all_goals (try simp only [Nat.reducePow, Nat.reduceAdd, and_false, not_false_eq_true] at *)
   all_goals (first | omega | decide)
 
-/-- The model's `ctiInSlot`, `cp0Undefined`, `extOutOfRange`, `insLsbAboveMsb`,
-`unpredictableEncoding` outcomes do not name the state; its two `.arbitrary` outcomes (`fprOddWrite`,
-`ctc1Unpredictable`) change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the
-interrupt inputs `HW` are unchanged. -/
+/-- The model's `cp0Undefined`, `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`
+outcomes do not name the state; its two `.arbitrary` outcomes (`fprOddWrite`, `ctc1Unpredictable`)
+change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
+unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-    ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
-  · intro a i; simp only [modelOracle]; split <;> trivial
-  · intros; trivial
   · intros; trivial
   · intro a r v
     exact ⟨rfl, ⟨fun _ _ _ => rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
@@ -77,25 +74,20 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intros; trivial
   · intros; trivial
   -- restriction 1
-  · intro i a b _ _ _; simp only [modelOracle]; split <;> trivial
-  · intro _ _ _ _ _ _; trivial
   · intro _ _ _ _ _ _; trivial
   · intro r v a b _ _ hab
-    obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13⟩ := hab
-    refine ⟨h1, h2, h3, h4, ?_, h6, h7, h8, h9, h10, h11, h12, h13⟩
+    obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
+    refine ⟨h1, h2, ?_, h4, h5, h6, h7, h8, h9, h10⟩
     show update (update a.FPR r _) (r + 1) _ = update (update b.FPR r _) (r + 1) _
-    rw [h5]
+    rw [h3]
   · intro fs t a b _ _ hab
-    obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13⟩ := hab
-    refine ⟨h1, h2, h3, h4, h5, ?_, h7, h8, h9, h10, h11, h12, h13⟩
-    simp only [h6]
+    obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
+    refine ⟨h1, h2, h3, ?_, h5, h6, h7, h8, h9, h10⟩
+    simp only [h4]
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _ _; trivial
-  · intro a b _ _ hab; simp only [modelOracle, hab.2.2.1, hab.2.2.2.1]
-  · intro a b _ _ hab; simp only [modelOracle, hab.2.2.1, hab.2.2.2.1]
-  · intro a b _ _ hab; simp only [modelOracle, hab.2.2.1, hab.2.2.2.1]
-  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.2.2.1]
+  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]
   · intro _ _ _ _ _ _; rfl
   -- UNDEFINED
   · intros; trivial
@@ -154,16 +146,17 @@ theorem execute_oracleFree (i : Impl) (o₁ o₂ : Oracle) (w : W32) (ins : Inst
     Execute (ctxOf i o₁) w ins a = Execute (ctxOf i o₂) w ins a := by
   have e1 := fun hh => operation_choiceFree ins a hh i o₁ modelOracle
   have e2 := fun hh => operation_choiceFree ins a hh i o₂ modelOracle
-  revert h e1 e2
-  unfold Execute Execute.runOperation
-  dsimp only
-  generalize (IsCTI ins && a.BranchDelay.isSome) = bc
-  generalize (InCop1Space w && !StatusCU1 a) = b1
-  generalize (InCop0Space w && !CP0Usable a) = b0
-  generalize ConsultsOracle ins a = bo
-  intro h e1 e2
-  cases bc
-  · cases b1
+  cases hbc : (IsCTI ins && a.BranchDelay.isSome)
+  · rw [hbc] at h
+    unfold Execute
+    simp only [hbc, Bool.false_eq_true, ite_false]
+    revert h e1 e2
+    unfold Execute.runOperation
+    generalize (InCop1Space w && !StatusCU1 a) = b1
+    generalize (InCop0Space w && !CP0Usable a) = b0
+    generalize ConsultsOracle ins a = bo
+    intro h e1 e2
+    cases b1
     · cases b0
       · cases bo
         · simp only [Bool.not_false, Bool.true_and, Bool.false_eq_true, ite_false] at h ⊢
@@ -186,7 +179,7 @@ theorem execute_oracleFree (i : Impl) (o₁ o₂ : Oracle) (w : W32) (ins : Inst
         · simp at h
       · rfl
     · rfl
-  · simp at h
+  · rw [hbc] at h; simp at h
 
 /-- **From a choice-free state, the instruction time does not depend on the oracle.** -/
 theorem instructionTime_oracleFree (i : Impl) (dec : W32 → Option Instruction) (a : Arch)
@@ -200,9 +193,6 @@ theorem instructionTime_oracleFree (i : Impl) (dec : W32 → Option Instruction)
   by_cases hl : a.LowPower = true
   · simp only [hl, ite_true]
   simp only [hl, Bool.false_eq_true, ite_false] at h ⊢
-  by_cases hn : a.Nullify = true
-  · simp only [hn, ite_true]
-  simp only [hn, Bool.false_eq_true, ite_false] at h ⊢
   congr 1
   show FetchExecute (ctxOf i o₁) dec a = FetchExecute (ctxOf i o₂) dec a
   unfold FetchExecute

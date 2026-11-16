@@ -97,24 +97,11 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xff800001#32)]) 2 0x7f800001#32 0x00010040#32
 -- mov.s is non-arithmetic: an SNaN is copied, FCSR untouched
 #guard fpIs (fp1 (.movS 2#32 4#32) [(4, 0x7fc00000#32)] 0x0000f07c#32) 2 0x7fc00000#32 0x0000f07c#32
--- recip / rsqrt / madd family
+-- recip / rsqrt
 #guard fpIs (fp1 (.recipS 2#32 4#32) [(4, 0x40000000#32)]) 2 0x3f000000#32 0#32
 #guard fpIs (fp1 (.rsqrtS 2#32 4#32) [(4, 0x40800000#32)]) 2 0x3f000000#32 0#32
 #guard fpIs (fp1 (.rsqrtS 2#32 4#32) [(4, 0#32)]) 2 0x7f800000#32 0x00008020#32
--- madd.s $f2, $f8(fr), $f4, $f6: 2 × 3 + 1 = 7; msub 5; nmadd −7; nmsub −5
-#guard fpIs (fp1 (.maddS 2#32 8#32 4#32 6#32)
-  [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0x40e00000#32 0#32
-#guard fpIs (fp1 (.msubS 2#32 8#32 4#32 6#32)
-  [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0x40a00000#32 0#32
-#guard fpIs (fp1 (.nmaddS 2#32 8#32 4#32 6#32)
-  [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0xc0e00000#32 0#32
-#guard fpIs (fp1 (.nmsubS 2#32 8#32 4#32 6#32)
-  [(4, 0x40000000#32), (6, 0x40400000#32), (8, 0x3f800000#32)]) 2 0xc0a00000#32 0#32
--- unfused: (1+2^−23)² rounds to 1+2^−22 before −(1+2^−22) is added → +0. The multiply is
--- Inexact, the add exact: Cause is per instruction, the union of the operations' conditions
--- (MD00082 Vol I-A Rev 6.01 Table 6.8 `Cause`, p.94), so Cause.I and Flag I (Wave 12a)
-#guard fpIs (fp1 (.maddS 2#32 8#32 4#32 6#32)
-  [(4, 0x3f800001#32), (6, 0x3f800001#32), (8, 0xbf800002#32)]) 2 0#32 0x00001004#32
+
 
 -- #### Conversions
 -- cvt.w.s follows FCSR.RM: 3.5 → 4 (RN, even), 2.5 → 2 (RN), 3 (RP); −2.5 → −3 (RM), −2 (RZ)
@@ -185,90 +172,10 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard (match fp1 (.absD 2#32 4#32) [(4, 1#32), (5, 0xbff00000#32)] with
         | .next s => readFpD s 2#32 == 0x3ff0000000000001#64
         | .halt _ => false)
--- madd.d: 2 × 3 + 1 = 7 (0x401c000000000000)
-#guard (match fp1 (.maddD 2#32 8#32 4#32 6#32)
-          [(5, 0x40000000#32), (7, 0x40080000#32), (9, 0x3ff00000#32)] with
-        | .next s => readFpD s 2#32 == 0x401c000000000000#64 && s.fcsr == 0#32
-        | .halt _ => false)
 
--- #### Compare, condition codes, FP branches, conditional moves
--- c.eq.s $fcc0: 1.0 = 1.0 sets FCC0 (bit 23); c.lt.s $fcc7: 1.0 < 2.0 sets FCC7 (bit 31)
-#guard nextFcsrEq (fp1 (.cCondS 2#32 0#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x3f800000#32)])
-  0x00800000#32
-#guard nextFcsrEq (fp1 (.cCondS 12#32 7#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)])
-  0x80000000#32
--- a false compare clears exactly its own condition code (here FCC1 = bit 25)
-#guard nextFcsrEq (fp1 (.cCondS 2#32 1#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)]
-  0xfe800000#32) 0xfc800000#32
--- −0 = +0
-#guard nextFcsrEq (fp1 (.cCondS 2#32 0#32 4#32 6#32) [(4, 0x80000000#32), (6, 0#32)]) 0x00800000#32
--- quiet predicates on a QNaN: no exception; c.un true, c.eq false, c.ueq true
-#guard nextFcsrEq (fp1 (.cCondS 1#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)])
-  0x00800000#32
-#guard nextFcsrEq (fp1 (.cCondS 2#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)]) 0#32
-#guard nextFcsrEq (fp1 (.cCondS 3#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)])
-  0x00800000#32
--- signaling predicates on a QNaN: Invalid (c.seq false; c.ngle true; c.sf false)
-#guard nextFcsrEq (fp1 (.cCondS 10#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)])
-  0x00010040#32
-#guard nextFcsrEq (fp1 (.cCondS 9#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)])
-  0x00810040#32
-#guard nextFcsrEq (fp1 (.cCondS 8#32 2#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)])
-  0x00010040#32
--- c.ngt.s (15): true on less, equal, unordered
-#guard nextFcsrEq (fp1 (.cCondS 15#32 0#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x3f800000#32)])
-  0x00800000#32
-#guard nextFcsrEq (fp1 (.cCondS 15#32 0#32 4#32 6#32) [(4, 0x40000000#32), (6, 0x3f800000#32)]) 0#32
--- an SNaN signals Invalid even for a quiet predicate
-#guard nextFcsrEq (fp1 (.cCondS 2#32 0#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)])
-  0x00010040#32
--- with Invalid enabled (bit 11) the compare traps and FCC is not written
-#guard fpTraps (fp1 (.cCondS 9#32 0#32 4#32 6#32) [(4, 0x7fbfffff#32), (6, 0x3f800000#32)]
-  0x00000800#32) 4 0x7fbfffff#32 0x00010800#32
--- c.cond.d: 1.0 < 2.0 on pairs, into FCC3 (bit 27)
-#guard nextFcsrEq (fp1 (.cCondD 12#32 3#32 4#32 6#32) [(5, 0x3ff00000#32), (7, 0x40000000#32)])
-  0x08000000#32
-
--- bc1t/bc1f test the selected condition code; ordinary delay slot
-#guard nextPendingEq (hstep (prog1 (.bc1t 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
-  (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (hstep (prog1 (.bc1t 0#32 4#32)) regs0) (some (textBase + 8#32))
-#guard nextPendingEq (hstep (prog1 (.bc1f 0#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (hstep (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x80000000#32 })
-  (some (textBase + 4#32 + 16#32))
-#guard nextPendingEq (hstep (prog1 (.bc1t 7#32 4#32)) { regs0 with fcsr := 0x7e800000#32 })
-  (some (textBase + 8#32))
--- bc1tl/bc1fl: taken → as bc1t; not taken → delay slot nullified (pc + 4 marked `nullified`)
-#guard nextPendingEq (hstep (prog1 (.bc1tl 0#32 4#32)) { regs0 with fcsr := 0x00800000#32 })
-  (some (textBase + 4#32 + 16#32))
-#guard (match hstep (prog1 (.bc1tl 0#32 4#32)) regs0 with
-        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
-        | .halt _ => false)
-#guard (match hstep (prog1 (.bc1fl 1#32 4#32)) { regs0 with fcsr := 0x02000000#32 } with
-        | .next s => s.pc == textBase + 4#32 && s.pendingBranch == some (textBase + 8#32) && s.nullified
-        | .halt _ => false)
-#guard nextPendingEq (hstep (prog1 (.bc1fl 1#32 4#32)) regs0) (some (textBase + 4#32 + 16#32))
--- an FP branch in a delay slot raises Reserved Instruction like any other branch
-#guard isRiInDelaySlot
-  (hstep (prog1 (.bc1tl 0#32 4#32)) { regs0 with pendingBranch := some textBase })
-
--- movf/movt (GPR) and movf.s/movt.s/movn.s/movz.s
-#guard nextRegEq (hstep (prog1 (.movf 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
-  0x55#32
-#guard nextRegEq (hstep (prog1 (.movt 8#32 0#32 9#32)) (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)])) 9
-  0x11#32
-#guard nextRegEq (hstep (prog1 (.movt 8#32 5#32 9#32))
-  { (setRegs regs0 [(8, 0x55#32), (9, 0x11#32)]) with fcsr := 0x20000000#32 }) 9 0x55#32
-#guard fpIs (fp1 (.movfS 2#32 4#32 0#32) [(2, 0x11#32), (4, 0x7fc00000#32)]) 2 0x7fc00000#32 0#32
-#guard fpIs (fp1 (.movtS 2#32 4#32 0#32) [(2, 0x11#32), (4, 0x7fc00000#32)]) 2 0x11#32 0#32
-#guard fpIs (fp1 (.movnS 2#32 4#32 8#32) [(2, 0x11#32), (4, 0x22#32)] 0#32 [(8, 1#32)]) 2 0x22#32 0#32
-#guard fpIs (fp1 (.movzS 2#32 4#32 8#32) [(2, 0x11#32), (4, 0x22#32)] 0#32 [(8, 1#32)]) 2 0x11#32 0#32
-#guard (match fp1 (.movtD 2#32 4#32 1#32) [(4, 0x22#32), (5, 0x33#32)] 0x02000000#32 with
-        | .next s => readFpD s 2#32 == 0x0000003300000022#64 && s.fcsr == 0x02000000#32
-        | .halt _ => false)
-#guard (match fp1 (.movzD 2#32 4#32 0#32) [(4, 0x22#32), (5, 0x33#32)] with
-        | .next s => readFpD s 2#32 == 0x0000003300000022#64
-        | .halt _ => false)
+-- (Release 6 removed MADD/MSUB/NMADD/NMSUB.fmt, C.cond.fmt, BC1F/BC1T/BC1FL/BC1TL and the
+-- conditional moves MOVF/MOVT/MOVN/MOVZ(.fmt); their tests are gone. W6 adds CMP.cond.fmt,
+-- BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt.)
 
 -- #### Control registers: cfc1 / ctc1
 -- FIR (0) is a constant; FCSR (31) round-trips its non-reserved bits
@@ -340,12 +247,8 @@ private def cuState : State :=
 #guard [Instruction.addS 2#32 4#32 6#32, .addD 2#32 4#32 6#32, .mfc1 9#32 4#32, .mtc1 9#32 4#32,
     .mfhc1 9#32 4#32, .mthc1 9#32 4#32, .cfc1 9#32 31#32, .ctc1 9#32 31#32,
     .lwc1 8#32 2#32 0#32, .swc1 8#32 2#32 0#32, .ldc1 8#32 2#32 0#32, .sdc1 8#32 2#32 0#32,
-    .lwxc1 2#32 0#32 8#32, .sdxc1 2#32 0#32 8#32, .prefx 0#32 0#32 8#32,
     .movS 2#32 4#32, .absD 2#32 4#32, .cvtWS 2#32 4#32, .cvtDW 2#32 4#32, .sqrtS 2#32 4#32,
-    .cCondS 2#32 0#32 4#32 6#32, .cCondD 2#32 0#32 4#32 6#32,
-    .movfS 2#32 4#32 0#32, .movnD 2#32 4#32 9#32, .movf 9#32 0#32 10#32, .movt 9#32 0#32 10#32,
-    .maddS 2#32 2#32 4#32 6#32, .nmsubD 2#32 2#32 4#32 6#32, .recipS 2#32 4#32, .rsqrtD 2#32 4#32,
-    .roundWD 2#32 4#32, .bc1f 0#32 4#32, .bc1t 0#32 4#32, .bc1fl 0#32 4#32, .bc1tl 0#32 4#32].all
+    .recipS 2#32 4#32, .rsqrtD 2#32 4#32, .roundWD 2#32 4#32].all
   fun i => cpuRaised (hstep (prog1 i) cuState) cuState 1#32
 -- … and none of them raises it when CU1 = 1
 #guard !(raises (hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with cp0Status := statusCu1Mask })
@@ -356,13 +259,16 @@ private def cuState : State :=
 -- a reserved COP1 encoding: Coprocessor Unusable when CU1 = 0, Reserved Instruction when 1
 #guard cpuRaised (hstep ((∅ : Program).insert textBase 0x47e00000#32) cuState) cuState 1#32
 #guard raises (hstep ((∅ : Program).insert textBase 0x47e00000#32) regs0) excCodeRI
--- reserved COP1X (luxc1) and MOVCI (bit 17 set) words likewise
-#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x4c000005#32) cuState) cuState 1#32
-#guard cpuRaised (hstep ((∅ : Program).insert textBase 0x00020001#32) cuState) cuState 1#32
+-- Release 6 removed COP1X (opcode 0x13) and MOVCI (SPECIAL funct 0x01): they are not in
+-- coprocessor 1's encoding space any more, so they raise Reserved Instruction even when CU1 = 0
+#guard raises (hstep ((∅ : Program).insert textBase 0x4c000005#32) cuState) excCodeRI
+#guard raises (hstep ((∅ : Program).insert textBase 0x00020001#32) cuState) excCodeRI
 #guard raises (hstep ((∅ : Program).insert textBase 0x00020001#32) regs0) excCodeRI
--- coprocessor 2 does not exist: COP2 / LWC2 words raise Coprocessor Unusable with CE = 2
+-- coprocessor 2 does not exist: COP2 words raise Coprocessor Unusable with CE = 2
 #guard cpuRaised (hstep ((∅ : Program).insert textBase 0x48000000#32) regs0) regs0 2#32
-#guard cpuRaised (hstep ((∅ : Program).insert textBase 0xc8000000#32) regs0) regs0 2#32
+-- the pre-Release 6 LWC2 opcode (0x32) is not COP2 space in Release 6 (it is BC, W3: not decoded
+-- yet): Reserved Instruction
+#guard raises (hstep ((∅ : Program).insert textBase 0xc8000000#32) regs0) excCodeRI
 -- CpU in a delay slot: EPC = branch, BD set
 #guard (match hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with pendingBranch := some 0x1000#32 } with
         | .next s => s.cp0Epc == textBase - 4#32 && s.cp0Cause == 0x9000002c#32
@@ -376,48 +282,31 @@ private def cuState : State :=
 private def fpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 4#32)]) with
       -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
-      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010004#32 0x3f).insert 0x50010005#32 0x80)
-               |>.insert 0x50010006#32 0x00 |>.insert 0x50010007#32 0x00 }  -- 1.0 at offset 4
+      physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010004#32 0x00).insert 0x50010005#32 0x00)
+               |>.insert 0x50010006#32 0x80 |>.insert 0x50010007#32 0x3f }  -- 1.0 at offset 4 (LE)
 #guard nextFpRegEq (hstep (prog1 (.lwc1 8#32 9#32 4#32)) fpMemTestState) 9 0x3f800000#32
-#guard nextFpRegEq (hstep (prog1 (.lwxc1 3#32 9#32 8#32)) fpMemTestState) 3 0x3f800000#32
 #guard (stepState (prog1 (.swc1 8#32 9#32 4#32))
           (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(9, 0x3f800000#32)])).bind
         (fun s' => readMemWord s' 0x10010004#32) = some 0x3f800000#32
-#guard (stepState (prog1 (.swxc1 9#32 10#32 8#32))
-          (setFpRegs (setRegs regs0 [(8, 0x10010000#32), (10, 8#32)]) [(9, 0x3f800000#32)])).bind
-        (fun s' => readMemWord s' 0x10010008#32) = some 0x3f800000#32
 #guard raisesAddr (hstep (prog1 (.lwc1 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
   excCodeAdEL 0x10010001#32
-#guard raisesAddr (hstep (prog1 (.swxc1 9#32 10#32 8#32))
-  (setRegs regs0 [(8, 0x10010000#32), (10, 2#32)])) excCodeAdES 0x10010002#32
 
--- ldc1/sdc1: big-endian doubleword (high word at the lower address), doubleword-aligned
+-- ldc1/sdc1: little-endian doubleword (low word at the lower address), doubleword-aligned
 private def dpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 8#32)]) with
       -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
-      physMem := ((((∅ : Std.HashMap W32 UInt8).insert 0x50010008#32 0x3f).insert 0x50010009#32 0xf0)
-               |>.insert 0x5001000f#32 0x01) }  -- 0x3ff0000000000001 at offset 8
+      physMem := ((((∅ : Std.HashMap W32 UInt8).insert 0x5001000f#32 0x3f).insert 0x5001000e#32 0xf0)
+               |>.insert 0x50010008#32 0x01) }  -- 0x3ff0000000000001 at offset 8 (LE)
 #guard (match hstep (prog1 (.ldc1 8#32 2#32 8#32)) dpMemTestState with
         | .next s => readFpD s 2#32 == 0x3ff0000000000001#64 && readFpReg s 3 == 0x3ff00000#32
         | .halt _ => false)
-#guard (match hstep (prog1 (.ldxc1 2#32 9#32 8#32)) dpMemTestState with
-        | .next s => readFpD s 2#32 == 0x3ff0000000000001#64
-        | .halt _ => false)
 #guard (stepState (prog1 (.sdc1 8#32 2#32 16#32))
           (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(2, 0x89abcdef#32), (3, 0x01234567#32)])).bind
-        (fun s' => (readMemWord s' 0x10010010#32).bind fun hi =>
-          (readMemWord s' 0x10010014#32).map fun lo => (hi, lo))
-      = some (0x01234567#32, 0x89abcdef#32)
-#guard (stepState (prog1 (.sdxc1 2#32 9#32 8#32))
-          (setFpRegs (setRegs regs0 [(8, 0x10010000#32), (9, 16#32)])
-            [(2, 0x89abcdef#32), (3, 0x01234567#32)])).bind
-        (fun s' => readMemWord s' 0x10010010#32) = some 0x01234567#32
+        (fun s' => (readMemWord s' 0x10010010#32).bind fun lo =>
+          (readMemWord s' 0x10010014#32).map fun hi => (lo, hi))
+      = some (0x89abcdef#32, 0x01234567#32)
 -- word-aligned but not doubleword-aligned: Address Error
 #guard raisesAddr (hstep (prog1 (.ldc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdEL 0x10010004#32
 #guard raisesAddr (hstep (prog1 (.sdc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdES 0x10010004#32
-#guard raisesAddr (hstep (prog1 (.ldxc1 2#32 9#32 8#32))
-  (setRegs regs0 [(8, 0x10010000#32), (9, 12#32)])) excCodeAdEL 0x1001000c#32
-#guard raisesAddr (hstep (prog1 (.sdxc1 2#32 9#32 8#32))
-  (setRegs regs0 [(8, 0x10010000#32), (9, 12#32)])) excCodeAdES 0x1001000c#32
 -- a store clears LLbit; a failed (misaligned) one does not get that far
 #guard nextLlBitEq (hstep (prog1 (.sdc1 8#32 2#32 8#32)) { dpMemTestState with llBit := true }) false

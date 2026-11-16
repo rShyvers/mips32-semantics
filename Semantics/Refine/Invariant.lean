@@ -11,7 +11,7 @@ import Semantics.Refine.Defs
   implemented, they must be ignored on write and read as zero"), bit 20 ("Reserved for future use;
   reads as zero"), `ABS2008` (19) and `NAN2008` (18), which exist only "if FIRHas2008 is set"
   (MD00082 Vol I-A Rev 6.01, Table 6.8, p.93-94); `FIR.Has2008 = 0` on this profile. Every write of
-  the model keeps them 0 (`fpUpdate` and `setCC` leave them, `CTC1` masks them with
+  the model keeps them 0 (`fpUpdate` leaves them, `CTC1` masks them with
   `fcsrWritableMask` or leaves them).
 * `StatusImplemented s`: `Status` holds only the bits this profile implements (`statusWriteMask`):
   `mtc0` masks its value, the exception entry sets `EXL`, `di`/`ei` clear/set `IE`, `eret` clears
@@ -49,28 +49,12 @@ theorem rz_congr (x y : W32) (h : ∀ i, 18 ≤ i → i < 23 → x.getLsbD i = y
     · simp [h1]
   unfold RZ; rw [key]
 
-theorem rz_setCause (f : W32) (g : Mips.Fp.Flags) : RZ (Mips.Fp.setCause f g) ↔ RZ f := by
-  apply rz_congr; intro i h1 h2
-  obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
-  all_goals
-    unfold Mips.Fp.setCause
-    simp [Mips.Fp.fcsrCauseMask, BitVec.getLsbD_of_ge]
-
 theorem rz_fpUpdate (f : W32) (g : Mips.Fp.Flags) : RZ (Mips.Fp.fpUpdate f g).1 ↔ RZ f := by
   apply rz_congr; intro i h1 h2
   obtain rfl | rfl | rfl | rfl | rfl : i = 18 ∨ i = 19 ∨ i = 20 ∨ i = 21 ∨ i = 22 := by omega
   all_goals
     unfold Mips.Fp.fpUpdate Mips.Fp.raiseFlags
     split <;> simp [Mips.Fp.fcsrCauseMask, BitVec.getLsbD_of_ge]
-
-theorem rz_setCC (f : W32) (cc : Fin 8) (b : Bool) : RZ (Mips.Fp.setCC f cc b) ↔ RZ f := by
-  apply rz_congr; intro i h1 h2
-  have hc : Mips.Fp.ccBit cc = 23 ∨ 25 ≤ Mips.Fp.ccBit cc := by
-    unfold Mips.Fp.ccBit; split <;> omega
-  have hlt : Mips.Fp.ccBit cc < 32 := by
-    unfold Mips.Fp.ccBit; have := cc.isLt; split <;> omega
-  unfold Mips.Fp.setCC
-  split <;> simp [BitVec.getLsbD_shiftLeft, BitVec.getLsbD_one] <;> omega
 
 private theorem rz_keep5 (f g : W32)
     (h : ∀ i, 18 ≤ i → i < 23 → g.getLsbD i = f.getLsbD i) (hf : RZ f) : RZ g :=
@@ -189,33 +173,12 @@ theorem kept_fpFinishD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) :
   · simp only [mkNext_fcsr, mkNext_cp0Status, writeFpD_fcsr, writeFpD_cp0Status]
     exact ⟨fun h => (rz_fpUpdate _ _).mpr h, id⟩
 
-theorem kept_fpFinishCmp (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) :
-    Kept s (fpFinishCmp s cc r) := by
-  unfold fpFinishCmp Kept; dsimp only
-  split
-  · exact ⟨fun h => (rz_fpUpdate _ _).mpr h, fun h => (si_or_exl _).mpr h⟩
-  · simp only [mkNext_fcsr, mkNext_cp0Status]
-    exact ⟨fun h => (rz_setCC _ _ _).mpr ((rz_fpUpdate _ _).mpr h), id⟩
-
 theorem kept_fpFinishS_iff (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) :
     Kept s (fpFinishS s fd r) ↔ True := iff_true_intro (kept_fpFinishS s fd r)
 theorem kept_fpFinishD_iff (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) :
     Kept s (fpFinishD s fd r) ↔ True := iff_true_intro (kept_fpFinishD s fd r)
-theorem kept_fpFinishCmp_iff (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) :
-    Kept s (fpFinishCmp s cc r) ↔ True := iff_true_intro (kept_fpFinishCmp s cc r)
-
 theorem kept_trans {s t r : State} (h1 : Kept s t) (h2 : Kept t r) : Kept s r :=
   ⟨fun h => h2.1 (h1.1 h), fun h => h2.2 (h1.2 h)⟩
-
-theorem kept_fpStep {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
-    (h : ∀ p, Kept { s with fcsr := Mips.Fp.setCause s.fcsr r.2 }
-      (k { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } p)) :
-    Kept s (fpStep s r k) := by
-  unfold fpStep
-  split
-  · exact ⟨fun h => (rz_setCause _ _).mpr h, fun h => (si_or_exl _).mpr h⟩
-  · exact kept_trans (t := { s with fcsr := Mips.Fp.setCause s.fcsr r.2 })
-      ⟨fun h => (rz_setCause _ _).mpr h, id⟩ (h _)
 
 theorem kept_fpThen {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : State → α → State)
     (h : ∀ p, Kept { s with fcsr := (Mips.Fp.fpUpdate s.fcsr r.2).1 }
@@ -267,8 +230,8 @@ macro "kp_si" : tactic => `(tactic| first
   | exact fun h => si_or_mask _ _ (by decide) h)
 
 /-- Close a `Kept` leaf. -/
-macro "kp_close" : tactic => `(tactic| ((try simp only [kept_fpFinishS_iff, kept_fpFinishD_iff,
-  kept_fpFinishCmp_iff]) <;> kp_simp <;> exact ⟨by kp_rz, by kp_si⟩))
+macro "kp_close" : tactic => `(tactic| ((try simp only [kept_fpFinishS_iff, kept_fpFinishD_iff])
+  <;> kp_simp <;> exact ⟨by kp_rz, by kp_si⟩))
 
 set_option maxHeartbeats 4000000 in
 /-- **Every instruction keeps both properties.** -/
@@ -280,9 +243,8 @@ theorem execInstr_kept (s : State) (instr : Instruction) : Kept s (execInstr s i
     · exact ⟨id, fun h => (si_or_exl _).mpr h⟩
     · split
       · exact ⟨id, fun h => (si_or_exl _).mpr h⟩
-      · unfold execBody
-        cases instr <;> dsimp only <;>
-          repeat' (first | (kp_fwd; kp_close; done) | split | (apply kept_fpThen; intro _) | (apply kept_fpStep; intro _))
+      · cases instr <;> exec_unfold <;>
+          repeat' (first | (kp_fwd; kp_close; done) | split | (apply kept_fpThen; intro _))
 
 /-! ## `step` -/
 
@@ -292,8 +254,6 @@ theorem stepCore_kept (s : State) : Kept s (stepCore s) := by
   · exact ⟨id, fun h => (si_or_exl _).mpr h⟩
   split
   · unfold standbyStep; split <;> exact ⟨id, id⟩
-  split
-  · exact ⟨id, id⟩
   unfold execute
   split
   · exact ⟨id, fun h => (si_or_exl _).mpr h⟩

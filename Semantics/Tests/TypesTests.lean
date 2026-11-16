@@ -33,8 +33,6 @@ example : mkJT (0x3ffffff#32) = 0x3ffffff#32 := by decide
 def sampleState : State :=
   { pc := textBase
     regs := (Array.replicate 32 (0#32)).set! 29 spInit
-    hi := 0#32
-    lo := 0#32
     fpRegs := Array.replicate 32 (0#32)
     fcsr := 0#32
     physMem := ∅

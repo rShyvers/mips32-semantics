@@ -22,7 +22,7 @@ Reference: `docs/spec/INSTRUCTION-REF.md`, sections "Memory access"; "Memory-ord
 
 set_option maxRecDepth 4000
 
-/-- **`lw` composes a big-endian word from memory at `$rs + sext16(offset)`,
+/-- **`lw` composes a little-endian word from memory at `$rs + sext16(offset)`,
 or raises Address Error on a misaligned effective address**
 (INSTRUCTION-REF "lw" section; SPEC-NOTES §9.3 — the offset is
 sign-extended, unlike MARS's own latent zero-extension bug for raw-decoded
@@ -54,7 +54,7 @@ theorem lw_misaligned_spec (s : State) (w rs rt imm : W32)
 
 /-! ### Satisfiable examples -/
 
--- `lw_spec_raw`: a big-endian word loaded back out.
+-- `lw_spec_raw`: a word stored and loaded back out.
 #guard (match
           (writeMemWord (setRegsSpec (initialState textBase) [(8, 0x10010000#32)])
             0x10010000#32 0x12345678#32).bind
@@ -107,10 +107,10 @@ theorem lw_misaligned_no_load (s : State) (w rs rt imm : W32)
 
 Like `lw`: each statement restates its `step` case with the public memory primitives
 (`readMemHalf`/`writeMemWord`/`writeMemHalf`, …) and raises Address Error on a misaligned
-effective address where the access has an alignment requirement. (`ll`/`sc` are in `Atomic.lean`,
-`lwl`/`lwr`/`swl`/`swr` in `Unaligned.lean`.) -/
+effective address where the access has an alignment requirement. (`ll`/`sc` are in `Atomic.lean`;
+Release 6 removed `lwl`/`lwr`/`swl`/`swr`.) -/
 
-/-- **`sw` stores `$rt` as a big-endian word at `$rs + sext16(offset)` and
+/-- **`sw` stores `$rt` as a little-endian word at `$rs + sext16(offset)` and
 clears `llBit`** (any store invalidates a pending `ll`/`sc` pair, so a
 subsequent `sc` correctly fails if memory changed underneath it), or raises
 Address Error on a misaligned effective address (INSTRUCTION-REF "sw"
@@ -127,7 +127,7 @@ theorem sw_spec_raw (s : State) (w rs rt imm : W32)
             pc := ({ s' with llBit := false }).pc + 4#32 }) := by
   step_spec
 
-/-- **`sh` stores the low 16 bits of `$rt` as a big-endian halfword at
+/-- **`sh` stores the low 16 bits of `$rt` as a little-endian halfword at
 `$rs + sext16(offset)` and clears `llBit`**, or raises Address Error
 on a halfword-misaligned effective address (INSTRUCTION-REF "sh" section).
 -/
@@ -261,7 +261,7 @@ theorem lbu_spec_raw (s : State) (w rs rt imm : W32)
             pc := (writeReg s (regIdxSpec rt) (BitVec.ofNat 32 b.toNat)).pc + 4#32 }) := by
   step_spec
 
-/-- **`lh` sign-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lh" section). -/
+/-- **`lh` sign-extends the loaded little-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lh" section). -/
 theorem lh_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lh rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :
@@ -274,7 +274,7 @@ theorem lh_spec_raw (s : State) (w rs rt imm : W32)
             pc := (writeReg s (regIdxSpec rt) (signExt16 h)).pc + 4#32 }) := by
   step_spec
 
-/-- **`lhu` zero-extends the loaded big-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lhu" section). -/
+/-- **`lhu` zero-extends the loaded little-endian halfword**, or raises Address Error (AdEL) on an odd address (INSTRUCTION-REF "lhu" section). -/
 theorem lhu_spec_raw (s : State) (w rs rt imm : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.lhu rs rt imm))
     (hpb : s.pendingBranch = none) (hexec : executesInstr s = true) :

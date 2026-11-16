@@ -81,14 +81,22 @@ theorem getLsbD_ofNat_byte (b : UInt8) (k : Nat) :
       Nat.lt_of_lt_of_le b.toBitVec.isLt (Nat.pow_le_pow_right (by omega) (by omega))
     simp [hk, Nat.testBit_lt_two_pow this]
 
-/-- Four bytes as the manual's memory element and as the model's big-endian word. -/
+/-- A byte at bit position `n` as the manual writes it (`toBitVec`, widened) and as the model does. -/
+theorem byte_setWidth (b : UInt8) : b.toBitVec.setWidth 32 = BitVec.ofNat 32 b.toNat := by
+  rw [show b.toNat = b.toBitVec.toNat from rfl, BitVec.ofNat_toNat]
+
+/-- The manual's byte-lane position is the model's `byteShift` for a word, in the profile's byte
+order (both read `BigEndianMem`, `profile.bigEndianMem`). -/
+theorem laneShift_eq (k : Nat) (hk : k < 4) : laneShift k = byteShift profile.bigEndianMem 4 k := by
+  simp [laneShift, byteShift, BigEndianMem, profile, Nat.mod_eq_of_lt hk]
+
+/-- Four bytes as the manual's memory element and as the model's word (`join4`). -/
 theorem word_of_bytes (b0 b1 b2 b3 : UInt8) :
-    (b0.toBitVec ++ b1.toBitVec ++ b2.toBitVec ++ b3.toBitVec : W32) =
-      (BitVec.ofNat 32 b0.toNat <<< 24) ||| (BitVec.ofNat 32 b1.toNat <<< 16) |||
-        (BitVec.ofNat 32 b2.toNat <<< 8) ||| BitVec.ofNat 32 b3.toNat := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [BitVec.getLsbD_append, BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, getLsbD_ofNat_byte]
-  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
+    ((b0.toBitVec.setWidth 32 <<< laneShift 0) ||| (b1.toBitVec.setWidth 32 <<< laneShift 1) |||
+      (b2.toBitVec.setWidth 32 <<< laneShift 2) ||| (b3.toBitVec.setWidth 32 <<< laneShift 3) : W32) =
+      join4 profile.bigEndianMem b0 b1 b2 b3 := by
+  simp only [join4, byteInValue, byte_setWidth, laneShift_eq 0 (by omega), laneShift_eq 1 (by omega),
+    laneShift_eq 2 (by omega), laneShift_eq 3 (by omega)]
 
 /-- An aligned physical address is its own aligned word base. -/
 theorem base_of_aligned (pa : W32) (h : pa.toNat % 4 = 0) : pa &&& ~~~3#32 = pa := by
@@ -126,13 +134,11 @@ theorem loadMemory_model (cca : BitVec 3) (n : Nat) (pa : PAddr) (va : W32) (ior
   cases iord <;> rfl
 
 /-- **`LoadMemory` of a word against `readMemWord`**: the aligned memory element at the
-translated address is the model's big-endian word. -/
+translated address is the model's word (`join4`, in the profile's byte order). -/
 theorem memElem_eq (s : State) (pa : PAddr) (h : pa.toNat % 4 = 0) :
     MemElemAt (memOf s.physMem) pa =
-      (BitVec.ofNat 32 ((s.physMem.get? pa).getD 0).toNat <<< 24) |||
-      (BitVec.ofNat 32 ((s.physMem.get? (pa + 1#32)).getD 0).toNat <<< 16) |||
-      (BitVec.ofNat 32 ((s.physMem.get? (pa + 2#32)).getD 0).toNat <<< 8) |||
-      BitVec.ofNat 32 ((s.physMem.get? (pa + 3#32)).getD 0).toNat := by
+      join4 profile.bigEndianMem ((s.physMem.get? pa).getD 0) ((s.physMem.get? (pa + 1#32)).getD 0)
+        ((s.physMem.get? (pa + 2#32)).getD 0) ((s.physMem.get? (pa + 3#32)).getD 0) := by
   rw [MemElemAt]; simp only [base_of_aligned pa h, memOf]; exact word_of_bytes _ _ _ _
 
 /-- The manual's word-alignment test is the model's `% 4`. -/
@@ -161,15 +167,16 @@ theorem memOf_insert (m : Std.HashMap PAddr UInt8) (p : PAddr) (b : UInt8) :
     memOf (m.insert p b) = updMem (memOf m) p b := by
   funext q; simp only [memOf, updMem, Std.HashMap.get?_insert]; split <;> rfl
 
-/-- The manual's byte lane `k` of a big-endian memory element is the model's byte extraction. -/
+/-- The manual's byte lane `k` of a memory element is the model's byte `k` of a word
+(`byteOfValue`, in the profile's byte order). -/
 theorem laneByte_eq (v : W32) (k : Nat) (hk : k < 4) :
-    laneByte v k = ((v >>> (24 - 8 * k)) &&& 0xff#32).toNat.toUInt8 := by
+    laneByte v k = byteOfValue profile.bigEndianMem 4 v k := by
   apply UInt8.toBitVec_inj.mp
-  have e : ((v >>> (24 - 8 * k)) &&& 0xff#32).toNat.toUInt8.toBitVec =
-      BitVec.ofNat 8 ((v >>> (24 - 8 * k)) &&& 0xff#32).toNat := rfl
-  rw [e, BitVec.ofNat_toNat]
+  have e : (byteOfValue profile.bigEndianMem 4 v k).toBitVec =
+      BitVec.ofNat 8 ((v >>> byteShift profile.bigEndianMem 4 k) &&& 0xff#32).toNat := rfl
+  rw [e, BitVec.ofNat_toNat, ← laneShift_eq k hk]
   apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [laneByte, BitVec.getLsbD_extractLsb', BitVec.getLsbD_setWidth,
+  simp only [laneByte, laneShift, BigEndianMem, BitVec.getLsbD_extractLsb', BitVec.getLsbD_setWidth,
     BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight]
   rcases k with _|_|_|_|k <;> rcases i with _|_|_|_|_|_|_|_|i <;> simp_all
   all_goals omega

@@ -37,6 +37,12 @@ Operation (`Ops.MFC0`, `Ops.MTC0`); `EXT` with `lsb + msbd > 31` (p.183) and `IN
 (p.193) reach `Oracle.extOutOfRange`/`insLsbAboveMsb` (`Ops.EXT`, `Ops.INS`).
 
 **Instructions of the opcode tables outside this profile** (no constructor, so no diagram here): the
+pre-Release 6 encodings Release 6 removed or moved ("6R"/"6Rm" in the opcode tables: "6Rm and 6R
+instructions signal a Reserved Instruction exception when executed by a Release 6 implementation. If the
+encoding has been used for a new instruction or coprocessor, the unusable exception takes priority",
+MD00086 Vol II-A Rev 6.06 Table A.1, p.451; §A.4, p.461); the Release 6 instructions of later waves
+(-- W2: CACHE, SDBBP, SIGRIE, ERETNC, ...; -- W3: the compact branches; -- W4: the new integer
+instructions; -- W6: the new FP instructions), which decode as `.reserved` until transcribed; the
 TLB instructions, which under the Fixed Mapping MMU "are no longer required and must cause a Reserved
 Instruction Exception" (MD00090 Vol III Rev 6.02 §A.1.3, p.317); `CACHE` and the EJTAG instructions
 `SDBBP`/`DERET`, optional and subsetted out ("EJTAG is optional and may be subsetted out", MD00086 Vol
@@ -66,20 +72,21 @@ inductive DecodeResult where
 
 /-- **The operand fields of `w` read at the positions of each diagram** (`enc`, MD00086 Vol II-A Rev
 6.06, the diagram of each page; the printed pages are listed at `enc`). One entry per instruction
-of the profile. The positions: `rs`/`base`/`fr`/`fmt` bits 25..21, `rt`/`ft`/`index` 20..16,
-`rd`/`fs` 15..11, `sa`/`fd`/`stype`/`lsb` 10..6, `immediate`/`offset` 15..0, `instr_index` 25..0,
-`cc` 20..18 (MOVCI, MOVCF.fmt, BC1) or 10..8 (C.cond.fmt), `cond` 3..0, `sel` 2..0, the `code` of
+of the profile. The positions: `rs`/`base`/`fmt` bits 25..21, `rt`/`ft`/`hint` 20..16, `rd`/`fs`
+15..11, `sa`/`fd`/`stype`/`lsb` 10..6, `immediate`/`offset` 15..0, the 9-bit `offset` of the Release
+6 `LL`/`SC`/`PREF` 15..7, `instr_index` 25..0, `sel` 2..0 (MFC0/MTC0) or 8..6 (RDHWR), the `code` of
 SYSCALL/BREAK 25..6, of the register traps 15..6, of WAIT 24..6. `EXT` reads `msbd` (15..11) as
 `size - 1` and `INS` reads `msb` (15..11) as `pos + size - 1`, inverting the arithmetic `enc` writes
-(EXT p.183, INS p.192). `CLZ`/`CLO` read `rd` from 15..11; their diagram repeats it in 20..16. -/
+(EXT p.183, INS p.192). `PAUSE` comes first: its diagram (`SPECIAL 0 0 0 5 SLL`, PAUSE p.317) is the
+`SLL` diagram (p.376) with every field fixed, and the more specific diagram names the instruction
+(Release 6 makes PAUSE a CTI with its own Operation, PAUSE p.317). -/
 def candidates (w : W32) : List Instruction :=
   let f := fieldAt w
-  [ .add (f 25 21) (f 20 16) (f 15 11),
+  [ .pause,
+    .add (f 25 21) (f 20 16) (f 15 11),
     .lw (f 25 21) (f 20 16) (f 15 0),
     .sw (f 25 21) (f 20 16) (f 15 0),
-    .lwl (f 25 21) (f 20 16) (f 15 0),
     .beq (f 25 21) (f 20 16) (f 15 0),
-    .beql (f 25 21) (f 20 16) (f 15 0),
     .addS (f 10 6) (f 15 11) (f 20 16),
     .mtc0 (f 20 16) (f 15 11) (f 2 0),
     .bne (f 25 21) (f 20 16) (f 15 0),
@@ -87,20 +94,9 @@ def candidates (w : W32) : List Instruction :=
     .bgtz (f 25 21) (f 15 0),
     .bltz (f 25 21) (f 15 0),
     .bgez (f 25 21) (f 15 0),
-    .bltzal (f 25 21) (f 15 0),
-    .bgezal (f 25 21) (f 15 0),
-    .bnel (f 25 21) (f 20 16) (f 15 0),
-    .blezl (f 25 21) (f 15 0),
-    .bgtzl (f 25 21) (f 15 0),
-    .bltzl (f 25 21) (f 15 0),
-    .bgezl (f 25 21) (f 15 0),
-    .bltzall (f 25 21) (f 15 0),
-    .bgezall (f 25 21) (f 15 0),
     .j (f 25 0),
     .jal (f 25 0),
-    .jr (f 25 21),
     .jalr (f 25 21) (f 15 11),
-    .jrHb (f 25 21),
     .jalrHb (f 25 21) (f 15 11),
     .mfc0 (f 20 16) (f 15 11) (f 2 0),
     .di (f 20 16),
@@ -109,33 +105,24 @@ def candidates (w : W32) : List Instruction :=
     .wait (f 24 6),
     .rdpgpr (f 15 11) (f 20 16),
     .wrpgpr (f 15 11) (f 20 16),
-    .rdhwr (f 20 16) (f 15 11),
+    .rdhwr (f 20 16) (f 15 11) (f 8 6),
     .lb (f 25 21) (f 20 16) (f 15 0),
     .lbu (f 25 21) (f 20 16) (f 15 0),
     .lh (f 25 21) (f 20 16) (f 15 0),
     .lhu (f 25 21) (f 20 16) (f 15 0),
     .sb (f 25 21) (f 20 16) (f 15 0),
     .sh (f 25 21) (f 20 16) (f 15 0),
-    .pref (f 25 21) (f 20 16) (f 15 0),
+    .pref (f 25 21) (f 20 16) (f 15 7),
     .sync (f 10 6),
     .synci (f 25 21) (f 15 0),
-    .ll (f 25 21) (f 20 16) (f 15 0),
-    .sc (f 25 21) (f 20 16) (f 15 0),
-    .lwr (f 25 21) (f 20 16) (f 15 0),
-    .swl (f 25 21) (f 20 16) (f 15 0),
-    .swr (f 25 21) (f 20 16) (f 15 0),
+    .ll (f 25 21) (f 20 16) (f 15 7),
+    .sc (f 25 21) (f 20 16) (f 15 7),
     .teq (f 25 21) (f 20 16) (f 15 6),
     .tne (f 25 21) (f 20 16) (f 15 6),
     .tlt (f 25 21) (f 20 16) (f 15 6),
     .tge (f 25 21) (f 20 16) (f 15 6),
     .tltu (f 25 21) (f 20 16) (f 15 6),
     .tgeu (f 25 21) (f 20 16) (f 15 6),
-    .teqi (f 25 21) (f 15 0),
-    .tnei (f 25 21) (f 15 0),
-    .tgei (f 25 21) (f 15 0),
-    .tgeiu (f 25 21) (f 15 0),
-    .tlti (f 25 21) (f 15 0),
-    .tltiu (f 25 21) (f 15 0),
     .syscall (f 25 6),
     .break (f 25 6),
     .mfc1 (f 20 16) (f 15 11),
@@ -148,11 +135,6 @@ def candidates (w : W32) : List Instruction :=
     .swc1 (f 25 21) (f 20 16) (f 15 0),
     .ldc1 (f 25 21) (f 20 16) (f 15 0),
     .sdc1 (f 25 21) (f 20 16) (f 15 0),
-    .lwxc1 (f 10 6) (f 20 16) (f 25 21),
-    .ldxc1 (f 10 6) (f 20 16) (f 25 21),
-    .swxc1 (f 15 11) (f 20 16) (f 25 21),
-    .sdxc1 (f 15 11) (f 20 16) (f 25 21),
-    .prefx (f 15 11) (f 20 16) (f 25 21),
     .subS (f 10 6) (f 15 11) (f 20 16),
     .mulS (f 10 6) (f 15 11) (f 20 16),
     .divS (f 10 6) (f 15 11) (f 20 16),
@@ -186,30 +168,6 @@ def candidates (w : W32) : List Instruction :=
     .cvtSW (f 10 6) (f 15 11),
     .cvtDW (f 10 6) (f 15 11),
     .cvtSD (f 10 6) (f 15 11),
-    .cCondS (f 3 0) (f 10 8) (f 15 11) (f 20 16),
-    .cCondD (f 3 0) (f 10 8) (f 15 11) (f 20 16),
-    .movfS (f 10 6) (f 15 11) (f 20 18),
-    .movtS (f 10 6) (f 15 11) (f 20 18),
-    .movnS (f 10 6) (f 15 11) (f 20 16),
-    .movzS (f 10 6) (f 15 11) (f 20 16),
-    .movfD (f 10 6) (f 15 11) (f 20 18),
-    .movtD (f 10 6) (f 15 11) (f 20 18),
-    .movnD (f 10 6) (f 15 11) (f 20 16),
-    .movzD (f 10 6) (f 15 11) (f 20 16),
-    .movf (f 25 21) (f 20 18) (f 15 11),
-    .movt (f 25 21) (f 20 18) (f 15 11),
-    .maddS (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .maddD (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .msubS (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .msubD (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .nmaddS (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .nmaddD (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .nmsubS (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .nmsubD (f 10 6) (f 25 21) (f 15 11) (f 20 16),
-    .bc1f (f 20 18) (f 15 0),
-    .bc1t (f 20 18) (f 15 0),
-    .bc1fl (f 20 18) (f 15 0),
-    .bc1tl (f 20 18) (f 15 0),
     .addu (f 25 21) (f 20 16) (f 15 11),
     .sub (f 25 21) (f 20 16) (f 15 11),
     .subu (f 25 21) (f 20 16) (f 15 11),
@@ -219,8 +177,6 @@ def candidates (w : W32) : List Instruction :=
     .nor (f 25 21) (f 20 16) (f 15 11),
     .slt (f 25 21) (f 20 16) (f 15 11),
     .sltu (f 25 21) (f 20 16) (f 15 11),
-    .movn (f 25 21) (f 20 16) (f 15 11),
-    .movz (f 25 21) (f 20 16) (f 15 11),
     .sll (f 15 11) (f 20 16) (f 10 6),
     .srl (f 15 11) (f 20 16) (f 10 6),
     .sra (f 15 11) (f 20 16) (f 10 6),
@@ -229,19 +185,6 @@ def candidates (w : W32) : List Instruction :=
     .srav (f 15 11) (f 20 16) (f 25 21),
     .rotr (f 15 11) (f 20 16) (f 10 6),
     .rotrv (f 15 11) (f 20 16) (f 25 21),
-    .mult (f 25 21) (f 20 16),
-    .multu (f 25 21) (f 20 16),
-    .div (f 25 21) (f 20 16),
-    .divu (f 25 21) (f 20 16),
-    .mfhi (f 15 11),
-    .mthi (f 25 21),
-    .mflo (f 15 11),
-    .mtlo (f 25 21),
-    .mul (f 25 21) (f 20 16) (f 15 11),
-    .madd (f 25 21) (f 20 16),
-    .maddu (f 25 21) (f 20 16),
-    .msub (f 25 21) (f 20 16),
-    .msubu (f 25 21) (f 20 16),
     .clz (f 25 21) (f 15 11),
     .clo (f 25 21) (f 15 11),
     .seb (f 15 11) (f 20 16),
@@ -249,14 +192,15 @@ def candidates (w : W32) : List Instruction :=
     .wsbh (f 15 11) (f 20 16),
     .ext (f 20 16) (f 25 21) (f 10 6) (f 15 11 + 1#32),
     .ins (f 20 16) (f 25 21) (f 10 6) (f 15 11 - f 10 6 + 1#32),
-    .addi (f 25 21) (f 20 16) (f 15 0),
     .addiu (f 25 21) (f 20 16) (f 15 0),
     .slti (f 25 21) (f 20 16) (f 15 0),
     .sltiu (f 25 21) (f 20 16) (f 15 0),
     .andi (f 25 21) (f 20 16) (f 15 0),
     .ori (f 25 21) (f 20 16) (f 15 0),
     .xori (f 25 21) (f 20 16) (f 15 0),
-    .lui (f 20 16) (f 15 0) ]
+    .aui (f 25 21) (f 20 16) (f 15 0),
+    .nal (f 15 0),
+    .bal (f 15 0) ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an
 UNPREDICTABLE field value; else no diagram. -/

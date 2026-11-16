@@ -30,7 +30,7 @@ base with offset `0x180` — `0x80000180` at reset — or `0xBFC00380` when
 pending branch is abandoned**; **`LLbit ← 0`** (MD00086 Rev 6.06 "SC",
 programming notes: "Exceptions between the LL and SC cause SC to fail");
 and nothing else outside `EPC`/`Cause` is touched — no general register,
-`hi`/`lo`, memory, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
+memory, FP register, `FCSR`, `BadVAddr`, `ErrorEPC`,
 `EBase` or the LL address. -/
 theorem exceptionEntry_always (s : State) (code ce : W32) :
     (exceptionEntry s code ce).pc =
@@ -40,7 +40,6 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).cp0Status = s.cp0Status ||| statusExlMask ∧
       (exceptionEntry s code ce).pendingBranch = none ∧
       (exceptionEntry s code ce).regs = s.regs ∧
-      (exceptionEntry s code ce).hi = s.hi ∧ (exceptionEntry s code ce).lo = s.lo ∧
       (exceptionEntry s code ce).physMem = s.physMem ∧
       (exceptionEntry s code ce).fpRegs = s.fpRegs ∧
       (exceptionEntry s code ce).fcsr = s.fcsr ∧
@@ -49,7 +48,7 @@ theorem exceptionEntry_always (s : State) (code ce : W32) :
       (exceptionEntry s code ce).cp0ErrorEpc = s.cp0ErrorEpc ∧
       (exceptionEntry s code ce).cp0EBase = s.cp0EBase ∧
       (exceptionEntry s code ce).llAddr = s.llAddr :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-- With `EBase` at its reset value the general vector is the classic
 `0x80000180`. -/

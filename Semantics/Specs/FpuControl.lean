@@ -16,6 +16,10 @@ Reference: `docs/spec/INSTRUCTION-REF.md`, section "Floating point (coprocessor 
   `cfc1_spec_raw` `ctc1_spec_raw` `fcsr_ctc1_cfc1_roundtrip` `ctc1_fcsr_spec` `cfc1_fcsr_spec`
 -/
 
+-- W5: FIR/FCSR are still the pre-Release 6 layout (`FIR.Has2008 = 0`, FCSR `NAN2008`/`ABS2008`
+-- read 0, condition codes FCC7..0 present); the Release 6 target profile (CLAUDE.md:
+-- `FIR.Has2008 = 1`, `FCSR.NAN2008 = ABS2008 = 1`) is implemented by W5.
+
 set_option maxRecDepth 4000
 
 /-! ## Control registers -/

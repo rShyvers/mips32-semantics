@@ -41,7 +41,6 @@ def ResetException (o : Oracle) (a0 : Arch) : Arch :=
       ErrorEPC := restartPC
       PC := 0xBFC00000#32
       BranchDelay := none
-      Nullify := false
       LowPower := false }
 
 end Manual

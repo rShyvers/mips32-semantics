@@ -6,7 +6,7 @@ import Semantics.Refine.Bridge
 Proved once and reused by `Refine/FpuArith.lean`, `Refine/FpuConvert.lean`,
 `Refine/FpuCompare.lean` (7C S4a):
 
-* `execute_cop1`: `Execute` of a COP1/COP1X instruction (not a CTI) is the Coprocessor Unusable
+* `execute_cop1`: `Execute` of a COP1 instruction (not a CTI) is the Coprocessor Unusable
   exception when `Status.CU1 = 0` and the Operation otherwise, against the model's `execInstr`.
 * `runAbs`: the outcome of an Operation run on `abs s` (completion or exception entry).
 * **The FCSR bookkeeping** (`FPResult`: Cause, `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01
@@ -125,43 +125,6 @@ theorem runAbs_FPResult {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : �
     simp only [Pseudo.run, bind, FPResult_run, abs_FCSR, hX, Bool.false_eq_true, ↓reduceIte]
     rfl
 
-/-- **`FPCheck` in closed form**: Cause written, then the trap check on the new FCSR; Flags untouched. -/
-theorem FPCheck_run {α : Type} (r : α × Mips.Fp.Flags) (c : Ctx) (f : Frame) :
-    FPCheck r c f =
-      if (r.2.toBits &&& f.arch.FCSR.extractLsb' 7 5) != 0#5 then
-        (.signal .FloatingPoint, { f with arch := { f.arch with FCSR :=
-          (f.arch.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (r.2.toBits.setWidth 32 <<< 12) } })
-      else
-        (.ok r.1, { f with arch := { f.arch with FCSR :=
-          (f.arch.FCSR &&& ~~~(0x3F#32 <<< 12)) ||| (r.2.toBits.setWidth 32 <<< 12) } }) := by
-  obtain ⟨h17, hcause, hen⟩ := fcsr1_fields f.arch.FCSR r.2.toBits
-  simp only [FPCheck, bind, Pseudo.modify, CheckFPException, Pseudo.get, h17, hcause, hen,
-    Bool.false_or]
-  cases (r.2.toBits &&& f.arch.FCSR.extractLsb' 7 5 != 0#5) <;> rfl
-
-/-- **One operation of a multi-operation instruction (Cause and trap check only), then the rest** =
-the model's `fpStep`. -/
-theorem runAbs_FPCheck {α : Type} (s : State) (r : α × Mips.Fp.Flags) (k : α → Pseudo Unit)
-    (K : State → α → State)
-    (hk : Mips.Fp.fpeEnabled s.fcsr r.2 = false →
-      runAbs (k r.1) { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } =
-        some (abs (K { s with fcsr := Mips.Fp.setCause s.fcsr r.2 } r.1))) :
-    runAbs (FPCheck r >>= k) s = some (abs (fpStep s r K)) := by
-  unfold fpStep
-  by_cases hX : Mips.Fp.fpeEnabled s.fcsr r.2 = true
-  · simp only [hX, ↓reduceIte]
-    unfold runAbs
-    simp only [Mips.Fp.fpeEnabled] at hX
-    simp only [Pseudo.run, bind, FPCheck_run, abs_FCSR, hX, ↓reduceIte]
-    rw [← gep_take _ .FloatingPoint rfl excCodeFPE (by decide)]
-    rfl
-  · simp only [hX, Bool.false_eq_true, ↓reduceIte]
-    rw [← hk (by simpa using hX)]
-    simp only [Mips.Fp.fpeEnabled] at hX
-    unfold runAbs
-    simp only [Pseudo.run, bind, FPCheck_run, abs_FCSR, hX, Bool.false_eq_true, ↓reduceIte]
-    rfl
-
 /-! ## Stores -/
 
 theorem regIdx_add_one (f : W32) : regIdx (f + 1#32) = reg f + 1 := by
@@ -239,7 +202,7 @@ theorem readFpD_abs (s : State) (f : W32) :
 /-! ## The environment of a later operation
 
 `IEEE.env` reads `RM`, `Enables` and `FS`; an operation's FCSR update writes only `Cause` and
-`Flags`, so the second operation of `MADD.fmt` … runs in the environment of the first. -/
+`Flags`, so a later operation of the same instruction runs in the environment of the first. -/
 
 theorem envOf_raiseFlags (F : W32) (f : Mips.Fp.Flags) :
     Mips.Fp.envOf (Mips.Fp.raiseFlags F f) = Mips.Fp.envOf F := by
@@ -266,27 +229,11 @@ theorem env_abs (s : State) : IEEE.env (abs s) = fpEnv s := rfl
 /-! ## Encoding spaces -/
 
 theorem cop1_rFormat {i : Instruction} {w : W32} (op rs rt rd sa fn : W32)
-    (hop : op = 0x11#32 ∨ op = 0x13#32)
+    (hop : op = 0x11#32)
     (he : enc i = some (rFormat op rs rt rd sa fn)) (hw : enc i = some w) :
     InCop1Space w = true ∧ InCop0Space w = false := by
   rw [he] at hw; cases hw
-  rcases hop with rfl | rfl <;> simp [InCop1Space, InCop0Space, opcode_rFormat]
-
-theorem opcode_cCond (fmt ft fs cc cond : W32) :
-    opcode (fld 6 26 0x11#32 ||| fld 5 21 fmt ||| fld 5 16 ft ||| fld 5 11 fs ||| fld 3 8 cc |||
-      fld 2 4 3#32 ||| fld 4 0 cond) = 0x11#32 &&& 0x3F#32 := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [opcode, fld, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_or, BitVec.getLsbD_and,
-    BitVec.getLsbD_shiftLeft]
-  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega
-
-/-- The `C.cond.fmt` word is in the COP1 space. -/
-theorem cop1_cCond {i : Instruction} {w : W32} (fmt ft fs cc cond : W32)
-    (he : enc i = some (fld 6 26 0x11#32 ||| fld 5 21 fmt ||| fld 5 16 ft ||| fld 5 11 fs |||
-      fld 3 8 cc ||| fld 2 4 3#32 ||| fld 4 0 cond)) (hw : enc i = some w) :
-    InCop1Space w = true ∧ InCop0Space w = false := by
-  rw [he] at hw; cases hw
-  simp [InCop1Space, InCop0Space, opcode_cCond]
+  subst hop; simp [InCop1Space, InCop0Space, opcode_rFormat]
 
 /-! ## NaN classes -/
 
@@ -394,96 +341,5 @@ theorem cvtSD_model (a : Arch) (x : BitVec 64) :
     obtain ⟨h1, h2⟩ := h; simp only [Mips.Fp.f64ToF32]; rw [h1] at h2 ⊢; rw [h2]
   · rfl
 
-/-! ## C.cond.fmt -/
-
-theorem getLsbD_setWidth4 (cond : W32) (i : Nat) (h : i < 4) :
-    (cond.setWidth 4).getLsbD i = bit cond i := by
-  simp [h, bit]
-
-/-- The core's `f32Compare` is the Operation of `C.cond.S` (MD00086 Vol II-A Rev 6.06, C.cond.fmt,
-p.112-113). -/
-theorem f32Compare_eq (cond x y : W32) :
-    Mips.Fp.f32Compare (cond.setWidth 4) x y =
-      (let isNaN := IEEE.isSNaNS x || IEEE.isSNaNS y || IEEE.isQNaNS x || IEEE.isQNaNS y
-       let invalid := (IEEE.isSNaNS x || IEEE.isSNaNS y) ||
-         (bit cond 3 && (IEEE.isQNaNS x || IEEE.isQNaNS y))
-       let less := if isNaN then false else IEEE.ltS x y
-       let equal := if isNaN then false else IEEE.eqS x y
-       ((bit cond 2 && less) || (bit cond 1 && equal) || (bit cond 0 && isNaN),
-        if invalid then Mips.Fp.Flags.invalidOnly else Mips.Fp.Flags.none)) := by
-  have hn : (IEEE.isSNaNS x || IEEE.isSNaNS y || IEEE.isQNaNS x || IEEE.isQNaNS y) =
-      (Mips.Fp.isNaN32 x || Mips.Fp.isNaN32 y) := by
-    rw [isNaN32_split, isNaN32_split]; unfold IEEE.isSNaNS IEEE.isQNaNS
-    cases Mips.Fp.isSNaN32 x <;> cases Mips.Fp.isSNaN32 y <;> cases Mips.Fp.isQNaN32 x <;>
-      cases Mips.Fp.isQNaN32 y <;> rfl
-  simp only [hn]
-  unfold Mips.Fp.f32Compare IEEE.ltS IEEE.eqS IEEE.isSNaNS IEEE.isQNaNS Mips.Fp.f32Relation
-    Mips.Fp.Format.relation Mips.Fp.fpCompare Mips.Fp.fpCompareInvalid
-  simp only [getLsbD_setWidth4 cond 0 (by omega), getLsbD_setWidth4 cond 1 (by omega),
-    getLsbD_setWidth4 cond 2 (by omega), getLsbD_setWidth4 cond 3 (by omega)]
-  rw [show Mips.Fp.binary32.isNaN x.toNat = Mips.Fp.isNaN32 x from rfl,
-    show Mips.Fp.binary32.isNaN y.toNat = Mips.Fp.isNaN32 y from rfl]
-  rw [isNaN32_split x, isNaN32_split y]
-  cases Mips.Fp.isSNaN32 x <;> cases Mips.Fp.isSNaN32 y <;> cases Mips.Fp.isQNaN32 x <;>
-    cases Mips.Fp.isQNaN32 y <;> cases bit cond 0 <;> cases bit cond 1 <;> cases bit cond 2 <;>
-    cases bit cond 3 <;> simp [Mips.Fp.Flags.invalidOnly, Mips.Fp.Flags.none, Bool.or_comm]
-
-/-- As `f32Compare_eq`, for `C.cond.D`. -/
-theorem f64Compare_eq (cond : W32) (x y : BitVec 64) :
-    Mips.Fp.f64Compare (cond.setWidth 4) x y =
-      (let isNaN := IEEE.isSNaND x || IEEE.isSNaND y || IEEE.isQNaND x || IEEE.isQNaND y
-       let invalid := (IEEE.isSNaND x || IEEE.isSNaND y) ||
-         (bit cond 3 && (IEEE.isQNaND x || IEEE.isQNaND y))
-       let less := if isNaN then false else IEEE.ltD x y
-       let equal := if isNaN then false else IEEE.eqD x y
-       ((bit cond 2 && less) || (bit cond 1 && equal) || (bit cond 0 && isNaN),
-        if invalid then Mips.Fp.Flags.invalidOnly else Mips.Fp.Flags.none)) := by
-  have hn : (IEEE.isSNaND x || IEEE.isSNaND y || IEEE.isQNaND x || IEEE.isQNaND y) =
-      (Mips.Fp.isNaN64 x || Mips.Fp.isNaN64 y) := by
-    rw [isNaN64_split, isNaN64_split]; unfold IEEE.isSNaND IEEE.isQNaND
-    cases Mips.Fp.isSNaN64 x <;> cases Mips.Fp.isSNaN64 y <;> cases Mips.Fp.isQNaN64 x <;>
-      cases Mips.Fp.isQNaN64 y <;> rfl
-  simp only [hn]
-  unfold Mips.Fp.f64Compare IEEE.ltD IEEE.eqD IEEE.isSNaND IEEE.isQNaND Mips.Fp.f64Relation
-    Mips.Fp.Format.relation Mips.Fp.fpCompare Mips.Fp.fpCompareInvalid
-  simp only [getLsbD_setWidth4 cond 0 (by omega), getLsbD_setWidth4 cond 1 (by omega),
-    getLsbD_setWidth4 cond 2 (by omega), getLsbD_setWidth4 cond 3 (by omega)]
-  rw [show Mips.Fp.binary64.isNaN x.toNat = Mips.Fp.isNaN64 x from rfl,
-    show Mips.Fp.binary64.isNaN y.toNat = Mips.Fp.isNaN64 y from rfl]
-  rw [isNaN64_split x, isNaN64_split y]
-  cases Mips.Fp.isSNaN64 x <;> cases Mips.Fp.isSNaN64 y <;> cases Mips.Fp.isQNaN64 x <;>
-    cases Mips.Fp.isQNaN64 y <;> cases bit cond 0 <;> cases bit cond 1 <;> cases bit cond 2 <;>
-    cases bit cond 3 <;> simp [Mips.Fp.Flags.invalidOnly, Mips.Fp.Flags.none, Bool.or_comm]
-
-theorem setBit_eq (F : W32) (p : Nat) (b : Bool) :
-    (if b then F ||| (1#32 <<< p) else F &&& ~~~(1#32 <<< p)) =
-      (F &&& ~~~(1#32 <<< p)) ||| ((BitVec.ofBool b).setWidth 32 <<< p) := by
-  cases b
-  · simp
-  · have h1 : (BitVec.ofBool true).setWidth 32 = 1#32 := rfl
-    simp only [↓reduceIte, h1]
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp only [BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_not]
-    cases F.getLsbD i <;> cases (1#32 <<< p).getLsbD i <;> simp [hi]
-
-theorem ccBit_eq (cc : W32) :
-    Mips.Fp.ccBit (ccIdx cc) = if (low cc 3).toNat == 0 then 23 else 24 + (low cc 3).toNat := by
-  have h : (ccIdx cc).val = (low cc 3).toNat := by
-    simp [ccIdx, low, BitVec.extractLsb'_toNat, Fin.ofNat]
-  unfold Mips.Fp.ccBit; rw [h]; simp only [beq_iff_eq]
-
-/-- `SetFPConditionCode` on the 3-bit `cc` field = the model's `setCC` at `ccIdx`. -/
-theorem runAbs_setCC (s : State) (cc : W32) (b : Bool) :
-    runAbs (SetFPConditionCode (low cc 3).toNat b) s =
-      some (abs (mkNext s { s with fcsr := Mips.Fp.setCC s.fcsr (ccIdx cc) b })) := by
-  unfold runAbs
-  rw [mkNext, abs_advance _ _ (by rfl)]
-  simp only [Pseudo.run, SetFPConditionCode, Pseudo.modify]
-  rw [complete_plain, Mips.Fp.setCC, ccBit_eq, setBit_eq]
-  rfl
-
-theorem fpFinishCmp_eq (s : State) (cc : W32) (r : Bool × Mips.Fp.Flags) :
-    fpFinishCmp s cc r =
-      fpThen s r (fun s1 b => mkNext s1 { s1 with fcsr := Mips.Fp.setCC s1.fcsr (ccIdx cc) b }) := rfl
 
 end Refine

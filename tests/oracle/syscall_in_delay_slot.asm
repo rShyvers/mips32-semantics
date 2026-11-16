@@ -25,8 +25,10 @@ e: li $a0, 69
 bltz $zero, f              # not taken
 syscall
 f: li $a0, 70
-bgezl $zero, g             # taken branch-likely: slot executes
+bal g                      # BAL taken: slot executes
 syscall                    # prints 'F'
-g: nop
+g: li $a0, 71
+nal                        # NAL: a not-taken branch with a delay slot
+syscall                    # prints 'G'
 li $v0, 10
 syscall

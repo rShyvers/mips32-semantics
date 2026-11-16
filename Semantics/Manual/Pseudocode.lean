@@ -75,7 +75,7 @@ def oracle : Pseudo Oracle := fun c f => (.ok c.oracle, f)
 
 end Pseudo
 
-/-! ## Exceptions and nullification (§2.2.2.5, p.26) -/
+/-! ## Exceptions (§2.2.2.5, p.26) -/
 
 /-- `SignalException(Exception, argument)` (MD00086 Vol II-A Rev 6.06 §2.2.2.5.1, Figure 2.31, p.26):
 "This action results in an exception that aborts the instruction. The instruction operation
@@ -83,8 +83,8 @@ pseudocode never sees a return from this function call." -/
 def SignalException {α} (e : Exception) : Pseudo α := fun _ f => (.signal e, f)
 
 /-- `I+1:` statements of a branch or jump (§1.3, Table 1.1, p.6): their effect `d` happens in the
-next instruction time (`Manual.Cycle`). `NullifyCurrentInstruction()` inside `I+1:` is `I1 .nullify`
-(§2.2.2.5.4, p.26). -/
+next instruction time (`Manual.Cycle`). (Release 6 has no branch-likely instruction, so no `I+1:`
+statement calls `NullifyCurrentInstruction()`, §2.2.2.5.4, p.26.) -/
 def I1 (d : Delay) : Pseudo Unit := fun _ f => (.ok (), { f with delay := some d })
 
 /-- **Carry out an UNPREDICTABLE or UNDEFINED operation** as the oracle resolved it (`Outcome`):
@@ -129,15 +129,6 @@ def writeGPR (a : Arch) (x : Fin 32) (v : W32) : Arch :=
 def setGPR (x : Fin 32) (v : W32) : Pseudo Unit :=
   fun _ f => (.ok (), { f with arch := writeGPR f.arch x v })
 
-/-- `HI`. -/
-def HI : Pseudo W32 := fun _ f => (.ok f.arch.HI, f)
-/-- `LO`. -/
-def LO : Pseudo W32 := fun _ f => (.ok f.arch.LO, f)
-/-- `HI ← v`. -/
-def setHI (v : W32) : Pseudo Unit := Pseudo.modify fun a => { a with HI := v }
-/-- `LO ← v`. -/
-def setLO (v : W32) : Pseudo Unit := Pseudo.modify fun a => { a with LO := v }
-
 /-- A register field of an instruction word (5 bits, raw `W32` in `Instruction`) as a register
 number. -/
 def reg (w : W32) : Fin 32 := ⟨w.toNat % 32, Nat.mod_lt _ (by decide)⟩
@@ -167,6 +158,10 @@ def zero_extend {n} (val : BitVec n) : W32 := val.setWidth 32
 
 /-- The 16-bit `offset`/`immediate` field of an I-format instruction. -/
 def imm16 (w : W32) : BitVec 16 := w.extractLsb' 0 16
+
+/-- The 9-bit `offset` field of the Release 6 SPECIAL3 `LL`/`SC`/`PREF` (bits 15..7 of the word; the
+`Instruction` holds the raw field value; LL p.223: "Release 6 implements a 9-bit offset", p.224). -/
+def imm9 (w : W32) : BitVec 9 := w.extractLsb' 0 9
 
 /-- `memory_address(ea)` (§2.2.2.4.2, Figure 2.28, p.25): "On a 32-bit CPU, memory_address returns
 its 32-bit effective address argument unaffected." -/

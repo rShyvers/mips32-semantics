@@ -1,4 +1,6 @@
-# Bare-metal MIPS32r2 big-endian harness for `qemu-system-mips -M malta -cpu 24Kf`.
+# Bare-metal MIPS32 Release 6 little-endian harness for `qemu-system-mipsel -M malta -cpu mips32r6-generic`.
+# Assembled with `llvm-mc -triple=mipsel -mcpu=mips32r6` (Release 6 encodings: JR is JALR $0, no HI/LO,
+# DIVU/MODU are the three-operand Release 6 forms).
 # See scripts/README.md ("Differential oracle") for the full design.
 #
 # Physical memory map (all addresses below are kseg0 = 0x80000000 + phys):
@@ -12,9 +14,9 @@
 #   0x80310000  page 0 (virtual 0x0..0xfff of the guest is mapped here): harness scratch
 #               at 0xE00..0xFFF (the guest must not use that range of page 0)
 #
-# CFG word layout: 0..31 GPR, 32 HI, 33 LO, 34 FCSR, 35 Status, 36 Cause, 37 EPC,
+# CFG word layout: 0..31 GPR, 32/33 unused (were HI/LO; Release 6 has none), 34 FCSR, 35 Status, 36 Cause, 37 EPC,
 #   38 ErrorEPC, 39 start PC, 40 TLB entry count (16), 41..72 FPR, 73.. TLB (EntryHi,Lo0,Lo1)*16
-# BUF word layout (printed in this order after magic, kind): 0..31 GPR, 32 HI, 33 LO, 34 FCSR,
+# BUF word layout (printed in this order after magic, kind): 0..31 GPR, 32/33 zero (no HI/LO), 34 FCSR,
 #   35 Status, 36 Cause, 37 EPC, 38 BadVAddr, 39 ErrorEPC, 40 pc, 41..72 FPR; 73 = kind
 # kinds: 0 exit (syscall, $v0=10)  1 unhandled exception  2 TLB refill/invalid (guest touched an
 #   unmapped page)  3 harness limitation (unsupported branch type under a syscall delay slot)
@@ -100,10 +102,6 @@ _start:
     .endr
     lw   $t4,34*4($t0)
     ctc1 $t4,$31
-    lw   $t4,32*4($t0)
-    mthi $t4
-    lw   $t4,33*4($t0)
-    mtlo $t4
     lw   $t4,36*4($t0)
     mtc0 $t4,$13
     lw   $t4,37*4($t0)
@@ -133,10 +131,8 @@ dump_entry:
     sw   $t0,26*4($k1)
     lw   $t0,0xF04($zero)
     sw   $t0,27*4($k1)
-    mfhi $t0
-    sw   $t0,32*4($k1)
-    mflo $t0
-    sw   $t0,33*4($k1)
+    sw   $zero,32*4($k1)
+    sw   $zero,33*4($k1)
     mfc0 $t0,$12
     sw   $t0,35*4($k1)
     mfc0 $t1,$13
@@ -295,10 +291,6 @@ svc:
     sw   $t0,26*4($k1)
     lw   $t0,0xF04($zero)
     sw   $t0,27*4($k1)
-    mfhi $t0
-    sw   $t0,32*4($k1)
-    mflo $t0
-    sw   $t0,33*4($k1)
     li   $t0,1
     beq  $v0,$t0,svc_int
     li   $t0,4
@@ -329,9 +321,8 @@ svc_int:
     lui  $s1,BUF
     ori  $s1,$s1,0x500
     move $s2,$s1
-2:  divu $a0,$t5
-    mfhi $t6
-    mflo $a0
+2:  modu $t6,$a0,$t5
+    divu $a0,$a0,$t5
     addiu $t6,$t6,48
     sb   $t6,0($s2)
     bnez $a0,2b
@@ -344,10 +335,6 @@ svc_int:
     nop
 svc_done:
     lui  $k1,BUF
-    lw   $t0,32*4($k1)
-    mthi $t0
-    lw   $t0,33*4($k1)
-    mtlo $t0
     # --- resume address -> $s0 ---
     mfc0 $s0,$14
     mfc0 $s1,$13
@@ -389,33 +376,7 @@ bd: lw   $s2,0($s0)               # the branch whose delay slot held the syscall
     li   $t0,7
     beq  $s3,$t0,b_bgtz
     nop
-    sltiu $t0,$s3,0x14            # 0x14..0x17: branch-likely: delay slot ran => taken
-    bnez $t0,1f
-    sltiu $t0,$s3,0x18
-    bnez $t0,b_taken
-    nop
-1:  li   $t0,0x11                 # COP1 branch
-    bne  $s3,$t0,unsup
-    srl  $t1,$s2,21
-    andi $t1,$t1,31
-    li   $t0,8
-    bne  $t1,$t0,unsup
-    srl  $t1,$s2,17               # nd bit
-    andi $t1,$t1,1
-    bnez $t1,b_taken
-    nop
-    cfc1 $t2,$31
-    srl  $t3,$s2,18
-    andi $t3,$t3,7                # cc
-    li   $t4,23
-    beqz $t3,2f
-    nop
-    addiu $t4,$t3,24
-2:  srlv $t2,$t2,$t4
-    andi $t2,$t2,1
-    srl  $t3,$s2,16               # tf
-    andi $t3,$t3,1
-    beq  $t2,$t3,b_taken
+    b    unsup                    # (Release 6 removed the branch-likely and COP1 condition-code branches)
     nop
 b_nt:
     addiu $s0,$s4,4
@@ -433,14 +394,12 @@ b_j:
     or   $s0,$t1,$t2
     j    resume
     nop
-b_spec:
+b_spec:                           # JALR / JALR.HB (Release 6: JR is JALR rd = 0)
     andi $t0,$s2,0x3f
-    li   $t1,8
-    beq  $t0,$t1,1f
     li   $t1,9
     bne  $t0,$t1,unsup
     nop
-1:  move $s0,$s5
+    move $s0,$s5
     j    resume
     nop
 b_beq:
@@ -467,20 +426,11 @@ b_regimm:
     srl  $t0,$s2,16
     andi $t0,$t0,31
     beqz $t0,r_bltz
-    li   $t1,16
-    beq  $t0,$t1,r_bltz
+    li   $t1,16                   # NAL (rs = 0): a not-taken branch
+    beq  $t0,$t1,b_nt
     li   $t1,1
     beq  $t0,$t1,r_bgez
-    li   $t1,17
-    beq  $t0,$t1,r_bgez
-    nop
-    li   $t1,2                    # likely forms 2,3,18,19: taken
-    beq  $t0,$t1,b_taken
-    li   $t1,3
-    beq  $t0,$t1,b_taken
-    li   $t1,18
-    beq  $t0,$t1,b_taken
-    li   $t1,19
+    li   $t1,17                   # BAL (rs = 0): taken
     beq  $t0,$t1,b_taken
     nop
 unsup:
