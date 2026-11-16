@@ -1,12 +1,13 @@
 import Semantics.FpOpsCorrectArith
 
 /-!
-# FpOpsCorrectWord — float to word: `CVT.W.fmt`, `ROUND`/`TRUNC`/`CEIL`/`FLOOR.W.fmt`
+# FpOpsCorrectWord — float to fixed point: `CVT`/`ROUND`/`TRUNC`/`CEIL`/`FLOOR` `.W.fmt` and `.L.fmt`
 
 `roundToInt rm v` is `v` correctly rounded to the integers in direction `rm` (ties to even), and
-`Exact.isIntegral` says exactly whether that is exact. Hence `Format.toW32` meets `Format.ToWordSpec`
-(MD00086 Vol II-A Rev 6.06, CVT.W.fmt p.160, ROUND.W.fmt p.342, TRUNC.W.fmt p.441, CEIL.W.fmt p.128,
-FLOOR.W.fmt p.186; MD00082 Vol I-A Rev 6.01 Table 6.3, p.82) for every operand and direction.
+`Exact.isIntegral` says exactly whether that is exact. Hence `Format.toFixed w` meets
+`Format.ToFixedSpec w` for every positive width (`toFixed_spec`), in particular `toW32` meets
+`ToWordSpec` and `toW64` meets `ToLongSpec` (the definitions' citations are in `FpOpsSpec.lean`),
+for every operand and direction.
 -/
 
 namespace Mips.Fp
@@ -165,26 +166,62 @@ namespace Format
 
 variable (f : Format)
 
-/-- **Float to word meets `ToWordSpec`** for every `width`-bit operand and every direction. -/
-theorem toW32_spec (hf : f.WF) (rm : RoundingMode) {a : Nat} (ha : a < 2 ^ f.width) :
-    f.ToWordSpec rm a (f.toW32 rm a) := by
+theorem fixedMin_eq {w : Nat} (hw : 0 < w) : fixedMin w = BitVec.ofInt w (-2 ^ (w - 1)) := by
+  obtain ⟨k, rfl⟩ : ∃ k, w = k + 1 := ⟨w - 1, by omega⟩
+  apply BitVec.eq_of_toNat_eq
+  simp only [fixedMin, BitVec.toNat_ofNat, BitVec.toNat_ofInt, Nat.add_sub_cancel]
+  have h2 : 2 ^ k < 2 ^ (k + 1) := Nat.pow_lt_pow_right (by omega) (by omega)
+  rw [Nat.mod_eq_of_lt h2]
+  have hp : (0 : Int) < 2 ^ k := Int.pow_pos (by decide)
+  have e : ((2 ^ (k + 1) : Nat) : Int) = 2 * (2 : Int) ^ k := by
+    push_cast; rw [Int.pow_succ]; omega
+  have key : (-(2 : Int) ^ k) % (2 * 2 ^ k) = 2 ^ k := by
+    rw [show (-(2 : Int) ^ k) = 2 ^ k + (-1) * (2 * 2 ^ k) by omega, Int.add_mul_emod_self_right,
+      Int.emod_eq_of_lt (by omega) (by omega)]
+  have hc : ((2 ^ k : Nat) : Int) = (2 : Int) ^ k := by push_cast; rfl
+  rw [e, key, ← hc, Int.toNat_natCast]
+
+theorem fixedMax_eq (w : Nat) : fixedMax w = BitVec.ofInt w (2 ^ (w - 1) - 1) := by
+  have h1 : 1 ≤ 2 ^ (w - 1) := Nat.one_le_two_pow
+  have : ((2 : Int) ^ (w - 1) - 1) = ((2 ^ (w - 1) - 1 : Nat) : Int) := by push_cast [h1]; rfl
+  rw [this, BitVec.ofInt_natCast]; rfl
+
+/-- **Float to fixed point meets `ToFixedSpec`** for every `width`-bit operand, every direction and
+every positive width `w` (32: `ToWordSpec`, 64: `ToLongSpec`). -/
+theorem toFixed_spec (hf : f.WF) {w : Nat} (hw : 0 < w) (rm : RoundingMode) {a : Nat}
+    (ha : a < 2 ^ f.width) : f.ToFixedSpec w rm a (f.toFixed w rm a) := by
+  have hP : ((2 ^ (w - 1) : Nat) : Int) = (2 : Int) ^ (w - 1) := by push_cast; rfl
+  have h1 : 1 ≤ 2 ^ (w - 1) := Nat.one_le_two_pow
+  have hP1 : ((2 ^ (w - 1) - 1 : Nat) : Int) = (2 : Int) ^ (w - 1) - 1 := by push_cast [h1]; rfl
   rcases f.classify hf a ha with ⟨na, -, da⟩ | ⟨na, ia, -, da⟩ | ⟨na, ia, -, da, -, -⟩
-  · simp [ToWordSpec, da, toW32, na, flags_invalidOnly]
-  · simp [ToWordSpec, da, toW32, ia, flags_invalidOnly]
-  · simp only [ToWordSpec, da, toW32, na, ia, Bool.or_false, Bool.false_eq_true, ite_false]
-    refine ⟨_, roundToInt_cr rm (f.toExact a), fun hr => ?_, fun hr => ?_⟩
-    · have hr' : ¬ (roundToInt rm (f.toExact a) < -2147483648 ∨ 2147483647 < roundToInt rm (f.toExact a)) := by
-        omega
-      simp only [decide_eq_true_eq, Bool.or_eq_true, hr', ite_false]
-      refine ⟨BitVec.toInt_ofInt_eq_self (by decide) (by omega) (by omega), ?_⟩
+  · simp [ToFixedSpec, da, toFixed, na, flags_invalidOnly]
+  · simp [ToFixedSpec, da, toFixed, na, ia, flags_invalidOnly, fixedMin_eq hw, fixedMax_eq w]
+  · simp only [ToFixedSpec, da, toFixed, na, ia, Bool.false_eq_true, ite_false, hP, hP1]
+    refine ⟨_, roundToInt_cr rm (f.toExact a), fun hr => ?_, fun hr => ?_, fun hr => ?_⟩
+    · have hn1 : ¬ roundToInt rm (f.toExact a) < -2 ^ (w - 1) := by omega
+      have hn2 : ¬ 2 ^ (w - 1) - 1 < roundToInt rm (f.toExact a) := by omega
+      simp only [hn1, hn2, ite_false]
+      refine ⟨BitVec.toInt_ofInt_eq_self hw (by omega) (by omega), ?_⟩
       by_cases hi : (f.toExact a).isIntegral = true
       · simp [hi, (isIntegral_iff rm _).1 hi, flags_none]
       · have : ¬ ((roundToInt rm (f.toExact a) : Rat) = (f.toExact a).toRat) :=
           fun h => hi ((isIntegral_iff rm _).2 h)
         simp [hi, this, Flags.inexactOnly]
-    · have hr' : roundToInt rm (f.toExact a) < -2147483648 ∨ 2147483647 < roundToInt rm (f.toExact a) := by
+    · simp [hr, flags_invalidOnly, fixedMin_eq hw]
+    · have hn1 : ¬ roundToInt rm (f.toExact a) < -2 ^ (w - 1) := by
+        have : (0 : Int) < 2 ^ (w - 1) := Int.pow_pos (by decide)
         omega
-      simp [hr', flags_invalidOnly]
+      simp [hn1, hr, flags_invalidOnly, fixedMax_eq w]
+
+/-- **Float to word meets `ToWordSpec`** for every `width`-bit operand and every direction. -/
+theorem toW32_spec (hf : f.WF) (rm : RoundingMode) {a : Nat} (ha : a < 2 ^ f.width) :
+    f.ToWordSpec rm a (f.toW32 rm a) :=
+  f.toFixed_spec hf (by decide) rm ha
+
+/-- **Float to longword meets `ToLongSpec`** for every `width`-bit operand and every direction. -/
+theorem toW64_spec (hf : f.WF) (rm : RoundingMode) {a : Nat} (ha : a < 2 ^ f.width) :
+    f.ToLongSpec rm a (f.toW64 rm a) :=
+  f.toFixed_spec hf (by decide) rm ha
 
 end Format
 

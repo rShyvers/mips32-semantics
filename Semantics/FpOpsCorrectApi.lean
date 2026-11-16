@@ -60,6 +60,10 @@ theorem roundCore_correct_binary64 (rm : RoundingMode) (w : Exact) (hw : w.sig �
 
 /-! ## The operations on `BitVec` -/
 
+/-- With FCSR.FS = 0 an operand is not flushed (`Format.flushIn`). -/
+@[simp] theorem Format.flushIn_false (f : Format) (n : Nat) : f.flushIn false n = n := by
+  simp [Format.flushIn]
+
 section bv
 
 variable (e : Env) (he : e.flush = false)
@@ -71,7 +75,7 @@ theorem f32Add_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNa
     ∃ R : Format.Rounded, binary32.RoundSpec e.rm (Cut.ofRat (x + y)) R ∧
       f32Add e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary32.add_correct binary32_wf e he ha hb hxy
-  exact ⟨R, h1, by simp [f32Add, h2]⟩
+  exact ⟨R, h1, by simp [f32Add, he, h2]⟩
 
 /-- `SUB.S` is correctly rounded. -/
 theorem f32Sub_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNat = some x)
@@ -79,7 +83,7 @@ theorem f32Sub_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNa
     ∃ R : Format.Rounded, binary32.RoundSpec e.rm (Cut.ofRat (x - y)) R ∧
       f32Sub e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary32.sub_correct binary32_wf e he ha hb hxy
-  exact ⟨R, h1, by simp [f32Sub, h2]⟩
+  exact ⟨R, h1, by simp [f32Sub, he, h2]⟩
 
 /-- `MUL.S` is correctly rounded. -/
 theorem f32Mul_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNat = some x)
@@ -87,7 +91,7 @@ theorem f32Mul_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNa
     ∃ R : Format.Rounded, binary32.RoundSpec e.rm (Cut.ofRat (x * y)) R ∧
       f32Mul e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary32.mul_correct binary32_wf e he ha hb hx hy
-  exact ⟨R, h1, by simp [f32Mul, h2]⟩
+  exact ⟨R, h1, by simp [f32Mul, he, h2]⟩
 
 /-- `DIV.S` is correctly rounded. -/
 theorem f32Div_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNat = some x)
@@ -95,14 +99,14 @@ theorem f32Div_correct {a b : BitVec 32} {x y : Rat} (ha : binary32.value a.toNa
     ∃ R : Format.Rounded, binary32.RoundSpec e.rm (Cut.ofRat (x / y)) R ∧
       f32Div e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary32.div_correct binary32_wf e he ha hb hx hy
-  exact ⟨R, h1, by simp [f32Div, h2]⟩
+  exact ⟨R, h1, by simp [f32Div, he, h2]⟩
 
 /-- `SQRT.S` is correctly rounded (positive operand). -/
 theorem f32Sqrt_correct {a : BitVec 32} {x : Rat} (ha : binary32.value a.toNat = some x) (hx : 0 < x) :
     ∃ R : Format.Rounded, binary32.RoundSpec e.rm (Cut.sqrt x) R ∧
       f32Sqrt e a = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary32.sqrt_correct binary32_wf e he ha hx
-  exact ⟨R, h1, by simp [f32Sqrt, h2]⟩
+  exact ⟨R, h1, by simp [f32Sqrt, he, h2]⟩
 
 /-- `ADD.D` is correctly rounded. -/
 theorem f64Add_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNat = some x)
@@ -110,7 +114,7 @@ theorem f64Add_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNa
     ∃ R : Format.Rounded, binary64.RoundSpec e.rm (Cut.ofRat (x + y)) R ∧
       f64Add e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary64.add_correct binary64_wf e he ha hb hxy
-  exact ⟨R, h1, by simp [f64Add, h2]⟩
+  exact ⟨R, h1, by simp [f64Add, he, h2]⟩
 
 /-- `SUB.D` is correctly rounded. -/
 theorem f64Sub_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNat = some x)
@@ -118,7 +122,7 @@ theorem f64Sub_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNa
     ∃ R : Format.Rounded, binary64.RoundSpec e.rm (Cut.ofRat (x - y)) R ∧
       f64Sub e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary64.sub_correct binary64_wf e he ha hb hxy
-  exact ⟨R, h1, by simp [f64Sub, h2]⟩
+  exact ⟨R, h1, by simp [f64Sub, he, h2]⟩
 
 /-- `MUL.D` is correctly rounded. -/
 theorem f64Mul_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNat = some x)
@@ -126,7 +130,7 @@ theorem f64Mul_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNa
     ∃ R : Format.Rounded, binary64.RoundSpec e.rm (Cut.ofRat (x * y)) R ∧
       f64Mul e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary64.mul_correct binary64_wf e he ha hb hx hy
-  exact ⟨R, h1, by simp [f64Mul, h2]⟩
+  exact ⟨R, h1, by simp [f64Mul, he, h2]⟩
 
 /-- `DIV.D` is correctly rounded. -/
 theorem f64Div_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNat = some x)
@@ -134,14 +138,14 @@ theorem f64Div_correct {a b : BitVec 64} {x y : Rat} (ha : binary64.value a.toNa
     ∃ R : Format.Rounded, binary64.RoundSpec e.rm (Cut.ofRat (x / y)) R ∧
       f64Div e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary64.div_correct binary64_wf e he ha hb hx hy
-  exact ⟨R, h1, by simp [f64Div, h2]⟩
+  exact ⟨R, h1, by simp [f64Div, he, h2]⟩
 
 /-- `SQRT.D` is correctly rounded (positive operand). -/
 theorem f64Sqrt_correct {a : BitVec 64} {x : Rat} (ha : binary64.value a.toNat = some x) (hx : 0 < x) :
     ∃ R : Format.Rounded, binary64.RoundSpec e.rm (Cut.sqrt x) R ∧
       f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   obtain ⟨R, h1, h2⟩ := binary64.sqrt_correct binary64_wf e he ha hx
-  exact ⟨R, h1, by simp [f64Sqrt, h2]⟩
+  exact ⟨R, h1, by simp [f64Sqrt, he, h2]⟩
 
 end bv
 

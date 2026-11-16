@@ -14,8 +14,8 @@ example : (initialState textBase).regs[0]! = 0#32 := by decide
 example : (initialState textBase).regs[1]! = 0#32 := by decide
 example : (initialState textBase).regs[31]! = 0#32 := by decide
 example : (initialState textBase).fpRegs.size = 32 := by decide
-example : (initialState textBase).fpRegs[0]! = 0#32 := by decide
-example : (initialState textBase).fpRegs[31]! = 0#32 := by decide
+example : (initialState textBase).fpRegs[0]! = 0#64 := by decide
+example : (initialState textBase).fpRegs[31]! = 0#64 := by decide
 example : (initialState textBase).fcsr = 0#32 := by decide
 example : (initialState textBase).pendingBranch = none := by decide
 example : (initialState textBase).llBit = false := by decide
@@ -56,6 +56,25 @@ example :
 -- writing one FP register leaves others untouched
 example : readFpReg (writeFpReg (initialState textBase) 8 0x12345678#32) 9 = 0#32 := by decide
 #guard readFpReg (writeFpReg (initialState textBase) 0 0x3f800000#32) 0 = 0x3f800000#32
+-- BEGIN R6-5 (C): 64-bit FPRs (`Status.FR = 1`)
+-- a 64-bit write reads back whole; `readFpReg` is its low word
+example : readFpReg64 (writeFpReg64 (initialState textBase) 5 0x0123456789abcdef#64) 5 =
+    0x0123456789abcdef#64 := by decide
+example : readFpReg (writeFpReg64 (initialState textBase) 5 0x0123456789abcdef#64) 5 = 0x89abcdef#32 := by
+  decide
+-- a 32-bit write replaces the low word and keeps the upper half (model pin of the UNPREDICTABLE
+-- upper bits, MD00082 Vol I-A Rev 6.01 §6.6.2, p.98)
+example : readFpReg64 (writeFpReg (writeFpReg64 (initialState textBase) 5 0x0123456789abcdef#64) 5
+    0x3f800000#32) 5 = 0x012345673f800000#64 := by decide
+-- registers are independent: an odd register is not the high half of the even one
+example : readFpReg64 (writeFpReg64 (initialState textBase) 4 0x0123456789abcdef#64) 5 = 0#64 := by
+  decide
+#guard readFpReg64 (writeFpReg (writeFpReg64 (initialState textBase) 31 0xffffffff00000000#64) 31
+  0x1#32) 31 = 0xffffffff00000001#64
+-- `Status` as read: the stored bits with the read-only `FR` (bit 26) set
+example : statusValue (initialState textBase) = 0x24000000#32 := by decide
+example : statusValue { initialState textBase with cp0Status := 0#32 } = statusFrMask := by decide
+-- END R6-5 (C)
 
 -- Instruction fetch is `readMemWord s s.pc`: alignment failure, a loaded word, unloaded memory
 -- (reads as 0). The word is placed little-endian (`profile`) with `writeMemWord`.

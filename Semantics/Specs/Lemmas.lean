@@ -123,7 +123,7 @@ theorem readCString_mem (s s' : State) (h : s.physMem = s'.physMem)
 def readCStringOfMem (m : Std.HashMap W32 UInt8) (st : W32) (a : W32) (f : Nat) : String :=
   readCString { initialState 0#32 with physMem := m, cp0Status := st } a f
 
-theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (fpRegs : Array W32)
+theorem readCString_eq_ofMem (pc : W32) (regs : Array W32) (fpRegs : Array (BitVec 64))
     (fcsr : W32) (mem : Std.HashMap W32 UInt8) (pb : Option W32) (llBit : Bool)
     (st ca epc bva eepc lla eb a : W32) (k0 k23 ku : BitVec 3) (cnt cmp : W32) (ti : Bool)
     (hwre : W32) (hw : BitVec 6) (sb : Bool) (ul bi bip : W32) (ks : Fin 6 → W32) (sbri : Bool)
@@ -328,12 +328,32 @@ theorem writeMemByte_regs (s stored : State) (addr : W32) (v : UInt8)
   · injection h with h'
     rw [← h']
 
-/-- Writing `v` to FP register `i` and immediately reading `i` back gives
+-- BEGIN R6-5
+/-- The low 32 bits of `hi ++ lo` are `lo`. -/
+theorem extractLsb'_lo_append (hi lo : W32) : (hi ++ lo).extractLsb' 0 32 = lo :=
+  BitVec.extractLsb'_append_eq_right
+
+/-- The high 32 bits of `hi ++ lo` are `hi`. -/
+theorem extractLsb'_hi_append (hi lo : W32) : (hi ++ lo).extractLsb' 32 32 = hi :=
+  BitVec.extractLsb'_append_eq_left
+
+/-- `hi ++ lo` of the two halves of a doubleword is the doubleword. -/
+theorem append_halves (x : BitVec 64) : x.extractLsb' 32 32 ++ x.extractLsb' 0 32 = x :=
+  BitVec.extractLsb'_append_extractLsb' (w := 32) (len := 32)
+
+/-- Writing the 64-bit `v` to FP register `i` and reading `i` back gives exactly `v`. -/
+theorem writeFpReg64_reads_back (s : State) (i : Fin 32) (v : BitVec 64)
+    (hsize : s.fpRegs.size = 32) : readFpReg64 (writeFpReg64 s i v) i = v := by
+  unfold writeFpReg64 readFpReg64
+  simp [Array.getD_eq_getD_getElem?, hsize, i.isLt]
+-- END R6-5
+
+/-- Writing `v` to FP register `i` and immediately reading `i` back (as a 32-bit value) gives
 exactly `v` (`writeFpReg` has no hardwired-zero slot, unlike `writeReg`). -/
 theorem writeFpReg_reads_back (s : State) (i : Fin 32) (v : W32)
     (hsize : s.fpRegs.size = 32) : readFpReg (writeFpReg s i v) i = v := by
   unfold writeFpReg readFpReg
-  simp [Array.set!, Array.getD_eq_getD_getElem?, hsize, i.isLt]
+  rw [writeFpReg64_reads_back _ _ _ hsize, extractLsb'_lo_append]
 
 /-- Outside a delay slot, completing normally means `pc ← pc + 4`. -/
 theorem mkNext_of_none (s x : State) (h : s.pendingBranch = none) :

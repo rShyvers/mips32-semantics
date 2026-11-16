@@ -17,14 +17,13 @@ def execFpuMove (s : State) : Instruction → Option State
     mkNext s (writeReg s (regIdx rt) (readFpReg s (regIdx fs)))
   | .mtc1 rt fs => some <|
     mkNext s (writeFpReg s (regIdx fs) (readReg s (regIdx rt)))
-  -- `mfhc1`/`mthc1`: the high word of the double in `fs` is `FPR[fs+1]`
-  -- (FR = 0). "The results are UNPREDICTABLE if Status.FR = 0 and fs is odd"
-  -- (MD00086 Vol II-A Rev 6.06, MFHC1 p.271, MTHC1 p.295); pinned to the
-  -- same `fs + 1` register.
+  -- `mfhc1`/`mthc1`: bits 63..32 of the 64-bit `FPR[fs]` (`FR = 1`; MD00086 Vol II-A Rev 6.06,
+  -- MFHC1 p.271: `GPR[rt] ← ValueFPR(fs, UNINTERPRETED_DOUBLEWORD)63..32`; MTHC1 p.295:
+  -- `StoreFPR(fs, UNINTERPRETED_DOUBLEWORD, GPR[rt] || ValueFPR(fs, ...)31..0)`).
   | .mfhc1 rt fs => some <|
-    mkNext s (writeReg s (regIdx rt) (readFpReg s (regIdx (fs + 1#32))))
+    mkNext s (writeReg s (regIdx rt) ((readFpD s fs).extractLsb' 32 32))
   | .mthc1 rt fs => some <|
-    mkNext s (writeFpReg s (regIdx (fs + 1#32)) (readReg s (regIdx rt)))
+    mkNext s (writeFpD s fs (readReg s (regIdx rt) ++ (readFpD s fs).extractLsb' 0 32))
   -- `mov.fmt` is non-arithmetic: raw copy, FCSR untouched.
   | .movS fd fs => some <|
     mkNext s (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs)))

@@ -10,8 +10,8 @@ conversions `fd, fs`. Release 6 removed C.cond.fmt, BC1F/BC1T(L), MOVF/MOVT(.fmt
 the indexed loads/stores, PREFX and the MADD family; those mnemonics are not in the table.
 -/
 
--- W6: the Release 6 FP instructions (CMP.cond.fmt, BC1EQZ/BC1NEZ, SEL/MADDF/MIN/MAX/... .fmt,
--- the L-format conversions) get their rows here when the model has their constructors.
+-- W6: the Release 6 FP instructions (CMP.cond.fmt, BC1EQZ/BC1NEZ, SEL/MADDF/MIN/MAX/... .fmt)
+-- get their rows here when the model has their constructors.
 
 namespace Asm
 
@@ -82,6 +82,18 @@ def opsD : FmtOps :=
     abs := .absD, mov := .movD, neg := .negD, recip := .recipD, rsqrt := .rsqrtD,
     roundW := .roundWD, truncW := .truncWD, ceilW := .ceilWD, floorW := .floorWD, cvtW := .cvtWD }
 
+-- BEGIN R6-5
+/-- The longword (L) conversions (MD00086 Vol II-A Rev 6.06: CVT.L.fmt p.154, ROUND.L.fmt p.341,
+TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185, CVT.S.fmt p.159, CVT.D.fmt p.153). -/
+def longRows : EncTable :=
+  [ ("cvt.l.s", fp2 .cvtLS), ("cvt.l.d", fp2 .cvtLD),
+    ("round.l.s", fp2 .roundLS), ("round.l.d", fp2 .roundLD),
+    ("trunc.l.s", fp2 .truncLS), ("trunc.l.d", fp2 .truncLD),
+    ("ceil.l.s", fp2 .ceilLS), ("ceil.l.d", fp2 .ceilLD),
+    ("floor.l.s", fp2 .floorLS), ("floor.l.d", fp2 .floorLD),
+    ("cvt.s.l", fp2 .cvtSL), ("cvt.d.l", fp2 .cvtDL) ]
+-- END R6-5
+
 /-- The FPU instructions. -/
 def fpuTable : EncTable :=
   [ ("mfc1",  gprCop fpr .mfc1),
@@ -97,6 +109,7 @@ def fpuTable : EncTable :=
     ("cvt.d.s", fp2 .cvtDS),
     ("cvt.s.d", fp2 .cvtSD),
     ("cvt.s.w", fp2 .cvtSW),
-    ("cvt.d.w", fp2 .cvtDW) ] ++ fmtRows opsS ++ fmtRows opsD
+    ("cvt.d.w", fp2 .cvtDW) ] ++ fmtRows opsS ++ fmtRows opsD ++ longRows
+
 
 end Asm

@@ -214,5 +214,19 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .jic rt off => some (Ops.JIC rt off)
   | .jialc rt off => some (Ops.JIALC rt off)
   -- END R6-3
+  -- BEGIN R6-5
+  | .cvtLS fd fs => some (Ops.CVT_L_S fd fs)
+  | .cvtLD fd fs => some (Ops.CVT_L_D fd fs)
+  | .roundLS fd fs => some (Ops.ROUND_L_S fd fs)
+  | .roundLD fd fs => some (Ops.ROUND_L_D fd fs)
+  | .truncLS fd fs => some (Ops.TRUNC_L_S fd fs)
+  | .truncLD fd fs => some (Ops.TRUNC_L_D fd fs)
+  | .ceilLS fd fs => some (Ops.CEIL_L_S fd fs)
+  | .ceilLD fd fs => some (Ops.CEIL_L_D fd fs)
+  | .floorLS fd fs => some (Ops.FLOOR_L_S fd fs)
+  | .floorLD fd fs => some (Ops.FLOOR_L_D fd fs)
+  | .cvtSL fd fs => some (Ops.CVT_S_L fd fs)
+  | .cvtDL fd fs => some (Ops.CVT_D_L fd fs)
+  -- END R6-5
 
 end Manual

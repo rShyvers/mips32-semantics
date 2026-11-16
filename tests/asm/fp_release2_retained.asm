@@ -1,9 +1,10 @@
 # Release 2 FP instructions Release 6 keeps: MFHC1/MTHC1, RECIP and RSQRT (the indexed
 # loads/stores, PREFX and the unfused MADD family are removed in Release 6: MD00086 Vol II-A
 # Rev 6.06, Table A.21, p.459). LDC1/SDC1 move a little-endian doubleword: the word at the lower
-# address is the low half.
+# address is the low half. The last value is FCSR (only the read-only Release 6 bits ABS2008/NAN2008
+# = 0x000c0000 set: MD00082 Vol I-A Rev 6.01 Table 6.8 p.93-94).
 # MD00086 Vol II-A Rev 6.06 MFHC1 (p.271), RECIP.fmt (p.336).
-# Expected output: "1073217536 1074266112 1056964608 1056964608 1056964608 1073741824 0 "
+# Expected output: "1073217536 1074266112 1056964608 1056964608 1056964608 1073741824 786432 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .data

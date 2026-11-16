@@ -8,9 +8,9 @@ removed `MADD/MSUB/NMADD/NMSUB.fmt`; Sub-wave 7A proved the pilot `add.s`; 7C S4
 re-proved the pilot through `Refine.BridgeFpu`). The FCSR bookkeeping (`Manual.FPResult`: Cause,
 `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99) against the model's
 `fpFinishS`/`fpFinishD`/`fpThen` (`Mips.Fp.fpUpdate`) is `runAbs_FPResult`, proved once. The model's
-choices enter as: `Oracle.absNegNaN = .A'` (`f32Abs_eq` …), `Impl.recipS/D`, `Impl.rsqrtS/D`
-(definitionally the core's `f32Recip` …), `Oracle.fprOddRead/fprOddWrite` (the pair `(fpr, fpr+1)`,
-`valueFPR64_model`, `storeFPR64_model`).
+choices enter as: `Impl.recipS/D`, `Impl.rsqrtS/D` (definitionally the core's `f32Recip` …) and
+`Oracle.fprUpper` (a 32-bit result keeps the upper half of the FPR, `runAbs_store32`). ABS/NEG are
+non-arithmetic (`FCSR.ABS2008 = 1`, `f32Abs_eq` …).
 -/
 
 namespace Refine
@@ -35,7 +35,7 @@ theorem addS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
       fpFinishS s fd (Mips.Fp.f32Add (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.ADD_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.addS]
+  simp only [Ops.ADD_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.addS]
 
 
 /-- **SUB.S refines.** -/
@@ -50,7 +50,7 @@ theorem subS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
       fpFinishS s fd (Mips.Fp.f32Sub (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.SUB_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.subS]
+  simp only [Ops.SUB_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.subS]
 
 
 /-- **MUL.S refines.** -/
@@ -65,7 +65,7 @@ theorem mulS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
       fpFinishS s fd (Mips.Fp.f32Mul (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.MUL_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.mulS]
+  simp only [Ops.MUL_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.mulS]
 
 
 /-- **DIV.S refines.** -/
@@ -80,7 +80,7 @@ theorem divS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
       fpFinishS s fd (Mips.Fp.f32Div (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.DIV_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.divS]
+  simp only [Ops.DIV_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.divS]
 
 
 /-- **SQRT.S refines.** -/
@@ -95,10 +95,10 @@ theorem sqrtS_refines (s : State) (hg : Good s) (fd fs w : W32)
       fpFinishS s fd (Mips.Fp.f32Sqrt (fpEnv s) (readFpReg s (regIdx fs))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.SQRT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs, IEEE.sqrtS]
+  simp only [Ops.SQRT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.sqrtS]
 
 
-/-- **ABS.S refines (the model's QNaN result is reading A′, `Oracle.absNegNaN`).** -/
+/-- **ABS.S refines (non-arithmetic, `FCSR.ABS2008 = 1`).** -/
 theorem absS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.absS fd fs) = some w) :
     Execute modelCtx w (.absS fd fs) (abs s) =
@@ -107,14 +107,13 @@ theorem absS_refines (s : State) (hg : Good s) (fd fs w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.ABS_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.absS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32Abs (readFpReg s (regIdx fs))) from rfl]
-  rw [f32Abs_eq, ← runAbs_finS s hfsz fd]
+      mkNext s (writeFpReg s (regIdx fd) (Mips.Fp.f32Abs (readFpReg s (regIdx fs)))) from rfl]
+  rw [f32Abs_eq, ← runAbs_store32 s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.ABS_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.oracle, modelCtx_oracle,
-      modelOracle_absNegNaN]
+  simp only [Ops.ABS_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg]
 
 
-/-- **NEG.S refines (the model's QNaN result is reading A′, `Oracle.absNegNaN`).** -/
+/-- **NEG.S refines (non-arithmetic, `FCSR.ABS2008 = 1`).** -/
 theorem negS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.negS fd fs) = some w) :
     Execute modelCtx w (.negS fd fs) (abs s) =
@@ -123,11 +122,10 @@ theorem negS_refines (s : State) (hg : Good s) (fd fs w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.NEG_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.negS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32Neg (readFpReg s (regIdx fs))) from rfl]
-  rw [f32Neg_eq, ← runAbs_finS s hfsz fd]
+      mkNext s (writeFpReg s (regIdx fd) (Mips.Fp.f32Neg (readFpReg s (regIdx fs)))) from rfl]
+  rw [f32Neg_eq, ← runAbs_store32 s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.NEG_S, bind, ValueFPR32, abs_FPR, regIdx_eq_reg, Pseudo.oracle, modelCtx_oracle,
-      modelOracle_absNegNaN]
+  simp only [Ops.NEG_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg]
 
 
 /-- **RECIP.S refines (`Impl.recipS` of the model).** -/
@@ -142,7 +140,7 @@ theorem recipS_refines (s : State) (hg : Good s) (fd fs w : W32)
       fpFinishS s fd (Mips.Fp.f32Recip (fpEnv s) (readFpReg s (regIdx fs))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.RECIP_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs,
+  simp only [Ops.RECIP_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs,
       Pseudo.impl, modelCtx_impl, modelImpl_recipS, Mips.Fp.f32Recip]
 
 
@@ -158,7 +156,7 @@ theorem rsqrtS_refines (s : State) (hg : Good s) (fd fs w : W32)
       fpFinishS s fd (Mips.Fp.f32Rsqrt (fpEnv s) (readFpReg s (regIdx fs))) from rfl]
   rw [← runAbs_finS s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.RSQRT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, regIdx_eq_reg, env_abs,
+  simp only [Ops.RSQRT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs,
       Pseudo.impl, modelCtx_impl, modelImpl_rsqrtS, Mips.Fp.f32Rsqrt]
 
 
@@ -237,7 +235,7 @@ theorem sqrtD_refines (s : State) (hg : Good s) (fd fs w : W32)
   simp only [Ops.SQRT_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.sqrtD]
 
 
-/-- **ABS.D refines (the model's QNaN result is reading A′, `Oracle.absNegNaN`).** -/
+/-- **ABS.D refines (non-arithmetic, `FCSR.ABS2008 = 1`).** -/
 theorem absD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.absD fd fs) = some w) :
     Execute modelCtx w (.absD fd fs) (abs s) =
@@ -246,14 +244,13 @@ theorem absD_refines (s : State) (hg : Good s) (fd fs w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.ABS_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.absD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64Abs (readFpD s fs)) from rfl]
-  rw [f64Abs_eq, ← runAbs_finD s hfsz fd]
+      mkNext s (writeFpD s fd (Mips.Fp.f64Abs (readFpD s fs))) from rfl]
+  rw [f64Abs_eq, ← runAbs_store64 s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.ABS_D, bind, valueFPR64_model, readFpD_abs, Pseudo.oracle, modelCtx_oracle,
-      modelOracle_absNegNaN]
+  simp only [Ops.ABS_D, bind, valueFPR64_model, readFpD_abs]
 
 
-/-- **NEG.D refines (the model's QNaN result is reading A′, `Oracle.absNegNaN`).** -/
+/-- **NEG.D refines (non-arithmetic, `FCSR.ABS2008 = 1`).** -/
 theorem negD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.negD fd fs) = some w) :
     Execute modelCtx w (.negD fd fs) (abs s) =
@@ -262,11 +259,10 @@ theorem negD_refines (s : State) (hg : Good s) (fd fs w : W32)
   obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
   refine execute_cop1 s w _ (Ops.NEG_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
   rw [show execBody s (.negD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64Neg (readFpD s fs)) from rfl]
-  rw [f64Neg_eq, ← runAbs_finD s hfsz fd]
+      mkNext s (writeFpD s fd (Mips.Fp.f64Neg (readFpD s fs))) from rfl]
+  rw [f64Neg_eq, ← runAbs_store64 s hfsz fd]
   apply runAbs_congr
-  simp only [Ops.NEG_D, bind, valueFPR64_model, readFpD_abs, Pseudo.oracle, modelCtx_oracle,
-      modelOracle_absNegNaN]
+  simp only [Ops.NEG_D, bind, valueFPR64_model, readFpD_abs]
 
 
 /-- **RECIP.D refines (`Impl.recipD` of the model).** -/

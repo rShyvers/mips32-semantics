@@ -188,7 +188,10 @@ theorem cprRead_hwrena (s : State) : CPRRead modelImpl 7 0 (abs s) = s.cp0HWREna
 theorem cprRead_badvaddr (s : State) : CPRRead modelImpl 8 0 (abs s) = s.cp0BadVAddr := rfl
 theorem cprRead_count (s : State) : CPRRead modelImpl 9 0 (abs s) = s.cp0Count := rfl
 theorem cprRead_compare (s : State) : CPRRead modelImpl 11 0 (abs s) = s.cp0Compare := rfl
-theorem cprRead_status (s : State) : CPRRead modelImpl 12 0 (abs s) = s.cp0Status := rfl
+-- R6-5: `Status` reads with `FR = 1` (`StatusRead`, the model's `statusValue`).
+theorem cprRead_status (s : State) : CPRRead modelImpl 12 0 (abs s) = statusValue s := by
+  show StatusRead (abs s) = statusValue s
+  simp only [StatusRead, StatusFR, statusValue, statusFrMask, ite_true]; rfl
 theorem cprRead_intctl (s : State) : CPRRead modelImpl 12 1 (abs s) = intCtlValue := rfl
 theorem cprRead_srsctl (s : State) : CPRRead modelImpl 12 2 (abs s) = srsCtlValue := rfl
 theorem cprRead_epc (s : State) : CPRRead modelImpl 14 0 (abs s) = s.cp0Epc := rfl

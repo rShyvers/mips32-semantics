@@ -3,12 +3,7 @@
 # Also: an unimplemented COP0 encoding (rs = 3, reserved) and a CACHE word executed in User Mode with CU0 = 0 raise Coprocessor Unusable (CE = 0), not Reserved Instruction.
 # MD00090 Vol III Rev 6.02 sec 3.2 p.21 ("The processor enters Kernel Mode ... as the result of an interrupt, exception, or error"); sec 6.2.21 p.99 (COP0 encodings: "If access to the coprocessor is not allowed, a Coprocessor Unusable Exception occurs instead");
 # sec 6.2.22 p.100 ("A COP0 or Cache instruction"); Table 6.6 p.83 (CpU takes priority over RI); MD00086 Vol II-A Rev 6.06 ERET p.177, BREAK.
-# oracle: expect gpr:s4=3 gpr:s1=0x20000000
-# oracle: known-model-bug gpr:s1 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug gpr:k1 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug mem:0x10010004 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug mem:0x1001000c MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
-# oracle: known-model-bug mem:0x10010014 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
+# oracle: expect gpr:s4=3 gpr:s1=0x24000000
 .data
 res: .space 64
 .ktext

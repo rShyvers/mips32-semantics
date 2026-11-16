@@ -3,32 +3,54 @@ import Semantics.Tests.StepFixtures
 /-!
 # `step` tests: coprocessor 1 (FPU)
 
-Moved verbatim out of `Semantics/Step.lean` (reviewability restructuring): the definition file now holds definitions only.
+Originally moved out of `Semantics/Step.lean` (reviewability restructuring); updated for the Release 6 FPU (wave R6-5).
 Every check that calls `step`/`run` is a `#guard` (see `StepFixtures.lean` for why).
 -/
 
 open StepTest
 
--- ### Coprocessor 1 (FPU)
+-- ### Coprocessor 1 (FPU), Release 6
 --
+-- 64-bit FPRs (`Status.FR = 1`): a single/word lives in the low 32 bits, a 32-bit write keeps the
+-- upper half (model pin), a double/longword is the whole register.
 -- Bit patterns: 1.0 = 0x3f800000, 2.0 = 0x40000000, 2.5 = 0x40200000,
--- 3.0 = 0x40400000, 3.5 = 0x40600000, −2.5 = 0xc0200000, +∞ = 0x7f800000,
--- legacy QNaN 0x7fbfffff (the default), legacy SNaN 0x7fc00000.
--- FCSR fields: Cause V/Z/O/U/I = bits 16/15/14/13/12, Enables = 11..7,
--- Flags = 6..2, RM = 1..0, FCC0 = bit 23, FCC1..7 = bits 25..31.
+-- 3.0 = 0x40400000, 3.5 = 0x40600000, −2.5 = 0xc0200000, +∞ = 0x7f800000;
+-- IEEE 754-2008 NaNs (`FCSR.NAN2008 = 1`): quiet bit = fraction MSB set, default QNaN 0x7fc00000
+-- (double 0x7ff8000000000000), SNaN e.g. 0x7f800123 (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82).
+-- FCSR fields (stored writable bits): FS = 24, Cause E/V/Z/O/U/I = bits 17/16/15/14/13/12,
+-- Enables = 11..7, Flags = 6..2, RM = 1..0; a read of FCSR adds ABS2008/NAN2008 (bits 19, 18).
 
 private def fp1 (instr : Instruction) (fprs : List (Fin 32 × W32)) (fcsr : W32 := 0#32)
     (gprs : List (Fin 32 × W32) := []) : Outcome :=
   hstep (prog1 instr) { (setFpRegs (setRegs regs0 gprs) fprs) with fcsr := fcsr }
 
-/-- `r` completed normally with `FPR[i] = v` and `FCSR = fcsr`. -/
+/-- As `fp1`, with whole 64-bit FPR values. -/
+private def fp64 (instr : Instruction) (fprs : List (Fin 32 × BitVec 64)) (fcsr : W32 := 0#32)
+    (gprs : List (Fin 32 × W32) := []) : Outcome :=
+  hstep (prog1 instr) { (setFpRegs64 (setRegs regs0 gprs) fprs) with fcsr := fcsr }
+
+/-- `r` completed normally with (the low 32 bits of) `FPR[i] = v` and `FCSR = fcsr`. -/
 private def fpIs (r : Outcome) (i : Fin 32) (v fcsr : W32) : Bool :=
   match r with
   | .next s => readFpReg s i == v && s.fcsr == fcsr && s.pc == textBase + 4#32
   | .halt _ => false
 
+/-- `r` completed normally with the whole 64-bit `FPR[i] = v` and `FCSR = fcsr`. -/
+private def fpIs64 (r : Outcome) (i : Fin 32) (v : BitVec 64) (fcsr : W32) : Bool :=
+  match r with
+  | .next s => readFpReg64 s i == v && s.fcsr == fcsr && s.pc == textBase + 4#32
+  | .halt _ => false
+
 /-- `r` is a Floating Point exception entry (ExcCode 15, `CE` = 0) with
-`FCSR = fcsr` and `FPR[i]` still `v`. -/
+`FCSR = fcsr` and the whole `FPR[i]` still `v`. -/
+private def fpTraps64 (r : Outcome) (i : Fin 32) (v : BitVec 64) (fcsr : W32) : Bool :=
+  raises r excCodeFPE &&
+    (match r with
+     | .next s => readFpReg64 s i == v && s.fcsr == fcsr && s.cp0Cause &&& causeCeMask == 0#32
+     | .halt _ => false)
+
+/-- `r` is a Floating Point exception entry with `FCSR = fcsr` and (the low half of) `FPR[i]` still
+`v`. -/
 private def fpTraps (r : Outcome) (i : Fin 32) (v fcsr : W32) : Bool :=
   raises r excCodeFPE &&
     (match r with
@@ -40,23 +62,37 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   | .next s => s.fcsr == v
   | .halt _ => false
 
+-- #### Moves and the 64-bit register file
 -- mtc1 then mfc1 round-trips an arbitrary bit pattern through $f3
 #guard nextFpRegEq (hstep (prog1 (.mtc1 8#32 3#32)) (setRegs regs0 [(8, 0x12345678#32)])) 3
   0x12345678#32
 #guard nextRegEq (fp1 (.mfc1 9#32 3#32) [(3, 0x12345678#32)]) 9 0x12345678#32
--- mfhc1/mthc1 address the high word of the double in $f4, i.e. FPR[5]
-#guard nextRegEq (fp1 (.mfhc1 9#32 4#32) [(4, 0x11111111#32), (5, 0x22222222#32)]) 9 0x22222222#32
-#guard nextFpRegEq (fp1 (.mthc1 9#32 4#32) [(4, 0x11111111#32)] 0#32 [(9, 0xabcdef01#32)]) 5
-  0xabcdef01#32
-#guard nextFpRegEq (fp1 (.mthc1 9#32 4#32) [(4, 0x11111111#32)] 0#32 [(9, 0xabcdef01#32)]) 4
-  0x11111111#32
+-- mtc1 writes the low word and keeps the upper half of the 64-bit FPR (model pin, MD00082 Vol I-A
+-- Rev 6.01 §6.6.2, p.98); mfc1 reads the low word only
+#guard nextFpReg64Eq (hstep (prog1 (.mtc1 8#32 3#32))
+  (setFpRegs64 (setRegs regs0 [(8, 0x12345678#32)]) [(3, 0xcafebabe00000000#64)])) 3
+  0xcafebabe12345678#64
+#guard nextRegEq (fp64 (.mfc1 9#32 3#32) [(3, 0xcafebabe12345678#64)]) 9 0x12345678#32
+-- mfhc1/mthc1 address bits 63..32 of the same FPR (not FPR[fs+1])
+#guard nextRegEq (fp64 (.mfhc1 9#32 4#32) [(4, 0x2222222211111111#64), (5, 0x33333333#64)]) 9
+  0x22222222#32
+#guard nextRegEq (fp64 (.mfhc1 9#32 5#32) [(5, 0x4444444433333333#64)]) 9 0x44444444#32
+#guard nextFpReg64Eq (fp64 (.mthc1 9#32 4#32) [(4, 0x11111111#64)] 0#32 [(9, 0xabcdef01#32)]) 4
+  0xabcdef0111111111#64
+#guard nextFpReg64Eq (fp64 (.mthc1 9#32 4#32) [(4, 0x11111111#64)] 0#32 [(9, 0xabcdef01#32)]) 5 0#64
+-- odd registers hold doubles too: mthc1 + mtc1 on $f7
+#guard nextFpReg64Eq (fp64 (.mthc1 9#32 7#32) [(7, 0x89abcdef#64)] 0#32 [(9, 0x01234567#32)]) 7
+  0x0123456789abcdef#64
 
 -- #### Arithmetic, rounding modes, flags
 -- 1.0 + 2.0 = 3.0, exact: FCSR unchanged (Cause cleared)
 #guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)]) 2 0x40400000#32 0#32
--- an exact operation clears a stale Cause but keeps Flags, RM, FCC
-#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)] 0xfe81f07f#32) 2
-  0x40400000#32 0xfe80007f#32
+-- a single result keeps the upper half of FPR[fd]
+#guard fpIs64 (fp64 (.addS 2#32 4#32 6#32)
+  [(2, 0xaaaaaaaa00000000#64), (4, 0x3f800000#64), (6, 0x40000000#64)]) 2 0xaaaaaaaa40400000#64 0#32
+-- an exact operation clears a stale Cause but keeps Flags and RM
+#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40000000#32)] 0x0001f07f#32) 2
+  0x40400000#32 0x0000007f#32
 -- 1.0 / 3.0 in the four rounding modes: Inexact in Cause (bit 12) and Flags (bit 2)
 #guard fpIs (fp1 (.divS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0x40400000#32)] 0#32) 2
   0x3eaaaaab#32 0x00001004#32
@@ -68,12 +104,12 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
   0x3eaaaaaa#32 0x00001007#32
 -- 1.0 / 0.0 = +∞, Divide by Zero (Cause bit 15, Flags bit 5)
 #guard fpIs (fp1 (.divS 2#32 4#32 6#32) [(4, 0x3f800000#32), (6, 0#32)]) 2 0x7f800000#32 0x00008020#32
--- invalid operations create the legacy default QNaN 0x7fbfffff (V: bits 16 and 6)
-#guard fpIs (fp1 (.divS 2#32 4#32 6#32) [(4, 0#32), (6, 0#32)]) 2 0x7fbfffff#32 0x00010040#32
-#guard fpIs (fp1 (.subS 2#32 4#32 6#32) [(4, 0x7f800000#32), (6, 0x7f800000#32)]) 2 0x7fbfffff#32
+-- invalid operations create the default QNaN 0x7fc00000 (V: bits 16 and 6)
+#guard fpIs (fp1 (.divS 2#32 4#32 6#32) [(4, 0#32), (6, 0#32)]) 2 0x7fc00000#32 0x00010040#32
+#guard fpIs (fp1 (.subS 2#32 4#32 6#32) [(4, 0x7f800000#32), (6, 0x7f800000#32)]) 2 0x7fc00000#32
   0x00010040#32
-#guard fpIs (fp1 (.sqrtS 2#32 4#32) [(4, 0xbf800000#32)]) 2 0x7fbfffff#32 0x00010040#32
-#guard fpIs (fp1 (.mulS 2#32 4#32 6#32) [(4, 0#32), (6, 0x7f800000#32)]) 2 0x7fbfffff#32 0x00010040#32
+#guard fpIs (fp1 (.sqrtS 2#32 4#32) [(4, 0xbf800000#32)]) 2 0x7fc00000#32 0x00010040#32
+#guard fpIs (fp1 (.mulS 2#32 4#32 6#32) [(4, 0#32), (6, 0x7f800000#32)]) 2 0x7fc00000#32 0x00010040#32
 -- overflow: largest × 2 → +∞ under RN, largest under RZ (O|I: Cause 14,12; Flags 4,2)
 #guard fpIs (fp1 (.mulS 2#32 4#32 6#32) [(4, 0x7f7fffff#32), (6, 0x40000000#32)]) 2 0x7f800000#32
   0x00005014#32
@@ -84,19 +120,24 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 -- sqrt(2), sqrt(4)
 #guard fpIs (fp1 (.sqrtS 2#32 4#32) [(4, 0x40000000#32)]) 2 0x3fb504f3#32 0x00001004#32
 #guard fpIs (fp1 (.sqrtS 2#32 4#32) [(4, 0x40800000#32)]) 2 0x40000000#32 0#32
--- NaN propagation: a quiet NaN operand is copied, no exception; an SNaN signals Invalid
-#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x7f800123#32), (6, 0x3f800000#32)]) 2 0x7f800123#32 0#32
-#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x7fc00000#32), (6, 0x3f800000#32)]) 2 0x7fbfffff#32
+-- NaN propagation: a quiet NaN operand is copied, no exception; an SNaN is made quiet (payload
+-- kept) and signals Invalid; an SNaN takes precedence over a QNaN
+#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x7fc00123#32), (6, 0x3f800000#32)]) 2 0x7fc00123#32 0#32
+#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x7f800123#32), (6, 0x3f800000#32)]) 2 0x7fc00123#32
   0x00010040#32
--- abs/neg are arithmetic: sign-bit only on numbers; any NaN signals Invalid
+#guard fpIs (fp1 (.addS 2#32 4#32 6#32) [(4, 0x7fc00011#32), (6, 0x7f800022#32)]) 2 0x7fc00022#32
+  0x00010040#32
+-- abs/neg are non-arithmetic (FCSR.ABS2008 = 1): only the sign bit changes, NaNs included, and
+-- FCSR is not modified (not even Cause) (MD00086 Vol II-A Rev 6.06, ABS.fmt p.32, NEG.fmt p.307)
 #guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xc0200000#32)]) 2 0x40200000#32 0#32
 #guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0x40200000#32)]) 2 0xc0200000#32 0#32
-#guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0x7fc00000#32)]) 2 0x7fbfffff#32 0x00010040#32   -- SNaN
--- QNaN (reading A′, SPEC-NOTES §9 item 21): Invalid, and the sign bit flipped / cleared
-#guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0xff800123#32)]) 2 0x7f800123#32 0x00010040#32
-#guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xff800001#32)]) 2 0x7f800001#32 0x00010040#32
+#guard fpIs (fp1 (.absS 2#32 4#32) [(4, 0xff800123#32)] 0x0001f07c#32) 2 0x7f800123#32 0x0001f07c#32
+#guard fpIs (fp1 (.negS 2#32 4#32) [(4, 0x7fc00001#32)] 0x00001004#32) 2 0xffc00001#32 0x00001004#32
+-- … and keep the upper half of FPR[fd] (single) / write the whole FPR (double)
+#guard fpIs64 (fp64 (.negS 2#32 4#32) [(2, 0x5555555500000000#64), (4, 0x3f800000#64)]) 2
+  0x55555555bf800000#64 0#32
 -- mov.s is non-arithmetic: an SNaN is copied, FCSR untouched
-#guard fpIs (fp1 (.movS 2#32 4#32) [(4, 0x7fc00000#32)] 0x0000f07c#32) 2 0x7fc00000#32 0x0000f07c#32
+#guard fpIs (fp1 (.movS 2#32 4#32) [(4, 0x7f800123#32)] 0x0000f07c#32) 2 0x7f800123#32 0x0000f07c#32
 -- recip / rsqrt
 #guard fpIs (fp1 (.recipS 2#32 4#32) [(4, 0x40000000#32)]) 2 0x3f000000#32 0#32
 #guard fpIs (fp1 (.rsqrtS 2#32 4#32) [(4, 0x40800000#32)]) 2 0x3f000000#32 0#32
@@ -117,78 +158,135 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xc0200000#32)] 3#32) 2 0xfffffffe#32 0x00001007#32
 #guard fpIs (fp1 (.ceilWS 2#32 4#32) [(4, 0x40200000#32)] 3#32) 2 3#32 0x00001007#32
 #guard fpIs (fp1 (.floorWS 2#32 4#32) [(4, 0xc0200000#32)] 0#32) 2 0xfffffffd#32 0x00001004#32
--- invalid conversions: NaN, ±∞, out of range (either sign) → 0x7fffffff, Invalid
-#guard fpIs (fp1 (.cvtWS 2#32 4#32) [(4, 0x7fbfffff#32)]) 2 0x7fffffff#32 0x00010040#32
-#guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xff800000#32)]) 2 0x7fffffff#32 0x00010040#32
+-- invalid conversions (FCSR.NAN2008 = 1 defaults, MD00082 Vol I-A Rev 6.01 Table 6.3, p.82):
+-- any NaN → 0; +∞ or too big → 0x7fffffff; −∞ or too small → 0x80000000; Invalid
+#guard fpIs (fp1 (.cvtWS 2#32 4#32) [(4, 0x7fc00000#32)]) 2 0#32 0x00010040#32
+#guard fpIs (fp1 (.cvtWS 2#32 4#32) [(4, 0xff800123#32)]) 2 0#32 0x00010040#32
+#guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xff800000#32)]) 2 0x80000000#32 0x00010040#32
+#guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0x7f800000#32)]) 2 0x7fffffff#32 0x00010040#32
 #guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0x4f000000#32)]) 2 0x7fffffff#32 0x00010040#32   -- 2^31
-#guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xdf000000#32)]) 2 0x7fffffff#32 0x00010040#32   -- −2^63
+#guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xdf000000#32)]) 2 0x80000000#32 0x00010040#32   -- −2^63
 #guard fpIs (fp1 (.truncWS 2#32 4#32) [(4, 0xcf000000#32)]) 2 0x80000000#32 0#32            -- −2^31
--- the double forms read the pair ($f4 = low, $f5 = high): 2.5 = 0x4004000000000000
-#guard fpIs (fp1 (.roundWD 2#32 4#32) [(4, 0#32), (5, 0x40040000#32)]) 2 2#32 0x00001004#32
-#guard fpIs (fp1 (.ceilWD 2#32 4#32) [(4, 0#32), (5, 0x40040000#32)]) 2 3#32 0x00001004#32
-#guard fpIs (fp1 (.floorWD 2#32 4#32) [(4, 0#32), (5, 0xc0040000#32)]) 2 0xfffffffd#32 0x00001004#32
-#guard fpIs (fp1 (.truncWD 2#32 4#32) [(4, 0#32), (5, 0xc0040000#32)]) 2 0xfffffffe#32 0x00001004#32
-#guard fpIs (fp1 (.cvtWD 2#32 4#32) [(4, 0#32), (5, 0x40040000#32)] 2#32) 2 3#32 0x00001006#32
-#guard fpIs (fp1 (.cvtWD 2#32 4#32) [(4, 0#32), (5, 0x7ff00000#32)]) 2 0x7fffffff#32 0x00010040#32
+-- the double forms read the whole 64-bit FPR: 2.5 = 0x4004000000000000
+#guard fpIs (fp64 (.roundWD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 2#32 0x00001004#32
+#guard fpIs (fp64 (.ceilWD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 3#32 0x00001004#32
+#guard fpIs (fp64 (.floorWD 2#32 4#32) [(4, 0xc004000000000000#64)]) 2 0xfffffffd#32 0x00001004#32
+#guard fpIs (fp64 (.truncWD 2#32 4#32) [(4, 0xc004000000000000#64)]) 2 0xfffffffe#32 0x00001004#32
+#guard fpIs (fp64 (.cvtWD 2#32 4#32) [(4, 0x4004000000000000#64)] 2#32) 2 3#32 0x00001006#32
+#guard fpIs (fp64 (.cvtWD 2#32 4#32) [(4, 0x7ff0000000000000#64)]) 2 0x7fffffff#32 0x00010040#32
+#guard fpIs (fp64 (.cvtWD 2#32 4#32) [(4, 0x7ff8000000000000#64)]) 2 0#32 0x00010040#32
+-- an odd register holds a double: $f5
+#guard fpIs (fp64 (.roundWD 2#32 5#32) [(5, 0x4004000000000000#64)]) 2 2#32 0x00001004#32
 -- cvt.s.w: 5 → 5.0; 2^24+1 is inexact (RN down, RP up)
 #guard fpIs (fp1 (.cvtSW 2#32 4#32) [(4, 5#32)]) 2 0x40a00000#32 0#32
 #guard fpIs (fp1 (.cvtSW 2#32 4#32) [(4, 16777217#32)]) 2 0x4b800000#32 0x00001004#32
 #guard fpIs (fp1 (.cvtSW 2#32 4#32) [(4, 16777217#32)] 2#32) 2 0x4b800001#32 0x00001006#32
--- cvt.d.w −1 → −1.0 = 0xbff0000000000000; cvt.d.s 1.0; cvt.s.d of 1+2^−24 (a tie)
-#guard (match fp1 (.cvtDW 2#32 4#32) [(4, 0xffffffff#32)] with
-        | .next s => readFpD s 2#32 == 0xbff0000000000000#64 && s.fcsr == 0#32
-        | .halt _ => false)
-#guard (match fp1 (.cvtDS 2#32 4#32) [(4, 0x3f800000#32)] with
-        | .next s => readFpD s 2#32 == 0x3ff0000000000000#64 && s.fcsr == 0#32
-        | .halt _ => false)
-#guard fpIs (fp1 (.cvtSD 2#32 4#32) [(4, 0x10000000#32), (5, 0x3ff00000#32)]) 2 0x3f800000#32
-  0x00001004#32
-#guard fpIs (fp1 (.cvtSD 2#32 4#32) [(4, 0x10000000#32), (5, 0x3ff00000#32)] 2#32) 2 0x3f800001#32
+-- cvt.d.w −1 → −1.0 = 0xbff0000000000000; cvt.d.s 1.0 (the whole FPR written); cvt.s.d of
+-- 1+2^−24 (a tie)
+#guard fpIs64 (fp1 (.cvtDW 2#32 4#32) [(4, 0xffffffff#32)]) 2 0xbff0000000000000#64 0#32
+#guard fpIs64 (fp64 (.cvtDS 2#32 4#32) [(2, 0xffffffffffffffff#64), (4, 0x3f800000#64)]) 2
+  0x3ff0000000000000#64 0#32
+-- cvt.d.s of a QNaN keeps sign and payload; of an SNaN quiets it with Invalid
+#guard fpIs64 (fp1 (.cvtDS 2#32 4#32) [(4, 0xffc00001#32)]) 2 0xfff8000020000000#64 0#32
+#guard fpIs64 (fp1 (.cvtDS 2#32 4#32) [(4, 0x7f800001#32)]) 2 0x7ff8000020000000#64 0x00010040#32
+#guard fpIs (fp64 (.cvtSD 2#32 4#32) [(4, 0x3ff0000010000000#64)]) 2 0x3f800000#32 0x00001004#32
+#guard fpIs (fp64 (.cvtSD 2#32 4#32) [(4, 0x3ff0000010000000#64)] 2#32) 2 0x3f800001#32
   0x00001006#32
 
--- #### Double-precision arithmetic (pairs: low word in $fN, high word in $fN+1)
+-- #### Longword (L) conversions (MD00086 Vol II-A Rev 6.06: CVT.L.fmt p.154, ROUND.L.fmt p.341,
+-- TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185, CVT.S.fmt p.159, CVT.D.fmt p.153)
+-- single → longword: cvt.l follows FCSR.RM, the others their fixed direction
+#guard fpIs64 (fp1 (.cvtLS 2#32 4#32) [(4, 0x40200000#32)]) 2 2#64 0x00001004#32
+#guard fpIs64 (fp1 (.cvtLS 2#32 4#32) [(4, 0x40200000#32)] 2#32) 2 3#64 0x00001006#32
+#guard fpIs64 (fp1 (.truncLS 2#32 4#32) [(4, 0xc0200000#32)] 3#32) 2 0xfffffffffffffffe#64 0x00001007#32
+#guard fpIs64 (fp1 (.roundLS 2#32 4#32) [(4, 0x40600000#32)] 3#32) 2 4#64 0x00001007#32
+#guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 0x40200000#32)]) 2 3#64 0x00001004#32
+#guard fpIs64 (fp1 (.floorLS 2#32 4#32) [(4, 0xc0200000#32)]) 2 0xfffffffffffffffd#64 0x00001004#32
+-- 2^40 and 2^31 fit a longword exactly (2^31 does not fit a word)
+#guard fpIs64 (fp1 (.cvtLS 2#32 4#32) [(4, 0x53800000#32)]) 2 0x0000010000000000#64 0#32
+#guard fpIs64 (fp1 (.truncLS 2#32 4#32) [(4, 0x4f000000#32)]) 2 0x0000000080000000#64 0#32
+-- invalid: NaN → 0, 2^63 / +∞ → 0x7fff…, −∞ → 0x8000…; −2^63 itself is exact
+#guard fpIs64 (fp1 (.cvtLS 2#32 4#32) [(4, 0x7fc00000#32)]) 2 0#64 0x00010040#32
+#guard fpIs64 (fp1 (.roundLS 2#32 4#32) [(4, 0x5f000000#32)]) 2 0x7fffffffffffffff#64 0x00010040#32
+#guard fpIs64 (fp1 (.floorLS 2#32 4#32) [(4, 0xff800000#32)]) 2 0x8000000000000000#64 0x00010040#32
+#guard fpIs64 (fp1 (.truncLS 2#32 4#32) [(4, 0xdf000000#32)]) 2 0x8000000000000000#64 0#32
+-- FCSR.FS = 1 flushes a subnormal operand to zero first: ceil of the smallest subnormal is 1
+-- with FS = 0 (Inexact) and 0 with FS = 1 (exact)
+#guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 1#32)]) 2 1#64 0x00001004#32
+#guard fpIs64 (fp1 (.ceilLS 2#32 4#32) [(4, 1#32)] 0x01000000#32) 2 0#64 0x01000000#32
+-- double → longword
+#guard fpIs64 (fp64 (.roundLD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 2#64 0x00001004#32
+#guard fpIs64 (fp64 (.ceilLD 2#32 4#32) [(4, 0x4004000000000000#64)]) 2 3#64 0x00001004#32
+#guard fpIs64 (fp64 (.floorLD 2#32 4#32) [(4, 0xc004000000000000#64)]) 2 0xfffffffffffffffd#64
+  0x00001004#32
+#guard fpIs64 (fp64 (.truncLD 2#32 4#32) [(4, 0xc004000000000000#64)]) 2 0xfffffffffffffffe#64
+  0x00001004#32
+#guard fpIs64 (fp64 (.cvtLD 2#32 4#32) [(4, 0x4004000000000000#64)] 2#32) 2 3#64 0x00001006#32
+#guard fpIs64 (fp64 (.cvtLD 2#32 4#32) [(4, 0xc3e0000000000000#64)]) 2 0x8000000000000000#64 0#32
+#guard fpIs64 (fp64 (.ceilLD 2#32 4#32) [(4, 0x43e0000000000000#64)]) 2 0x7fffffffffffffff#64
+  0x00010040#32
+#guard fpIs64 (fp64 (.cvtLD 2#32 4#32) [(4, 0x7ff0000000000000#64)]) 2 0x7fffffffffffffff#64
+  0x00010040#32
+#guard fpIs64 (fp64 (.cvtLD 2#32 4#32) [(4, 0x7ff0000000000001#64)]) 2 0#64 0x00010040#32
+-- longword → double: rounded per FCSR.RM (2^53 + 1 is inexact)
+#guard fpIs64 (fp64 (.cvtDL 2#32 4#32) [(4, 0x0020000000000001#64)]) 2 0x4340000000000000#64
+  0x00001004#32
+#guard fpIs64 (fp64 (.cvtDL 2#32 4#32) [(4, 0x0020000000000001#64)] 2#32) 2 0x4340000000000001#64
+  0x00001006#32
+#guard fpIs64 (fp64 (.cvtDL 2#32 4#32) [(4, 0x8000000000000000#64)]) 2 0xc3e0000000000000#64 0#32
+#guard fpIs64 (fp64 (.cvtDL 2#32 4#32) [(4, 0xffffffffffffffff#64)]) 2 0xbff0000000000000#64 0#32
+-- longword → single: rounded per FCSR.RM; the upper half of FPR[fd] kept
+#guard fpIs (fp64 (.cvtSL 2#32 4#32) [(4, 0x7fffffffffffffff#64)]) 2 0x5f000000#32 0x00001004#32
+#guard fpIs64 (fp64 (.cvtSL 2#32 4#32) [(2, 0xaaaaaaaa00000000#64), (4, 0xffffffffffffffff#64)]) 2
+  0xaaaaaaaabf800000#64 0#32
+-- Invalid enabled (bit 11): cvt.l.d of a NaN traps, FPR[fd] not written
+#guard fpTraps64 (fp64 (.cvtLD 2#32 4#32) [(2, 0x0000beef0000dead#64), (4, 0x7ff8000000000000#64)]
+  0x00000800#32) 2 0x0000beef0000dead#64 0x00010800#32
+
+-- #### Double-precision arithmetic (one 64-bit FPR per double)
 -- 1.0 + 2.0 = 3.0 (0x4008000000000000)
-#guard (match fp1 (.addD 2#32 4#32 6#32) [(5, 0x3ff00000#32), (7, 0x40000000#32)] with
-        | .next s => readFpD s 2#32 == 0x4008000000000000#64 && s.fcsr == 0#32
-        | .halt _ => false)
+#guard fpIs64 (fp64 (.addD 2#32 4#32 6#32) [(4, 0x3ff0000000000000#64), (6, 0x4000000000000000#64)]) 2
+  0x4008000000000000#64 0#32
+-- odd registers: $f3 ← $f5 + $f7
+#guard fpIs64 (fp64 (.addD 3#32 5#32 7#32) [(5, 0x3ff0000000000000#64), (7, 0x4000000000000000#64)]) 3
+  0x4008000000000000#64 0#32
 -- 1.0 / 3.0 = 0x3fd5555555555555, Inexact
-#guard (match fp1 (.divD 2#32 4#32 6#32) [(5, 0x3ff00000#32), (7, 0x40080000#32)] with
-        | .next s => readFpD s 2#32 == 0x3fd5555555555555#64 && s.fcsr == 0x00001004#32
-        | .halt _ => false)
--- sqrt.d(2) = 0x3ff6a09e667f3bcd; sqrt.d(−1) → default QNaN 0x7ff7ffffffffffff, Invalid
-#guard (match fp1 (.sqrtD 2#32 4#32) [(5, 0x40000000#32)] with
-        | .next s => readFpD s 2#32 == 0x3ff6a09e667f3bcd#64 && s.fcsr == 0x00001004#32
-        | .halt _ => false)
-#guard (match fp1 (.sqrtD 2#32 4#32) [(5, 0xbff00000#32)] with
-        | .next s => readFpD s 2#32 == 0x7ff7ffffffffffff#64 && s.fcsr == 0x00010040#32
-        | .halt _ => false)
--- mov.d / neg.d / abs.d
-#guard (match fp1 (.movD 2#32 4#32) [(4, 0x89abcdef#32), (5, 0x7ff80000#32)] 0x7c#32 with
-        | .next s => readFpD s 2#32 == 0x7ff8000089abcdef#64 && s.fcsr == 0x7c#32
-        | .halt _ => false)
-#guard (match fp1 (.negD 2#32 4#32) [(4, 1#32), (5, 0x3ff00000#32)] with
-        | .next s => readFpD s 2#32 == 0xbff0000000000001#64 && s.fcsr == 0#32
-        | .halt _ => false)
-#guard (match fp1 (.absD 2#32 4#32) [(4, 1#32), (5, 0xbff00000#32)] with
-        | .next s => readFpD s 2#32 == 0x3ff0000000000001#64
-        | .halt _ => false)
+#guard fpIs64 (fp64 (.divD 2#32 4#32 6#32) [(4, 0x3ff0000000000000#64), (6, 0x4008000000000000#64)]) 2
+  0x3fd5555555555555#64 0x00001004#32
+-- sqrt.d(2) = 0x3ff6a09e667f3bcd; sqrt.d(−1) → default QNaN 0x7ff8000000000000, Invalid
+#guard fpIs64 (fp64 (.sqrtD 2#32 4#32) [(4, 0x4000000000000000#64)]) 2 0x3ff6a09e667f3bcd#64
+  0x00001004#32
+#guard fpIs64 (fp64 (.sqrtD 2#32 4#32) [(4, 0xbff0000000000000#64)]) 2 0x7ff8000000000000#64
+  0x00010040#32
+-- mov.d / neg.d / abs.d: non-arithmetic, FCSR untouched
+#guard fpIs64 (fp64 (.movD 2#32 4#32) [(4, 0x7ff8000089abcdef#64)] 0x7c#32) 2 0x7ff8000089abcdef#64
+  0x7c#32
+#guard fpIs64 (fp64 (.negD 2#32 4#32) [(4, 0x3ff0000000000001#64)]) 2 0xbff0000000000001#64 0#32
+#guard fpIs64 (fp64 (.absD 2#32 4#32) [(4, 0xbff0000000000001#64)]) 2 0x3ff0000000000001#64 0#32
+#guard fpIs64 (fp64 (.negD 2#32 4#32) [(4, 0x7ff0000000000001#64)] 0x0001f07c#32) 2
+  0xfff0000000000001#64 0x0001f07c#32
 
 -- (Release 6 removed MADD/MSUB/NMADD/NMSUB.fmt, C.cond.fmt, BC1F/BC1T/BC1FL/BC1TL and the
 -- conditional moves MOVF/MOVT/MOVN/MOVZ(.fmt); their tests are gone. W6 adds CMP.cond.fmt,
 -- BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ.fmt and MADDF/MSUBF.fmt.)
 
--- #### Control registers: cfc1 / ctc1
--- FIR (0) is a constant; FCSR (31) round-trips its non-reserved bits
-#guard nextRegEq (fp1 (.cfc1 9#32 0#32) []) 9 0x00330000#32
-#guard fpTraps (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0xffffffff#32)]) 0 0#32 0xff83ffff#32
-#guard nextFcsrEq (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0x00800003#32)]) 0x00800003#32
-#guard nextRegEq (fp1 (.cfc1 9#32 31#32) [] 0x00800003#32) 9 0x00800003#32
--- views after `ctc1 0x00800003 → $31`: FCCR (25) = 1 (FCC0), FENR (28) = 3 (RM), FEXR (26) = 0
-#guard nextRegEq (fp1 (.cfc1 9#32 25#32) [] 0x00800003#32) 9 1#32
-#guard nextRegEq (fp1 (.cfc1 9#32 28#32) [] 0x00800003#32) 9 3#32
-#guard nextRegEq (fp1 (.cfc1 9#32 26#32) [] 0x00800003#32) 9 0#32
--- FCCR write sets all eight condition codes and nothing else
-#guard nextFcsrEq (fp1 (.ctc1 8#32 25#32) [] 0x00000f83#32 [(8, 0xff#32)]) 0xfe800f83#32
+-- #### Control registers: cfc1 / ctc1 (MD00086 Vol II-A Rev 6.06, CFC1 p.129-130, CTC1 p.149-151)
+-- FIR (0) is the constant 0x00f30000 (S, D, W, L, F64, Has2008)
+#guard nextRegEq (fp1 (.cfc1 9#32 0#32) []) 9 0x00f30000#32
+-- FCSR (31): only the writable bits are stored; writing all ones sets Cause.E, which traps
+#guard fpTraps (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0xffffffff#32)]) 0 0#32 0x0103ffff#32
+#guard nextFcsrEq (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0x01000003#32)]) 0x01000003#32
+-- the Release 6 FCC bits (23, 31..25) are reserved: a write ignores them
+#guard nextFcsrEq (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0xfe800003#32)]) 0x00000003#32
+-- a read of FCSR shows ABS2008 = NAN2008 = 1 (bits 19, 18)
+#guard nextRegEq (fp1 (.cfc1 9#32 31#32) [] 0x01000003#32) 9 0x010c0003#32
+#guard nextRegEq (fp1 (.cfc1 9#32 31#32) []) 9 0x000c0000#32
+-- views of FCSR = 0x01000003: FCCR (25) = 0, FENR (28) = 7 (FS in bit 2, RM), FEXR (26) = 0
+#guard nextRegEq (fp1 (.cfc1 9#32 25#32) [] 0x01000003#32 [(9, 0x55#32)]) 9 0#32
+#guard nextRegEq (fp1 (.cfc1 9#32 28#32) [] 0x01000003#32) 9 7#32
+#guard nextRegEq (fp1 (.cfc1 9#32 26#32) [] 0x01000003#32) 9 0#32
+-- an FCCR write changes nothing (its FCC bits are reserved)
+#guard nextFcsrEq (fp1 (.ctc1 8#32 25#32) [] 0x00000f83#32 [(8, 0xff#32)]) 0x00000f83#32
 -- FENR write: Enables, FS (bit 2 → FCSR bit 24), RM
 #guard nextFcsrEq (fp1 (.ctc1 8#32 28#32) [] 0#32 [(8, 0x00000f87#32)]) 0x01000f83#32
 -- FEXR write: Cause and Flags
@@ -197,10 +295,17 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 #guard fpTraps (fp1 (.ctc1 8#32 26#32) [] 0x00000080#32 [(8, 0x00001000#32)]) 0 0#32 0x00001080#32
 -- … and so does Cause.E (bit 17), which has no enable
 #guard fpTraps (fp1 (.ctc1 8#32 31#32) [] 0#32 [(8, 0x00020000#32)]) 0 0#32 0x00020000#32
--- FIR is read-only; a nonexistent control register reads 0 / ignores writes (pin)
+-- Release 6 traps: FIR is not writable, UFR/UNFR (1, 4) and every control register that does not
+-- exist raise Reserved Instruction; FRE (5) reads 0 (pin of UNPREDICTABLE), a write to it raises RI
+#guard raises (fp1 (.ctc1 8#32 0#32) [] 0x7c#32 [(8, 0xffffffff#32)]) excCodeRI
 #guard nextFcsrEq (fp1 (.ctc1 8#32 0#32) [] 0x7c#32 [(8, 0xffffffff#32)]) 0x7c#32
-#guard nextRegEq (fp1 (.cfc1 9#32 7#32) [] 0x7c#32 [(9, 0x55#32)]) 9 0#32
-#guard nextFcsrEq (fp1 (.ctc1 8#32 7#32) [] 0x7c#32 [(8, 0xffffffff#32)]) 0x7c#32
+#guard raises (fp1 (.cfc1 9#32 7#32) [] 0x7c#32 [(9, 0x55#32)]) excCodeRI
+#guard nextRegEq (fp1 (.cfc1 9#32 7#32) [] 0x7c#32 [(9, 0x55#32)]) 9 0x55#32
+#guard raises (fp1 (.ctc1 8#32 7#32) [] 0x7c#32 [(8, 0xffffffff#32)]) excCodeRI
+#guard raises (fp1 (.cfc1 9#32 1#32) []) excCodeRI
+#guard raises (fp1 (.ctc1 8#32 4#32) []) excCodeRI
+#guard nextRegEq (fp1 (.cfc1 9#32 5#32) [] 0#32 [(9, 0x55#32)]) 9 0#32
+#guard raises (fp1 (.ctc1 8#32 5#32) []) excCodeRI
 
 -- #### Floating Point exception (enabled exception): destination not written
 -- Inexact enabled (bit 7): 1/3 traps; $f2 keeps 0xdead; Cause.I set, Flags untouched
@@ -209,18 +314,20 @@ private def nextFcsrEq (r : Outcome) (v : W32) : Bool :=
 -- Divide-by-zero enabled (bit 10)
 #guard fpTraps (fp1 (.divS 2#32 4#32 6#32)
   [(2, 0xdead#32), (4, 0x3f800000#32), (6, 0#32)] 0x00000400#32) 2 0xdead#32 0x00008400#32
--- Invalid enabled (bit 11): cvt.w.s of a NaN, abs.s of a NaN
-#guard fpTraps (fp1 (.cvtWS 2#32 4#32) [(2, 0xdead#32), (4, 0x7fbfffff#32)] 0x00000800#32) 2
+-- Invalid enabled (bit 11): cvt.w.s of a NaN traps
+#guard fpTraps (fp1 (.cvtWS 2#32 4#32) [(2, 0xdead#32), (4, 0x7fc00000#32)] 0x00000800#32) 2
   0xdead#32 0x00010800#32
-#guard fpTraps (fp1 (.absS 2#32 4#32) [(2, 0xdead#32), (4, 0x7fbfffff#32)] 0x00000800#32) 2
-  0xdead#32 0x00010800#32
+-- … but abs.s of a NaN does not (non-arithmetic): sign cleared, FCSR unchanged
+#guard fpIs (fp1 (.absS 2#32 4#32) [(2, 0xdead#32), (4, 0xffc00001#32)] 0x00000800#32) 2
+  0x7fc00001#32 0x00000800#32
 -- Underflow enabled (bit 8): an exact tiny result (2^−126 × 0.5) traps
 #guard fpTraps (fp1 (.mulS 2#32 4#32 6#32)
   [(2, 0xdead#32), (4, 0x00800000#32), (6, 0x3f000000#32)] 0x00000100#32) 2 0xdead#32 0x00002100#32
 #guard fpIs (fp1 (.mulS 2#32 4#32 6#32) [(4, 0x00800000#32), (6, 0x3f000000#32)]) 2 0x00400000#32 0#32
 -- a double result is not written either
-#guard (match fp1 (.divD 2#32 4#32 6#32)
-          [(2, 0xdead#32), (3, 0xbeef#32), (5, 0x3ff00000#32), (7, 0x40080000#32)] 0x00000080#32 with
+#guard (match fp64 (.divD 2#32 4#32 6#32)
+          [(2, 0x0000beef0000dead#64), (4, 0x3ff0000000000000#64), (6, 0x4008000000000000#64)]
+          0x00000080#32 with
         | .next s => readFpD s 2#32 == 0x0000beef0000dead#64 && causeExcCode s == excCodeFPE &&
             s.fcsr == 0x00001080#32 && s.cp0Epc == textBase
         | .halt _ => false)
@@ -242,13 +349,14 @@ private def cpuRaised (r : Outcome) (s : State) (ce : W32) : Bool :=
 
 private def cuState : State :=
   noCu1 { (setFpRegs (setRegs regs0 [(8, 0x10010000#32), (9, 0x77#32)])
-      [(2, 0x11#32), (4, 0x3f800000#32), (6, 0x40000000#32)]) with fcsr := 0x00800003#32 }
+      [(2, 0x11#32), (4, 0x3f800000#32), (6, 0x40000000#32)]) with fcsr := 0x00000003#32 }
 
 #guard [Instruction.addS 2#32 4#32 6#32, .addD 2#32 4#32 6#32, .mfc1 9#32 4#32, .mtc1 9#32 4#32,
     .mfhc1 9#32 4#32, .mthc1 9#32 4#32, .cfc1 9#32 31#32, .ctc1 9#32 31#32,
     .lwc1 8#32 2#32 0#32, .swc1 8#32 2#32 0#32, .ldc1 8#32 2#32 0#32, .sdc1 8#32 2#32 0#32,
     .movS 2#32 4#32, .absD 2#32 4#32, .cvtWS 2#32 4#32, .cvtDW 2#32 4#32, .sqrtS 2#32 4#32,
-    .recipS 2#32 4#32, .rsqrtD 2#32 4#32, .roundWD 2#32 4#32].all
+    .recipS 2#32 4#32, .rsqrtD 2#32 4#32, .roundWD 2#32 4#32, .cvtLS 2#32 4#32, .floorLD 2#32 4#32,
+    .cvtSL 2#32 4#32, .cvtDL 2#32 4#32].all
   fun i => cpuRaised (hstep (prog1 i) cuState) cuState 1#32
 -- … and none of them raises it when CU1 = 1
 #guard !(raises (hstep (prog1 (.addS 2#32 4#32 6#32)) { cuState with cp0Status := statusCu1Mask })
@@ -287,26 +395,45 @@ private def fpMemTestState : State :=
       physMem := (((∅ : Std.HashMap W32 UInt8).insert 0x50010004#32 0x00).insert 0x50010005#32 0x00)
                |>.insert 0x50010006#32 0x80 |>.insert 0x50010007#32 0x3f }  -- 1.0 at offset 4 (LE)
 #guard nextFpRegEq (hstep (prog1 (.lwc1 8#32 9#32 4#32)) fpMemTestState) 9 0x3f800000#32
+-- lwc1 writes the low word, keeping the upper half of the 64-bit FPR (model pin); swc1 stores the low word
+#guard nextFpReg64Eq (hstep (prog1 (.lwc1 8#32 9#32 4#32))
+  (setFpRegs64 fpMemTestState [(9, 0xaaaaaaaabbbbbbbb#64)])) 9 0xaaaaaaaa3f800000#64
+#guard (stepState (prog1 (.swc1 8#32 9#32 4#32))
+          (setFpRegs64 (setRegs regs0 [(8, 0x10010000#32)]) [(9, 0x123456783f800000#64)])).bind
+        (fun s' => readMemWord s' 0x10010004#32) = some 0x3f800000#32
 #guard (stepState (prog1 (.swc1 8#32 9#32 4#32))
           (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(9, 0x3f800000#32)])).bind
         (fun s' => readMemWord s' 0x10010004#32) = some 0x3f800000#32
 #guard raisesAddr (hstep (prog1 (.lwc1 8#32 9#32 1#32)) (setRegs regs0 [(8, 0x10010000#32)]))
   excCodeAdEL 0x10010001#32
 
--- ldc1/sdc1: little-endian doubleword (low word at the lower address), doubleword-aligned
+-- ldc1/sdc1: little-endian doubleword (low word at the lower address) in one 64-bit FPR,
+-- doubleword-aligned
 private def dpMemTestState : State :=
   { (setRegs regs0 [(8, 0x10010000#32), (9, 8#32)]) with
       -- physical: data VA 0x1001_xxxx is PA 0x5001_xxxx (kuseg + 1 GB while ERL = 0)
       physMem := ((((∅ : Std.HashMap W32 UInt8).insert 0x5001000f#32 0x3f).insert 0x5001000e#32 0xf0)
                |>.insert 0x50010008#32 0x01) }  -- 0x3ff0000000000001 at offset 8 (LE)
 #guard (match hstep (prog1 (.ldc1 8#32 2#32 8#32)) dpMemTestState with
-        | .next s => readFpD s 2#32 == 0x3ff0000000000001#64 && readFpReg s 3 == 0x3ff00000#32
+        | .next s => readFpD s 2#32 == 0x3ff0000000000001#64 && readFpReg64 s 3 == 0#64
+        | .halt _ => false)
+-- an odd register: ldc1 $f3 loads the whole doubleword into FPR[3], FPR[2] and FPR[4] untouched
+#guard (match hstep (prog1 (.ldc1 8#32 3#32 8#32))
+          (setFpRegs64 dpMemTestState [(2, 0x2222#64), (4, 0x4444#64)]) with
+        | .next s => readFpReg64 s 3 == 0x3ff0000000000001#64 && readFpReg64 s 2 == 0x2222#64 &&
+            readFpReg64 s 4 == 0x4444#64
         | .halt _ => false)
 #guard (stepState (prog1 (.sdc1 8#32 2#32 16#32))
-          (setFpRegs (setRegs regs0 [(8, 0x10010000#32)]) [(2, 0x89abcdef#32), (3, 0x01234567#32)])).bind
+          (setFpRegs64 (setRegs regs0 [(8, 0x10010000#32)]) [(2, 0x0123456789abcdef#64)])).bind
         (fun s' => (readMemWord s' 0x10010010#32).bind fun lo =>
           (readMemWord s' 0x10010014#32).map fun hi => (lo, hi))
       = some (0x89abcdef#32, 0x01234567#32)
+-- sdc1 from an odd register
+#guard (stepState (prog1 (.sdc1 8#32 5#32 16#32))
+          (setFpRegs64 (setRegs regs0 [(8, 0x10010000#32)]) [(4, 0x1111#64), (5, 0xfedcba9876543210#64)])).bind
+        (fun s' => (readMemWord s' 0x10010010#32).bind fun lo =>
+          (readMemWord s' 0x10010014#32).map fun hi => (lo, hi))
+      = some (0x76543210#32, 0xfedcba98#32)
 -- word-aligned but not doubleword-aligned: Address Error
 #guard raisesAddr (hstep (prog1 (.ldc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdEL 0x10010004#32
 #guard raisesAddr (hstep (prog1 (.sdc1 8#32 2#32 4#32)) dpMemTestState) excCodeAdES 0x10010004#32

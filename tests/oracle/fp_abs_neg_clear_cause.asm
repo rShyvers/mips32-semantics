@@ -1,14 +1,9 @@
 # abs.s / abs.d / neg.s / neg.d of a non-NaN operand after an inexact mul.s (Cause.I = Flags.I = 1). Release 6 requires FCSR.ABS2008 = 1
 # (MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.93), and then ABS/NEG are non-arithmetic (MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 / NEG.fmt p.307:
 # "If FCSRABS2008=1 then this operation is non-arithmetic"): Cause and Flags stay (0x1004), like mov.s (MOV.fmt p.275, the control case).
-# The model is still the ABS2008 = 0 FPU (arithmetic: writes Cause = 0, leaving Flags.I = 0x0004) until W5: known model bug on those slots.
-# Per case: result bits (high word for .d, via mfhc1) and FCSR after (masked: bits 19..18 NAN2008/ABS2008 dropped).
-# oracle: expect mem:0x10010024=0x00001004
+# Per case: result bits (high word for .d, via mfhc1) and FCSR after (the read-only NAN2008/ABS2008 bits 19..18 read 1, so 0x000c1004).
+# oracle: expect mem:0x10010024=0x000c1004
 # oracle: expect mem:0x10010000=0x40490fdb mem:0x10010008=0x400921fb mem:0x10010010=0x40490fdb mem:0x10010018=0x400921fb mem:0x10010020=0xc0490fdb
-# oracle: known-model-bug mem:0x10010004 MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 / NEG.fmt p.307: "If FCSRABS2008=1 then this operation is non-arithmetic" and FCSR.ABS2008 is required 1 in Release 6 (MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.93); W5: the model is still the ABS2008 = 0 (arithmetic) FPU (FCSR after abs.s: model 0x00000004, Release 6 0x00001004)
-# oracle: known-model-bug mem:0x1001000c MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 / NEG.fmt p.307: "If FCSRABS2008=1 then this operation is non-arithmetic" and FCSR.ABS2008 is required 1 in Release 6 (MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.93); W5: the model is still the ABS2008 = 0 (arithmetic) FPU (FCSR after abs.d: model 0x00000004, Release 6 0x00001004)
-# oracle: known-model-bug mem:0x10010014 MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 / NEG.fmt p.307: "If FCSRABS2008=1 then this operation is non-arithmetic" and FCSR.ABS2008 is required 1 in Release 6 (MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.93); W5: the model is still the ABS2008 = 0 (arithmetic) FPU (FCSR after neg.s: model 0x00000004, Release 6 0x00001004)
-# oracle: known-model-bug mem:0x1001001c MD00086 Vol II-A Rev 6.06 ABS.fmt p.32 / NEG.fmt p.307: "If FCSRABS2008=1 then this operation is non-arithmetic" and FCSR.ABS2008 is required 1 in Release 6 (MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.93); W5: the model is still the ABS2008 = 0 (arithmetic) FPU (FCSR after neg.d: model 0x00000004, Release 6 0x00001004)
 .data
 res: .space 64
 .text
@@ -25,9 +20,6 @@ ctc1 $zero, $31
 mul.s $f8, $f6, $f6
 abs.s $f10, $f2
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 mfc1 $t0, $f10
 sw $t0, 0($s7)
 sw $t1, 4($s7)
@@ -35,9 +27,6 @@ ctc1 $zero, $31
 mul.s $f8, $f6, $f6
 abs.d $f10, $f4
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 mfhc1 $t0, $f10
 sw $t0, 8($s7)
 sw $t1, 12($s7)
@@ -45,9 +34,6 @@ ctc1 $zero, $31
 mul.s $f8, $f6, $f6
 neg.s $f10, $f2
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 mfc1 $t0, $f10
 sw $t0, 16($s7)
 sw $t1, 20($s7)
@@ -55,9 +41,6 @@ ctc1 $zero, $31
 mul.s $f8, $f6, $f6
 neg.d $f10, $f4
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 mfhc1 $t0, $f10
 sw $t0, 24($s7)
 sw $t1, 28($s7)
@@ -65,9 +48,6 @@ ctc1 $zero, $31
 mul.s $f8, $f6, $f6
 mov.s $f10, $f2
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 mfc1 $t0, $f10
 sw $t0, 32($s7)
 sw $t1, 36($s7)

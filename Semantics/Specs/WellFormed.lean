@@ -186,3 +186,17 @@ def Instruction.WellFormed : Instruction → Prop
   | .jic rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
   | .jialc rt off => rt.toNat < 32 ∧ off.toNat < 2 ^ 16
   -- END R6-3
+  -- BEGIN R6-5
+  | .cvtLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .cvtLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .roundLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .roundLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .truncLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .truncLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .ceilLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .ceilLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .floorLS fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .floorLD fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .cvtSL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  | .cvtDL fd fs => fd.toNat < 32 ∧ fs.toNat < 32
+  -- END R6-5

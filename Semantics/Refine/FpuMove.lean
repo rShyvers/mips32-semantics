@@ -3,11 +3,10 @@ import Semantics.Refine.BridgeFpuMove
 /-!
 # Refine.FpuMove — FP moves against `execInstr` (7C S4b)
 
-`MFC1`, `MTC1`, `MFHC1`, `MTHC1`, `MOV.fmt` (S, D; Release 6 removed the conditional moves). The
-double forms read and write the FPR pair through `ValueFPR64`/`StoreFPR64`, whose
-odd-register outcomes under `modelOracle` are the even-register formula (`valueFPR64_model`,
-`storeFPR64_model`); the "fd retains its previous value" arms store `ValueFPR(fd, fmt)` back
-(`update_self`).
+`MFC1`, `MTC1`, `MFHC1`, `MTHC1`, `MOV.fmt` (S, D; Release 6 removed the conditional moves). With the
+64-bit FPRs (`Status.FR = 1`, R6-5) the double forms read and write one FPR (`valueFPR64_model`,
+`storeFPR64_model`); a 32-bit store keeps the upper half (`Oracle.fprUpper` of the model,
+`fprUpper_model`).
 -/
 
 namespace Refine
@@ -26,7 +25,8 @@ theorem mfc1_refines (s : State) (hg : Good s) (rt fs w : W32)
   intro _
   have hb : execBody s (.mfc1 rt fs) = mkNext s (writeReg s (regIdx rt) (readFpReg s (regIdx fs))) := rfl
   rw [hb, abs_mkNext_writeReg _ _ _ hsz]
-  simp only [Pseudo.run, Ops.MFC1, bind, ValueFPR32, setGPR, complete_plain, abs_FPR, regIdx_eq_reg]
+  simp only [Pseudo.run, Ops.MFC1, bind, ValueFPR32, setGPR, complete_plain, abs_FPR, readFpReg_eq,
+    regIdx_eq_reg]
 
 /-- **MTC1 refines.** -/
 theorem mtc1_refines (s : State) (hg : Good s) (rt fs w : W32)
@@ -40,10 +40,10 @@ theorem mtc1_refines (s : State) (hg : Good s) (rt fs w : W32)
   intro _
   have hb : execBody s (.mtc1 rt fs) = mkNext s (writeFpReg s (regIdx fs) (readReg s (regIdx rt))) := rfl
   rw [hb, abs_mkNext_writeFpReg _ _ _ hfsz]
-  simp only [Pseudo.run, Ops.MTC1, bind, GPR, readGPR_abs s h0, low_32, StoreFPR32, Pseudo.modify,
-    complete_plain, regIdx_eq_reg]
+  simp only [Pseudo.run, Ops.MTC1, bind, GPR, readGPR_abs s h0, low_32, StoreFPR32, fprUpper_model,
+    abs_FPR, complete_plain, regIdx_eq_reg]
 
-/-- **MFHC1 refines** (an odd `fs`: `Oracle.fprOddRead`, the model's pair `fs`, `fs + 1`). -/
+/-- **MFHC1 refines** (bits 63..32 of the 64-bit FPR). -/
 theorem mfhc1_refines (s : State) (hg : Good s) (rt fs w : W32)
     (hw : enc (.mfhc1 rt fs) = some w) :
     Execute modelCtx w (.mfhc1 rt fs) (abs s) = some (abs (execInstr s (.mfhc1 rt fs))) := by
@@ -54,12 +54,12 @@ theorem mfhc1_refines (s : State) (hg : Good s) (rt fs w : W32)
     (by simp [InCop0Space, opcode_rFormat]) rfl rfl rfl rfl
   intro _
   have hb : execBody s (.mfhc1 rt fs) =
-      mkNext s (writeReg s (regIdx rt) (readFpReg s (regIdx (fs + 1#32)))) := rfl
-  rw [hb, abs_mkNext_writeReg _ _ _ hsz]
+      mkNext s (writeReg s (regIdx rt) ((readFpD s fs).extractLsb' 32 32)) := rfl
+  rw [hb, abs_mkNext_writeReg _ _ _ hsz, readFpD_abs]
   simp only [Pseudo.run, Ops.MFHC1, bind, valueFPR64_model, bits, Nat.reduceAdd, Nat.reduceSub,
-    append_hi, setGPR, complete_plain, abs_FPR, regIdx_eq_reg, reg_succ]
+    setGPR, complete_plain, regIdx_eq_reg]
 
-/-- **MTHC1 refines** (an odd `fs`: `Oracle.fprOddRead`/`fprOddWrite`). -/
+/-- **MTHC1 refines** (bits 63..32 of the 64-bit FPR, the low half kept). -/
 theorem mthc1_refines (s : State) (hg : Good s) (rt fs w : W32)
     (hw : enc (.mthc1 rt fs) = some w) :
     Execute modelCtx w (.mthc1 rt fs) (abs s) = some (abs (execInstr s (.mthc1 rt fs))) := by
@@ -70,11 +70,10 @@ theorem mthc1_refines (s : State) (hg : Good s) (rt fs w : W32)
     (by simp [InCop0Space, opcode_rFormat]) rfl rfl rfl rfl
   intro _
   have hb : execBody s (.mthc1 rt fs) =
-      mkNext s (writeFpReg s (regIdx (fs + 1#32)) (readReg s (regIdx rt))) := rfl
-  rw [hb, abs_mkNext_writeFpReg _ _ _ hfsz]
+      mkNext s (writeFpD s fs (readReg s (regIdx rt) ++ (readFpD s fs).extractLsb' 0 32)) := rfl
+  rw [hb, abs_mkNext_writeFpD _ _ _ hfsz, readFpD_abs]
   simp only [Pseudo.run, Ops.MTHC1, bind, GPR, readGPR_abs s h0, valueFPR64_model, bits,
-    Nat.reduceAdd, Nat.reduceSub, append_lo, append_hi, storeFPR64_model, update_self,
-    complete_plain, regIdx_eq_reg, reg_succ]
+    Nat.reduceAdd, Nat.reduceSub, storeFPR64_model, complete_plain, regIdx_eq_reg]
 
 /-- **MOV.S refines.** -/
 theorem movS_refines (s : State) (hg : Good s) (fd fs w : W32)
@@ -88,10 +87,10 @@ theorem movS_refines (s : State) (hg : Good s) (fd fs w : W32)
   intro _
   have hb : execBody s (.movS fd fs) = mkNext s (writeFpReg s (regIdx fd) (readFpReg s (regIdx fs))) := rfl
   rw [hb, abs_mkNext_writeFpReg _ _ _ hfsz]
-  simp only [Pseudo.run, Ops.MOV_S, bind, ValueFPR32, StoreFPR32, Pseudo.modify, complete_plain,
-    abs_FPR, regIdx_eq_reg]
+  simp only [Pseudo.run, Ops.MOV_S, bind, ValueFPR32, StoreFPR32, fprUpper_model, complete_plain,
+    abs_FPR, readFpReg_eq, regIdx_eq_reg]
 
-/-- **MOV.D refines** (odd registers: the oracle's pair formula). -/
+/-- **MOV.D refines.** -/
 theorem movD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.movD fd fs) = some w) :
     Execute modelCtx w (.movD fd fs) (abs s) = some (abs (execInstr s (.movD fd fs))) := by
@@ -103,7 +102,6 @@ theorem movD_refines (s : State) (hg : Good s) (fd fs w : W32)
   intro _
   have hb : execBody s (.movD fd fs) = mkNext s (writeFpD s fd (readFpD s fs)) := rfl
   rw [hb, abs_mkNext_writeFpD _ _ _ hfsz, readFpD_abs]
-  simp only [Pseudo.run, Ops.MOV_D, bind, valueFPR64_model, storeFPR64_model, complete_plain,
-    append_lo, append_hi]
+  simp only [Pseudo.run, Ops.MOV_D, bind, valueFPR64_model, storeFPR64_model, complete_plain]
 
 end Refine

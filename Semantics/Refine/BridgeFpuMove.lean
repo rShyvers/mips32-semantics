@@ -11,8 +11,8 @@ Proved once for the refinement theorems of `Refine/FpuMemory.lean`, `FpuMove.lea
 * `cop1_execute`: `Execute` of an instruction of the COP1 encoding space against
   `execInstr`'s Coprocessor Unusable check (`Cause.CE = 1`, MD00090 Vol III Rev 6.02 §6.2.22, p.100),
   so that each refinement only compares the Operation with the model's `execBody` arm;
-* the FPR pair (`ValueFPR64`/`StoreFPR64` under `modelOracle`, whose odd-register outcomes are the
-  even-register formula) against `readFpD`/`writeFpD`;
+* the 64-bit FPRs (`ValueFPR64`/`StoreFPR64`, `FR = 1`) against `readFpD`/`writeFpD`, and the 32-bit
+  stores (upper half kept, the model oracle's `fprUpper`) against `writeFpReg`;
 * the doubleword accesses (`LDC1`, `SDC1`): translation of `vAddr + 4` and the `pAddr xor 0b100`
   of the second word (the first is at `pAddr` on this little-endian CPU, `endian_xor`);
 * the FP control registers (`CFC1`/`CTC1`) against `Mips.Fp.readControl`/`writeControl`, and
@@ -53,7 +53,7 @@ theorem cop1_execute (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
 
 /-! ## Registers -/
 
-theorem update_self (f : Fin 32 → W32) (i : Fin 32) : update f i (f i) = f := by
+theorem update_self {α : Type} (f : Fin 32 → α) (i : Fin 32) : update f i (f i) = f := by
   funext j; unfold update; split <;> simp_all
 
 theorem regIdx_succ (f : W32) : regIdx (f + 1#32) = reg f + 1 := by
@@ -97,7 +97,7 @@ theorem abs_mkNext_writeReg (s : State) (i : Fin 32) (v : W32) (hsz : s.regs.siz
 theorem abs_mkNext_writeFpReg (s : State) (i : Fin 32) (v : W32) (hsz : s.fpRegs.size = 32) :
     abs (mkNext s (writeFpReg s i v)) =
       { abs s with
-        FPR := update (abs s).FPR i v
+        FPR := update (abs s).FPR i ((readFpReg64 s i).extractLsb' 32 32 ++ v)
         PC := (abs s).BranchDelay.getD ((abs s).PC + 4#32)
         BranchDelay := none } := by
   rw [mkNext, abs_advance _ _ (by rfl), abs_writeFpReg _ _ _ hsz]; rfl
@@ -105,8 +105,7 @@ theorem abs_mkNext_writeFpReg (s : State) (i : Fin 32) (v : W32) (hsz : s.fpRegs
 theorem abs_mkNext_writeFpD (s : State) (fd : W32) (v : BitVec 64) (hsz : s.fpRegs.size = 32) :
     abs (mkNext s (writeFpD s fd v)) =
       { abs s with
-        FPR := update (update (abs s).FPR (reg fd) (v.extractLsb' 0 32)) (reg fd + 1)
-          (v.extractLsb' 32 32)
+        FPR := update (abs s).FPR (reg fd) v
         PC := (abs s).BranchDelay.getD ((abs s).PC + 4#32)
         BranchDelay := none } := by
   rw [mkNext, abs_advance _ _ (by rfl), abs_writeFpD _ hsz]; rfl
@@ -127,64 +126,75 @@ macro "bits32" : tactic => `(tactic| (
   apply BitVec.eq_of_getLsbD_eq; intro i hi
   simp only [BitVec.getLsbD_append, BitVec.getLsbD_and, BitVec.getLsbD_or, BitVec.getLsbD_ushiftRight,
     BitVec.getLsbD_shiftLeft, BitVec.getLsbD_extractLsb', BitVec.getLsbD_ofBool, BitVec.getLsbD_not,
-    Mips.Fp.readFCCR, Mips.Fp.readFEXR, Mips.Fp.readFENR, Mips.Fp.writeFCCR, Mips.Fp.writeFEXR,
-    Mips.Fp.writeFENR, Mips.Fp.writeFCSR, Mips.Fp.fcsrFCCMask, Mips.Fp.fcsrCauseMask,
+    Mips.Fp.readFCCR, Mips.Fp.readFEXR, Mips.Fp.readFENR, Mips.Fp.writeFEXR,
+    Mips.Fp.writeFENR, Mips.Fp.writeFCSR, Mips.Fp.readFCSR, FCSRWrite, FCSRWritable, Mips.Fp.fcsrCauseMask,
     Mips.Fp.fcsrFlagsMask, Mips.Fp.fcsrEnablesMask, Mips.Fp.fcsrRMMask, Mips.Fp.fcsrFSMask,
-    Mips.Fp.fcsrWritableMask, bits, bit]
+    Mips.Fp.fcsrWritableMask, Mips.Fp.fcsr2008Bits, bits, bit]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega))
 
+-- BEGIN R6-5
+/-- `FCSRRead` (the R/W fields and `ABS2008 = NAN2008 = 1`) is the model's `readFCSR`. -/
+theorem fcsrRead_abs (s : State) : FCSRRead (abs s) = Mips.Fp.readFCSR s.fcsr := rfl
+
 theorem cfc1_fccr (F : W32) :
-    (0#24 ++ F.extractLsb' 25 7 ++ BitVec.ofBool (bit F 23) : BitVec 32) = Mips.Fp.readFCCR F := by
+    (0#24 ++ (Mips.Fp.readFCSR F).extractLsb' 25 7 ++ BitVec.ofBool (bit (Mips.Fp.readFCSR F) 23) :
+      BitVec 32) = Mips.Fp.readFCCR F := by
   bits32
 
 theorem cfc1_fexr (F : W32) :
-    (0#14 ++ F.extractLsb' 12 6 ++ 0#5 ++ F.extractLsb' 2 5 ++ 0#2 : BitVec 32) = Mips.Fp.readFEXR F := by
+    (0#14 ++ (Mips.Fp.readFCSR F).extractLsb' 12 6 ++ 0#5 ++ (Mips.Fp.readFCSR F).extractLsb' 2 5 ++ 0#2 :
+      BitVec 32) = Mips.Fp.readFEXR F := by
   bits32
 
 theorem cfc1_fenr (F : W32) :
-    (0#20 ++ F.extractLsb' 7 5 ++ 0#4 ++ BitVec.ofBool (bit F 24) ++ F.extractLsb' 0 2 : BitVec 32) =
-      Mips.Fp.readFENR F := by
+    (0#20 ++ (Mips.Fp.readFCSR F).extractLsb' 7 5 ++ 0#4 ++ BitVec.ofBool (bit (Mips.Fp.readFCSR F) 24) ++
+      (Mips.Fp.readFCSR F).extractLsb' 0 2 : BitVec 32) = Mips.Fp.readFENR F := by
   bits32
 
-theorem ctc1_fccr (F t : W32) :
-    (bits t 7 1 ++ BitVec.ofBool (bit F 24) ++ BitVec.ofBool (bit t 0) ++ bits F 22 0 : BitVec 32) =
-      Mips.Fp.writeFCCR F t := by
+/-- A word whose non-R/W FCSR bits are 0 is unchanged by `FCSRWrite`. -/
+theorem fcsrWrite_of_rz (g : W32) (h : RZ g) : FCSRWrite g = g := by
+  unfold RZ at h
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  have := congrArg (·.getLsbD i) h
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_zero] at this
+  simp only [FCSRWrite, FCSRWritable, BitVec.getLsbD_and]
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;>
+    simp_all <;> omega
+
+theorem ctc1_fccr (F t : W32) (h : RZ F) :
+    FCSRWrite (bits t 7 1 ++ BitVec.ofBool (bit F 24) ++ BitVec.ofBool (bit t 0) ++ bits F 22 0 : BitVec 32) =
+      F := by
+  rw [← fcsrWrite_of_rz F h]
   bits32
 
-theorem ctc1_fccr' (F t : W32) :
-    (t.extractLsb' 1 7 ++ BitVec.ofBool (F.getLsbD 24) ++ BitVec.ofBool (t.getLsbD 0) ++
-      F.extractLsb' 0 23 : BitVec 32) = Mips.Fp.writeFCCR F t := by
-  bits32
-
-theorem ctc1_fexr (F t : W32) :
-    (bits F 31 18 ++ bits t 17 12 ++ bits F 11 7 ++ bits t 6 2 ++ bits F 1 0 : BitVec 32) =
+theorem ctc1_fexr (F t : W32) (h : RZ F) :
+    FCSRWrite (bits F 31 18 ++ bits t 17 12 ++ bits F 11 7 ++ bits t 6 2 ++ bits F 1 0 : BitVec 32) =
       Mips.Fp.writeFEXR F t := by
+  rw [← fcsrWrite_of_rz _ (rz_writeControl F t _ 26 rfl h)]
   bits32
 
-theorem ctc1_fexr' (F t : W32) :
-    (F.extractLsb' 18 14 ++ t.extractLsb' 12 6 ++ F.extractLsb' 7 5 ++ t.extractLsb' 2 5 ++
+theorem ctc1_fexr' (F t : W32) (h : RZ F) :
+    FCSRWrite (F.extractLsb' 18 14 ++ t.extractLsb' 12 6 ++ F.extractLsb' 7 5 ++ t.extractLsb' 2 5 ++
       F.extractLsb' 0 2 : BitVec 32) = Mips.Fp.writeFEXR F t := by
+  rw [← fcsrWrite_of_rz _ (rz_writeControl F t _ 26 rfl h)]
   bits32
 
-theorem ctc1_fenr (F t : W32) :
-    (bits F 31 25 ++ BitVec.ofBool (bit t 2) ++ bits F 23 12 ++ bits t 11 7 ++ bits F 6 2 ++
+theorem ctc1_fenr (F t : W32) (h : RZ F) :
+    FCSRWrite (bits F 31 25 ++ BitVec.ofBool (bit t 2) ++ bits F 23 12 ++ bits t 11 7 ++ bits F 6 2 ++
       bits t 1 0 : BitVec 32) = Mips.Fp.writeFENR F t := by
+  rw [← fcsrWrite_of_rz _ (rz_writeControl F t _ 28 rfl h)]
   bits32
 
-theorem ctc1_fenr' (F t : W32) :
-    (F.extractLsb' 25 7 ++ BitVec.ofBool (t.getLsbD 2) ++ F.extractLsb' 12 12 ++ t.extractLsb' 7 5 ++
-      F.extractLsb' 2 5 ++ t.extractLsb' 0 2 : BitVec 32) = Mips.Fp.writeFENR F t := by
+theorem ctc1_fenr' (F t : W32) (h : RZ F) :
+    FCSRWrite (F.extractLsb' 25 7 ++ BitVec.ofBool (t.getLsbD 2) ++ F.extractLsb' 12 12 ++
+      t.extractLsb' 7 5 ++ F.extractLsb' 2 5 ++ t.extractLsb' 0 2 : BitVec 32) = Mips.Fp.writeFENR F t := by
+  rw [← fcsrWrite_of_rz _ (rz_writeControl F t _ 28 rfl h)]
   bits32
 
-theorem ctc1_fcsr' (F t : W32) : t &&& ~~~(0x1F#32 <<< 18) = Mips.Fp.writeFCSR F t := by
-  bits32
+theorem ctc1_fcsr (F t : W32) : FCSRWrite t = Mips.Fp.writeFCSR F t := rfl
 
-
-/-- `FCSR` bits 22..18 (`Impl`, reserved, `ABS2008`, `NAN2008`) "read as zero" on this profile
-(MD00082 Vol I-A Rev 6.01, Table 6.8, p.93: `Impl` "If these bits are not implemented, they must be
-ignored on write and read as zero"; bit 20 "Reserved for future use; reads as zero"; `ABS2008`/
-`NAN2008` exist only if `FIR.Has2008` is set). The invariant `FcsrReservedZero`
-(`Refine/Invariant.lean`, part of `Inv`) as the 5-bit field the refinement of `CFC1 rt, 31` uses. -/
+/-- `FCSR` bits 22..18 are 0 in the stored word (part of the invariant `FcsrReservedZero`,
+`Refine/Defs.lean`). -/
 theorem fcsrReservedZero_extract (s : State) (h : FcsrReservedZero s) :
     s.fcsr.extractLsb' 18 5 = 0#5 := by
   unfold FcsrReservedZero at h
@@ -192,20 +202,7 @@ theorem fcsrReservedZero_extract (s : State) (h : FcsrReservedZero s) :
   have := congrArg (·.getLsbD (18 + i)) h
   simp only [BitVec.getLsbD_and, BitVec.getLsbD_zero] at this
   rcases i with _|_|_|_|_|i <;> simp_all <;> omega
-
-theorem readFCSR_of_reserved (F : W32) (h : F.extractLsb' 18 5 = 0#5) : Mips.Fp.readFCSR F = F := by
-  have hk : ∀ k, k < 5 → F.getLsbD (18 + k) = false := by
-    intro k hk
-    have := congrArg (fun x => x.getLsbD k) h
-    simpa [BitVec.getLsbD_extractLsb', hk] using this
-  have h18 := hk 0 (by omega); have h19 := hk 1 (by omega); have h20 := hk 2 (by omega)
-  have h21 := hk 3 (by omega); have h22 := hk 4 (by omega)
-  simp only [Nat.add_zero, Nat.reduceAdd] at h18 h19 h20 h21 h22
-  rw [BitVec.getLsbD_eq_getElem (by omega)] at h18 h19 h20 h21 h22
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [Mips.Fp.readFCSR, Mips.Fp.fcsrWritableMask, BitVec.getLsbD_and]
-  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;>
-    simp [h18, h19, h20, h21, h22] <;> omega
+-- END R6-5
 
 /-- `CheckFPException()` (Figure 2.24, p.23) is the model's `Mips.Fp.fcsrTrapPending`. -/
 theorem checkFP_run (c : Ctx) (f : Frame) :
@@ -353,10 +350,6 @@ theorem writeMemWord_eq (s : State) (va : W32) (v : W32) (h : va.toNat % 4 = 0) 
   unfold writeMemWord
   simp only [h, ne_eq, not_true_eq_false, ↓reduceIte]
   cases translate s va <;> rfl
-
-theorem writeFpReg2_eq (s : State) (ft lo hi : W32) :
-    writeFpReg (writeFpReg s (regIdx ft) lo) (regIdx (ft + 1#32)) hi = writeFpD s ft (hi ++ lo) := by
-  simp only [writeFpD, append_lo, append_hi]
 
 theorem storeWord_ins4 (m : Std.HashMap PAddr UInt8) (pa : PAddr) (v : W32) (h : pa.toNat % 4 = 0) :
     (storedLanes (pa &&& 3#32).toNat WORD).foldl

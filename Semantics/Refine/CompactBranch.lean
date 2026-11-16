@@ -113,7 +113,7 @@ theorem bc_refines (s : State) (hg : Good s) (off w : W32) (hw : enc (.bc off) =
     Execute modelCtx w (.bc off) (abs s) = some (abs (execInstr s (.bc off))) := by
   cb_refine (.bc off) (fld 6 26 0x32#32 ||| fld 26 0 off) (Ops.BC off) =>
     simp only [Pseudo.run, Ops.BC, bind, PC, setPC, branch_offset26, sign_extend_w32]
-    simp [Complete, abs, readReg, readFpReg, hpb]
+    simp [Complete, abs, readReg, readFpReg64, hpb]
 
 /-- **BALC refines.** -/
 theorem balc_refines (s : State) (hg : Good s) (off w : W32) (hw : enc (.balc off) = some w) :
@@ -121,7 +121,7 @@ theorem balc_refines (s : State) (hg : Good s) (off w : W32) (hw : enc (.balc of
   cb_refine (.balc off) (fld 6 26 0x3A#32 ||| fld 26 0 off) (Ops.BALC off) =>
     simp only [Pseudo.run, Ops.BALC, bind, PC, setPC, setGPR, branch_offset26, sign_extend_w32]
     rw [← abs_writeReg _ _ _ hsz]
-    simp [Complete, abs, readReg, readFpReg, writeReg_pc]
+    simp [Complete, abs, readReg, readFpReg64, writeReg_pc]
 
 /-! ## B<cond>C -/
 

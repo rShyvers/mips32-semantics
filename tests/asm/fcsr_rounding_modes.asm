@@ -1,9 +1,10 @@
 # FCSR.RM selects the rounding of div.s and cvt.w.s; Inexact is recorded in
 # FCSR Cause (bit 12) and Flags (bit 2). For each RM = 0..3 prints: bits of 1.0/3.0,
-# FCSR after it, cvt.w.s(2.5), cvt.w.s(-2.5).
+# FCSR after it (with the read-only Release 6 bits ABS2008/NAN2008 = 0x000c0000), cvt.w.s(2.5),
+# cvt.w.s(-2.5).
 # MD00082 Vol I-A Rev 6.01 Table 6.10 (p.95); MD00086 Vol II-A Rev 6.06 CVT.W.fmt (p.160).
 # Not a MARS test: MARS has no FCSR and its cvt.w.s truncates.
-# Expected output: "1051372203 4100 2 -2 1051372202 4101 2 -2 1051372203 4102 3 -2 1051372202 4103 2 -3 "
+# Expected output: "1051372203 790532 2 -2 1051372202 790533 2 -2 1051372203 790534 3 -2 1051372202 790535 2 -3 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .text

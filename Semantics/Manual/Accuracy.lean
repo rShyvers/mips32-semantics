@@ -24,7 +24,8 @@ on the values of the encodings:
   ULP bound survives). For `RECIP` the exact result `1/x` must be at most the largest finite number:
   beyond it the IEEE-mandated representation itself overflows.
 * `FPIsNaN`, `FPIsSNaN`, `FPIsQNaN`, `FPIsZero`, `FPIsSubnormal`, `FPSign` — the classes of an
-  encoding, Table 6.2 (p.80-81), legacy NaN encoding; the spec's own, not the model's.
+  encoding, Table 6.2 (p.80-81), the `FCSR.NAN2008 = 1` NaN encoding of Release 6; the spec's own,
+  not the model's.
 * `RecipFlagsOK`, `Impl.RecipFlags` — the Invalid Operation and Division-by-Zero conditions the
   manual mandates for `RECIP.fmt`/`RSQRT.fmt` by the class of the operand (Overflow, Underflow,
   Inexact left free: they belong to the approximate result).
@@ -49,10 +50,11 @@ def FPValue (eb fb : Nat) (n : Nat) : Option Rat :=
 
 The spec's own classifiers of an `eb`-exponent-bit, `fb`-fraction-bit pattern, transcribed from
 Table 6.2 (the unbiased `E_max + 1` is the all-ones biased exponent, `E_min - 1` the zero biased
-exponent; the bias is that of Table 6.1, p.79) for the legacy NaN encoding of this profile
-(`FIR.Has2008 = 0`): "The high-order bit of the Fraction field, identified as b1, is also important
-for NaNs" (p.80); with `E_max + 1` and `f ≠ 0`, `b1 = 1` is SNaN and `b1 = 0` is QNaN
-"(FIRHas2008=0 or FCSRNAN2008=0)"; `E_max + 1` with `f = 0` is ±∞; `E_min - 1` with `f ≠ 0` a
+exponent; the bias is that of Table 6.1, p.79) for the NaN encoding of this profile
+(`FCSR.NAN2008 = 1`): "The high-order bit of the Fraction field, identified as b1, is also important
+for NaNs" (p.80); with `E_max + 1` and `f ≠ 0`, `b1 = 0` is SNaN and `b1 = 1` is QNaN
+"(FCSRNAN2008=1)" (the `FIRHas2008=0` rows are "Not applicable to Release 6"); `E_max + 1` with
+`f = 0` is ±∞; `E_min - 1` with `f ≠ 0` a
 denormalized number, with `f = 0` a zero (p.81). The sign `s` is the top bit (Figures 6.1, 6.2,
 p.80). They are proved equal to the model's `Mips.Fp.Format` classifiers in `Refine/ImplValid.lean`. -/
 
@@ -68,11 +70,11 @@ def FPSign (eb fb : Nat) (n : Nat) : Bool := (n / 2 ^ (eb + fb)) % 2 == 1
 /-- NaN: unbiased exponent `E_max + 1` (biased all ones), `f ≠ 0`. -/
 def FPIsNaN (eb fb : Nat) (n : Nat) : Bool := FPExp eb fb n == 2 ^ eb - 1 && FPFrac fb n != 0
 
-/-- Signaling NaN, legacy encoding: a NaN with `b1 = 1`. -/
-def FPIsSNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 1
+/-- Signaling NaN, `FCSR.NAN2008 = 1`: a NaN with `b1 = 0`. -/
+def FPIsSNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 0
 
-/-- Quiet NaN, legacy encoding: a NaN with `b1 = 0`. -/
-def FPIsQNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 0
+/-- Quiet NaN, `FCSR.NAN2008 = 1`: a NaN with `b1 = 1`. -/
+def FPIsQNaN (eb fb : Nat) (n : Nat) : Bool := FPIsNaN eb fb n && FPFrac fb n / 2 ^ (fb - 1) == 1
 
 /-- ±0: unbiased exponent `E_min - 1` (biased 0), `f = 0`. -/
 def FPIsZero (eb fb : Nat) (n : Nat) : Bool := FPExp eb fb n == 0 && FPFrac fb n == 0

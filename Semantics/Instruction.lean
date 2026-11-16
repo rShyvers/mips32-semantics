@@ -45,9 +45,9 @@ Field-shape summary (see each constructor's docstring for details):
 - Coprocessor 1 (FPU; opcode COP1 and the four FP load/stores; `fmt` S = 0x10, D = 0x11, W = 0x14):
   moves `mfc1 mtc1 mfhc1 mthc1 cfc1 ctc1` (`rt fs`); `lwc1 swc1 ldc1 sdc1` (`rs ft imm`);
   arithmetic, conversions and moves per format (`fd fs ft` / `fd fs`).
-  -- W5: the FPU is still the 32-bit register model (`Status.FR = 0`, register pairs for doubles,
-  -- legacy NaN encoding); Release 6 requires `FR = 1` with a 64-bit FPU (MD00082 Vol I-A Rev 6.01
-  -- §6.4.1, p.84) and `FCSR.NAN2008 = ABS2008 = 1` (§6.5.4, p.92-94).
+  The FPU is the Release 6 64-bit FPU (`Status.FR = 1`, one 64-bit FPR per double, `fmt` L =
+  0x15 for the longword conversions; MD00082 Vol I-A Rev 6.01 §6.4.1, p.84) with
+  `FCSR.NAN2008 = ABS2008 = 1` (§6.5.4, p.92-94).
 -/
 
 /-- The modeled MIPS32 machine-instruction set: one constructor per instruction (the field-shape
@@ -435,11 +435,11 @@ inductive Instruction where
   | divS (fd fs ft : W32)
   /-- `fd = sqrt fs` (funct 0x04). -/
   | sqrtS (fd fs : W32)
-  /-- `fd = |fs|`, arithmetic (funct 0x05). -/
+  /-- `fd = |fs|`, non-arithmetic with `FCSR.ABS2008 = 1` (funct 0x05). -/
   | absS (fd fs : W32)
   /-- `fd = fs`, non-arithmetic (funct 0x06). -/
   | movS (fd fs : W32)
-  /-- `fd = −fs`, arithmetic (funct 0x07). -/
+  /-- `fd = −fs`, non-arithmetic with `FCSR.ABS2008 = 1` (funct 0x07). -/
   | negS (fd fs : W32)
   /-- `fd = 1.0 / fs` (funct 0x15; Release 2). -/
   | recipS (fd fs : W32)
@@ -472,11 +472,11 @@ inductive Instruction where
   | divD (fd fs ft : W32)
   /-- `fd = sqrt fs` (funct 0x04). -/
   | sqrtD (fd fs : W32)
-  /-- `fd = |fs|`, arithmetic (funct 0x05). -/
+  /-- `fd = |fs|`, non-arithmetic with `FCSR.ABS2008 = 1` (funct 0x05). -/
   | absD (fd fs : W32)
   /-- `fd = fs`, non-arithmetic (funct 0x06). -/
   | movD (fd fs : W32)
-  /-- `fd = −fs`, arithmetic (funct 0x07). -/
+  /-- `fd = −fs`, non-arithmetic with `FCSR.ABS2008 = 1` (funct 0x07). -/
   | negD (fd fs : W32)
   /-- `fd = 1.0 / fs` (funct 0x15; Release 2). -/
   | recipD (fd fs : W32)
@@ -578,6 +578,37 @@ inductive Instruction where
   /-- `JIALC rt, offset`: `GPR[31] ← PC + 4`, then as `jic` (POP76, `rs = 0`; JIALC, p.203). -/
   | jialc (rt off : W32)
   -- END R6-3
+  -- BEGIN R6-5
+  -- The longword (L, 64-bit fixed point) conversions a 64-bit Release 6 FPU requires ("Release 6
+  -- on a 64-bit FPU requires S, D, W, and L data formats", MD00082 Vol I-A Rev 6.01 Table 6.4 note
+  -- 3, p.85). COP1 R-format, `ft` = 0; fields `fd` (= `sa`), `fs` (= `rd`).
+  /-- `CVT.L.S`: single → longword, rounding per FCSR.RM (fmt = S, funct 0x25; MD00086 Vol II-A
+  Rev 6.06, CVT.L.fmt, p.154). -/
+  | cvtLS (fd fs : W32)
+  /-- `CVT.L.D`: double → longword, rounding per FCSR.RM (fmt = D, funct 0x25; p.154). -/
+  | cvtLD (fd fs : W32)
+  /-- `ROUND.L.S`: single → longword, round to nearest even (fmt = S, funct 0x08; p.341). -/
+  | roundLS (fd fs : W32)
+  /-- `ROUND.L.D` (fmt = D, funct 0x08; p.341). -/
+  | roundLD (fd fs : W32)
+  /-- `TRUNC.L.S`: single → longword, round toward zero (fmt = S, funct 0x09; p.440). -/
+  | truncLS (fd fs : W32)
+  /-- `TRUNC.L.D` (fmt = D, funct 0x09; p.440). -/
+  | truncLD (fd fs : W32)
+  /-- `CEIL.L.S`: single → longword, round toward +∞ (fmt = S, funct 0x0a; p.127). -/
+  | ceilLS (fd fs : W32)
+  /-- `CEIL.L.D` (fmt = D, funct 0x0a; p.127). -/
+  | ceilLD (fd fs : W32)
+  /-- `FLOOR.L.S`: single → longword, round toward −∞ (fmt = S, funct 0x0b; p.185). -/
+  | floorLS (fd fs : W32)
+  /-- `FLOOR.L.D` (fmt = D, funct 0x0b; p.185). -/
+  | floorLD (fd fs : W32)
+  /-- `CVT.S.L`: longword → single, rounding per FCSR.RM (fmt = L = 0x15, funct 0x20; CVT.S.fmt,
+  p.159). -/
+  | cvtSL (fd fs : W32)
+  /-- `CVT.D.L`: longword → double, rounding per FCSR.RM (fmt = L, funct 0x21; CVT.D.fmt, p.153). -/
+  | cvtDL (fd fs : W32)
+  -- END R6-5
   deriving Repr, DecidableEq
 
 /-- Extract the 6-bit opcode field (bits 31..26), zero-extended to a `W32`. -/
@@ -874,7 +905,6 @@ def decodeCop0 (w : W32) : Option Instruction :=
 /-- **COP1** `fmt = S` (`rs` = 0x10), keyed by `funct` (Table A.15, p.456). Fields: `ft` = `rt`,
 `fs` = `rd`, `fd` = `sa`; unary operations require `ft = 0`. Release 6 removed MOVCF (0x11),
 MOVZ/MOVN (0x12/0x13) and C.cond.fmt (0x30-0x3f).
--- W5: CVT.L.S (0x25), ROUND/TRUNC/CEIL/FLOOR.L.S (0x08-0x0b).
 -- W6: SEL (0x10), SELEQZ (0x14), SELNEZ (0x17), MADDF/MSUBF (0x18/0x19), RINT (0x1a), CLASS
 --     (0x1b), MIN/MINA/MAX/MAXA (0x1c-0x1f). -/
 def decodeCop1S (w : W32) : Option Instruction :=
@@ -899,10 +929,16 @@ def decodeCop1S (w : W32) : Option Instruction :=
   | 0x16 => decodeIf (z rt) (.rsqrtS shamt rd)
   | 0x21 => decodeIf (z rt) (.cvtDS shamt rd)
   | 0x24 => decodeIf (z rt) (.cvtWS shamt rd)
+  -- BEGIN R6-5
+  | 0x08 => decodeIf (z rt) (.roundLS shamt rd)
+  | 0x09 => decodeIf (z rt) (.truncLS shamt rd)
+  | 0x0a => decodeIf (z rt) (.ceilLS shamt rd)
+  | 0x0b => decodeIf (z rt) (.floorLS shamt rd)
+  | 0x25 => decodeIf (z rt) (.cvtLS shamt rd)
+  -- END R6-5
   | _ => none
 
 /-- **COP1** `fmt = D` (`rs` = 0x11), keyed by `funct` (Table A.16, p.457); as `decodeCop1S`.
--- W5: CVT.L.D (0x25), ROUND/TRUNC/CEIL/FLOOR.L.D (0x08-0x0b).
 -- W6: SEL, SELEQZ, SELNEZ, MADDF, MSUBF, RINT, CLASS, MIN, MINA, MAX, MAXA (.D). -/
 def decodeCop1D (w : W32) : Option Instruction :=
   let rt := rtOf w
@@ -926,12 +962,18 @@ def decodeCop1D (w : W32) : Option Instruction :=
   | 0x16 => decodeIf (z rt) (.rsqrtD shamt rd)
   | 0x20 => decodeIf (z rt) (.cvtSD shamt rd)
   | 0x24 => decodeIf (z rt) (.cvtWD shamt rd)
+  -- BEGIN R6-5
+  | 0x08 => decodeIf (z rt) (.roundLD shamt rd)
+  | 0x09 => decodeIf (z rt) (.truncLD shamt rd)
+  | 0x0a => decodeIf (z rt) (.ceilLD shamt rd)
+  | 0x0b => decodeIf (z rt) (.floorLD shamt rd)
+  | 0x25 => decodeIf (z rt) (.cvtLD shamt rd)
+  -- END R6-5
   | _ => none
 
 /-- **COP1** (opcode 0x11), keyed by `rs` (Table A.14, p.456). Release 6 removed BC1 (`rs` =
 0x08: BC1F/BC1T/BC1FL/BC1TL).
--- W5: `rs` 0x09 BC1EQZ, 0x0d BC1NEZ; `fmt = L` (0x15) CVT.S.L/CVT.D.L.
--- W6: `fmt = W` / `L` functs 0x00-0x1f: CMP.condn.S / CMP.condn.D. -/
+-- W6: `rs` 0x09 BC1EQZ, 0x0d BC1NEZ; `fmt = W` / `L` functs 0x00-0x1f: CMP.condn.S / CMP.condn.D. -/
 def decodeCop1 (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -952,6 +994,13 @@ def decodeCop1 (w : W32) : Option Instruction :=
     | 0x20 => decodeIf (z rt) (.cvtSW shamt rd)
     | 0x21 => decodeIf (z rt) (.cvtDW shamt rd)
     | _ => none
+  -- BEGIN R6-5
+  | 0x15 =>  -- fmt = L
+    match (functOf w).toNat with
+    | 0x20 => decodeIf (z rt) (.cvtSL shamt rd)
+    | 0x21 => decodeIf (z rt) (.cvtDL shamt rd)
+    | _ => none
+  -- END R6-5
   | _ => none
 
 -- BEGIN R6-3
@@ -1261,3 +1310,17 @@ def encode (i : Instruction) : W32 :=
   | .jic rt off => mkIT 0x36#32 0#32 rt off
   | .jialc rt off => mkIT 0x3e#32 0#32 rt off
   -- END R6-3
+  -- BEGIN R6-5
+  | .cvtLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x25#32
+  | .cvtLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x25#32
+  | .roundLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x08#32
+  | .roundLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x08#32
+  | .truncLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x09#32
+  | .truncLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x09#32
+  | .ceilLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0a#32
+  | .ceilLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0a#32
+  | .floorLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x0b#32
+  | .floorLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0b#32
+  | .cvtSL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x20#32
+  | .cvtDL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x21#32
+  -- END R6-5

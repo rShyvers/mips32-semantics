@@ -151,14 +151,15 @@ def renderHaltReason (r : HaltReason) : String :=
     else base
   | .noInstruction pc => s!"no_instruction:0x{toHexDigits pc}"
 
-/-- Raw FCSR as the model holds it (`State.fcsr`). `scripts/oracle.py` compares
-exactly the bits in `fcsrMask` and nothing else. -/
-def fcsrOf (s : State) : W32 := s.fcsr
+/-- FCSR as `cfc1 $31` reads it (`Mips.Fp.readFCSR`: the writable fields of `State.fcsr` and the
+read-only `ABS2008 = NAN2008 = 1`). `scripts/oracle.py` compares exactly the bits in `fcsrMask`
+and nothing else. -/
+def fcsrOf (s : State) : W32 := Mips.Fp.readFCSR s.fcsr
 
-/-- The FCSR bits the model implements: RM (1..0), Flags (6..2), Enables
-(11..7), Cause (17..12), FS (24), FCC0 (23), FCC1..7 (31..25); bits 22..18 are
-reserved and read as zero (`fcsrWritableMask` in `Semantics/FpOps.lean`). -/
-def fcsrMask : W32 := Mips.Fp.fcsrWritableMask
+/-- The FCSR bits the model implements: RM (1..0), Flags (6..2), Enables (11..7), Cause (17..12),
+FS (24), and the read-only `NAN2008` (18), `ABS2008` (19); the Release 6 reserved FCC bits (31..25,
+23), `Impl` (22..21) and bit 20 read as zero (`Mips.Fp.fcsrWritableMask`, `fcsr2008Bits`). -/
+def fcsrMask : W32 := Mips.Fp.fcsrWritableMask ||| Mips.Fp.fcsr2008Bits
 
 /-- A JSON array of decimal numbers. -/
 def jsonNums (xs : List Nat) : String :=
@@ -213,7 +214,7 @@ they differ from the read value (`_raw` suffix; `ebase` keeps its original meani
 field, and `ebase_read` is the read value). A read-out only: computed outside `step`. -/
 def cp0Json (s : State) : String :=
   "{" ++
-  s!"\"status\": {s.cp0Status.toNat}, \"cause\": {(causeValue s).toNat}, " ++
+  s!"\"status\": {(statusValue s).toNat}, \"cause\": {(causeValue s).toNat}, " ++
   s!"\"epc\": {s.cp0Epc.toNat}, \"badvaddr\": {s.cp0BadVAddr.toNat}, " ++
   s!"\"errorepc\": {s.cp0ErrorEpc.toNat}, \"ebase\": {s.cp0EBase.toNat}, " ++
   s!"\"count\": {s.cp0Count.toNat}, \"compare\": {s.cp0Compare.toNat}, " ++
@@ -238,7 +239,8 @@ def stateJson (s : State) : String :=
   "{" ++
   s!"\"pc\": {s.pc.toNat}, " ++
   s!"\"gpr\": {jsonNums (s.regs.toList.map (·.toNat))}, " ++
-  s!"\"fpr\": {jsonNums (s.fpRegs.toList.map (·.toNat))}, " ++
+  s!"\"fpr\": {jsonNums ((List.finRange 32).map (fun i => (readFpReg s i).toNat))}, " ++
+  s!"\"fpr64\": {jsonNums (s.fpRegs.toList.map (·.toNat))}, " ++
   s!"\"fcsr\": {(fcsrOf s).toNat}, " ++
   s!"\"fp_cond_flag\": {(fcsrOf s).getLsbD 23}, " ++
   s!"\"ll_bit\": {s.llBit}, " ++
@@ -484,7 +486,7 @@ private def bareResult : HostedResult :=
         | _ => false)
 
 /-- `--reset`: boot code at the reset vector (`.ktext 0xBFC00000`) reads the reset `Status`
-(`BEV | ERL` = `0x0040_0004`), leaves the reset state with `eret` (`ERL = 1`: `pc ← ErrorEPC`,
+(`BEV | ERL`, with the read-only `FR = 1`: `0x0440_0004`), leaves the reset state with `eret` (`ERL = 1`: `pc ← ErrorEPC`,
 `ERL ← 0`) into the program, which prints that value and exits. -/
 private def resetBootSrc : String :=
 ".ktext 0xBFC00000\n" ++
@@ -506,7 +508,7 @@ private def resetBootResult : HostedResult :=
   | .error _ => .limitReached { machine := resetState } 0 -- unreachable: assembles fine
 
 #guard (match resetBootResult with
-        | .halted .exit h _ => h.out == "4194308" && h.machine.cp0Status == statusBevMask
+        | .halted .exit h _ => h.out == "71303172" && h.machine.cp0Status == statusBevMask
         | _ => false)
 
 /-- `--reset` without boot code at the reset vector: the run stops at once at `0xBFC0_0000`. -/

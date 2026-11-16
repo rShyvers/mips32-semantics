@@ -1,5 +1,6 @@
 .data
 buf: .word 0, 0, 0, 0
+out: .space 64
 .text
     li $t0, 7
     mtc1 $t0, $f0
@@ -24,26 +25,38 @@ buf: .word 0, 0, 0, 0
     cvt.s.d $f24, $f12
     cvt.d.s $f26, $f24
     cvt.w.d $f28, $f10
-    mfc1 $s0, $f6
-    mfc1 $s1, $f7
-    mfc1 $s2, $f8
-    mfc1 $s3, $f9
-    mfc1 $s4, $f12
-    mfc1 $s5, $f13
-    mfc1 $s6, $f16
-    mfc1 $s7, $f17
-    mfc1 $t0, $f18
-    mfc1 $t1, $f19
-    mfc1 $t2, $f20
-    mfc1 $t3, $f21
-    mfc1 $t4, $f22
-    mfc1 $t5, $f23
+    # each double is read through memory (sdc1, then lw of its low and high word), so the program
+    # behaves the same with a 32-bit FPU (FR = 0, MARS) and the 64-bit FPU of Release 6 (FR = 1)
+    la $v1, out
+    sdc1 $f6, 0($v1)
+    lw $s0, 0($v1)
+    lw $s1, 4($v1)
+    sdc1 $f8, 8($v1)
+    lw $s2, 8($v1)
+    lw $s3, 12($v1)
+    sdc1 $f12, 16($v1)
+    lw $s4, 16($v1)
+    lw $s5, 20($v1)
+    sdc1 $f16, 24($v1)
+    lw $s6, 24($v1)
+    lw $s7, 28($v1)
+    sdc1 $f18, 32($v1)
+    lw $t0, 32($v1)
+    lw $t1, 36($v1)
+    sdc1 $f20, 40($v1)
+    lw $t2, 40($v1)
+    lw $t3, 44($v1)
+    sdc1 $f22, 48($v1)
+    lw $t4, 48($v1)
+    lw $t5, 52($v1)
+    sdc1 $f26, 56($v1)
+    lw $t7, 56($v1)
+    lw $t8, 60($v1)
+    sdc1 $f14, 64($v1)
+    lw $a2, 64($v1)
+    lw $a3, 68($v1)
     mfc1 $t6, $f24
-    mfc1 $t7, $f26
-    mfc1 $t8, $f27
     mfc1 $a1, $f28
-    mfc1 $a2, $f14
-    mfc1 $a3, $f15
     li $v1, 0
     move $a0, $s0
     li $v0, 1

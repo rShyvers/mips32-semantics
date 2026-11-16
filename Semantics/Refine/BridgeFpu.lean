@@ -1,4 +1,5 @@
 import Semantics.Refine.Bridge
+import Semantics.FpOpsFacts
 
 /-!
 # Refine.BridgeFpu — the FPU Operations' building blocks against the model's
@@ -14,8 +15,8 @@ Proved once and reused by `Refine/FpuArith.lean`, `Refine/FpuConvert.lean`,
   followed by the rest of the Operation, the model's `fpThen`), and its instances `runAbs_finS`
   (`fpFinishS`), `runAbs_finD` (`fpFinishD`); `runAbs_FPCheck` (`FPCheck`, one operation of a
   multiply-add: Cause and trap check only, the model's `fpStep`; Wave 12a).
-* `ValueFPR`/`StoreFPR` of a double with the model's oracle choices for an odd register
-  (`Oracle.fprOddRead`/`fprOddWrite`, which read/write the pair `(fpr, fpr+1)`, as `readFpD`/`writeFpD`).
+* `ValueFPR`/`StoreFPR` (R6-5: 64-bit FPRs, `Status.FR = 1`): a double is one FPR (`readFpD`/`writeFpD`);
+  a 32-bit store keeps the upper half (the model oracle's `fprUpper`, as `writeFpReg`).
 -/
 
 namespace Refine
@@ -71,7 +72,9 @@ theorem runAbs_congr (op op' : Pseudo Unit) (s : State)
 
 theorem modelCtx_oracle : modelCtx.oracle = modelOracle := rfl
 theorem modelCtx_impl : modelCtx.impl = modelImpl := rfl
-theorem modelOracle_absNegNaN : modelOracle.absNegNaN = .A' := rfl
+-- R6-5: the model's upper half of a 32-bit FPR write is the old one.
+theorem fprUpper_model (a : Arch) (fpr : Fin 32) :
+    modelCtx.oracle.fprUpper a fpr = (a.FPR fpr).extractLsb' 32 32 := rfl
 theorem modelImpl_recipS : modelImpl.recipS = Mips.Fp.f32Recip := rfl
 theorem modelImpl_recipD : modelImpl.recipD = Mips.Fp.f64Recip := rfl
 theorem modelImpl_rsqrtS : modelImpl.rsqrtS = Mips.Fp.f32Rsqrt := rfl
@@ -135,29 +138,23 @@ theorem regIdx_add_one (f : W32) : regIdx (f + 1#32) = reg f + 1 := by
 theorem runAbs_store32 (s : State) (hfsz : s.fpRegs.size = 32) (fd v : W32) :
     runAbs (StoreFPR32 (reg fd) v) s = some (abs (mkNext s (writeFpReg s (regIdx fd) v))) := by
   unfold runAbs
-  simp only [Pseudo.run, StoreFPR32, Pseudo.modify]
+  simp only [Pseudo.run, StoreFPR32]
   rw [complete_plain, mkNext, abs_advance _ _ (by rfl), abs_writeFpReg _ _ _ hfsz, regIdx_eq_reg]
   rfl
 
 theorem writeFpReg_size (s : State) (i : Fin 32) (v : W32) :
     (writeFpReg s i v).fpRegs.size = s.fpRegs.size := by
-  unfold writeFpReg; simp [Array.size_setIfInBounds]
+  unfold writeFpReg writeFpReg64; simp
 
 theorem abs_writeFpD (s : State) (hfsz : s.fpRegs.size = 32) (fd : W32) (v : BitVec 64) :
-    abs (writeFpD s fd v) =
-      { abs s with
-        FPR := update (update (abs s).FPR (reg fd) (v.extractLsb' 0 32)) (reg fd + 1)
-          (v.extractLsb' 32 32) } := by
+    abs (writeFpD s fd v) = { abs s with FPR := update (abs s).FPR (reg fd) v } := by
   unfold writeFpD
-  rw [abs_writeFpReg _ _ _ (by rw [writeFpReg_size]; exact hfsz), abs_writeFpReg _ _ _ hfsz,
-    regIdx_add_one, regIdx_eq_reg]
+  rw [abs_writeFpReg64 _ _ _ hfsz, regIdx_eq_reg]
 
-/-- `StoreFPR(fpr, D, value)` with the model's oracle: the pair `(fpr, fpr+1)` for every `fpr`. -/
+/-- `StoreFPR(fpr, D, value)` (`FR = 1`): the whole FPR. -/
 theorem storeFPR64_model (fpr : Fin 32) (v : BitVec 64) (f : Frame) :
     StoreFPR64 fpr v modelCtx f =
-      (.ok (), { f with arch := { f.arch with
-        FPR := update (update f.arch.FPR fpr (v.extractLsb' 0 32)) (fpr + 1) (v.extractLsb' 32 32) } }) := by
-  unfold StoreFPR64; split <;> rfl
+      (.ok (), { f with arch := { f.arch with FPR := update f.arch.FPR fpr v } }) := rfl
 
 theorem runAbs_store64 (s : State) (hfsz : s.fpRegs.size = 32) (fd : W32) (v : BitVec 64) :
     runAbs (StoreFPR64 (reg fd) v) s = some (abs (mkNext s (writeFpD s fd v))) := by
@@ -190,14 +187,14 @@ theorem runAbs_finD (s : State) (hfsz : s.fpRegs.size = 32) (fd : W32)
 
 /-! ## Reads -/
 
-/-- `ValueFPR(fpr, D)` with the model's oracle: the pair `(fpr, fpr+1)` for every `fpr`. -/
+/-- `ValueFPR(fpr, D)` (`FR = 1`): the whole FPR. -/
 theorem valueFPR64_model (fpr : Fin 32) (f : Frame) :
-    ValueFPR64 fpr modelCtx f = (.ok (f.arch.FPR (fpr + 1) ++ f.arch.FPR fpr), f) := by
-  unfold ValueFPR64; split <;> (try split) <;> rfl
+    ValueFPR64 fpr modelCtx f = (.ok (f.arch.FPR fpr), f) := rfl
 
-theorem readFpD_abs (s : State) (f : W32) :
-    readFpD s f = (abs s).FPR (reg f + 1) ++ (abs s).FPR (reg f) := by
-  unfold readFpD; rw [regIdx_add_one, regIdx_eq_reg]; rfl
+theorem readFpReg_eq (s : State) (i : Fin 32) : readFpReg s i = (readFpReg64 s i).extractLsb' 0 32 := rfl
+
+theorem readFpD_abs (s : State) (f : W32) : readFpD s f = (abs s).FPR (reg f) := by
+  unfold readFpD; rw [regIdx_eq_reg]; rfl
 
 /-! ## The environment of a later operation
 
@@ -274,37 +271,19 @@ theorem snan_not_qnan64 (x : BitVec 64) (h : Mips.Fp.isSNaN64 x = true) :
   simp only [Bool.and_eq_true, beq_iff_eq] at h
   rw [h.1, h.2]; rfl
 
-/-! ## ABS / NEG: the model's core functions are reading A′ (`Oracle.absNegNaN = .A'`) -/
+/-! ## ABS / NEG (non-arithmetic, `FCSR.ABS2008 = 1`): the model's core functions are the spec's -/
 
-theorem f32Abs_eq (x : W32) : Mips.Fp.f32Abs x = IEEE.absS .A' x := by
-  unfold Mips.Fp.f32Abs IEEE.absS IEEE.signOpS
-  rw [isNaN32_split]
-  cases hs : Mips.Fp.isSNaN32 x
-  · cases Mips.Fp.isQNaN32 x <;> simp
-  · simp [snan_not_qnan32 x hs]
+theorem f32Abs_eq (x : W32) : Mips.Fp.f32Abs x = IEEE.absS x := by
+  unfold Mips.Fp.f32Abs IEEE.absS; rfl
 
-theorem f32Neg_eq (x : W32) : Mips.Fp.f32Neg x = IEEE.negS .A' x := by
-  unfold Mips.Fp.f32Neg IEEE.negS IEEE.signOpS
-  rw [isNaN32_split]
-  have hm : (1#32 <<< 31) = 0x80000000#32 := by rfl
-  cases hs : Mips.Fp.isSNaN32 x
-  · cases Mips.Fp.isQNaN32 x <;> simp [hm]
-  · simp [snan_not_qnan32 x hs]
+theorem f32Neg_eq (x : W32) : Mips.Fp.f32Neg x = IEEE.negS x := by
+  unfold Mips.Fp.f32Neg IEEE.negS; rfl
 
-theorem f64Abs_eq (x : BitVec 64) : Mips.Fp.f64Abs x = IEEE.absD .A' x := by
-  unfold Mips.Fp.f64Abs IEEE.absD IEEE.signOpD
-  rw [isNaN64_split]
-  cases hs : Mips.Fp.isSNaN64 x
-  · cases Mips.Fp.isQNaN64 x <;> simp
-  · simp [snan_not_qnan64 x hs]
+theorem f64Abs_eq (x : BitVec 64) : Mips.Fp.f64Abs x = IEEE.absD x := by
+  unfold Mips.Fp.f64Abs IEEE.absD; rfl
 
-theorem f64Neg_eq (x : BitVec 64) : Mips.Fp.f64Neg x = IEEE.negD .A' x := by
-  unfold Mips.Fp.f64Neg IEEE.negD IEEE.signOpD
-  rw [isNaN64_split]
-  have hm : (1#64 <<< 63) = 0x8000000000000000#64 := by rfl
-  cases hs : Mips.Fp.isSNaN64 x
-  · cases Mips.Fp.isQNaN64 x <;> simp [hm]
-  · simp [snan_not_qnan64 x hs]
+theorem f64Neg_eq (x : BitVec 64) : Mips.Fp.f64Neg x = IEEE.negD x := by
+  unfold Mips.Fp.f64Neg IEEE.negD; rfl
 
 /-! ## Conversions of a QNaN: the model's oracle choices (`cvtQNaNToD`/`cvtQNaNToS`) -/
 
@@ -318,16 +297,25 @@ theorem convert_qnan (src dst : Mips.Fp.Format) (e : Mips.Fp.Env) (n : Nat)
     simp only [Bool.true_and, beq_iff_eq] at hq ⊢; simp [hq]
   unfold Mips.Fp.Format.convert Mips.Fp.Format.convertNaN
   simp only [hn, hs, ↓reduceIte, Bool.false_eq_true, true_and]
-  split <;> split <;> rfl
 
-/-- `CVT.D.S` with the model's oracle is the core's `f32ToF64`. -/
-theorem cvtDS_model (x : W32) : IEEE.cvtDS modelOracle.cvtQNaNToD x = Mips.Fp.f32ToF64 x := by
+theorem qnan_isNaN32 (x : W32) (hq : Mips.Fp.isQNaN32 x = true) : Mips.Fp.binary32.isNaN x.toNat = true := by
+  unfold Mips.Fp.isQNaN32 Mips.Fp.Format.isQNaN at hq; revert hq; cases Mips.Fp.binary32.isNaN x.toNat <;> simp
+
+theorem qnan_isNaN64 (x : BitVec 64) (hq : Mips.Fp.isQNaN64 x = true) :
+    Mips.Fp.binary64.isNaN x.toNat = true := by
+  unfold Mips.Fp.isQNaN64 Mips.Fp.Format.isQNaN at hq; revert hq; cases Mips.Fp.binary64.isNaN x.toNat <;> simp
+
+/-- `CVT.D.S` with the model's oracle is the core's `f32ToF64` (flushing per `FCSR.FS`). -/
+theorem cvtDS_model (a : Arch) (x : W32) :
+    IEEE.cvtDS modelOracle.cvtQNaNToD a x = Mips.Fp.f32ToF64 (FCSR_FS a) x := by
   unfold IEEE.cvtDS
   split
   · next hq =>
+    have hf : ∀ fl, Mips.Fp.binary32.flushIn fl x.toNat = x.toNat := fun fl =>
+      Mips.Fp.Format.flushIn_of_isNaN _ _ _ (by decide) (qnan_isNaN32 x hq)
     have := (convert_qnan Mips.Fp.binary32 Mips.Fp.binary64 Mips.Fp.Env.RN x.toNat hq).2
-    show ((Mips.Fp.f32ToF64 x).1, Mips.Fp.Flags.none) = Mips.Fp.f32ToF64 x
-    simp only [Mips.Fp.f32ToF64]; rw [this]
+    show ((Mips.Fp.f32ToF64 false x).1, Mips.Fp.Flags.none) = Mips.Fp.f32ToF64 (FCSR_FS a) x
+    simp only [Mips.Fp.f32ToF64, hf]; rw [this]
   · rfl
 
 /-- `CVT.S.D` with the model's oracle is the core's `f64ToF32` under the FCSR environment. -/
@@ -336,10 +324,11 @@ theorem cvtSD_model (a : Arch) (x : BitVec 64) :
   unfold IEEE.cvtSD
   split
   · next hq =>
+    have hf : ∀ fl, Mips.Fp.binary64.flushIn fl x.toNat = x.toNat := fun fl =>
+      Mips.Fp.Format.flushIn_of_isNaN _ _ _ (by decide) (qnan_isNaN64 x hq)
     have h := convert_qnan Mips.Fp.binary64 Mips.Fp.binary32 (IEEE.env a) x.toNat hq
     show ((Mips.Fp.f64ToF32 Mips.Fp.Env.RN x).1, Mips.Fp.Flags.none) = Mips.Fp.f64ToF32 (IEEE.env a) x
-    obtain ⟨h1, h2⟩ := h; simp only [Mips.Fp.f64ToF32]; rw [h1] at h2 ⊢; rw [h2]
+    obtain ⟨h1, h2⟩ := h; simp only [Mips.Fp.f64ToF32, hf]; rw [h1] at h2 ⊢; rw [h2]
   · rfl
-
 
 end Refine

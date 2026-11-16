@@ -1,9 +1,10 @@
-# Legacy (FIR.Has2008 = 0) NaN behaviour: invalid operations create the default
-# QNaN 0x7fbfffff; a signaling NaN (fraction MSB 1) signals Invalid; a quiet NaN
-# operand is propagated unchanged; abs.s is arithmetic.
-# MD00082 Vol I-A Rev 6.01 6.3.1.4-6.3.1.5 and Table 6.3 (p.81-82); MD00086 Vol II-A
-# Rev 6.06 ABS.fmt (p.32). QEMU/Unicorn deviate on abs.s of a NaN; the manual wins.
-# Expected output: "2143289343 65600 2143289343 2143289343 2143289343 65600 2139095331 0 2139095331 2139095331 65600 "
+# NaN behaviour of the Release 6 FPU (FCSR.NAN2008 = ABS2008 = 1; the file name is historical):
+# invalid operations create the default QNaN 0x7fc00000; a signaling NaN (fraction MSB 0)
+# signals Invalid and is passed with its fraction MSB set; abs.s is non-arithmetic (no Invalid,
+# FCSR unchanged); FCSR reads include the read-only 0x000c0000.
+# MD00082 Vol I-A Rev 6.01 6.3.1.4-6.3.1.5 and Table 6.3 (p.81-83), Table 6.8 (p.93-94);
+# MD00086 Vol II-A Rev 6.06 ABS.fmt (p.32).
+# Expected output: "2143289344 852032 2143289344 2143289344 2143289344 786432 2143289635 852032 2139095331 2143289635 852032 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .text
@@ -35,7 +36,7 @@ main:
         ctc1  $zero, $31
         li    $t0, 0x7fc00000
         mtc1  $t0, $f4
-        abs.s $f2, $f4            # legacy SNaN: abs is arithmetic -> Invalid
+        abs.s $f2, $f4            # ABS2008 = 1: non-arithmetic, no exception
         mfc1  $a0, $f2
         jal   pint
         nop
@@ -47,7 +48,7 @@ main:
         mtc1  $t0, $f4
         li    $t0, 0x3f800000
         mtc1  $t0, $f6
-        add.s $f2, $f4, $f6       # QNaN + 1.0: the QNaN is propagated, no exception
+        add.s $f2, $f4, $f6       # SNaN + 1.0: Invalid, the SNaN is passed made quiet
         mfc1  $a0, $f2
         jal   pint
         nop
@@ -60,7 +61,7 @@ main:
         nop
         li    $t0, 0x7fc00000
         mtc1  $t0, $f6
-        add.s $f2, $f6, $f4       # SNaN + QNaN: Invalid, the QNaN operand is the result
+        add.s $f2, $f6, $f4       # SNaN + QNaN: Invalid, the SNaN operand made quiet (model pin)
         mfc1  $a0, $f2
         jal   pint
         nop

@@ -35,9 +35,13 @@ theorem writeReg_regs_size (s : State) (i : Fin 32) (v : W32) :
   · rfl
   · simp
 
+theorem writeFpReg64_fpRegs_size (s : State) (i : Fin 32) (v : BitVec 64) :
+    (writeFpReg64 s i v).fpRegs.size = s.fpRegs.size := by
+  unfold writeFpReg64; simp
+
 theorem writeFpReg_fpRegs_size (s : State) (i : Fin 32) (v : W32) :
     (writeFpReg s i v).fpRegs.size = s.fpRegs.size := by
-  unfold writeFpReg; simp
+  unfold writeFpReg; exact writeFpReg64_fpRegs_size _ _ _
 
 theorem writeFpReg_regs' (s : State) (i : Fin 32) (v : W32) :
     (writeFpReg s i v).regs = s.regs := rfl
@@ -47,7 +51,7 @@ theorem writeFpD_regs' (s : State) (f : W32) (v : BitVec 64) :
 
 theorem writeFpD_fpRegs_size (s : State) (f : W32) (v : BitVec 64) :
     (writeFpD s f v).fpRegs.size = s.fpRegs.size := by
-  unfold writeFpD; rw [writeFpReg_fpRegs_size, writeFpReg_fpRegs_size]
+  unfold writeFpD; exact writeFpReg64_fpRegs_size _ _ _
 
 theorem writeMemWord_fpRegs (s stored : State) (addr v : W32)
     (h : writeMemWord s addr v = some stored) : stored.fpRegs = s.fpRegs := by

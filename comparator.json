@@ -206,7 +206,12 @@
     "Trusted.mfc0_unimplemented_reads_zero",
     "Trusted.mtc0_unimplemented_ignored",
     "Trusted.beqc_spec_raw",
-    "Trusted.forbidden_slot_cti_reserved"
+    "Trusted.forbidden_slot_cti_reserved",
+    "Trusted.nanResult_first_snan",
+    "Trusted.f32ToW64_spec",
+    "Trusted.f64ToW64_spec",
+    "Trusted.w64ToF32_spec",
+    "Trusted.w64ToF64_spec"
   ],
   "definition_names": [],
   "permitted_axioms": [

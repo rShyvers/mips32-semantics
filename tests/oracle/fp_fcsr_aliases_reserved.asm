@@ -1,7 +1,7 @@
 # ctc1/cfc1 on FCSR ($31), FEXR ($26), FENR ($28) and FIR ($0): the aliases are views of FCSR, writes through FEXR/FENR touch only their
 # fields. Values are stored after each step. Release 6: the FP condition codes and FCCR ($25) are removed (FCSR.FCC is R0, FCCR reserved) and FCSR
-# writes with bits 20..18 set are UNPREDICTABLE, so the written values keep only FS, Cause, Enables, Flags and RM (mask 0x0103ffff); FCSR reads drop
-# the read-only NAN2008/ABS2008 bits. (The first value sets Cause.E, which always traps: the run ends at that ctc1.)
+# writes with bits 20..18 set are UNPREDICTABLE, so the written values keep only FS, Cause, Enables, Flags and RM (mask 0x0103ffff); FCSR reads
+# show the read-only NAN2008/ABS2008 bits (0x000c0000) set. (The first value sets Cause.E, which always traps: the run ends at that ctc1.)
 # MD00082 Vol I-A Rev 6.01 FIR/FEXR/FENR/FCSR register layouts (p.88-97; FCSR Table 6.8 p.92: FCC 'pre-Release 6 feature' R0; 6.5.5 p.96: 'Release 6 removes the FCCs and FCCR');
 # MD00086 Vol II-A Rev 6.06 CTC1 p.149-150 (FCSR: 'temp20..18 != 0 ... UNPREDICTABLE') / CFC1 p.129-130.
 .data
@@ -11,9 +11,6 @@ la $s7, res
 li $t0, 0x0103f07f
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 0($s7)
@@ -22,9 +19,6 @@ sw $t4, 8($s7)
 li $t0, 0x0003f07f
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 12($s7)
@@ -33,9 +27,6 @@ sw $t4, 20($s7)
 li $t0, 0x00000003
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 24($s7)
@@ -44,9 +35,6 @@ sw $t4, 32($s7)
 li $t0, 0x01000000
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 36($s7)
@@ -55,9 +43,6 @@ sw $t4, 44($s7)
 li $t0, 0x00000000
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 48($s7)
@@ -66,9 +51,6 @@ sw $t4, 56($s7)
 li $t0, 0x00000000
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 60($s7)
@@ -77,9 +59,6 @@ sw $t4, 68($s7)
 li $t0, 0x0000007c
 ctc1 $t0, $31
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 72($s7)
@@ -89,9 +68,6 @@ ctc1 $zero, $31
 li $t0, 0x0003007c
 ctc1 $t0, $26
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 84($s7)
@@ -101,9 +77,6 @@ ctc1 $zero, $31
 li $t0, 0x00000000
 ctc1 $t0, $26
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 96($s7)
@@ -113,9 +86,6 @@ ctc1 $zero, $31
 li $t0, 0x00000003
 ctc1 $t0, $28
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 108($s7)
@@ -125,9 +95,6 @@ ctc1 $zero, $31
 li $t0, 0x00000004
 ctc1 $t0, $28
 cfc1 $t1, $31
-lui $at, 0xfff3
-ori $at, $at, 0xffff
-and $t1, $t1, $at
 cfc1 $t3, $26
 cfc1 $t4, $28
 sw $t1, 120($s7)

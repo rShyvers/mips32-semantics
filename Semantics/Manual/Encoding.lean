@@ -96,7 +96,9 @@ diagram of each page, printed page of the diagram):
   arithmetic pages with fmt S = `10000`, D = `10001`, W = `10100` (Table A.22, p.459): ADD p.34, SUB
   p.387, MUL p.300, DIV p.170, SQRT p.382, ABS p.32, MOV p.275, NEG p.307, RECIP p.336, RSQRT p.343,
   ROUND.W p.342, TRUNC.W p.441, CEIL.W p.128, FLOOR.W p.186, CVT.W p.160, CVT.D p.153, CVT.S p.159.
-  -- W5/W6: the Release 6 FPU pages (CMP.condn, SEL, MADDF, ..., the L-format conversions).
+  The longword conversions (R6-5), fmt S, D and L = `10101`: ROUND.L p.341, TRUNC.L p.440, CEIL.L
+  p.127, FLOOR.L p.185, CVT.L p.154 (fmt S/D), CVT.S.L p.159, CVT.D.L p.153 (fmt L).
+  -- W6: the other Release 6 FPU pages (CMP.condn, SEL, MADDF, ...).
 -/
 def enc : Instruction → Option W32
   | .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)
@@ -293,6 +295,20 @@ def enc : Instruction → Option W32
   | .jic rt off => some (iFormat 0x36#32 0#32 rt off)
   | .jialc rt off => some (iFormat 0x3E#32 0#32 rt off)
   -- END R6-3
+  -- BEGIN R6-5: COP1 | fmt | `00000` | fs | fd | function (printed page in parentheses)
+  | .roundLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x08#32)  -- ROUND.L `001000` (p.341)
+  | .roundLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x08#32)
+  | .truncLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x09#32)  -- TRUNC.L `001001` (p.440)
+  | .truncLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x09#32)
+  | .ceilLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x0A#32)   -- CEIL.L `001010` (p.127)
+  | .ceilLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x0A#32)
+  | .floorLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x0B#32)  -- FLOOR.L `001011` (p.185)
+  | .floorLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x0B#32)
+  | .cvtLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x25#32)    -- CVT.L `100101` (p.154)
+  | .cvtLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x25#32)
+  | .cvtSL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x20#32)    -- CVT.S `100000` fmt L (p.159)
+  | .cvtDL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x21#32)    -- CVT.D `100001` fmt L (p.153)
+  -- END R6-5
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26
@@ -349,7 +365,8 @@ page of each diagram):
   MTC0 p.290; bits 10..6 and 4..0 of DI p.164, EI p.176; bits 10..0 of RDPGPR p.335, WRPGPR p.444;
   bits 10..0 of MFC1 p.267, MTC1 p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16
   of the one-operand COP1 functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W
-  p.441, CEIL.W p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160).
+  p.441, CEIL.W p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160;
+  R6-5: ROUND.L p.341, TRUNC.L p.440, CEIL.L p.127, FLOOR.L p.185, CVT.L p.154).
 * **`EXT` with `lsb + msbd > 31`** (p.183) and **`INS` with `lsb > msb`** (p.193).
 * **A `JALR` hint other than `00000` and `10000`**: "In release 1 of the architecture, the only
   defined hint field value is 0 ... In Release 2 of the architecture, bit 10 of the hint field is
@@ -403,11 +420,15 @@ def UnpredictableEncoding (w : W32) : Bool :=
   | 0x11 =>  -- COP1
     if [0x00, 0x04, 0x03, 0x07, 0x02, 0x06].contains rs then nz 10 0
     else if rs == 0x10 || rs == 0x11 then
-      if [0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x15, 0x16, 0x24].contains fn then
+      if [0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x15, 0x16, 0x24,
+          0x08, 0x09, 0x0A, 0x0B, 0x25].contains fn then   -- R6-5: ROUND/TRUNC/CEIL/FLOOR.L, CVT.L
         nz 20 16
       else if (rs == 0x10 && fn == 0x21) || (rs == 0x11 && fn == 0x20) then nz 20 16  -- CVT.D.S, CVT.S.D
       else false
     else if rs == 0x14 then (fn == 0x20 || fn == 0x21) && nz 20 16                 -- CVT.S.W, CVT.D.W
+    -- BEGIN R6-5
+    else if rs == 0x15 then (fn == 0x20 || fn == 0x21) && nz 20 16                 -- CVT.S.L, CVT.D.L
+    -- END R6-5
     else false
   | _ => false
 

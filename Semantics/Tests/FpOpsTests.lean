@@ -3,8 +3,15 @@ import Semantics.FpOps
 /-!
 # Differential tests for `Semantics/FpOps.lean` against Lean's `Float32` / `Float`
 
-Formerly §11 of `Semantics/FpOps.lean`; moved verbatim. This is the only place where the host's
+Formerly §11 of `Semantics/FpOps.lean`. This is the only place where the host's
 floating point appears: it is an oracle for `#guard`s, never part of a definition.
+
+Release 6 FPU (`FCSR.NAN2008 = ABS2008 = 1`): NaNs use the IEEE 754-2008 encoding (quiet bit = the
+fraction MSB set), so the host's NaN classification agrees with the model's; the default QNaN is
+`0x7FC00000` (MD00082 Vol I-A Rev 6.01 Table 6.3, p.82), the host's NaN pattern up to the sign bit;
+an invalid conversion to a fixed point format gives 0 for a NaN and the saturated integer otherwise
+(same table); `abs`/`neg` only change the sign bit (MD00086 Vol II-A Rev 6.06, ABS.fmt p.32, NEG.fmt
+p.307). The conversions take FCSR.FS as an explicit flush flag (`false` below unless stated).
 -/
 
 namespace Mips.Fp
@@ -165,21 +172,33 @@ def overflowOracle (rm : RoundingMode) (src : Float) : Bool :=
   isNaN32 x == (toF32 x).isNaN && isInf32 x == (toF32 x).isInf &&
   (!isNaN32 x && !isInf32 x) == (toF32 x).isFinite &&
   isZero32 x == (toF32 x == 0.0) &&
-  (isNaN32 x == (isQNaN32 x || isSNaN32 x)) && !(isQNaN32 x && isSNaN32 x)
+  (isNaN32 x == (isQNaN32 x || isSNaN32 x)) && !(isQNaN32 x && isSNaN32 x) &&
+  -- 2008 encoding: a NaN is quiet iff the fraction MSB (bit 22) is set
+  (!isNaN32 x || isQNaN32 x == x.getLsbD 22)
 
 #guard pats64.all fun x =>
   isNaN64 x == (toF64 x).isNaN && isInf64 x == (toF64 x).isInf &&
   isZero64 x == (toF64 x == 0.0) &&
-  (isNaN64 x == (isQNaN64 x || isSNaN64 x)) && !(isQNaN64 x && isSNaN64 x)
+  (isNaN64 x == (isQNaN64 x || isSNaN64 x)) && !(isQNaN64 x && isSNaN64 x) &&
+  (!isNaN64 x || isQNaN64 x == x.getLsbD 51)
 
 /-! ### `f32ToF64` vs `Float32.toFloat` (exact, never raises on non-NaN) -/
 
 #guard pats32.all fun x =>
-  isNaN32 x || f32ToF64 x == (ofF64 (toF32 x).toFloat, Flags.none)
+  isNaN32 x || f32ToF64 false x == (ofF64 (toF32 x).toFloat, Flags.none)
 
+-- a NaN keeps its sign and payload (widened), made quiet; Invalid iff it was signaling
 #guard pats32.all fun x =>
-  !isNaN32 x || isQNaN64 (f32ToF64 x).1 && (toF32 x).toFloat.isNaN &&
-    (f32ToF64 x).2.invalid == isSNaN32 x
+  !isNaN32 x || isQNaN64 (f32ToF64 false x).1 && (toF32 x).toFloat.isNaN &&
+    (f32ToF64 false x).2.invalid == isSNaN32 x &&
+    (f32ToF64 false x).1 ==
+      ((x.zeroExtend 64 &&& 0x80000000#64) <<< 32 ||| 0x7FF8000000000000#64 |||
+        ((x.zeroExtend 64 &&& 0x003FFFFF#64) <<< 29))
+
+-- FCSR.FS = 1: a subnormal operand is converted as a zero of the same sign
+#guard pats32.all fun x =>
+  f32ToF64 true x ==
+    f32ToF64 false (if isSubnormal32 x then x &&& 0x80000000#32 else x)
 
 /-! ### `f64ToF32` vs `Float.toFloat32` -/
 
@@ -225,8 +244,17 @@ def overflowOracle (rm : RoundingMode) (src : Float) : Bool :=
 /-- Expected float → word result given the already-rounded (integral, or
 NaN/∞) host double `r` and whether the source was integral. -/
 def w32Oracle (r : Float) (srcIntegral : Bool) : BitVec 32 × Flags :=
-  if r.isNaN || r < -2147483648.0 || r > 2147483647.0 then (0x7FFFFFFF#32, Flags.invalidOnly)
+  if r.isNaN then (0#32, Flags.invalidOnly)
+  else if r < -2147483648.0 then (0x80000000#32, Flags.invalidOnly)
+  else if r > 2147483647.0 then (0x7FFFFFFF#32, Flags.invalidOnly)
   else (r.toInt32.toBitVec, if srcIntegral then Flags.none else Flags.inexactOnly)
+
+/-- As `w32Oracle`, for a 64-bit longword (`2^63` itself is out of range). -/
+def w64Oracle (r : Float) (srcIntegral : Bool) : BitVec 64 × Flags :=
+  if r.isNaN then (0#64, Flags.invalidOnly)
+  else if r < -9223372036854775808.0 then (0x8000000000000000#64, Flags.invalidOnly)
+  else if r ≥ 9223372036854775808.0 then (0x7FFFFFFFFFFFFFFF#64, Flags.invalidOnly)
+  else (r.toInt64.toBitVec, if srcIntegral then Flags.none else Flags.inexactOnly)
 
 /-- Round-half-even on a host double, from `floor`. -/
 def rnOracle (f : Float) : Float :=
@@ -242,36 +270,92 @@ def rzOracle (f : Float) : Float := if f < 0.0 then f.ceil else f.floor
 #guard pats64.all fun d =>
   let f := toF64 d
   let integral := f.floor == f
-  f64ToW32 .RZ d == w32Oracle (rzOracle f) integral &&
-  f64ToW32 .RM d == w32Oracle f.floor integral &&
-  f64ToW32 .RP d == w32Oracle f.ceil integral &&
-  f64ToW32 .RN d == w32Oracle (rnOracle f) integral
+  f64ToW32 .RZ false d == w32Oracle (rzOracle f) integral &&
+  f64ToW32 .RM false d == w32Oracle f.floor integral &&
+  f64ToW32 .RP false d == w32Oracle f.ceil integral &&
+  f64ToW32 .RN false d == w32Oracle (rnOracle f) integral
 
 -- singles: widen exactly with the host, then use the same oracles
 #guard pats32.all fun x =>
   let f := (toF32 x).toFloat
   let integral := f.floor == f
-  f32ToW32 .RZ x == w32Oracle (rzOracle f) integral &&
-  f32ToW32 .RM x == w32Oracle f.floor integral &&
-  f32ToW32 .RP x == w32Oracle f.ceil integral &&
-  f32ToW32 .RN x == w32Oracle (rnOracle f) integral
+  f32ToW32 .RZ false x == w32Oracle (rzOracle f) integral &&
+  f32ToW32 .RM false x == w32Oracle f.floor integral &&
+  f32ToW32 .RP false x == w32Oracle f.ceil integral &&
+  f32ToW32 .RN false x == w32Oracle (rnOracle f) integral
 
 -- direct comparison with the host's own truncating conversion, in range
 #guard pats32.all fun x =>
   let f := toF32 x
-  !(f.abs < 2147483648.0) || (f32ToW32 .RZ x).1 == f.toInt32.toBitVec
+  !(f.abs < 2147483648.0) || (f32ToW32 .RZ false x).1 == f.toInt32.toBitVec
 
 #guard pats64.all fun d =>
   let f := toF64 d
-  !(f.abs < 2147483648.0) || (f64ToW32 .RZ d).1 == f.toInt32.toBitVec
+  !(f.abs < 2147483648.0) || (f64ToW32 .RZ false d).1 == f.toInt32.toBitVec
 
 -- … and with the host's `floor`/`ceil` on singles (the functions the old
 -- model used), where the result is in range
 #guard pats32.all fun x =>
   let f := toF32 x
   !(f.abs < 2147483000.0) ||
-    ((f32ToW32 .RM x).1 == f.floor.toInt32.toBitVec &&
-     (f32ToW32 .RP x).1 == f.ceil.toInt32.toBitVec)
+    ((f32ToW32 .RM false x).1 == f.floor.toInt32.toBitVec &&
+     (f32ToW32 .RP false x).1 == f.ceil.toInt32.toBitVec)
+
+/-! ### Float → longword vs `toInt64` ∘ `floor` / `ceil` / `round` (CVT/ROUND/TRUNC/CEIL/FLOOR.L) -/
+
+#guard pats64.all fun d =>
+  let f := toF64 d
+  let integral := f.floor == f
+  f64ToW64 .RZ false d == w64Oracle (rzOracle f) integral &&
+  f64ToW64 .RM false d == w64Oracle f.floor integral &&
+  f64ToW64 .RP false d == w64Oracle f.ceil integral &&
+  f64ToW64 .RN false d == w64Oracle (rnOracle f) integral
+
+#guard pats32.all fun x =>
+  let f := (toF32 x).toFloat
+  let integral := f.floor == f
+  f32ToW64 .RZ false x == w64Oracle (rzOracle f) integral &&
+  f32ToW64 .RM false x == w64Oracle f.floor integral &&
+  f32ToW64 .RP false x == w64Oracle f.ceil integral &&
+  f32ToW64 .RN false x == w64Oracle (rnOracle f) integral
+
+-- FCSR.FS = 1 flushes a subnormal operand first: ceil of the smallest subnormal is 1, or 0
+#guard f32ToW32 .RP false 0x00000001#32 == (1#32, Flags.inexactOnly) &&
+  f32ToW32 .RP true 0x00000001#32 == (0#32, Flags.none) &&
+  f64ToW64 .RM false 0x8000000000000001#64 == (0xFFFFFFFFFFFFFFFF#64, Flags.inexactOnly) &&
+  f64ToW64 .RM true 0x8000000000000001#64 == (0#64, Flags.none)
+
+/-! ### Longword → float vs `Int64.toFloat` / `Int64.toFloat32` (CVT.D.L, CVT.S.L) -/
+
+/-- Longword test patterns: small, around 2^24 / 2^53 / 2^63, and random. -/
+def ints64 : List (BitVec 64) :=
+  ([0, 1, 2, 0xFFFFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF, 0x8000000000000000, 0x8000000000000001,
+   0x0000000001000001, 0x0000000001000003, 0x0020000000000001, 0x0020000000000003,
+   0x0020000000000002, 0xFFDFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFC00, 0x7FFFFFFFFFFFFDFF,
+   0x7FFFFF8000000000, 0x7FFFFFBFFFFFFFFF, 0x7FFFFFC000000000] : List (BitVec 64)) ++ lcg64 300 4711 ++
+  ((lcg64 100 17).map fun (r : BitVec 64) => r >>> 20) ++
+  ((lcg32 100 3).map fun (r : BitVec 32) => r.signExtend 64)
+
+#guard ints64.all fun i =>
+  (w64ToF64 .RN i).1 == ofF64 (Int64.ofBitVec i).toFloat &&
+  (w64ToF32 .RN i).1 == ofF32 (Int64.ofBitVec i).toFloat32
+
+-- Inexact iff the result differs from the integer (exact comparison through the host's in-range
+-- conversion back); no other flag
+#guard ints64.all fun i =>
+  [RoundingMode.RN, .RZ, .RP, .RM].all fun rm =>
+    let r := w64ToF64 rm i
+    let exact := i == 0x8000000000000000#64 ||
+      (toF64 r.1 < 9223372036854775808.0 && (toF64 r.1).toInt64.toBitVec == i)
+    r.2 == { inexact := !exact }
+
+-- directed modes for longword → double bracket the round-to-nearest result
+#guard ints64.all fun i =>
+  let n := (w64ToF64 .RN i).1
+  let lo := (w64ToF64 .RM i).1
+  let hi := (w64ToF64 .RP i).1
+  toF64 lo ≤ toF64 n && toF64 n ≤ toF64 hi &&
+    ((w64ToF64 .RN i).2.inexact || (lo == n && hi == n))
 
 /-! ### Relations vs `Float32` / `Float` `<`, `==` -/
 
@@ -291,12 +375,21 @@ def rzOracle (f : Float) : Float := if f < 0.0 then f.ceil else f.floor
 /-! ### `abs` / `neg` vs the host, and NaN canonicalisation of host results -/
 
 #guard pats32.all fun x =>
-  isNaN32 x || ((f32Abs x).1 == ofF32 (toF32 x).abs && (f32Neg x).1 == ofF32 (-(toF32 x)))
+  isNaN32 x || (f32Abs x == ofF32 (toF32 x).abs && f32Neg x == ofF32 (-(toF32 x)))
 
 #guard pats64.all fun d =>
-  isNaN64 d || ((f64Abs d).1 == ofF64 (toF64 d).abs && (f64Neg d).1 == ofF64 (-(toF64 d)))
+  isNaN64 d || (f64Abs d == ofF64 (toF64 d).abs && f64Neg d == ofF64 (-(toF64 d)))
 
--- host-generated NaNs (0/0, ∞ − ∞, sqrt(−1)) canonicalise to the default QNaN
+-- non-arithmetic (`ABS2008 = 1`): on every pattern, NaNs included, only the sign bit changes
+#guard pats32.all fun x =>
+  f32Abs x == x &&& 0x7FFFFFFF#32 && f32Neg x == x ^^^ 0x80000000#32
+#guard pats64.all fun d =>
+  f64Abs d == d &&& 0x7FFFFFFFFFFFFFFF#64 && f64Neg d == d ^^^ 0x8000000000000000#64
+
+-- host-generated NaNs (0/0, ∞ − ∞, sqrt(−1)) canonicalise to the default QNaN, which is the
+-- host's NaN up to the sign bit
+#guard (ofF32 ((0.0 : Float32) / 0.0)) &&& 0x7FFFFFFF#32 == defaultQNaN32 &&
+  (ofF64 ((0.0 : Float) / 0.0)) &&& 0x7FFFFFFFFFFFFFFF#64 == defaultQNaN64
 #guard canonNaN32 (ofF32 ((0.0 : Float32) / 0.0)) == defaultQNaN32 &&
   canonNaN32 (ofF32 (toF32 0x7F800000#32 - toF32 0x7F800000#32)) == defaultQNaN32 &&
   canonNaN64 (ofF64 ((0.0 : Float) / 0.0)) == defaultQNaN64 &&
@@ -305,8 +398,11 @@ def rzOracle (f : Float) : Float := if f < 0.0 then f.ceil else f.floor
 /-! ### `add` / `sub` / `mul` / `div` / `sqrt` vs the host's IEEE arithmetic
 
 Under round-to-nearest the model must agree **bit for bit** with the host on
-every non-NaN result, and produce a NaN exactly when the host does (the NaN
-*pattern* is MIPS-legacy and deliberately differs). -/
+every non-NaN result, and produce a quiet NaN exactly when the host does. The NaN *pattern* is
+checked against the manual's rule, not the host's (whose operand choice is not IEEE-specified):
+the first signaling NaN operand made quiet, else the first quiet NaN operand, else the default
+QNaN (MD00082 Vol I-A Rev 6.01 §6.3.1.5, Table 6.3, p.82; operand order is a model pin,
+SPEC-NOTES). -/
 
 /-- Operand pairs: every pair of hand-picked edge patterns (≈ 3 700), random
 pairs, and moderate × random pairs. -/
@@ -344,13 +440,25 @@ def agree64 (m : BitVec 64) (h : Float) : Bool :=
 #guard (edge64 ++ moderate64).all fun a =>
   agree64 (f64Recip .RN a).1 (1.0 / toF64 a) && agree64 (f64Rsqrt .RN a).1 (1.0 / (toF64 a).sqrt)
 
--- unfused multiply-add = two host operations
-#guard (pairs32.zip (lcg32 5000 4242)).all fun ((a, b), c) =>
-  agree32 (f32Madd .RN c a b).1 (toF32 a * toF32 b + toF32 c) &&
-  agree32 (f32Msub .RN c a b).1 (toF32 a * toF32 b - toF32 c)
-#guard (pairs64.zip (lcg64 6000 4242)).all fun ((a, b), c) =>
-  agree64 (f64Madd .RN c a b).1 (toF64 a * toF64 b + toF64 c) &&
-  agree64 (f64Msub .RN c a b).1 (toF64 a * toF64 b - toF64 c)
+-- NaN results: the propagation rule above, bit for bit
+/-- The expected NaN result of a two-operand single operation (see the section comment). -/
+def nan32 (a b : BitVec 32) : BitVec 32 :=
+  if isSNaN32 a then a ||| 0x00400000#32 else if isSNaN32 b then b ||| 0x00400000#32
+  else if isNaN32 a then a else if isNaN32 b then b else defaultQNaN32
+/-- The expected NaN result of a two-operand double operation. -/
+def nan64 (a b : BitVec 64) : BitVec 64 :=
+  if isSNaN64 a then a ||| 0x0008000000000000#64 else if isSNaN64 b then b ||| 0x0008000000000000#64
+  else if isNaN64 a then a else if isNaN64 b then b else defaultQNaN64
+
+#guard pairs32.all fun (a, b) =>
+  [(f32Add .RN a b).1, (f32Sub .RN a b).1, (f32Mul .RN a b).1, (f32Div .RN a b).1].all fun r =>
+    !isNaN32 r || r == nan32 a b
+#guard pairs64.all fun (a, b) =>
+  [(f64Add .RN a b).1, (f64Sub .RN a b).1, (f64Mul .RN a b).1, (f64Div .RN a b).1].all fun r =>
+    !isNaN64 r || r == nan64 a b
+-- the Invalid flag of an operation with a NaN operand: set iff a signaling NaN is among them
+#guard pairs32.all fun (a, b) =>
+  !(isNaN32 a || isNaN32 b) || (f32Add .RN a b).2.invalid == (isSNaN32 a || isSNaN32 b)
 
 -- Single multiply, directed modes and flags: the product of two singles is
 -- exact in double precision (48 significant bits, exponent well in range), so

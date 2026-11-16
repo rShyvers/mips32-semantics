@@ -57,7 +57,7 @@ theorem cp0ReadAt_eq (s : State) (rd sel : W32) :
       | 8, 2 => s.cp0BadInstrP
       | 9, 0 => s.cp0Count
       | 11, 0 => s.cp0Compare
-      | 12, 0 => s.cp0Status
+      | 12, 0 => statusValue s
       | 12, 1 => 0xE0000000#32
       | 12, 2 => 0#32
       | 13, 0 => s.cp0Cause ||| (s.hwInt.setWidth 32 <<< 10) |||
@@ -146,7 +146,8 @@ theorem mfc0_spec_layout (s : State) (w rt rd sel : W32)
 /-- **`mfc0` reads CP0 register `(rd, sel)` into GPR `$rt`**, for every `(rd, sel)` (`decode`
 accepts them all), register by register (MD00090 Vol III Rev 6.02 Table 9.1 and the register
 sections): `(4,2)` UserLocal (§9.11, p.143), `(7,0)` HWREna, `(8,0)` BadVAddr, `(8,1)` BadInstr
-(§9.25, p.179), `(8,2)` BadInstrP (§9.26, p.181), `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status,
+(§9.25, p.179), `(8,2)` BadInstrP (§9.26, p.181), `(9,0)` Count, `(11,0)` Compare, `(12,0)` Status (as read: `statusValue`, the stored bits with the
+read-only `FR = 1`, MD00090 Vol III Rev 6.02 Table 9.47, p.190),
 `(12,1)` IntCtl (reads `0xE000_0000`: `IPTI = 7`, every other field 0, Table 9.48, p.199-201),
 `(12,2)` SRSCtl (reads 0: `HSS = 0`, Table 9.49, p.203-204), `(13,0)` Cause, `(14,0)` EPC, `(15,0)`
 PRId, `(15,1)` EBase, `(16,0)` Config, `(16,1)` Config1 (reads `0x8000_0001`: `M = 1`, `FP = 1`, Table
@@ -177,7 +178,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 8, 2 => read s.cp0BadInstrP
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
-      | 12, 0 => read s.cp0Status
+      | 12, 0 => read (statusValue s)
       | 12, 1 => read 0xE0000000#32
       | 12, 2 => read 0#32
       | 13, 0 => read (s.cp0Cause ||| (s.hwInt.setWidth 32 <<< 10) |||
@@ -404,27 +405,28 @@ theorem hwrenaWriteMask_eq : hwrenaWriteMask = 0x2000002F#32 := rfl
 
 /-- **`di`: `$rt ← Status`, then `Status.IE ← 0`** (MD00086 Vol II-A
 Rev 6.06, DI, p.164). The value written to `$rt` is the `Status` before the
-change; no other `Status` bit changes. -/
+change, as read (`statusValue`: the read-only `FR = 1`, MD00090 Vol III Rev 6.02 Table 9.47, p.190);
+no other `Status` bit changes. -/
 theorem di_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.di rt))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdxSpec rt)
-            s.cp0Status) with
+            (statusValue s)) with
           pc := (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdxSpec rt)
-            s.cp0Status).pc + 4#32 }) := by
+            (statusValue s)).pc + 4#32 }) := by
   cp0_step_spec
 
 /-- **`ei`: `$rt ← Status`, then `Status.IE ← 1`** (MD00086 Vol II-A
-Rev 6.06, EI, p.176). -/
+Rev 6.06, EI, p.176); `$rt` receives `Status` as read (`statusValue`, `FR = 1`). -/
 theorem ei_spec_raw (s : State) (w rt : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.ei rt))
     (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       { (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdxSpec rt)
-            s.cp0Status) with
+            (statusValue s)) with
           pc := (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdxSpec rt)
-            s.cp0Status).pc + 4#32 }) := by
+            (statusValue s)).pc + 4#32 }) := by
   cp0_step_spec
 
 /-- **`eret`** (MD00086 "ERET"), executed outside a delay slot:
@@ -651,8 +653,9 @@ theorem cp0_instruction_user_mode_unusable (s : State) (w : W32) (instr : Instru
 
 -- `mfc0` reads back Status/Cause/EPC, selected by `rd`;
 -- a register the layout does not name (here `(0, 0)`, Index: no TLB) reads 0 (Release 6).
+-- (Status reads with the read-only `FR = 1`, bit 26)
 #guard (let s := stepIn (prog1Spec (.mfc0 8#32 12#32 0#32)) { (initialState textBase) with cp0Status := 0x2#32 }
-        readReg s 8 == 0x2#32) = true
+        readReg s 8 == 0x04000002#32) = true
 
 #guard (let s := stepIn (prog1Spec (.mfc0 8#32 13#32 0#32)) { (initialState textBase) with cp0Cause := 0x34#32 }
         readReg s 8 == 0x34#32) = true

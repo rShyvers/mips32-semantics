@@ -66,51 +66,44 @@ theorem signaled_none {R : Rounded} {fl : Flags} (h : Signaled {} R fl) (ho : R.
 
 /-! ## `CVT.S.D`, `CVT.D.S`: between formats -/
 
-theorem convertNaN_qnan (src dst : Format) (hs : src.WF) (hd : dst.WF) {a : Nat}
-    (hq : src.IsQNaN a) : dst.IsQNaN (convertNaN src dst a).1 ∧ (convertNaN src dst a).2 = {} := by
-  have hns : src.isSNaN a = false := by
-    cases h : src.isSNaN a
-    · rfl
-    · have := (src.isSNaN_iff a).1 h; have := hq.2; have := this; simp_all [IsSNaN]
-  have hfr : src.fracOf a < 2 ^ (src.fracBits - 1) := by
-    have := hq.2
-    have h2 : 2 ^ src.fracBits = 2 ^ (src.fracBits - 1) * 2 := by
-      rw [← Nat.pow_succ]; congr 1; have := hs.2; omega
-    exact (Nat.div_eq_zero_iff_lt (Nat.two_pow_pos _)).1 this
-  have hne : src.fracOf a ≠ 0 := hq.1.2
-  have hd2 := hd.2
-  simp only [convertNaN, hns, Bool.false_eq_true, ite_false]
-  generalize hF : (if src.fracBits ≤ dst.fracBits then src.fracField a * 2 ^ (dst.fracBits - src.fracBits)
-    else src.fracField a / 2 ^ (src.fracBits - dst.fracBits)) = F
-  have hFlt : F < 2 ^ (dst.fracBits - 1) := by
-    rw [← hF]; simp only [fracOf] at hfr; split
-    · rename_i hle
-      calc src.fracField a * 2 ^ (dst.fracBits - src.fracBits)
-          < 2 ^ (src.fracBits - 1) * 2 ^ (dst.fracBits - src.fracBits) :=
-            Nat.mul_lt_mul_of_pos_right hfr (Nat.two_pow_pos _)
-        _ = 2 ^ (dst.fracBits - 1) := by rw [← Nat.pow_add]; congr 1; have := hs.2; omega
-    · rename_i hle
-      rw [Nat.div_lt_iff_lt_mul (Nat.two_pow_pos _), ← Nat.pow_add]
-      calc src.fracField a < 2 ^ (src.fracBits - 1) := hfr
-        _ = 2 ^ (dst.fracBits - 1 + (src.fracBits - dst.fracBits)) := by congr 1; omega
-  split
-  · exact ⟨dst.newQNaN_eq ▸ dst.newQNaN_isQNaN hd, rfl⟩
-  · rename_i hF0
-    have hlt : F < 2 ^ dst.fracBits :=
-      Nat.lt_of_lt_of_le hFlt (Nat.pow_le_pow_right (by omega) (by omega))
-    obtain ⟨e1, e2, -, -⟩ := dst.pack_fields (src.signBit a) dst.expMax F dst.expMax_lt hlt
-    refine ⟨⟨⟨?_, ?_⟩, ?_⟩, rfl⟩
-    · simp only [expOf]; exact e1
-    · simp only [fracOf, e2]; exact hF0
-    · simp only [fracOf, e2]; exact Nat.div_eq_of_lt hFlt
+/-- **The NaN operand of a format conversion meets `ConvertNaNSpec`**: the result is a quiet NaN of
+the destination format; Invalid exactly for a signaling NaN, nothing else signaled. -/
+theorem convertNaN_spec (src dst : Format) (hd : dst.WF) (a : Nat) :
+    ConvertNaNSpec src dst a (convertNaN src dst a) := by
+  refine ⟨?_, ?_⟩
+  · simp only [convertNaN]
+    rw [dst.quiet_eq_passedNaN hd]
+    apply dst.passedNaN_isQNaN_of_exp hd
+    have hfr : src.fracField a < 2 ^ src.fracBits := Nat.mod_lt _ (Nat.two_pow_pos _)
+    have hlt : (if src.fracBits ≤ dst.fracBits then src.fracField a * 2 ^ (dst.fracBits - src.fracBits)
+        else src.fracField a / 2 ^ (src.fracBits - dst.fracBits)) < 2 ^ dst.fracBits := by
+      split
+      · rename_i hle
+        calc src.fracField a * 2 ^ (dst.fracBits - src.fracBits)
+            < 2 ^ src.fracBits * 2 ^ (dst.fracBits - src.fracBits) :=
+              Nat.mul_lt_mul_of_pos_right hfr (Nat.two_pow_pos _)
+          _ = 2 ^ dst.fracBits := by rw [← Nat.pow_add]; congr 1; omega
+      · rename_i hle
+        rw [Nat.div_lt_iff_lt_mul (Nat.two_pow_pos _), ← Nat.pow_add]
+        calc src.fracField a < 2 ^ src.fracBits := hfr
+          _ = 2 ^ (dst.fracBits + (src.fracBits - dst.fracBits)) := by congr 1; omega
+    obtain ⟨e1, -, -, -⟩ := dst.pack_fields (src.signBit a) dst.expMax _ dst.expMax_lt hlt
+    simp only [expOf]; exact e1
+  · simp only [convertNaN]
+    by_cases h : src.IsSNaN a
+    · simp [(src.isSNaN_iff a).2 h, h, flags_invalidOnly]
+    · have h' : src.isSNaN a = false := by
+        cases h'' : src.isSNaN a
+        · rfl
+        · exact absurd ((src.isSNaN_iff a).1 h'') h
+      simp [h', h, flags_none]
 
 /-- **`ConvertFmt` between formats meets `ConvertSpec`** for every `src.width`-bit operand. -/
 theorem convert_spec (src dst : Format) (hs : src.WF) (hd : dst.WF) (e : Env) {a : Nat}
     (ha : a < 2 ^ src.width) : ConvertSpec src dst e a (convert src dst e a) := by
   rcases src.classify hs a ha with ⟨na, -, da⟩ | ⟨na, ia, -, da⟩ | ⟨na, ia, -, da, -, za⟩
   · simp only [ConvertSpec, da, convert, na, ite_true]
-    refine ⟨fun hsn => ?_, fun hq => convertNaN_qnan src dst hs hd hq⟩
-    simp [convertNaN, (src.isSNaN_iff a).2 hsn, invalidResult_eq]
+    exact convertNaN_spec src dst hd a
   · simp [ConvertSpec, da, convert, na, ia, infBits_eq, flags_none]
   · simp only [ConvertSpec, da, convert, na, ia, Bool.false_eq_true, ite_false]
     by_cases hx : (src.toExact a).toRat = 0

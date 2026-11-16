@@ -48,7 +48,9 @@ def SHARED_FPOPS : List Name := [
   `Mips.Fp.f64Add, `Mips.Fp.f64Sub, `Mips.Fp.f64Mul, `Mips.Fp.f64Div, `Mips.Fp.f64Sqrt,
   `Mips.Fp.f32Relation, `Mips.Fp.f64Relation,
   `Mips.Fp.f32ToF64, `Mips.Fp.f64ToF32, `Mips.Fp.f32ToW32, `Mips.Fp.f64ToW32,
-  `Mips.Fp.w32ToF32, `Mips.Fp.w32ToF64F ]
+  `Mips.Fp.w32ToF32, `Mips.Fp.w32ToF64F,
+  -- R6-5: the longword (L) conversions of the 64-bit FPU
+  `Mips.Fp.f32ToW64, `Mips.Fp.f64ToW64, `Mips.Fp.w64ToF32, `Mips.Fp.w64ToF64 ]
 
 /-- The model's types the spec may name. -/
 def SHARED_TYPES : List Name := [`W32, `VAddr, `PAddr]

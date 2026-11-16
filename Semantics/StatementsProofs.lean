@@ -403,7 +403,7 @@ theorem mfc0_spec_raw (s : State) (w rt rd sel : W32)
       | 8, 2 => read s.cp0BadInstrP
       | 9, 0 => read s.cp0Count
       | 11, 0 => read s.cp0Compare
-      | 12, 0 => read s.cp0Status
+      | 12, 0 => read (statusValue s)
       | 12, 1 => read 0xE0000000#32
       | 12, 2 => read 0#32
       | 13, 0 => read (s.cp0Cause ||| (s.hwInt.setWidth 32 <<< 10) |||
@@ -549,7 +549,7 @@ theorem resetState_spec :
     configValue resetState = 0xA4000982#32 ∧ kernelMode resetState = true ∧
     exceptionVector resetState = 0xBFC00380#32 ∧ resetState.pendingBranch = none ∧
     resetState.llBit = false ∧ resetState.regs = Array.replicate 32 0#32 ∧
-    resetState.fpRegs = Array.replicate 32 0#32 ∧ resetState.fcsr = 0#32 ∧
+    resetState.fpRegs = Array.replicate 32 0#64 ∧ resetState.fcsr = 0#32 ∧
     resetState.cp0Count = 0#32 ∧ resetState.cp0Compare = 0#32 ∧ resetState.cp0TimerInt = false ∧
     resetState.cp0HWREna = 0#32 :=
   _root_.resetState_spec
@@ -711,7 +711,7 @@ theorem cvtWS_spec_raw (s : State) (w fd fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cvtWS fd fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (readFpReg s (regIdx fs)))) :=
+      fpCompletesS s fd (Mips.Fp.f32ToW32 (Mips.Fp.getRM s.fcsr) (Mips.Fp.getFS s.fcsr) (readFpReg s (regIdx fs)))) :=
   _root_.cvtWS_spec_raw s w fd fs hfetch hdecode hpb hcu hexec
 
 theorem mfc1_spec_raw (s : State) (w rt fs : W32)
@@ -742,7 +742,9 @@ theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
-      { (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)) with pc := (writeReg s (regIdx rt) ((Mips.Fp.readControl s.fcsr fs.toNat).getD 0#32)).pc + 4#32 }) :=
+      match Mips.Fp.readControl s.fcsr fs.toNat with
+      | some v => { (writeReg s (regIdx rt) v) with pc := (writeReg s (regIdx rt) v).pc + 4#32 }
+      | none => takeException s excCodeRI) :=
   _root_.cfc1_spec_raw s w rt fs hfetch hdecode hpb hcu hexec
 
 theorem ctc1_spec_raw (s : State) (w rt fs : W32)
@@ -750,9 +752,7 @@ theorem ctc1_spec_raw (s : State) (w rt fs : W32)
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
     step s = timerTick (
       match Mips.Fp.writeControl s.fcsr fs.toNat (readReg s (regIdx rt)) with
-      | none =>
-        if Mips.Fp.fcsrTrapPending s.fcsr then takeException s excCodeFPE
-        else { s with pc := s.pc + 4#32 }
+      | none => takeException s excCodeRI
       | some f =>
         if Mips.Fp.fcsrTrapPending f then takeException { s with fcsr := f } excCodeFPE
         else { s with fcsr := f, pc := s.pc + 4#32 }) :=
@@ -760,7 +760,7 @@ theorem ctc1_spec_raw (s : State) (w rt fs : W32)
 
 theorem fcsr_ctc1_cfc1_roundtrip (fcsr v : W32) :
     ∃ f, Mips.Fp.writeControl fcsr 31 v = some f ∧ f = v &&& Mips.Fp.fcsrWritableMask ∧
-      Mips.Fp.readControl f 31 = some (v &&& Mips.Fp.fcsrWritableMask) :=
+      Mips.Fp.readControl f 31 = some ((v &&& Mips.Fp.fcsrWritableMask) ||| Mips.Fp.fcsr2008Bits) :=
   _root_.fcsr_ctc1_cfc1_roundtrip fcsr v
 
 /-! ## Address translation: the Fixed Mapping MMU, and the loader -/
@@ -1245,75 +1245,81 @@ operand (`AddSpec`, `MulSpec`, `DivSpec`, `SqrtSpec`, `SignOpSpec`, `ConvertSpec
 update (`FcsrSpec`, §6.7.1, CheckFPException) and the multiply-add family as separate operations
 (`MaddSpec`). -/
 
-theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FBFFFFF :=
+theorem newQNaN_binary32 : Mips.Fp.binary32.newQNaN = 0x7FC00000 :=
   _root_.Mips.Fp.newQNaN_binary32
 
-theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF7FFFFFFFFFFFF :=
+theorem newQNaN_binary64 : Mips.Fp.binary64.newQNaN = 0x7FF8000000000000 :=
   _root_.Mips.Fp.newQNaN_binary64
 
 theorem nanResult_first (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (hs : ops.find? (fun x => f.isSNaN x) = none)
     (h : ops.find? (fun x => f.isQNaN x) = some q) : f.nanResult ops = q :=
-  _root_.Mips.Fp.Format.nanResult_first f ops q h
+  _root_.Mips.Fp.Format.nanResult_first f ops q hs h
+
+theorem nanResult_first_snan (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
+    (h : ops.find? (fun x => f.isSNaN x) = some q) : f.nanResult ops = f.quiet q :=
+  _root_.Mips.Fp.Format.nanResult_first_snan f ops q h
 
 theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e false a.toNat b.toNat
-      ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) :=
+    Mips.Fp.binary32.AddSpec e false (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) :=
   _root_.Mips.Fp.f32Add_spec e a b
 
 theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.AddSpec e true a.toNat b.toNat
-      ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) :=
+    Mips.Fp.binary32.AddSpec e true (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) :=
   _root_.Mips.Fp.f32Sub_spec e a b
 
 theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.MulSpec e a.toNat b.toNat
-      ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) :=
+    Mips.Fp.binary32.MulSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) :=
   _root_.Mips.Fp.f32Mul_spec e a b
 
 theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
-    Mips.Fp.binary32.DivSpec e a.toNat b.toNat
-      ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) :=
+    Mips.Fp.binary32.DivSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary32.FlushedIn e.flush b.toNat) ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) :=
   _root_.Mips.Fp.f32Div_spec e a b
 
 theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
-    Mips.Fp.binary32.SqrtSpec e a.toNat
+    Mips.Fp.binary32.SqrtSpec e (Mips.Fp.binary32.FlushedIn e.flush a.toNat)
       ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) :=
   _root_.Mips.Fp.f32Sqrt_spec e a
 
 theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e false a.toNat b.toNat
-      ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) :=
+    Mips.Fp.binary64.AddSpec e false (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) :=
   _root_.Mips.Fp.f64Add_spec e a b
 
 theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.AddSpec e true a.toNat b.toNat
-      ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) :=
+    Mips.Fp.binary64.AddSpec e true (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) :=
   _root_.Mips.Fp.f64Sub_spec e a b
 
 theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.MulSpec e a.toNat b.toNat
-      ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) :=
+    Mips.Fp.binary64.MulSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) :=
   _root_.Mips.Fp.f64Mul_spec e a b
 
 theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
-    Mips.Fp.binary64.DivSpec e a.toNat b.toNat
-      ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) :=
+    Mips.Fp.binary64.DivSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
+      (Mips.Fp.binary64.FlushedIn e.flush b.toNat) ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) :=
   _root_.Mips.Fp.f64Div_spec e a b
 
 theorem f64Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 64) :
-    Mips.Fp.binary64.SqrtSpec e a.toNat
+    Mips.Fp.binary64.SqrtSpec e (Mips.Fp.binary64.FlushedIn e.flush a.toNat)
       ((Mips.Fp.f64Sqrt e a).1.toNat, (Mips.Fp.f64Sqrt e a).2) :=
   _root_.Mips.Fp.f64Sqrt_spec e a
 
 theorem f64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
-    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e x.toNat
+    Mips.Fp.Format.ConvertSpec Mips.Fp.binary64 Mips.Fp.binary32 e
+      (Mips.Fp.binary64.FlushedIn e.flush x.toNat)
       ((Mips.Fp.f64ToF32 e x).1.toNat, (Mips.Fp.f64ToF32 e x).2) :=
   _root_.Mips.Fp.f64ToF32_spec e x
 
-theorem f32ToF64_spec (x : BitVec 32) :
-    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 x.toNat
-      ((Mips.Fp.f32ToF64 x).1.toNat, (Mips.Fp.f32ToF64 x).2) :=
-  _root_.Mips.Fp.f32ToF64_spec x
+theorem f32ToF64_spec (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.Format.WidenSpec Mips.Fp.binary32 Mips.Fp.binary64 (Mips.Fp.binary32.FlushedIn fl x.toNat)
+      ((Mips.Fp.f32ToF64 fl x).1.toNat, (Mips.Fp.f32ToF64 fl x).2) :=
+  _root_.Mips.Fp.f32ToF64_spec fl x
 
 theorem w32ToF32_spec (e : Mips.Fp.Env) (x : BitVec 32) :
     Mips.Fp.binary32.FromIntSpec e x.toInt ((Mips.Fp.w32ToF32 e x).1.toNat, (Mips.Fp.w32ToF32 e x).2) :=
@@ -1324,13 +1330,31 @@ theorem w32ToF64_spec (x : BitVec 32) :
       ((Mips.Fp.w32ToF64F x).1.toNat, (Mips.Fp.w32ToF64F x).2) :=
   _root_.Mips.Fp.w32ToF64_spec x
 
-theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 32) :
-    Mips.Fp.binary32.ToWordSpec rm x.toNat (Mips.Fp.f32ToW32 rm x) :=
-  _root_.Mips.Fp.f32ToW32_spec rm x
+theorem f32ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.binary32.ToWordSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW32 rm fl x) :=
+  _root_.Mips.Fp.f32ToW32_spec rm fl x
 
-theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (x : BitVec 64) :
-    Mips.Fp.binary64.ToWordSpec rm x.toNat (Mips.Fp.f64ToW32 rm x) :=
-  _root_.Mips.Fp.f64ToW32_spec rm x
+theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
+    Mips.Fp.binary64.ToWordSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW32 rm fl x) :=
+  _root_.Mips.Fp.f64ToW32_spec rm fl x
+
+-- BEGIN R6-5
+theorem f32ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 32) :
+    Mips.Fp.binary32.ToLongSpec rm (Mips.Fp.binary32.FlushedIn fl x.toNat) (Mips.Fp.f32ToW64 rm fl x) :=
+  _root_.Mips.Fp.f32ToW64_spec rm fl x
+
+theorem f64ToW64_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
+    Mips.Fp.binary64.ToLongSpec rm (Mips.Fp.binary64.FlushedIn fl x.toNat) (Mips.Fp.f64ToW64 rm fl x) :=
+  _root_.Mips.Fp.f64ToW64_spec rm fl x
+
+theorem w64ToF32_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.binary32.FromIntSpec e x.toInt ((Mips.Fp.w64ToF32 e x).1.toNat, (Mips.Fp.w64ToF32 e x).2) :=
+  _root_.Mips.Fp.w64ToF32_spec e x
+
+theorem w64ToF64_spec (e : Mips.Fp.Env) (x : BitVec 64) :
+    Mips.Fp.binary64.FromIntSpec e x.toInt ((Mips.Fp.w64ToF64 e x).1.toNat, (Mips.Fp.w64ToF64 e x).2) :=
+  _root_.Mips.Fp.w64ToF64_spec e x
+-- END R6-5
 
 theorem condTable_formula : ∀ (cond : BitVec 4) (r : Mips.Fp.Format.Relation),
     Mips.Fp.fpCompare cond (decide (r = .un)) (decide (r = .lt)) (decide (r = .eq)) =
@@ -1347,19 +1371,19 @@ theorem f64Compare_spec (cond : BitVec 4) (a b : BitVec 64) :
   _root_.Mips.Fp.f64Compare_spec cond a b
 
 theorem f32Abs_spec (x : BitVec 32) :
-    Mips.Fp.binary32.SignOpSpec true x.toNat ((Mips.Fp.f32Abs x).1.toNat, (Mips.Fp.f32Abs x).2) :=
+    Mips.Fp.binary32.SignOpSpec true x.toNat (Mips.Fp.f32Abs x).toNat :=
   _root_.Mips.Fp.f32Abs_spec x
 
 theorem f32Neg_spec (x : BitVec 32) :
-    Mips.Fp.binary32.SignOpSpec false x.toNat ((Mips.Fp.f32Neg x).1.toNat, (Mips.Fp.f32Neg x).2) :=
+    Mips.Fp.binary32.SignOpSpec false x.toNat (Mips.Fp.f32Neg x).toNat :=
   _root_.Mips.Fp.f32Neg_spec x
 
 theorem f64Abs_spec (x : BitVec 64) :
-    Mips.Fp.binary64.SignOpSpec true x.toNat ((Mips.Fp.f64Abs x).1.toNat, (Mips.Fp.f64Abs x).2) :=
+    Mips.Fp.binary64.SignOpSpec true x.toNat (Mips.Fp.f64Abs x).toNat :=
   _root_.Mips.Fp.f64Abs_spec x
 
 theorem f64Neg_spec (x : BitVec 64) :
-    Mips.Fp.binary64.SignOpSpec false x.toNat ((Mips.Fp.f64Neg x).1.toNat, (Mips.Fp.f64Neg x).2) :=
+    Mips.Fp.binary64.SignOpSpec false x.toNat (Mips.Fp.f64Neg x).toNat :=
   _root_.Mips.Fp.f64Neg_spec x
 
 theorem fpUpdate_spec (fcsr : BitVec 32) (fl : Mips.Fp.Flags) :

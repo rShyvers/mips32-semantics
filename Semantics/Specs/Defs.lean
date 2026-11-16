@@ -92,24 +92,25 @@ result bits for `FPR[fd]`, `r.2` the IEEE exceptions it raised), outside a
 delay slot. If one of the exceptions is enabled in FCSR, the Floating Point
 exception is taken (ExcCode 15) from a state in which only FCSR.Cause has
 changed — **the destination is not written**. Otherwise the result is
-written, FCSR.Cause is set to `r.2` and `r.2` is ORed into FCSR.Flags
+written into the low 32 bits of the 64-bit `FPR[fd]` (the upper 32 bits, UNPREDICTABLE, kept: MD00082
+Vol I-A Rev 6.01 §6.6.2, p.98), FCSR.Cause is set to `r.2` and `r.2` is ORed into FCSR.Flags
 (`Mips.Fp.raiseFlags`), and `pc` advances
 (MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99; Table 6.8, p.94). -/
 def fpCompletesS (s : State) (fd : W32) (r : BitVec 32 × Mips.Fp.Flags) : State :=
   if Mips.Fp.fpeEnabled s.fcsr r.2 then
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
-    { s with fpRegs := s.fpRegs.set! (regIdx fd).val r.1, fcsr := Mips.Fp.raiseFlags s.fcsr r.2,
-               pc := s.pc + 4#32 }
+    { s with fpRegs := s.fpRegs.set! (regIdx fd).val
+                 ((s.fpRegs.getD (regIdx fd).val 0#64).extractLsb' 32 32 ++ r.1),  -- R6-5
+               fcsr := Mips.Fp.raiseFlags s.fcsr r.2, pc := s.pc + 4#32 }
 
-/-- As `fpCompletesS`, for a 64-bit result: the low word goes to `FPR[fd]`,
-the high word to `FPR[fd+1]` (the `Status.FR = 0` register pair). -/
+/-- As `fpCompletesS`, for a 64-bit result (a double or a longword): the whole 64-bit `FPR[fd]`
+(`Status.FR = 1`). -/
 def fpCompletesD (s : State) (fd : W32) (r : BitVec 64 × Mips.Fp.Flags) : State :=
   if Mips.Fp.fpeEnabled s.fcsr r.2 then
     takeException { s with fcsr := fcsrTrapped s.fcsr r.2 } excCodeFPE
   else
     { s with
-          fpRegs := (s.fpRegs.set! (regIdx fd).val (r.1.extractLsb' 0 32)).set!
-            (regIdx (fd + 1#32)).val (r.1.extractLsb' 32 32)
+          fpRegs := s.fpRegs.set! (regIdx fd).val r.1  -- R6-5
           fcsr := Mips.Fp.raiseFlags s.fcsr r.2
           pc := s.pc + 4#32 }

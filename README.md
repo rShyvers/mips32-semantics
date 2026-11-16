@@ -90,7 +90,8 @@ matrix is `docs/TRACE.md`.
 | Arithmetic, double | 16 | 16 | 10 | 16 | add.d, sub.d, mul.d, div.d, sqrt.d, abs.d, mov.d, neg.d, recip.d, rsqrt.d, round.w.d, trunc.w.d, ceil.w.d, floor.w.d, cvt.w.d, cvt.s.d |
 | BEGIN R6-2 | 3 | 3 | 0 | 3 | eretnc, sigrie, cache |
 | END R6-2 | 24 | 24 | 0 | 24 | bc, balc, beqc, bnec, bltc, bgec, bltuc, bgeuc, blezc, bgezc, bgtzc, bltzc, beqzc, bnezc, blezalc, bgezalc, bgtzalc, bltzalc, beqzalc, bnezalc, bovc, bnvc, jic, jialc |
-| **Total** | **163** | **163** | **83** | **163** | |
+| END R6-3 | 12 | 12 | 0 | 12 | cvt.l.s, cvt.l.d, round.l.s, round.l.d, trunc.l.s, trunc.l.d, ceil.l.s, ceil.l.d, floor.l.s, floor.l.d, cvt.s.l, cvt.d.l |
+| **Total** | **175** | **175** | **83** | **175** | |
 
 Columns count constructors of `Instruction`. "Spec theorem": has a `<ctor>_spec_raw`/`_spec` theorem. "MARS corpus" / "QEMU oracle": the mnemonic occurs as an instruction in a `tests/corpus/*.asm` / `tests/oracle/*.asm` program (a text scan; it shows the instruction is exercised, not that every behaviour is).
 <!-- END GENERATED -->

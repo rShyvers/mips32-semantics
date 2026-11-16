@@ -1,6 +1,5 @@
 # mfhc1/mthc1 on even registers: mthc1 writes the high word of the 64-bit FPR[fs] and leaves the low word, mfhc1 reads it back
-# (the same with Status.FR = 0, where the high word is the odd register of the pair, and FR = 1). The high words are cleared before exit
-# (the final FPR dump holds only the low word of each 64-bit FPR on an FR = 1 FPU).
+# (Release 6: Status.FR = 1, every FPR is 64 bits wide and an odd register is an independent register).
 # MD00086 Vol II-A Rev 6.06: MFHC1 p.271 ('GPR[rt] <- FPR[fs]63..32'), MTHC1 p.295.
 # oracle: expect gpr:s0=0xaabbccdd gpr:s1=0x11223344 gpr:s3=0x01020304 gpr:s4=0x11223344
 .data

@@ -2,8 +2,7 @@
 # make kuseg unmapped on QEMU, BEV moves the vector), Cause (IV, IP1..0 writable), EPC, ErrorEPC, BadVAddr (read-only).
 # MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.290-291; MD00090 Vol III Rev 6.02 sec 9.35 BadVAddr, 9.36 Cause,
 # 9.37 EPC, 9.38 ErrorEPC. Cause.ExcCode/BD are not writable; BadVAddr ignores writes.
-# oracle: expect gpr:s0=0x2000ff00 gpr:s1=0x00800300 gpr:s2=0x00400000 gpr:s3=0x00000123 gpr:s4=0
-# oracle: known-model-bug gpr:s0 MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (FR, bit 26: "Release 6 disallows bi-modal support ...; i.e., FR is read-only"; "if floating-point is implemented then FR = 1 is required") and DECISIONS D2 (64-bit FPU, FR = 1): W5: the model still has Status.FR = 0 (QEMU reads 0x04000000 set)
+# oracle: expect gpr:s0=0x2400ff00 gpr:s1=0x00800300 gpr:s2=0x00400000 gpr:s3=0x00000123 gpr:s4=0
 lui $t0, 0x2000
 ori $t0, $t0, 0xff00
 mtc0 $t0, $12

@@ -39,7 +39,7 @@ BYTEORDER = "little"
 # Comparison masks.  Bits the model implements (Semantics/Types.lean statusWriteMask / causeWriteMask
 # plus the exception-entry fields).  Everything else in Status/Cause is hardware state the model
 # does not have (Status.SR/NMI/RP/TS/R0/..., Cause.TI/PCI/WP/IP7..IP2 timer+device interrupts).
-STATUS_MASK = 0x3040FF17   # CU1(29) CU0(28) BEV(22) IM7..0(15:8) UM(4) ERL(2) EXL(1) IE(0)
+STATUS_MASK = 0x3440FF17   # CU1(29) RW(28) FR(26, read-only 1, R6-5) BEV(22) IM7..0(15:8) UM(4) ERL(2) EXL(1) IE(0)
 CAUSE_MASK = 0xB880037C    # BD(31) CE(29:28) DC(27) IV(23) IP1..0(9:8) ExcCode(6:2)
 CU1 = 0x20000000
 TEXT_LO, TEXT_HI = 0x00400000, 0x10000000
@@ -547,26 +547,13 @@ ASM_SKIP = {
 }
 
 # Sidecar `# oracle:` directives for tests/asm programs (the programs themselves stay untouched: EquivHarness reads them).
-# W5 (the Release 6 FPU, DECISIONS D2): the model's FPU is still FR = 0 with the legacy NaN encoding and FCSR.NAN2008 = ABS2008 = 0;
-# QEMU mips32r6-generic has FR = 1 and NAN2008 = ABS2008 = 1 (read-only).
-_FCSR2008 = ("MD00082 Vol I-A Rev 6.01 sec 6.5 Table 6.8 p.93 (ABS2008, bit 19: reset state 1 (Release 6), \"Required as of Release 5\") and p.94 "
-             "(NAN2008, bit 18: 1 (Release 6)): W5: the model's FCSR reads NAN2008 = ABS2008 = 0 (QEMU: 0x000c0000 set)")
-_FR1 = ("MD00090 Vol III Rev 6.02 sec 9.32 Table 9.47 p.191 (Status.FR read-only in Release 6; FR = 1 required with a 64-bit FPU) and DECISIONS D2: "
-        "W5: the model keeps doubles in even/odd FPR pairs (FR = 0); QEMU (FR = 1) leaves the odd FPR alone")
-_CVT2008 = ("MD00086 Vol II-A Rev 6.06 CVT.W.fmt p.160 (\"On cores with FCSRNAN2008=0, the default result is 2^31-1. On cores with FCSRNAN2008=1, the default "
-            "result is: 0 when the input value is NaN ...\") and the FCSR bits (" + _FCSR2008 + ")")
-_NAN2008 = ("MD00082 Vol I-A Rev 6.01 sec 6.5 Table 6.8 p.94 (NAN2008 = 1 in Release 6: a quiet NaN has the first fraction bit 1) and p.93 (ABS2008 = 1: "
-            "ABS/NEG non-arithmetic): W5: the model still uses the legacy NaN encoding and arithmetic ABS/NEG")
+# Release 6 FPU (model and QEMU agree on Status.FR = 1, FCSR.NAN2008 = ABS2008 = 1, the 2008 NaN/conversion results): no sidecar needed for the FPU programs.
 _MISALIGNED = ("MD00086 Vol II-A Rev 6.06 LDC1 p.215 / MD00082 Vol I-A Rev 6.01 App. B.2 p.128 (Release 6 permits hardware misalignment support or an "
                "Address Error for every misaligned access): an implementation choice; the profile traps (DECISIONS D3, the model), QEMU mips32r6-generic "
                "performs the access")
 ASM_DIRECTIVES = {
-    "fcsr_rounding_modes": ["known-model-bug output " + _FCSR2008],
-    "fp_convert_to_word": ["known-model-bug output " + _CVT2008, "known-model-bug fpr:f5 " + _FR1],
-    "fp_legacy_nan": ["known-model-bug output " + _NAN2008,
-                      "unpredictable fpr:f2 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' "
+    "fp_legacy_nan": ["unpredictable fpr:f2 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: 'When possible, this QNaN result is one of the operand QNaN values' "
                       "-- with two NaN operands which one is returned is not specified"],
-    "fp_release2_retained": ["known-model-bug output " + _FCSR2008, "known-model-bug fpr:f5 " + _FR1, "known-model-bug fpr:f7 " + _FR1],
     "ldc1_doubleword_alignment": ["unpredictable %s %s" % (f, _MISALIGNED)
                                   for f in ("term", "gpr:v0", "epc", "badvaddr", "pc", "status", "cause", "fpr:f2", "fpr:f3")],
 }
@@ -1032,11 +1019,11 @@ def cmd_selftest(env, args):
     # real declared deviation (QEMU SC misalignment) end to end: declared -> DEVIATION; undeclared -> FAIL;
     # a stale extra declaration -> FAIL
     src = open(os.path.join(TESTDIR, "exc_sc_misaligned.asm")).read()
-    abs_src = open(os.path.join(TESTDIR, "fp_abs_neg_nan.asm")).read()
-    as_bug = abs_src   # declares `known-model-bug gpr:s0` (W5: ABS2008 = 1 makes abs.s of a NaN non-arithmetic)
-    if "# oracle: known-model-bug gpr:s0 " not in as_bug or "li $t9, 0x7fa00000" not in as_bug:
-        check("fp_abs_neg_nan.asm still has the lines the selftest uses", False)
-    variants = {"known-bug": (as_bug, "KNOWN_BUG"), "known-bug-stale": (as_bug.replace("li $t9, 0x7fa00000", "li $t9, 0x3f800000"), "FAIL"),
+    # the same program with one deviation re-declared as a known model bug (the model is the side that is wrong): KNOWN_BUG
+    as_bug = src.replace("# oracle: expect-deviation gpr:t1 ", "# oracle: known-model-bug gpr:t1 ")
+    if as_bug == src:
+        check("exc_sc_misaligned.asm still has the line the selftest uses", False)
+    variants = {"known-bug": (as_bug, "KNOWN_BUG"), "known-bug-stale": (as_bug + "# oracle: known-model-bug gpr:t5 MD00086-Rev-6.06-p.1 declared bug that does not occur\n", "FAIL"),
                 "declared": (src, "DEVIATION"),
                 "undeclared": ("\n".join(l for l in src.splitlines() if "expect-deviation" not in l) + "\n", "FAIL"),
                 "stale": (src.replace("# oracle: expect-deviation gpr:t1", "# oracle: expect-deviation gpr:t2 stale reason\n# oracle: expect-deviation gpr:t1"), "FAIL")}

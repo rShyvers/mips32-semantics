@@ -16,34 +16,26 @@ def f64(x):
 def hx(v): return "0x%08x" % (v & 0xffffffff)
 RM = ["RN", "RZ", "RP", "RM"]
 
-# FCSR bits 18 (NAN2008) and 19 (ABS2008) are read-only 1 on a Release 6 FPU (QEMU mips32r6-generic) and read 0 in the model until W5
-# (FR=1 / NAN2008 FPU): every `cfc1 rX, $31` of a generated test is followed by a mask that clears them, so flags and rounding compare
-# exactly. tests/oracle/fp_fcsr_nan2008_abs2008.asm reads the raw FCSR.
-FCSR_MASK = ["lui $at, 0xfff3", "ori $at, $at, 0xffff"]
+# Release 6 FPU: FCSR.NAN2008 = ABS2008 = 1 (read-only) and Status.FR = 1 read identically in the model and QEMU, so no value read is masked.
 class T:
     def __init__(s, name, title, cites, dirs=()):
         s.name, s.title, s.cites, s.dirs = name, title, cites, list(dirs)
         s.t, s.k, s.nres, s.lab, s.datal = [], [], 0, 0, []
-        s.maskfcsr, s.dbl = True, False
+        s.dbl = False
     def e(s, *l):
         for x in l:
             s.t.append(x)
-            m = re.fullmatch(r"cfc1 (\$\w+), \$31", x)
-            if m and s.maskfcsr: s.t += FCSR_MASK + ["and %s, %s, $at" % (m.group(1), m.group(1))]
     def slot(s):
         o = s.nres * 4; s.nres += 1; return o
     def store(s, reg, base="$s7"):
         o = s.slot(); s.e("sw %s, %d(%s)" % (reg, o, base)); return o
-    def bug(s, off, kind):
-        """Declare the result slot at `off` (from `res` = 0x10010000) a known model bug of class `kind` (W5: legacy-NaN FPU)."""
-        s.dirs.append("known-model-bug mem:0x%08x %s" % (0x10010000 + off, W5_BUG[kind]))
     def lbl(s): s.lab += 1; return "L%d" % s.lab
     def single(s, fr, v):
         s.dbl = True
         s.e("li $t9, %s" % hx(v), "mtc1 $t9, $f%d" % fr)
     def double(s, fr, hl):
         s.dbl = True
-        # mtc1 (low word) + mthc1 (high word): the same 64-bit value with Status.FR = 0 (even/odd pair) and FR = 1 (MTHC1 p.295)
+        # mtc1 (low word) + mthc1 (high word) write the two halves of the 64-bit FPR (Release 6: Status.FR = 1, MTHC1 p.295)
         s.e("li $t9, %s" % hx(hl[1]), "mtc1 $t9, $f%d" % fr, "li $t9, %s" % hx(hl[0]), "mthc1 $t9, $f%d" % fr)
     def write(s, exit=True, resptr=True):
         o = ["# " + l for l in s.title.split("\n")] + ["# " + l for l in s.cites.split("\n")] + ["# oracle: " + d for d in s.dirs]
@@ -56,56 +48,28 @@ class T:
             # the last result's registers are in memory already (stored slots); clear them so that a result that differs only
             # by a declared slot is not compared a second time
             o += ["move $t0, $zero", "move $t2, $zero"]
-            # clear the even FPRs (both words): the final FPR dump of an FR = 1 FPU holds only the low word of each FPR, the FR = 0
-            # model's odd registers are the high words; every result was stored to memory (high words with mfhc1)
+            # clear the even FPRs (both words): every result was stored to memory (high words with mfhc1), so the final FPR dump
+            # need not compare the same value a second time
             o += ["mtc1 $zero, $f%d" % r for r in range(0, 32, 2)] + ["mthc1 $zero, $f%d" % r for r in range(0, 32, 2)]
         if exit: o += ["li $v0, 10", "syscall"]
         open(os.path.join(OUT, s.name + ".asm"), "w").write("\n".join(o) + "\n")
 
-# Legacy NaN encoding (FIR.Has2008 = 0): the fraction MSB (b1) = 1 is a SIGNALING NaN, 0 is a QUIET NaN
-# (MD00082 Vol I-A Rev 6.01 Table 6.2, p.80). So 0x7fc00000 / 0x7ff80000_00000000 are SNaNs and
-# 0x7fa00000 / 0x7ff40000_00000000 are QNaNs. (These were named *_NAN_Q / *_NAN_S before, reversed; the generated
-# .asm text, including its titles, is unchanged.)
-S_SNAN, S_QNAN = 0x7fc00000, 0x7fa00000
-D_SNAN, D_QNAN = (0x7ff80000, 0), (0x7ff40000, 0)
+# Release 6 NaN encoding (FCSR.NAN2008 = 1, MD00082 Vol I-A Rev 6.01 Table 6.8 p.94): the fraction MSB (b22 single, b51 double) = 1 is a QUIET NaN, 0 is a
+# SIGNALING NaN. So 0x7fc00000 / 0x7ff80000_00000000 are QNaNs and 0x7fa00000 / 0x7ff40000_00000000 are SNaNs.
+S_QNAN, S_SNAN = 0x7fc00000, 0x7fa00000
+D_QNAN, D_SNAN = (0x7ff80000, 0), (0x7ff40000, 0)
 
-# Release 6 requires FCSR.NAN2008 = 1 (MD00082 Vol I-A Rev 6.01 FCSR p.94, "Required as of Release 5", reset 1 for Release 6);
-# QEMU mips32r6-generic implements it, the model still has the legacy (NAN2008 = 0) FPU until W5. The results that differ only
-# because of that are declared per slot (computed below from the operands, so a stale declaration cannot be emitted).
-_T63 = "MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82"
-W5_BUG = {
-    "nan_s": _T63 + " (new QNaN, FCSR.NAN2008 = 1): single 0x7fc00000; W5: the model still creates the legacy 0x7fbfffff",
-    "nan_d_lo": _T63 + " (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (low word)",
-    "nan_d_hi": _T63 + " (new QNaN, FCSR.NAN2008 = 1): double 0x7ff80000_00000000; W5: the model still creates the legacy 0x7ff7ffff_ffffffff (high word)",
-    "cvt_neg": _T63 + " (FCSR.NAN2008 = 1): a number too small for a word converts to 0x80000000; W5: the model still gives the legacy 0x7fffffff",
-    "cvt_nan": _T63 + " (FCSR.NAN2008 = 1): a NaN converts to 0x00000000; W5: the model still gives the legacy 0x7fffffff",
-}
 def val_s(w): return struct.unpack(">f", struct.pack(">I", w & 0xffffffff))[0]
 def val_d(hl): return struct.unpack(">d", struct.pack(">Q", (hl[0] << 32) | hl[1]))[0]
-def arith_nan(op, x, y=None):
-    """The IEEE result of op(x, y) (non-NaN operands) is a new QNaN (invalid operation)."""
-    if op == "sqrt": return x < 0
-    if op == "div": return (x == 0 and y == 0) or (math.isinf(x) and math.isinf(y))
-    return math.isnan({"add": lambda: x + y, "sub": lambda: x - y, "mul": lambda: x * y}[op]())
-def cvt_class(x, mode):
-    """None, or the W5_BUG class of converting x to a word with rounding mode 0..3 (RN RZ RP RM)."""
-    if math.isnan(x): return "cvt_nan"
-    if math.isinf(x): return "cvt_neg" if x < 0 else None
-    f = Fraction(x)
-    r = (round(f), math.trunc(f), math.ceil(f), math.floor(f))[mode]
-    return "cvt_neg" if r < -2 ** 31 else None
-
 def gen_round_d():
     t = T("fp_round_trunc_ceil_floor_w_d", "round/trunc/ceil/floor.w.d on 2.5 -2.5 1.5 -1.5 0.5 -0.5 3.7 -3.7 1e10 -1e10 +Inf QNaN 2^31 -2^31 (result word and FCSR).\n"
-          "Out-of-range / NaN / Inf inputs give the invalid-operation result 0x7fffffff (legacy, Has2008=0) and Invalid; inexact results set Inexact.",
-          "MD00086 Vol II-A Rev 6.06: ROUND.W.fmt p.342, TRUNC.W.fmt p.441, CEIL.W.fmt p.128, FLOOR.W.fmt p.186; MD00082 Vol I-A Rev 6.01 Table 6.3 p.82 (word fixed point: 0x7fffffff for a NaN / too-big operand).")
+          "Release 6 (FCSR.NAN2008 = 1) results: NaN -> 0, too big (+Inf, 2^31) -> 0x7fffffff, too small (-Inf, < -2^31) -> 0x80000000, all with Invalid; inexact results set Inexact.",
+          "MD00086 Vol II-A Rev 6.06: ROUND.W.fmt p.342, TRUNC.W.fmt p.441, CEIL.W.fmt p.128, FLOOR.W.fmt p.186; MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (word fixed point, FCSRNAN2008 = 1: 0x7fffffff too big, 0x00000000 NaN, 0x80000000 too small).")
     vals = [2.5, -2.5, 1.5, -1.5, 0.5, -0.5, 3.7, -3.7, 1e10, -1e10, float("inf"), None, 2147483648.0, -2147483648.0]
     for v in vals:
         t.double(0, D_SNAN if v is None else f64(v))
         for mode, op in ((0, "round"), (1, "trunc"), (2, "ceil"), (3, "floor")):
             t.e("ctc1 $zero, $31", "%s.w.d $f4, $f0" % op, "mfc1 $t0, $f4", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
-            k = cvt_class(float("nan") if v is None else v, mode)
-            if k: t.bug(o, k)
     t.write()
 
 # ---------------------------------------------------------------- cvt under each RM
@@ -118,14 +82,10 @@ def gen_cvt_rm():
         for v in dvals:
             t.double(0, f64(v))
             t.e("li $t8, %d" % rm, "ctc1 $t8, $31", "cvt.w.d $f4, $f0", "mfc1 $t0, $f4", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
-            k = cvt_class(v, rm)
-            if k: t.bug(o, k)
             t.e("ctc1 $t8, $31", "cvt.s.d $f6, $f0", "mfc1 $t0, $f6", "cfc1 $t1, $31"); t.store("$t0"); t.store("$t1")
         for v in (2.5, -0.5, 16777217.0, 3.4e38, 1.5):
             t.single(8, f32(v)) if abs(v) < 1e38 or v == 3.4e38 else None
             t.e("li $t8, %d" % rm, "ctc1 $t8, $31", "cvt.w.s $f4, $f8", "mfc1 $t0, $f4", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
-            k = cvt_class(val_s(f32(v)), rm)
-            if k: t.bug(o, k)
         for w in (0x01000001, 0x7fffffff, 0x80000001, 5):
             t.e("li $t9, %s" % hx(w), "mtc1 $t9, $f10", "li $t8, %d" % rm, "ctc1 $t8, $31", "cvt.s.w $f12, $f10", "mfc1 $t0, $f12", "cfc1 $t1, $31")
             t.store("$t0"); t.store("$t1")
@@ -165,9 +125,6 @@ def gen_flags(fmt):
             t.e("li $t8, %d" % rm, "ctc1 $t8, $31", ins, "mfc1 $t0, $f6", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
             if fmt == "d": t.e("mfhc1 $t2, $f6"); oh = t.store("$t2")
             val = val_s if fmt == "s" else val_d
-            if arith_nan(op, val(V[a]), val(V[b]) if b else None):
-                if fmt == "s": t.bug(o, "nan_s")
-                else: t.bug(o, "nan_d_lo"); t.bug(oh, "nan_d_hi")
     t.write()
 
 # ---------------------------------------------------------------- FP traps
@@ -187,7 +144,7 @@ def gen_traps():
           "Overflow with the Overflow trap enabled: Cause = O only (no Inexact), because 'Inexact is signaled if the rounded result overflows WITHOUT an overflow trap'.",
           cites2,
           ["expect gpr:s4=6", "expect-deviation mem:0x1001002c MD00082 Vol I-A Rev 6.01 sec 6.7.2.6 p.102: Inexact is signaled on overflow only 'without an overflow trap'; with Enables.O set the model reports Cause=O (0x4200 with the enable), QEMU also sets Cause.I (0x5200)"])
-    t.k = ["mfc0 $k0, $13", "srl $k0, $k0, 2", "andi $k0, $k0, 31", "sll $s6, $s6, 8", "or $s6, $s6, $k0", "addiu $s4, $s4, 1", "cfc1 $s5, $31", "lui $k1, 0xfff3", "ori $k1, $k1, 0xffff", "and $s5, $s5, $k1",
+    t.k = ["mfc0 $k0, $13", "srl $k0, $k0, 2", "andi $k0, $k0, 31", "sll $s6, $s6, 8", "or $s6, $s6, $k0", "addiu $s4, $s4, 1", "cfc1 $s5, $31",
            "li $k1, 0xfffc0fff", "and $k1, $s5, $k1", "ctc1 $k1, $31", "mfc0 $k0, $14", "addiu $k0, $k0, 4", "mtc0 $k0, $14", "eret"]
     t.e("li $s4, 0", "li $s6, 0")
     mx = 0x7f7fffff
@@ -218,7 +175,6 @@ def gen_cpu():
           cites, ["expect gpr:s4=16"])
     t.k = ["mfc0 $k0, $13", "sw $k0, 0($s7)", "addiu $s7, $s7, 4", "addiu $s4, $s4, 1", "mfc0 $k0, $14", "addiu $k0, $k0, 4", "mtc0 $k0, $14", "eret"]
     t.datal = [".align 3", "dat: .word 1, 2, 3, 4"]
-    t.maskfcsr = False
     t.e("li $s4, 0", "la $t0, dat", "li $t1, 8", "mtc0 $zero, $12")
     ins = ["add.s $f2, $f4, $f6", "lwc1 $f2, 0($t0)", "swc1 $f2, 0($t0)", "mfc1 $t2, $f2", "mtc1 $t2, $f2", "cfc1 $t2, $31", "ctc1 $t2, $31",
            ".word 0x46041032        # pre-Release 6 c.eq.s $f2, $f4", ".word 0x46002091        # pre-Release 6 movf.s $f2, $f4, $fcc0",
@@ -228,31 +184,27 @@ def gen_cpu():
     l = t.lbl(); t.e(".word 0x45010001        # pre-Release 6 bc1t (not a branch in Release 6)", "addiu $s6, $s6, 1", l + ": nop")
     t.write(exit=False)   # runs off the end
 
-NANBUG = ("MD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.94 (NAN2008 'Required as of Release 5', reset 1 in Release 6: a quiet NaN has the fraction MSB 1) and "
-          "6.3.1.5 Table 6.3 p.82; W5: the model is still the legacy (NAN2008 = 0) FPU, so the NaN classes of the operands and the results differ")
 def gen_nanprop():
-    cites = ("MD00082 Vol I-A Rev 6.01 sec 6.3.1.4 p.81 ('An SNaN is never produced as a result value'), sec 6.3.1.5 p.82 ('a QNaN operand causes an arithmetic operation to supply a QNaN result. "
-             "When possible, this QNaN result is one of the operand QNaN values'; Table 6.3: new QNaN 0x7fbfffff when none can be copied), sec 6.7.2.1 p.100.\n"
-             "NOTE legacy encoding (Has2008 = 0): fraction MSB (bit 22) = 1 is SIGNALING, 0 is QUIET, so 0x7fc00001 is an sNaN and 0x7fa00003 a QNaN.")
-    t = T("fp_nan_propagation_signaling", "add/sub/mul/div.s with legacy-signaling NaN operands (0x7fc00001, 0xffc00005): Invalid is raised and the result is the default QNaN 0x7fbfffff.\n"
-          "Release 6 (FCSR.NAN2008 = 1) reverses the encodings: these operands are QUIET NaNs there (no Invalid, the operand is propagated). The test exercises\n"
-          "the model's legacy FPU; every result slot and the FCSR differ until W5 (known model bug).", cites,
-          ["known-model-bug mem " + NANBUG, "known-model-bug gpr:t1 same (last FCSR)", "known-model-bug fcsr same (final FCSR flags)"])
-    Q1, Q2, S1 = 0x7fc00001, 0x7fc00002, 0x7fa00003    # Q1,Q2: signaling (legacy); S1: quiet
+    cites = ("MD00082 Vol I-A Rev 6.01 sec 6.3.1.4 p.81 ('SNaN operands cause the Invalid Operation exception for arithmetic operations. ... An SNaN is never produced as a result value'), "
+             "sec 6.3.1.5 p.82 ('a QNaN operand causes an arithmetic operation to supply a QNaN result. When possible, this QNaN result is one of the operand QNaN values'; Table 6.3: new QNaN "
+             "0x7fc00000 when none can be copied) and p.83 (FCSRNAN2008=1: 'If the chosen input is a SNAN, the only change is to set the leftmost/most-significant mantissa bit'), sec 6.7.2.1 p.100.\n"
+             "NOTE Release 6 encoding (FCSR.NAN2008 = 1, Table 6.8 p.94): fraction MSB (bit 22) = 1 is QUIET, 0 is SIGNALING, so 0x7fa00001 is an sNaN and 0x7fc00003 a QNaN.")
+    t = T("fp_nan_propagation_signaling", "add/sub/mul/div.s with signaling-NaN operands (0x7fa00001, 0x7fa00002, 0xffa00005): Invalid is raised and the result is the operand SNaN with its\n"
+          "most-significant fraction bit set (quieted, payload kept), e.g. 0x7fa00001 -> 0x7fe00001; with two SNaNs the first operand is the one passed on (a pin, not required by the manual).",
+          cites, [])
+    Q1, Q2, S1 = 0x7fa00001, 0x7fa00002, 0x7fc00003    # Q1,Q2: signaling; S1: quiet
     for op in ("add", "sub", "mul", "div"):
-        for a, b in [(f32(1.0), Q1), (Q1, f32(1.0)), (Q1, Q2), (0xffc00005, f32(2.0))]:
+        for a, b in [(f32(1.0), Q1), (Q1, f32(1.0)), (Q1, Q2), (0xffa00005, f32(2.0))]:
             t.single(2, a); t.single(4, b)
             t.e("ctc1 $zero, $31", "%s.s $f6, $f2, $f4" % op, "mfc1 $t0, $f6", "cfc1 $t1, $31"); t.store("$t0"); t.store("$t1")
     t.write()
     dirs = []
-    t = T("fp_nan_propagation_quiet", "add/sub/mul/div.s with QUIET NaN operands (0x7fa00003 = QNaN, 0x7fa00004 = QNaN, 0x7fc00001 = sNaN): no Invalid for a QNaN with a number; the result is a NaN and never\n"
-          "a signaling one (compared: isNaN, bit 22, FCSR). The exact payload is a documented pin: the model returns the first quiet-NaN operand unchanged ('when possible ... one of the operand QNaN values'),\n"
-          "QEMU returns the default QNaN 0x7fbfffff. With exactly one QNaN operand (and a number) the operand QNaN is mandatory, so those slots are 'expect-deviation' (+ 'expect');\n"
-          "with two NaN operands which one is returned is not specified, so those raw word slots stay 'unpredictable'.\n"
-          "Release 6 (FCSR.NAN2008 = 1) reverses the encodings (0x7fa00003 is a signaling NaN there): the test exercises the model's legacy FPU; the\n"
-          "result classes and FCSR differ until W5 (known model bug).",
+    t = T("fp_nan_propagation_quiet", "add/sub/mul/div.s with QUIET NaN operands (0x7fc00003 = QNaN, 0x7fc00004 = QNaN, 0x7fa00001 = sNaN): no Invalid for a QNaN with a number; the result is a NaN and never\n"
+          "a signaling one (compared: isNaN, bit 22, FCSR). With exactly one QNaN operand (and a number) the operand QNaN is the result (6.3.1.5 'when possible ... one of the operand QNaN values';\n"
+          "the model and QEMU return it unchanged). With two NaN operands which one is returned is not specified, so those raw word slots stay 'unpredictable'.\n"
+          "A QNaN with an sNaN operand raises Invalid (the sNaN is quieted and passed on).",
           cites, dirs)
-    QA, QB = 0x7fa00003, 0x7fa00004
+    QA, QB = 0x7fc00003, 0x7fc00004
     cases = [(f32(1.0), QA), (QA, f32(1.0)), (QA, QB), (QB, QA), (QA, Q1), (Q1, QA)]
     for op in ("add", "sub", "mul", "div"):
         for ci, (a, b) in enumerate(cases):
@@ -264,8 +216,6 @@ def gen_nanprop():
             addr = 0x10010000 + raw
             if ci not in (0, 1):
                 dirs.append("unpredictable mem:0x%08x MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: which operand NaN is returned (or the default QNaN) is not specified" % addr)
-    dirs.append("known-model-bug mem " + NANBUG)
-    dirs.append("known-model-bug gpr:t4 same (bit 22 of the last result)")
     dirs.append("unpredictable gpr:t0 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result (see mem slots)")
     dirs.append("unpredictable fpr:f6 MD00082 Vol I-A Rev 6.01 6.3.1.5 p.82: raw NaN payload of the last result")
     t.dirs[:] = dirs
@@ -282,9 +232,6 @@ def gen_recip():
                 if op == "rsqrt" and v in (2.0, 0.5, -2.0, 16.0 * 0 - 1) and False: continue
                 t.e("ctc1 $zero, $31", "%s.%s $f6, $f2" % (op, fmt), "mfc1 $t0, $f6", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
                 if fmt == "d": t.e("mfhc1 $t2, $f6"); oh = t.store("$t2")
-                if op == "rsqrt" and v < 0:
-                    if fmt == "s": t.bug(o, "nan_s")
-                    else: t.bug(o, "nan_d_lo"); t.bug(oh, "nan_d_hi")
     t.write()
     t = T("fp_recip_rsqrt_inexact", "recip/rsqrt of 3.0 / 2.0 / 10.0 (.s and .d): the result is an approximation with implementation-dependent accuracy (<= 1 ULP), so the\n"
           "result bits and the Inexact flag are not compared; the program checks only that both executors terminate the same way.", cites,
@@ -302,8 +249,7 @@ def gen_recip():
 
 def gen_hc1():
     t = T("fp_mfhc1_mthc1", "mfhc1/mthc1 on even registers: mthc1 writes the high word of the 64-bit FPR[fs] and leaves the low word, mfhc1 reads it back\n"
-          "(the same with Status.FR = 0, where the high word is the odd register of the pair, and FR = 1). The high words are cleared before exit\n"
-          "(the final FPR dump holds only the low word of each 64-bit FPR on an FR = 1 FPU).",
+          "(Release 6: Status.FR = 1, every FPR is 64 bits wide and an odd register is an independent register).",
           "MD00086 Vol II-A Rev 6.06: MFHC1 p.271 ('GPR[rt] <- FPR[fs]63..32'), MTHC1 p.295.",
           ["expect gpr:s0=0xaabbccdd gpr:s1=0x11223344 gpr:s3=0x01020304 gpr:s4=0x11223344"])
     t.dbl = True
@@ -337,13 +283,11 @@ def gen_pref_ri():
 
 def gen_diei():
     t = T("di_ei_status", "di/ei: the old Status is returned in rt, Status.IE is cleared/set; di/ei with rt = $zero; Status read back.\n"
-          "Status.FR (bit 26) is masked out of every value read ($t7 = ~0x04000000): a Release 6 FPU reads FR = 1 (profile D2), the model 0 until W5\n"
-          "(checked in fp_fcsr_nan2008_abs2008).",
+          "Release 6: Status.FR (bit 26) is read-only 1 (MD00090 Vol III Rev 6.02 Table 9.47 p.191), so every Status read has bit 26 set (0x04000000).",
           "MD00086 Vol II-A Rev 6.06: DI p.164, EI p.176 (MIPS32 Release 2); Status.IE MD00090 Vol III Rev 6.02.",
-          ["expect gpr:s0=0x20000000 gpr:s1=0x20000001 gpr:s2=0x20000001 gpr:s3=0x20000000 gpr:s4=0 gpr:s5=1"])
-    t.e("lui $t7, 0xfbff", "ori $t7, $t7, 0xffff")
-    t.e("ei $s0", "and $s0, $s0, $t7", "di $s1", "and $s1, $s1, $t7", "ei $zero", "mfc0 $s2, $12", "and $s2, $s2, $t7", "di", "mfc0 $s3, $12", "and $s3, $s3, $t7",
-        "ei $s6", "and $s6, $s6, $t7", "di $zero", "mfc0 $s4, $12", "andi $s4, $s4, 1", "ei", "mfc0 $s5, $12", "andi $s5, $s5, 1")
+          ["expect gpr:s0=0x24000000 gpr:s1=0x24000001 gpr:s2=0x24000001 gpr:s3=0x24000000 gpr:s4=0 gpr:s5=1"])
+    t.e("ei $s0", "di $s1", "ei $zero", "mfc0 $s2, $12", "di", "mfc0 $s3, $12",
+        "ei $s6", "di $zero", "mfc0 $s4, $12", "andi $s4, $s4, 1", "ei", "mfc0 $s5, $12", "andi $s5, $s5, 1")
     t.write(resptr=False)
 
 def gen_scaddr():
@@ -367,7 +311,7 @@ def gen_codes():
 
 def gen_ident():
     t = T("cp0_ident_ebase", "mfc0 PRId/Config/Config1/EBase and cfc1 FIR: implementation-specific constants are NOT compared; only fields the manual fixes are:\n"
-          "Config.BE (bit 15) = 0 (little-endian), Config.AT = 0 (MIPS32), Config.AR = 2 (Release 6), Config1.FP (bit 0) = 1, FIR.S/D/L (bits 16,17,21) = 1 (L is required with D: MD00086 Vol II-A Rev 6.06 §3.1 p.30, MD00082 Vol I-A Rev 6.01 Table 6.4 p.85) and FIR.PS (bit 18) = 0 (F64, bit 22, is not compared),\n"
+          "Config.BE (bit 15) = 0 (little-endian), Config.AT = 0 (MIPS32), Config.AR = 2 (Release 6), Config1.FP (bit 0) = 1, FIR.S/D/L (bits 16,17,21) = 1 (L is required with D: MD00086 Vol II-A Rev 6.06 §3.1 p.30, MD00082 Vol I-A Rev 6.01 Table 6.4 p.85) and FIR.PS (bit 18) = 0 (F64, bit 22, is not compared; FIR bit 29 FREP is optional: QEMU has it (FIR 0x20f30000), the profile model does not (0x00f30000), so FIR is masked with 0x00270000),\n"
           "EBase bits 31..30 = 10, CPUNum (9..0) = 0 and EBase read/write round trip (restored before exit).",
           "MD00090 Vol III Rev 6.02: PRId p.221, EBase Table 9.58 p.224, Config Table 9.64 p.233-234, Config1 p.237; MD00082 Vol I-A Rev 6.01 FIR Table 6.5 p.88.",
           ["unpredictable gpr:s0 MD00090 Vol III Rev 6.02 PRId: Company/Processor ID/Revision are implementation-defined constants",
@@ -383,8 +327,8 @@ def gen_ident():
 def gen_fcsr_regs():
     t = T("fp_fcsr_aliases_reserved", "ctc1/cfc1 on FCSR ($31), FEXR ($26), FENR ($28) and FIR ($0): the aliases are views of FCSR, writes through FEXR/FENR touch only their\n"
           "fields. Values are stored after each step. Release 6: the FP condition codes and FCCR ($25) are removed (FCSR.FCC is R0, FCCR reserved) and FCSR\n"
-          "writes with bits 20..18 set are UNPREDICTABLE, so the written values keep only FS, Cause, Enables, Flags and RM (mask 0x0103ffff); FCSR reads drop\n"
-          "the read-only NAN2008/ABS2008 bits. (The first value sets Cause.E, which always traps: the run ends at that ctc1.)",
+          "writes with bits 20..18 set are UNPREDICTABLE, so the written values keep only FS, Cause, Enables, Flags and RM (mask 0x0103ffff); FCSR reads\n"
+          "show the read-only NAN2008/ABS2008 bits (0x000c0000) set. (The first value sets Cause.E, which always traps: the run ends at that ctc1.)",
           "MD00082 Vol I-A Rev 6.01 FIR/FEXR/FENR/FCSR register layouts (p.88-97; FCSR Table 6.8 p.92: FCC 'pre-Release 6 feature' R0; 6.5.5 p.96: 'Release 6 removes the FCCs and FCCR');\n"
           "MD00086 Vol II-A Rev 6.06 CTC1 p.149-150 (FCSR: 'temp20..18 != 0 ... UNPREDICTABLE') / CFC1 p.129-130.")
     for v in (0xffffff7f & 0xfffff07f, 0x0083f07f & 0xffffff7f, 0x00000003, 0x01000000, 0xfe800000, 0x0003f000 & 0, 0x0000007c):
@@ -454,12 +398,6 @@ def gen_rand(name, fmt, ops, seed, n):
             t.e("li $t8, %d" % rm, "ctc1 $t8, $31", ins, "mfc1 $t0, $f6", "cfc1 $t1, $31"); o = t.store("$t0"); t.store("$t1")
             if fmt == "d" and not op.startswith(("cvtw", "rnd")): t.e("mfhc1 $t2, $f6"); oh = t.store("$t2")
             val = val_s if fmt == "s" else val_d
-            if op in ("add", "sub", "mul", "div", "sqrt") and arith_nan(op, val(a), val(b)):
-                if fmt == "s": t.bug(o, "nan_s")
-                else: t.bug(o, "nan_d_lo"); t.bug(oh, "nan_d_hi")
-            if op.startswith(("cvtw", "rnd")):
-                k = cvt_class(val(a), {"cvtw": rm, "rndround": 0, "rndtrunc": 1, "rndceil": 2, "rndfloor": 3}[op])
-                if k: t.bug(o, k)
     t.write()
 def gen_status_writes():
     t = T("mtc0_status_bits", "Single-bit writes to Status: IE, EXL(1), IM7..0, BEV(22), CU1(29) and combinations; each read back (masked to the implemented bits 0x2040ff07) and stored.\n"
@@ -483,16 +421,14 @@ def gen_fir_write():
     t.dbl = True
     t.e("li $t9, 0x7fffffff", "mtc1 $t9, $f2", "cvt.d.w $f4, $f2", "mfc1 $t1, $f4", "mfhc1 $t2, $f4"); t.store("$t1"); t.store("$t2")
     t.e("li $t9, 0x80000000", "mtc1 $t9, $f2", "cvt.d.w $f4, $f2", "mfc1 $t1, $f4", "mfhc1 $t2, $f4"); t.store("$t1"); t.store("$t2")
-    t.dirs += ["expect gpr:s1=0 gpr:s3=0", "unpredictable gpr:s0 MD00082 Vol I-A Rev 6.01 FIR: ProcessorID/Revision are implementation-defined (and the model's F64 = 0 FPU is W5's)",
+    t.dirs += ["expect gpr:s1=0 gpr:s3=0", "unpredictable gpr:s0 MD00082 Vol I-A Rev 6.01 FIR: ProcessorID/Revision are implementation-defined; bit 29 (FREP) is an optional feature QEMU mips32r6-generic has (FIR 0x20f30000) and this profile (FIR 0x00f30000) does not",
                "unpredictable gpr:t7 same as s0", "unpredictable gpr:s2 MD00090 Vol III Rev 6.02 PRId: implementation-defined constant", "unpredictable gpr:t6 same as s2"]
     t.write()
     t = T("fp_ctc1_fir_ri", "Release 6: ctc1 to a control register that does not exist for writing (FIR, fs = 0) is a Reserved Instruction (ExcCode 10). The handler counts\n"
-          "the exceptions in $s4 and skips the instruction. The model ignores the write (no exception): a known model bug.",
+          "the exceptions in $s4 and skips the instruction (model and QEMU agree).",
           "MD00086 Vol II-A Rev 6.06 CTC1 p.149 ('In Release 6 and later, a Reserved Instruction exception occurs if fs specifies a register that does not exist'),\n"
           "p.150 (Operation, other fs: 'if Config2AR >= 2 SignalException(ReservedInstruction) /* Release 6 traps */').",
-          ["known-model-bug gpr:s4 MD00086 Vol II-A Rev 6.06 CTC1 p.149-150: ctc1 to fs = 0 (FIR) raises Reserved Instruction in Release 6; model (lead, Exec FpuControl): the write is ignored, no exception",
-           "known-model-bug gpr:k0 same (the handler's EPC never read in the model)",
-])
+          ["expect gpr:s4=1"])
     t.k = ["addiu $s4, $s4, 1", "mfc0 $k0, $14", "addiu $k0, $k0, 4", "mtc0 $k0, $14", "eret"]
     t.e("li $s4, 0", "li $t0, 0xffffffff", "ctc1 $t0, $0", "li $s0, 7")
     t.write(exit=False, resptr=False)
@@ -502,7 +438,7 @@ def gen_delay():
     t = T("exc_fp_cpu_in_delay_slot_handler", "An FP exception (enabled Divide-by-zero, ExcCode 15) and Coprocessor Unusable (CU1 = 0, ExcCode 11, CE 1) raised by an instruction in a branch delay slot:\n"
           "Cause.BD = 1 and EPC = the address of the branch. The handler logs Cause/EPC/FCSR and resumes after the delay slot (EPC + 8).",
           "MD00090 Vol III Rev 6.02 sec 6.2 Table 6.11 p.87 (value stored in EPC for an exception in a branch delay slot = the branch address, Cause.BD = 1); MD00082 Vol I-A Rev 6.01 6.7.1; MD00090 6.2.22.", ["expect gpr:s4=2"])
-    t.k = ["mfc0 $k0, $13", "sw $k0, 0($s7)", "mfc0 $k1, $14", "sw $k1, 4($s7)", "mfc0 $k0, $12", "lui $t9, 0x2000", "or $k0, $k0, $t9", "mtc0 $k0, $12", "cfc1 $k0, $31", "lui $t9, 0xfff3", "ori $t9, $t9, 0xffff", "and $k0, $k0, $t9", "sw $k0, 8($s7)", "addiu $s7, $s7, 12", "addiu $s4, $s4, 1",
+    t.k = ["mfc0 $k0, $13", "sw $k0, 0($s7)", "mfc0 $k1, $14", "sw $k1, 4($s7)", "mfc0 $k0, $12", "lui $t9, 0x2000", "or $k0, $k0, $t9", "mtc0 $k0, $12", "cfc1 $k0, $31", "sw $k0, 8($s7)", "addiu $s7, $s7, 12", "addiu $s4, $s4, 1",
            "li $k0, 0xfff30fff", "cfc1 $t9, $31", "and $k0, $k0, $t9", "and $t9, $t9, $k0", "ctc1 $k0, $31", "addiu $k1, $k1, 8", "mtc0 $k1, $14", "eret"]
     t.single(2, f32(1.0)); t.single(4, 0)
     t.e("li $s4, 0", "li $t8, 0x400", "ctc1 $t8, $31", "beq $zero, $zero, A", "div.s $f6, $f2, $f4", "nop", "A: nop",
@@ -510,10 +446,167 @@ def gen_delay():
     t.write(exit=False)
 
 
+
+# ---------------------------------------------------------------- Release 6 FPU: L (64-bit fixed point) format, 64-bit FPRs, CFC1/CTC1
+_LCITE = ("MD00086 Vol II-A Rev 6.06: CVT.L.fmt p.154, ROUND.L.fmt p.341, TRUNC.L.fmt p.440, CEIL.L.fmt p.127, FLOOR.L.fmt p.185 (FCSRNAN2008=1 defaults: 0 for a NaN, 2^63-1 for +Inf / too big,\n"
+          "-2^63 for -Inf / too small; the source is Invalid and with Enables.V set no result is written and the exception is taken), CVT.S.fmt p.159, CVT.D.fmt p.153 (CVT.S.L / CVT.D.L);\n"
+          "MD00082 Vol I-A Rev 6.01 6.3.1.5 Table 6.3 p.82 (longword fixed point rows), 6.7.2 p.99-102 (Invalid / Inexact), rounding mode FCSR.RM Table 6.8 p.93-94.")
+def _sdc1_res(t, reg, fcsr="$t1"):
+    """sdc1 `reg` and sw FCSR into a 16-byte aligned result group (4 slots); returns the offset."""
+    o = t.slot(); t.slot(); t.slot(); t.slot()
+    t.e("sdc1 %s, %d($s7)" % (reg, o), "cfc1 %s, $31" % fcsr, "sw %s, %d($s7)" % (fcsr, o + 8))
+    return o
+
+def gen_l_to_long(fmt):
+    sv = [0x00000000, 0x80000000, 0x3f800000, 0xbf800000, 0x40200000, 0xc0200000, 0x3fc00000, 0xbfc00000, 0x3f000000, 0xbf000000, 0x406ccccd, 0xc06ccccd,
+          0x00000001, 0x4b000001, 0x4f000000, 0xcf000000, 0x4f800000, 0x5e800000, 0x5effffff, 0xdeffffff, 0x5f000000, 0xdf000000, 0xdf000001, 0x7f7fffff, 0xff7fffff,
+          0x7f800000, 0xff800000, 0x7fc00000, 0xffc00001, 0x7fa00001]
+    dv = [(0x00000000, 0), (0x80000000, 0), (0x3ff00000, 0), (0xbff00000, 0), (0x40040000, 0), (0xc0040000, 0), (0x3ff80000, 0), (0xbff80000, 0), (0x3fe00000, 0), (0xbfe00000, 0),
+          (0x400ccccc, 0xcccccccd), (0x00000000, 1), (0x41dfffff, 0xffc00000), (0x41e00000, 0), (0xc1e00000, 0), (0x42300000, 0), (0x43300000, 0), (0x43300000, 1),
+          (0x433fffff, 0xffffffff), (0x43dfffff, 0xffffffff), (0xc3dfffff, 0xffffffff), (0x43e00000, 0), (0xc3e00000, 0), (0xc3e00000, 1), (0x4415af1d, 0x78b58c40), (0xc415af1d, 0x78b58c40),
+          (0x7fefffff, 0xffffffff), (0x7ff00000, 0), (0xfff00000, 0), (0x7ff80000, 0), (0xfff80000, 5), (0x7ff40000, 1)]
+    vals = sv if fmt == "s" else dv
+    t = T("fp_l_to_long_" + fmt, "cvt/round/trunc/ceil/floor.l.%s of exact, inexact, tie (0.5 1.5 2.5), tiny, 2^31, 2^32, 2^62, the 2^63 boundary (largest below, 2^63, -2^63, next below), +-Inf, QNaN and sNaN.\\n"
+          "cvt.l runs under each rounding mode RN RZ RP RM; the others use their fixed direction. Each result is stored with sdc1 (64 bits), FCSR (Cause/Flags) after each conversion.\\n"
+          "Release 6 (FCSR.NAN2008 = 1) defaults: NaN -> 0, too big -> 0x7fffffff_ffffffff, too small -> 0x80000000_00000000, all with Invalid." % fmt,
+          _LCITE)
+    for v in vals:
+        if fmt == "s": t.single(0, v)
+        else: t.double(0, v)
+        ops = [("cvt", rm) for rm in range(4)] + [("round", 0), ("trunc", 1), ("ceil", 2), ("floor", 3)]
+        for op, rm in ops:
+            # a sentinel in the destination: a missing write would show
+            t.e("li $t9, 0x5a5a5a5a", "mtc1 $t9, $f4", "mthc1 $t9, $f4", "li $t8, %d" % (rm if op == "cvt" else 0), "ctc1 $t8, $31", "%s.l.%s $f4, $f0" % (op, fmt))
+            _sdc1_res(t, "$f4")
+    t.write()
+
+def gen_l_from_long():
+    lv = [(0, 0), (0, 1), (0xffffffff, 0xffffffff), (0, 0x01000000), (0, 0x01000001), (0, 0x01000002), (0, 0x01000003), (0xffffffff, 0xfeffffff), (0xffffffff, 0xfefffffe),
+          (0, 0x7fffffff), (0, 0x80000000), (0, 0xffffffff), (1, 0), (1, 1), (0x001fffff, 0xffffffff), (0x00200000, 0), (0x00200000, 1), (0x00200000, 2), (0x00200000, 3),
+          (0x00200000, 4), (0xffe00000, 0), (0xffdfffff, 0xffffffff), (0xffdfffff, 0xfffffffe), (0x3fffffff, 0xffffffff), (0x40000000, 0), (0x7fffffff, 0xffffffff),
+          (0x7fffffff, 0xfffffc00), (0x7ffffffe, 0xffffffff), (0x80000000, 0), (0x80000000, 1), (0x80000000, 0x400), (0xfedcba98, 0x76543210), (0x12345678, 0x9abcdef0)]
+    t = T("fp_l_from_long", "cvt.s.l and cvt.d.l of 64-bit integers under each rounding mode RN RZ RP RM: 0, +-1, 2^24 and its neighbours (exact up to 2^24, ties above), 2^53 and its neighbours, 2^62,\\n"
+          "2^63-1, -2^63 and values that round to 2^63. The single is read with mfc1 (low word), the double stored with sdc1; FCSR (Inexact) after each conversion.\\n"
+          "cvt.d.l is exact up to 2^53, cvt.s.l up to 2^24.",
+          _LCITE)
+    for hl in lv:
+        t.double(0, hl)
+        for rm in range(4):
+            t.e("li $t8, %d" % rm, "ctc1 $t8, $31", "cvt.s.l $f2, $f0", "mfc1 $t0, $f2", "cfc1 $t1, $31")
+            o = t.slot(); t.slot(); t.slot(); t.slot()
+            t.e("sw $t0, %d($s7)" % o, "sw $t1, %d($s7)" % (o + 4))
+            t.e("li $t8, %d" % rm, "ctc1 $t8, $31", "cvt.d.l $f2, $f0")
+            _sdc1_res(t, "$f2")
+    t.write()
+
+def gen_l_traps():
+    t = T("fp_l_traps_enabled", "FP exceptions of the L-format conversions with a .ktext handler: with Enables.V set, cvt/round/trunc/ceil/floor.l.s/.d of a NaN, +-Inf or an out-of-range value take the Floating Point\\n"
+          "exception (ExcCode 15), the destination keeps its sentinel and Flags stay clear (Cause = V); with Enables.I set an inexact conversion traps (also cvt.s.l / cvt.d.l); an exact conversion\\n"
+          "or one whose enabled exception cannot occur (Enables.V with cvt.d.l) completes. The handler records ExcCode history ($s6), FCSR at the trap ($s5), the count ($s4), clears Cause and skips the instruction.",
+          _LCITE + "\\nMD00082 Vol I-A Rev 6.01 sec 6.7.1 p.98-99 (enabled exception: Floating Point exception, destination not written, Flags not updated), MD00090 Vol III Rev 6.02 Cause ExcCode 15 = FPE.",
+          ["expect gpr:s4=11"])
+    t.k = ["mfc0 $k0, $13", "srl $k0, $k0, 2", "andi $k0, $k0, 31", "sll $s6, $s6, 8", "or $s6, $s6, $k0", "addiu $s4, $s4, 1", "cfc1 $s5, $31",
+           "li $k1, 0xfffc0fff", "and $k1, $s5, $k1", "ctc1 $k1, $31", "mfc0 $k0, $14", "addiu $k0, $k0, 4", "mtc0 $k0, $14", "eret"]
+    t.e("li $s4, 0", "li $s6, 0")
+    def case(enable, setup, op):
+        t.e("li $t9, 0x12345678", "mtc1 $t9, $f6", "li $t9, 0x9abcdef0", "mthc1 $t9, $f6")
+        for kind, fr, v in setup:
+            if kind == "s": t.single(fr, v)
+            else: t.double(fr, v)
+        t.e("li $t8, %s" % hx(enable), "ctc1 $t8, $31", op)
+        o = t.slot(); t.slot(); t.slot(); t.slot()
+        t.e("sdc1 $f6, %d($s7)" % o, "cfc1 $t1, $31", "sw $t1, %d($s7)" % (o + 8), "sw $s5, %d($s7)" % (o + 12), "ctc1 $zero, $31")
+    case(0x800, [("s", 2, 0x5f000000)], "cvt.l.s $f6, $f2")                        # V: 2^63 too big
+    case(0x800, [("d", 2, (0x7ff80000, 0))], "cvt.l.d $f6, $f2")                   # V: NaN
+    case(0x800, [("d", 2, (0x7ff00000, 0))], "round.l.d $f6, $f2")                 # V: +Inf
+    case(0x800, [("s", 2, 0xff800000)], "trunc.l.s $f6, $f2")                      # V: -Inf
+    case(0x800, [("d", 2, (0xc3e00000, 1))], "floor.l.d $f6, $f2")                 # V: below -2^63
+    case(0x800, [("s", 2, 0x7fa00001)], "ceil.l.s $f6, $f2")                       # V: sNaN
+    case(0x080, [("d", 2, (0x40040000, 0))], "cvt.l.d $f6, $f2")                   # I: 2.5 inexact
+    case(0x080, [("s", 2, 0x3fc00000)], "trunc.l.s $f6, $f2")                      # I: 1.5 inexact
+    case(0x080, [("d", 2, (0x00000000, 1))], "cvt.s.l $f6, $f2")                   # no trap: 1 is exact
+    case(0x080, [("d", 2, (0x00200000, 1))], "cvt.d.l $f6, $f2")                   # I: 2^53 + 1 inexact
+    case(0x080, [("d", 2, (0x00000000, 0x01000001))], "cvt.s.l $f6, $f2")          # I: 2^24 + 1 inexact
+    case(0x800, [("d", 2, (0x7fffffff, 0xffffffff))], "cvt.d.l $f6, $f2")          # V enabled, only Inexact raised: no trap
+    case(0xf80, [("d", 2, (0x43e00000, 0))], "cvt.l.d $f6, $f2")                   # all enables: Invalid traps (Cause = V)
+    case(0x800, [("d", 2, (0x43dfffff, 0xffffffff))], "cvt.l.d $f6, $f2")          # V enabled, 2^63-1024 converts exactly: no trap
+    t.write(exit=False)
+
+def gen_fpr64():
+    t = T("fp_fpr64_model", "Release 6 FPU: 64-bit FPRs (Status.FR = 1, read-only). Every FPR, odd ones too, is an independent 64-bit register: mthc1/mtc1 to f0 and f1 do not alias; ldc1/sdc1 of an odd\\n"
+          "register move 64 bits and leave its neighbours alone; mfhc1/mthc1 on an odd register. Then the upper half after 32-bit writes (mtc1, lwc1, add.s, cvt.w.s, cvt.s.d) is read with mfhc1: the manual\\n"
+          "leaves it UNPREDICTABLE (MD00082 Vol I-A Rev 6.01 6.6.2 p.98), the model and QEMU keep it (a pin, the `expect` values below). cvt.d.s writes all 64 bits.",
+          "MD00086 Vol II-A Rev 6.06: MFHC1 p.271, MTHC1 p.295, LDC1 p.215, SDC1 p.358 (FR = 1: 64-bit FPRs, any register number), LWC1, MTC1, ADD.fmt, CVT.W.fmt p.160, CVT.S.fmt p.159, CVT.D.fmt p.153;\\n"
+          "MD00082 Vol I-A Rev 6.01 6.6.2 p.98 (a 32-bit result leaves the upper bits UNPREDICTABLE), MD00090 Vol III Rev 6.02 Status.FR Table 9.47 p.191 (FR = 1 in Release 6).",
+          [])
+    t.datal = ["d64: .word 0x01020304, 0x05060708, 0x090a0b0c, 0x0d0e0f10", "o64: .space 16"]
+    exp = []
+    t.dbl = True
+    # f0 and f1 are independent 64-bit registers
+    t.e("li $t9, 0xaaaa0001", "mthc1 $t9, $f1", "li $t9, 0x11110001", "mtc1 $t9, $f1", "li $t9, 0xbbbb0002", "mthc1 $t9, $f0", "li $t9, 0x22220002", "mtc1 $t9, $f0")
+    for fr, (hi, lo) in ((0, (0xbbbb0002, 0x22220002)), (1, (0xaaaa0001, 0x11110001))):
+        t.e("mfc1 $t0, $f%d" % fr, "mfhc1 $t2, $f%d" % fr); exp.append((t.store("$t0"), lo)); exp.append((t.store("$t2"), hi))
+    # ldc1 / sdc1 of odd registers; the even neighbour is untouched
+    t.e("li $t9, 0x77777777", "mtc1 $t9, $f2", "li $t9, 0x66666666", "mthc1 $t9, $f2", "la $t0, d64", "ldc1 $f3, 0($t0)", "ldc1 $f5, 8($t0)", "la $t3, o64", "sdc1 $f3, 8($t3)", "sdc1 $f5, 0($t3)")
+    for fr, (hi, lo) in ((2, (0x66666666, 0x77777777)), (3, (0x05060708, 0x01020304)), (5, (0x0d0e0f10, 0x090a0b0c))):
+        t.e("mfc1 $t0, $f%d" % fr, "mfhc1 $t2, $f%d" % fr); exp.append((t.store("$t0"), lo)); exp.append((t.store("$t2"), hi))
+    # mthc1 / mfhc1 on an odd register, and mov.d / add.d on odd registers
+    t.e("li $t9, 0x3ff00000", "mthc1 $t9, $f7", "mtc1 $zero, $f7", "li $t9, 0x40000000", "mthc1 $t9, $f9", "mtc1 $zero, $f9", "add.d $f11, $f7, $f9", "mfc1 $t0, $f11", "mfhc1 $t2, $f11")
+    exp.append((t.store("$t0"), 0)); exp.append((t.store("$t2"), 0x40080000))
+    # upper half after a 32-bit write (UNPREDICTABLE in the manual; pinned: kept)
+    t.e("li $t9, 0x3f800000", "mtc1 $t9, $f10", "li $t9, 0x40000000", "mthc1 $t9, $f12", "mtc1 $zero, $f12")
+    U = 0xcafe0008
+    t.e("la $t4, d64")
+    def upper(setup):
+        t.e("li $t9, %s" % hx(U), "mthc1 $t9, $f8", setup, "mfhc1 $t2, $f8"); exp.append((t.store("$t2"), U))
+    upper("li $t9, 0x12345678\\nmtc1 $t9, $f8".replace("\\n", "\n") if False else "mtc1 $t9, $f8")
+    upper("lwc1 $f8, 4($t0)")
+    upper("add.s $f8, $f10, $f10")
+    upper("cvt.w.s $f8, $f10")
+    upper("cvt.s.d $f8, $f12")
+    # cvt.d.s writes the whole register
+    t.e("li $t9, %s" % hx(U), "mthc1 $t9, $f8", "cvt.d.s $f8, $f10", "mfhc1 $t2, $f8", "mfc1 $t0, $f8"); exp.append((t.store("$t2"), 0x3ff00000)); exp.append((t.store("$t0"), 0))
+    t.dirs.append("expect " + " ".join("mem:0x%08x=0x%08x" % (0x10010020 + o, v) for o, v in exp))
+    t.write()
+
+
+_CFC1_CITE = ("MD00086 Vol II-A Rev 6.06 CFC1 p.129-130 (Restrictions: 'In Release 6 and later, a Reserved Instruction exception occurs if fs specifies a register that does not exist'; Operation: fs = 1 (UFR),\n"
+              "fs = 4 (UNFR) 'Release 6 traps', other nonexistent fs 'Release 6 traps'), CTC1 p.149-150 (fs = 1, 4 'Release 6 traps'; fs = 5, 6 (FRE/NFRE): Reserved Instruction without FIRUFRP and Config5UFR);\n"
+              "MD00082 Vol I-A Rev 6.01 6.5.5 p.96 (Release 6 removes the FCCs and FCCR).")
+_RI_CF = ("MD00086 Vol II-A Rev 6.06 CFC1 p.129 (\"In Release 6 and later, a Reserved Instruction exception occurs if fs specifies a register that does not exist\"), p.130 (Operation, 'Release 6 traps'): "
+          "the model raises Reserved Instruction; QEMU mips32r6-generic ")
+_RI_CT = ("MD00086 Vol II-A Rev 6.06 CTC1 p.149 (\"In Release 6 and later, a Reserved Instruction exception occurs if fs specifies a register that does not exist\"), p.149-150 (Operation, 'Release 6 traps'): "
+          "the model raises Reserved Instruction; QEMU mips32r6-generic ")
+def _devs(cite, writes_s0):
+    d = ["expect-deviation gpr:s4 %sexecutes it without an exception (the handler never runs, count 0)" % cite, "expect-deviation gpr:k0 same as s4 (the handler's EPC scratch)"]
+    if writes_s0: d.append("expect-deviation gpr:s0 %sreturns a control register value into rt instead (the model leaves rt unchanged)" % cite)
+    return d
+CFC1_DEV = {"fp_cfc1_ri_fs1": _devs(_RI_CF, True), "fp_cfc1_ri_fs2": _devs(_RI_CF, True), "fp_cfc1_ri_fs3": _devs(_RI_CF, True), "fp_cfc1_ri_fs4": _devs(_RI_CF, True),
+            "fp_ctc1_ri_fs1": _devs(_RI_CT, False), "fp_ctc1_ri_fs4": _devs(_RI_CT, False), "fp_ctc1_ri_fs5": _devs(_RI_CT, False), "fp_ctc1_ri_fs6": _devs(_RI_CT, False)}
+def gen_cfc1_ri():
+    """One program per exception path (cfc1/ctc1 of a register Release 6 does not have). The handler counts the exceptions in $s4 and skips the instruction."""
+    for name, instr, what in (("fp_cfc1_ri_fs1", "cfc1 $s0, $1", "fs = 1 (UFR)"), ("fp_cfc1_ri_fs4", "cfc1 $s0, $4", "fs = 4 (UNFR)"), ("fp_cfc1_ri_fs2", "cfc1 $s0, $2", "fs = 2 (a register that does not exist)"),
+                              ("fp_cfc1_ri_fs3", "cfc1 $s0, $3", "fs = 3 (a register that does not exist)"),
+                              ("fp_ctc1_ri_fs1", "ctc1 $t0, $1", "fs = 1 (UFR)"), ("fp_ctc1_ri_fs4", "ctc1 $t0, $4", "fs = 4 (UNFR)"), ("fp_ctc1_ri_fs5", "ctc1 $t0, $5", "fs = 5 (FRE)"),
+                              ("fp_ctc1_ri_fs6", "ctc1 $t0, $6", "fs = 6 (NFRE)"), ("fp_ctc1_ri_fs2", "ctc1 $t0, $2", "fs = 2 (a register that does not exist)")):
+        dirs = ["expect gpr:s4=1"] + CFC1_DEV.get(name, [])
+        t = T(name, "Release 6: `%s` (%s) is a Reserved Instruction (ExcCode 10, a register that does not exist). The handler counts the exception in $s4 and skips the instruction;\n"
+              "$s0 keeps 7 (the destination is not written) and execution continues with the next instruction ($s1 = 9)." % (instr, what), _CFC1_CITE, dirs)
+        t.k = ["addiu $s4, $s4, 1", "mfc0 $k0, $14", "addiu $k0, $k0, 4", "mtc0 $k0, $14", "eret"]
+        t.e("li $s4, 0", "li $s0, 7", "li $t0, 0xffffffff", instr, "li $s1, 9")
+        t.write(exit=False, resptr=False)
+    t = T("fp_fccr_release6", "Release 6 removes the FP condition codes: cfc1 of FCCR ($25) reads 0 and a write of 0xff (temp31..8 = 0) through ctc1 $25 is ignored; FCSR ($31) keeps its value (only the\n"
+          "read-only NAN2008/ABS2008 bits, 0x000c0000, after ctc1 $zero,$31). The model reads FCSR/FCCR/FEXR/FENR identically afterwards.",
+          _CFC1_CITE + "\nMD00082 Vol I-A Rev 6.01 FCSR Table 6.8 p.92 (FCC 'pre-Release 6 feature': R0).", ["expect gpr:s0=0 gpr:s1=0x000c0000 gpr:s2=0 gpr:s3=0x000c0000 gpr:s4=0 gpr:s5=0"])
+    t.e("ctc1 $zero, $31", "cfc1 $s0, $25", "li $t0, 0xff", "ctc1 $t0, $25", "cfc1 $s1, $31", "cfc1 $s2, $25", "ctc1 $zero, $25", "cfc1 $s3, $31", "cfc1 $s4, $26", "cfc1 $s5, $28")
+    t.write()
+
+
 def main():
     gen_round_d(); gen_cvt_rm(); gen_flags("s"); gen_flags("d"); gen_traps(); gen_cpu()
     gen_nanprop(); gen_fcsr_regs(); gen_fs(); gen_recip(); gen_hc1(); gen_pref(); gen_diei(); gen_scaddr(); gen_codes(); gen_ident()
-    gen_status_writes(); gen_fir_write(); gen_delay(); gen_pref_ri()
+    gen_status_writes(); gen_fir_write(); gen_delay(); gen_pref_ri(); gen_cfc1_ri()
+    gen_l_to_long("s"); gen_l_to_long("d"); gen_l_from_long(); gen_l_traps(); gen_fpr64()
     for k in range(2):
         gen_rand("fp_rand_s_arith_%d" % k, "s", ["add", "sub", "mul", "div", "sqrt"], 100 + k, 40)
         gen_rand("fp_rand_d_arith_%d" % k, "d", ["add", "sub", "mul", "div", "sqrt"], 200 + k, 40)

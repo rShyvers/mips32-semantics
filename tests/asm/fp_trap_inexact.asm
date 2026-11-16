@@ -1,7 +1,8 @@
 # An enabled IEEE exception takes the Floating Point exception (ExcCode 15) without
-# writing the destination; FCSR.Cause records it and FCSR.Flags is not updated.
+# writing the destination; FCSR.Cause records it and FCSR.Flags is not updated (FCSR values include
+# the read-only ABS2008/NAN2008 bits, 0x000c0000, of Release 6: MD00082 Vol I-A Rev 6.01 Table 6.8 p.93-94).
 # MD00082 Vol I-A Rev 6.01 6.7.1 (p.98-99); MD00090 Vol III Rev 6.02 6.2.23 (p.100).
-# Expected output: "15 4224 7 1051372203 4100 "
+# Expected output: "15 790656 7 1051372203 790532 "
 # Standard syntax; every branch/jump is followed by its delay-slot instruction.
         .set noreorder
         .ktext

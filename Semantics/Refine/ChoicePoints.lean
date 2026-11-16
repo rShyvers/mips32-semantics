@@ -8,8 +8,9 @@ gives the same result (value, exception and state) under any two oracles. For th
 whose Operation reads no oracle field this is definitional (`rfl`); for those that read one
 (`cf_<ctor>`) the proof splits on the conditions the Operation tests (`case_ite`), rewrites the
 oracle-reading primitives to their oracle-free form under the hypotheses (`LoadMemory_free`,
-`StoreMemory_free` while `LLbit = 0`, `ValueFPR64_even`/`StoreFPR64_even` for even registers,
-`signOpS_free`/`cvtDS_free`/... away from a quiet NaN), and closes with `rfl`. `LL` and `SC` set
+`StoreMemory_free` while `LLbit = 0`, `cvtDS_free` away from a quiet NaN), and closes with `rfl`.
+R6-5: every Operation that stores a 32-bit result into an FPR reads `fprUpper` and is always a row
+(its `cf_<ctor>` is the contradiction of the hypothesis). `LL` and `SC` set
 `LLbit` after their memory access, so their `loadClearsLL`/`storeClearsLL` choice never shows
 (`LoadMemory_any`, `StoreMemory_any`).
 -/
@@ -51,31 +52,9 @@ theorem StoreMemory_free (cca : BitVec 3) (n : Nat) (m pa va : W32) (c : Ctx) (f
   simp only at h
   simp only [StoreMemory, bind, Pseudo.oracle, Pseudo.modify, h, ite_self]
 
-theorem ValueFPR64_even (fpr : Fin 32) (c : Ctx) (f : Frame) (h : bit (BitVec.ofNat 5 fpr.val) 0 = false) :
-    ValueFPR64 fpr c f = (.ok (f.arch.FPR (fpr + 1) ++ f.arch.FPR fpr), f) := by
-  simp only [ValueFPR64, h, FP32RegistersMode]; rfl
-
-theorem StoreFPR64_even (fpr : Fin 32) (v : BitVec 64) (c : Ctx) (f : Frame)
-    (h : bit (BitVec.ofNat 5 fpr.val) 0 = false) :
-    StoreFPR64 fpr v c f = (.ok (), { f with arch := { f.arch with
-      FPR := update (update f.arch.FPR fpr (v.extractLsb' 0 32)) (fpr + 1) (v.extractLsb' 32 32) } }) := by
-  simp only [StoreFPR64, h]; rfl
-
-/-- `signOpS` without its QNaN arm. -/
-def signOpSFree (g : W32 → W32) (x : W32) : W32 × Mips.Fp.Flags :=
-  if Mips.Fp.isSNaN32 x then (Mips.Fp.defaultQNaN32, Mips.Fp.Flags.invalidOnly) else (g x, Mips.Fp.Flags.none)
-def signOpDFree (g : BitVec 64 → BitVec 64) (x : BitVec 64) : BitVec 64 × Mips.Fp.Flags :=
-  if Mips.Fp.isSNaN64 x then (Mips.Fp.defaultQNaN64, Mips.Fp.Flags.invalidOnly) else (g x, Mips.Fp.Flags.none)
-
-theorem signOpS_free (r : AbsNegNaN) (g : W32 → W32) (x : W32) (h : Mips.Fp.isQNaN32 x = false) :
-    IEEE.signOpS r g x = signOpSFree g x := by
-  simp only [IEEE.signOpS, signOpSFree, h, Bool.false_eq_true, ite_false]
-theorem signOpD_free (r : AbsNegNaN) (g : BitVec 64 → BitVec 64) (x : BitVec 64)
-    (h : Mips.Fp.isQNaN64 x = false) :
-    IEEE.signOpD r g x = signOpDFree g x := by
-  simp only [IEEE.signOpD, signOpDFree, h, Bool.false_eq_true, ite_false]
-theorem cvtDS_free (q : W32 → BitVec 64) (x : W32) (h : Mips.Fp.isQNaN32 x = false) :
-    IEEE.cvtDS q x = Mips.Fp.f32ToF64 x := by simp only [IEEE.cvtDS, h, Bool.false_eq_true, ite_false]
+theorem cvtDS_free (q : W32 → BitVec 64) (a : Arch) (x : W32) (h : Mips.Fp.isQNaN32 x = false) :
+    IEEE.cvtDS q a x = Mips.Fp.f32ToF64 (FCSR_FS a) x := by
+  simp only [IEEE.cvtDS, h, Bool.false_eq_true, ite_false]
 theorem cvtSD_free (q : BitVec 64 → W32) (a : Arch) (x : BitVec 64) (h : Mips.Fp.isQNaN64 x = false) :
     IEEE.cvtSD q a x = Mips.Fp.f64ToF32 (IEEE.env a) x := by
   simp only [IEEE.cvtSD, h, Bool.false_eq_true, ite_false]
@@ -133,49 +112,49 @@ theorem ite_app2 {α β γ : Type} (c : Prop) [Decidable c] (f g : α → β →
     (if c then f else g) x y = if c then f x y else g x y := by split <;> rfl
 
 macro "ofree_simp" : tactic => `(tactic| simp only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
-    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
-    StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
+    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64,
+    StoreFPR64, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, *, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException,
+    FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf])
 
 macro "cf_pre" h:ident : tactic => `(tactic| (
-  (try simp only [ConsultsOracle, Bool.or_eq_false_iff, OddFPR, FPRPair,
+  (try simp only [ConsultsOracle, Bool.or_eq_false_iff,
     Bool.not_eq_false', decide_eq_false_iff_not] at $h:ident)
   repeat (obtain ⟨_, $h:ident⟩ := $h:ident)))
 
 macro "ofree_all" : tactic => `(tactic| (
   (try simp_all only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
-    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
-    StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
+    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64,
+    StoreFPR64, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException,
+    FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
   repeat' (first | rfl | (case_ite <;> (try simp_all only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
-    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64_even,
-    StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
+    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_free, StoreMemory_free, ValueFPR64,
+    StoreFPR64, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException,
+    FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
 
 macro "ofree_ll" : tactic => `(tactic| (
   (try simp_all only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
-    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
-    StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
+    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64,
+    StoreFPR64, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException,
+    FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true, Bool.true_and, Bool.and_false,
     Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])
   repeat' (first | rfl | (case_ite <;> (try simp_all only [bind, GPR, Pseudo.get, AddressTranslation, setGPR, pure,
-    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64_even,
-    StoreFPR64_even, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, signOpS_free, signOpD_free, cvtDS_free,
+    ite_app2, Pseudo.oracle, Pseudo.impl, SignalException, LoadMemory_any, StoreMemory_any, ValueFPR64,
+    StoreFPR64, IEEE.absS, IEEE.negS, IEEE.absD, IEEE.negD, cvtDS_free,
     cvtSD_free, ValueFPR32, StoreFPR32, Pseudo.modify, ↓reduceIte, Bool.false_eq_true, not_false_eq_true,
-    OddFPR, FPRPair, FPResult, CheckFPException,
+    FPResult, CheckFPException,
     addS_fpResult, subS_fpResult, addD_fpResult, subD_fpResult, ctxOf, CTC1Unpredictable, Bool.and_true,
     Bool.true_and, Bool.and_false, Bool.false_and, bne_eq_false_iff_eq, writeGPR, Bool.or_false, Bool.not_false, Bool.not_true,
     Bool.true_eq_false, Bool.or_true])))))
@@ -240,31 +219,55 @@ theorem cf_sc (base rt off : W32) (a : Arch) (h : ConsultsOracle (.sc base rt of
     Ops.SC base rt off (ctxOf i o₁) { arch := a } = Ops.SC base rt off (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.SC]; ofree_ll
 
-theorem cf_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+theorem cf_mfhc1 (rt fs : W32) (a : Arch) (_h : ConsultsOracle (.mfhc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MFHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MFHC1 rt fs (ctxOf i o₂) { arch := a } := by
-  simp only [ConsultsOracle, Bool.and_eq_false_iff, OddFPR, bne_eq_false_iff_eq] at h
-  rcases h with h | h
-  · simp only [Ops.MFHC1]; ofree
-  · -- `rt = 0`: the value read is written to `GPR[0]`, which has no effect (wave 9)
-    simp only [Ops.MFHC1, bind, ValueFPR64, setGPR, writeGPR, h, ↓reduceIte, FP32RegistersMode,
-      beq_self_eq_true]
-    by_cases hb : bit (BitVec.ofNat 5 (reg fs).val) 0 = true <;> simp only [hb, ↓reduceIte] <;> rfl
+  simp only [Ops.MFHC1]; ofree
 
 theorem cf_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.MTHC1 rt fs (ctxOf i o₁) { arch := a } = Ops.MTHC1 rt fs (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.MTHC1]; ofree
 
-theorem cf_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+theorem cf_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = false) (i : Impl)
+    (o₁ o₂ : Oracle) :
     Ops.CFC1 rt fs (ctxOf i o₁) { arch := a } = Ops.CFC1 rt fs (ctxOf i o₂) { arch := a } := by
   cf_pre h; simp only [Ops.CFC1]; ofree_all
 
-theorem cf_ctc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.ctc1 rt fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
+/-- Both sides of a path of `CTC1` that reads no oracle field: the FCSR write then `CheckFPException`. -/
+macro "ccheck" : tactic => `(tactic| (simp only [Pseudo.modify, CheckFPException, bind, Pseudo.get,
+  SignalException, ite_app2, pure] <;> try rfl))
+
+theorem cf_ctc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.ctc1 rt fs) a = false) (i : Impl)
+    (o₁ o₂ : Oracle) :
     Ops.CTC1 rt fs (ctxOf i o₁) { arch := a } = Ops.CTC1 rt fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CTC1]; ofree_all
+  simp only [ConsultsOracle, CTC1Unpredictable] at h
+  simp only [Ops.CTC1, bind, GPR, Pseudo.get, Pseudo.oracle, ctxOf]
+  generalize low (readGPR a (reg rt)) 32 = t at h ⊢
+  by_cases h14 : (fs == 1#32 || fs == 4#32) = true
+  · simp only [h14, ite_true, ite_app2]
+    rfl
+  by_cases h56 : (fs == 5#32 || fs == 6#32) = true
+  · simp [h56] at h
+  simp only [h56, Bool.false_eq_true, ite_false] at h
+  simp only [h14, h56, Bool.false_eq_true, ite_false, ite_app2]
+  by_cases h25 : fs = 25#32
+  · subst h25; simp only [beq_self_eq_true, ite_true] at h ⊢
+    simp only [h, Bool.false_eq_true, ite_false]; ccheck
+  by_cases h26 : fs = 26#32
+  · subst h26; simp only [beq_self_eq_true, ite_true, BitVec.reduceBEq, Bool.false_eq_true, ite_false] at h ⊢
+    simp only [h, Bool.false_eq_true, ite_false]; ccheck
+  by_cases h28 : fs = 28#32
+  · subst h28; simp only [beq_self_eq_true, ite_true, BitVec.reduceBEq, Bool.false_eq_true, ite_false] at h ⊢
+    simp only [h, Bool.false_eq_true, ite_false]; ccheck
+  by_cases h31 : fs = 31#32
+  · subst h31; simp only [beq_self_eq_true, ite_true, BitVec.reduceBEq, Bool.false_eq_true, ite_false] at h ⊢
+    simp only [h, Bool.false_eq_true, ite_false]; ccheck
+  simp only [beq_false_of_ne h25, beq_false_of_ne h26, beq_false_of_ne h28, beq_false_of_ne h31,
+    Bool.false_eq_true, ite_false]
+  ccheck
 
 theorem cf_lwc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.lwc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.LWC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.LWC1 rs ft imm (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.LWC1]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_swc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.swc1 rs ft imm) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.SWC1 rs ft imm (ctxOf i o₁) { arch := a } = Ops.SWC1 rs ft imm (ctxOf i o₂) { arch := a } := by
@@ -280,11 +283,11 @@ theorem cf_sdc1 (rs ft imm : W32) (a : Arch) (h : ConsultsOracle (.sdc1 rs ft im
 
 theorem cf_absS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.absS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.ABS_S fd fs (ctxOf i o₁) { arch := a } = Ops.ABS_S fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.ABS_S]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_negS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.negS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.NEG_S fd fs (ctxOf i o₁) { arch := a } = Ops.NEG_S fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.NEG_S]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_addD (fd fs ft : W32) (a : Arch) (h : ConsultsOracle (.addD fd fs ft) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.ADD_D fd fs ft (ctxOf i o₁) { arch := a } = Ops.ADD_D fd fs ft (ctxOf i o₂) { arch := a } := by
@@ -328,23 +331,23 @@ theorem cf_rsqrtD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.rsqrtD fd fs) a
 
 theorem cf_roundWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.roundWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.ROUND_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.ROUND_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.ROUND_W_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_truncWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.truncWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.TRUNC_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.TRUNC_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.TRUNC_W_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_ceilWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.ceilWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.CEIL_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.CEIL_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CEIL_W_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_floorWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.floorWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.FLOOR_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.FLOOR_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.FLOOR_W_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_cvtWD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtWD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.CVT_W_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_W_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CVT_W_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_cvtDS (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtDS fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.CVT_D_S fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_D_S fd fs (ctxOf i o₂) { arch := a } := by
@@ -356,7 +359,7 @@ theorem cf_cvtDW (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtDW fd fs) a =
 
 theorem cf_cvtSD (fd fs : W32) (a : Arch) (h : ConsultsOracle (.cvtSD fd fs) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.CVT_S_D fd fs (ctxOf i o₁) { arch := a } = Ops.CVT_S_D fd fs (ctxOf i o₂) { arch := a } := by
-  cf_pre h; simp only [Ops.CVT_S_D]; ofree
+  simp [ConsultsOracle] at h  -- R6-5: a 32-bit result (`fprUpper`), always a row
 
 theorem cf_ext (rt rs pos size : W32) (a : Arch) (h : ConsultsOracle (.ext rt rs pos size) a = false) (i : Impl) (o₁ o₂ : Oracle) :
     Ops.EXT rt rs pos size (ctxOf i o₁) { arch := a } = Ops.EXT rt rs pos size (ctxOf i o₂) { arch := a } := by
@@ -523,6 +526,7 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
     simp only [Ops.RDHWR]; ofree
     all_goals (generalize BitVec.toNat rd = n; split <;> rfl)
   all_goals first
+    | (cases h; done)  -- R6-5: the rows that are always `true`
     | rfl
     | (simp only [
       Ops.ABS_D, Ops.ABS_S, Ops.ADD, Ops.ADDIU, Ops.ADDU, Ops.ADD_D, Ops.ADD_S, Ops.AND,
@@ -545,7 +549,10 @@ theorem operation_choiceFree (ins : Instruction) (a : Arch) (h : ConsultsOracle 
       -- END R6-2
       -- R6-4
       Ops.MUL, Ops.MUH, Ops.MULU, Ops.MUHU, Ops.SELEQZ, Ops.SELNEZ, Ops.LSA, Ops.ALIGN, Ops.BITSWAP,
-      Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC]
+      Ops.ADDIUPC, Ops.AUIPC, Ops.ALUIPC, PC,
+      -- R6-5
+      Ops.ROUND_L_S, Ops.ROUND_L_D, Ops.TRUNC_L_S, Ops.TRUNC_L_D, Ops.CEIL_L_S, Ops.CEIL_L_D,
+      Ops.FLOOR_L_S, Ops.FLOOR_L_D, Ops.CVT_L_S, Ops.CVT_L_D, Ops.CVT_S_L, Ops.CVT_D_L]
        ofree)
 
 end Refine

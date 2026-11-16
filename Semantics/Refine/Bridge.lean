@@ -36,7 +36,7 @@ theorem abs_advance (s r : State) (hpb : r.pendingBranch = s.pendingBranch) :
     abs (advance s r) =
       { abs r with PC := s.pendingBranch.getD (r.pc + 4#32), BranchDelay := none } := by
   unfold advance
-  cases h : s.pendingBranch <;> simp [abs, hpb, h, readReg, readFpReg]
+  cases h : s.pendingBranch <;> simp [abs, hpb, h, readReg, readFpReg64]
 
 theorem complete_plain (a : Arch) (x : Arch) :
     Complete a { arch := x } = { x with PC := a.BranchDelay.getD (a.PC + 4#32), BranchDelay := none } :=

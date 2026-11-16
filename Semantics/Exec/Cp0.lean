@@ -95,7 +95,7 @@ def cp0Read (s : State) : Cp0Reg → W32
   | .badInstrP => s.cp0BadInstrP
   | .count => s.cp0Count
   | .compare => s.cp0Compare
-  | .status => s.cp0Status
+  | .status => statusValue s  -- R6-5: `FR` reads 1 (`statusFrMask`)
   | .intCtl => intCtlValue
   | .srsCtl => srsCtlValue
   | .cause => causeValue s
@@ -179,10 +179,10 @@ def execCp0 (s : State) : Instruction → Option State
   -- the Status value *before* the change.
   | .di rt => some <|
     mkNext s (writeReg { s with cp0Status := s.cp0Status &&& ~~~statusIeMask } (regIdx rt)
-      s.cp0Status)
+      (statusValue s))
   | .ei rt => some <|
     mkNext s (writeReg { s with cp0Status := s.cp0Status ||| statusIeMask } (regIdx rt)
-      s.cp0Status)
+      (statusValue s))
   -- `rdpgpr rd, rt` / `wrpgpr rd, rt` (MD00086 Vol II-A Rev 6.06, RDPGPR p.335:
   -- "GPR[rd] ← SGPR[SRSCtlPSS, rt]"; WRPGPR p.444: "SGPR[SRSCtlPSS, rd] ← GPR[rt]").
   -- Only the normal GPRs exist (`SRSCtl.HSS = 0`: "only the normal GPRs are

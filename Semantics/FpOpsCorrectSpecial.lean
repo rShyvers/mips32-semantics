@@ -6,7 +6,8 @@ import Semantics.FpOpsCorrectApi
 Bridges the classes of `Semantics/FpOpsSpec.lean` (`Format.IsNaN`, `IsSNaN`, `IsQNaN`, `datum`,
 `infBits`, `zeroBits`, `newQNaN`, Table 6.2 / 6.3 of MD00082 Vol I-A Rev 6.01) with the model's
 Boolean tests (`Format.isNaN`, …), and proves the model's NaN rule (`nanResult`, `nanFlags`) meets
-`Format.NaNResult`, its first-QNaN choice being the documented pin (`nanResult_first`). Also: every
+`Format.NaNResult`, its first-SNaN-else-first-QNaN choice being the documented pin (`nanResult_first`,
+`nanResult_first_snan`); `quiet_eq_passedNaN` identifies the model's `quiet` with `passedNaN`. Also: every
 result encoding the model builds is a `width`-bit pattern (`roundCore_lt`).
 -/
 
@@ -45,21 +46,90 @@ theorem invalidResult_eq : f.invalidResult = (f.defaultQNaN, Flags.invalidOnly) 
 /-- The new QNaN is a quiet NaN (Table 6.3 against Table 6.2). -/
 theorem newQNaN_isQNaN (hf : f.WF) : f.IsQNaN f.newQNaN := by
   have h2 := hf.2
-  have hq : 2 ^ (f.fracBits - 1) - 1 < 2 ^ f.fracBits := by
-    have := Nat.pow_lt_pow_right (a := 2) (by omega) (show f.fracBits - 1 < f.fracBits by omega)
-    have := Nat.two_pow_pos (f.fracBits - 1)
-    omega
-  have hq1 : 1 ≤ 2 ^ (f.fracBits - 1) - 1 := by
-    have := Nat.pow_le_pow_right (n := 2) (by omega) (show 1 ≤ f.fracBits - 1 by omega)
-    simp at this; omega
+  have hq : 2 ^ (f.fracBits - 1) < 2 ^ f.fracBits :=
+    Nat.pow_lt_pow_right (a := 2) (by omega) (show f.fracBits - 1 < f.fracBits by omega)
+  have hq1 : 1 ≤ 2 ^ (f.fracBits - 1) := Nat.one_le_two_pow
   obtain ⟨e1, e2, -, -⟩ := f.pack_fields false f.expMax _ f.expMax_lt hq
-  have hpk : f.newQNaN = f.pack false f.expMax (2 ^ (f.fracBits - 1) - 1) := by
+  have hpk : f.newQNaN = f.pack false f.expMax (2 ^ (f.fracBits - 1)) := by
     rw [newQNaN_eq]; rfl
   refine ⟨⟨?_, ?_⟩, ?_⟩
   · simp only [expOf, hpk]; exact e1
   · simp only [fracOf, hpk, e2]; omega
   · simp only [fracOf, hpk, e2]
-    exact Nat.div_eq_of_lt (by have := Nat.two_pow_pos (f.fracBits - 1); omega)
+    exact Nat.div_self (Nat.two_pow_pos _)
+
+/-! ## Quieting a NaN -/
+
+theorem nat_or_two_pow_split (n k : Nat) :
+    (n / 2 ^ k % 2 = 1 → n ||| 2 ^ k = n) ∧ (n / 2 ^ k % 2 = 0 → n ||| 2 ^ k = n + 2 ^ k) := by
+  constructor
+  · intro h
+    apply Nat.eq_of_testBit_eq; intro i
+    simp only [Nat.testBit_or, Nat.testBit_two_pow]
+    by_cases hi : k = i
+    · subst hi; simp [Nat.testBit_eq_decide_div_mod_eq, h]
+    · simp [hi]
+  · intro h
+    have hr : n % 2 ^ (k + 1) < 2 ^ k := by
+      rw [Nat.pow_succ]
+      have := Nat.mod_mul_right_div_self n (2 ^ k) 2
+      rw [h] at this
+      have := Nat.div_add_mod (n % (2 ^ k * 2)) (2 ^ k)
+      have := Nat.mod_lt (n % (2 ^ k * 2)) (Nat.two_pow_pos k)
+      rw [‹n % (2 ^ k * 2) / 2 ^ k = 0›] at *
+      omega
+    have hd := (Nat.div_add_mod n (2 ^ (k + 1))).symm
+    have h1 : n % 2 ^ (k + 1) + 2 ^ k < 2 ^ (k + 1) := by
+      have : 2 ^ (k + 1) = 2 ^ k * 2 := Nat.pow_succ ..; omega
+    calc n ||| 2 ^ k = (2 ^ (k + 1) * (n / 2 ^ (k + 1)) ||| n % 2 ^ (k + 1)) ||| 2 ^ k := by
+          rw [← Nat.two_pow_add_eq_or_of_lt (Nat.mod_lt _ (Nat.two_pow_pos _)), ← hd]
+      _ = 2 ^ (k + 1) * (n / 2 ^ (k + 1)) ||| (n % 2 ^ (k + 1) + 2 ^ k) := by
+          rw [Nat.or_assoc, Nat.or_two_pow_eq_add_of_lt hr]
+      _ = n + 2 ^ k := by
+          rw [← Nat.two_pow_add_eq_or_of_lt h1]; omega
+
+/-- The fraction MSB `b1` of an encoding is its bit `fracBits - 1`. -/
+theorem fracMsb_eq (hf : f.WF) (n : Nat) :
+    f.fracField n / 2 ^ (f.fracBits - 1) = n / 2 ^ (f.fracBits - 1) % 2 := by
+  obtain ⟨k, hk⟩ : ∃ k, f.fracBits = k + 1 := ⟨f.fracBits - 1, by have := hf.2; omega⟩
+  simp only [fracField, hk, Nat.add_sub_cancel, Nat.pow_succ, Nat.mod_mul_right_div_self]
+
+/-- The model's `quiet` is the specification's `passedNaN` (`b1` set, every other bit kept). -/
+theorem quiet_eq_passedNaN (hf : f.WF) (n : Nat) : f.quiet n = f.passedNaN n := by
+  have hs := nat_or_two_pow_split n (f.fracBits - 1)
+  simp only [quiet, passedNaN, fracMsb_eq f hf]
+  have := Nat.mod_two_eq_zero_or_one (n / 2 ^ (f.fracBits - 1))
+  split
+  · rename_i h; simp at h; exact (hs.1 h).symm
+  · rename_i h; simp at h; rw [hs.2 (by omega)]
+
+/-- A quiet NaN is passed unchanged. -/
+theorem passedNaN_of_isQNaN (hf : f.WF) {q : Nat} (h : f.IsQNaN q) : f.passedNaN q = q := by
+  have := h.2
+  simp only [fracOf] at this
+  rw [show q % 2 ^ f.fracBits = f.fracField q from rfl, fracMsb_eq f hf] at this
+  exact (nat_or_two_pow_split q _).1 this
+
+/-- Setting `b1` of an encoding whose biased exponent is all ones gives a quiet NaN (whatever the
+fraction was). -/
+theorem passedNaN_isQNaN_of_exp (hf : f.WF) {x : Nat} (hx : f.expOf x = 2 ^ f.expBits - 1) :
+    f.IsQNaN (f.passedNaN x) := by
+  have h2 := hf.2
+  have hlt : 2 ^ (f.fracBits - 1) < 2 ^ f.fracBits :=
+    Nat.pow_lt_pow_right (a := 2) (by omega) (show f.fracBits - 1 < f.fracBits by omega)
+  have hexp : f.expOf (f.passedNaN x) = f.expOf x := by
+    simp only [expOf, passedNaN, Nat.or_div_two_pow, Nat.div_eq_of_lt hlt, Nat.or_zero]
+  have hmsb : f.fracOf (f.passedNaN x) / 2 ^ (f.fracBits - 1) = 1 := by
+    rw [show f.fracOf (f.passedNaN x) = f.fracField (f.passedNaN x) from rfl, fracMsb_eq f hf]
+    have := Nat.testBit_eq_decide_div_mod_eq (x := f.passedNaN x) (i := f.fracBits - 1)
+    simp only [passedNaN, Nat.testBit_or, Nat.testBit_two_pow, decide_true, Bool.or_true] at this
+    exact of_decide_eq_true this.symm
+  refine ⟨⟨hexp ▸ hx, fun h0 => ?_⟩, hmsb⟩
+  rw [h0, Nat.zero_div] at hmsb; exact absurd hmsb (by decide)
+
+/-- A NaN passed to the output is a quiet NaN. -/
+theorem passedNaN_isQNaN (hf : f.WF) {x : Nat} (hx : f.IsNaN x) : f.IsQNaN (f.passedNaN x) :=
+  f.passedNaN_isQNaN_of_exp hf hx.1
 
 /-! ## The datum of an encoding -/
 
@@ -131,19 +201,35 @@ theorem nanResult_spec (hf : f.WF) (ops : List Nat) :
   · simp only [nanFlags, List.any_eq_true, ← isSNaN_iff]
   · unfold nanResult
     split
-    · rename_i q hq
-      have h1 := List.find?_some hq
-      have h2 := List.mem_of_find?_eq_some hq
-      exact ⟨(f.isQNaN_iff q).1 h1, fun _ => h2, fun hn => absurd ((f.isQNaN_iff q).1 h1) (hn q h2)⟩
-    · rename_i hn
-      rw [List.find?_eq_none] at hn
-      refine ⟨f.newQNaN_eq ▸ f.newQNaN_isQNaN hf, fun ⟨x, hx, hq⟩ => ?_, fun _ => (f.newQNaN_eq).symm⟩
-      exact absurd ((f.isQNaN_iff x).2 hq) (by simpa using hn x hx)
+    · rename_i x hx
+      have h1 := List.find?_some hx
+      have h2 := List.mem_of_find?_eq_some hx
+      have hn : f.IsNaN x := ((f.isSNaN_iff x).1 h1).1
+      simp only [quiet_eq_passedNaN f hf]
+      exact ⟨f.passedNaN_isQNaN hf hn, .inr ⟨x, h2, hn, rfl⟩, fun _ => ⟨x, h2, hn, rfl⟩⟩
+    · split
+      · rename_i q hq
+        have h1 := List.find?_some hq
+        have h2 := List.mem_of_find?_eq_some hq
+        have hQ := (f.isQNaN_iff q).1 h1
+        have hp := (f.passedNaN_of_isQNaN hf hQ).symm
+        exact ⟨hQ, .inr ⟨q, h2, hQ.1, hp⟩, fun _ => ⟨q, h2, hQ.1, hp⟩⟩
+      · rename_i hn
+        rw [List.find?_eq_none] at hn
+        refine ⟨f.newQNaN_eq ▸ f.newQNaN_isQNaN hf, .inl (f.newQNaN_eq).symm,
+          fun ⟨x, hx, hq⟩ => ?_⟩
+        exact absurd ((f.isQNaN_iff x).2 hq) (by simpa using hn x hx)
 
-/-- **The pin**: with a quiet NaN among the operands, the model returns the first one in operand
-order (SPEC-NOTES §9 item 13). -/
-theorem nanResult_first (ops : List Nat) (q : Nat) (h : ops.find? (fun x => f.isQNaN x) = some q) :
-    f.nanResult ops = q := by
+/-- **The pin**, no signaling NaN among the operands: the model returns the first quiet NaN operand
+in operand order, unchanged (SPEC-NOTES §9 item 13). -/
+theorem nanResult_first (ops : List Nat) (q : Nat) (hs : ops.find? (fun x => f.isSNaN x) = none)
+    (h : ops.find? (fun x => f.isQNaN x) = some q) : f.nanResult ops = q := by
+  simp [nanResult, hs, h]
+
+/-- **The pin**, a signaling NaN among the operands: the model returns the first signaling NaN
+operand in operand order, made quiet (SPEC-NOTES §9 item 13). -/
+theorem nanResult_first_snan (ops : List Nat) (q : Nat)
+    (h : ops.find? (fun x => f.isSNaN x) = some q) : f.nanResult ops = f.quiet q := by
   simp [nanResult, h]
 
 /-! ## Results are `width`-bit patterns -/
@@ -193,19 +279,28 @@ theorem roundCore_lt (hf : f.WF) (rm : RoundingMode) (fl : Bool) (w : Exact) :
 theorem roundEnv_lt (hf : f.WF) (e : Env) (w : Exact) : (f.roundEnv e w).1 < 2 ^ f.width :=
   f.roundCore_lt hf _ _ w
 
+theorem passedNaN_lt (hf : f.WF) {x : Nat} (hx : x < 2 ^ f.width) : f.passedNaN x < 2 ^ f.width := by
+  have h2 := hf.2
+  refine Nat.or_lt_two_pow hx (Nat.pow_lt_pow_right (a := 2) (by omega) ?_)
+  simp only [width]; omega
+
 theorem nanResult_lt (hf : f.WF) (ops : List Nat) (hops : ∀ x ∈ ops, x < 2 ^ f.width) :
     f.nanResult ops < 2 ^ f.width := by
   unfold nanResult
   split
-  · rename_i q hq; exact hops q (List.mem_of_find?_eq_some hq)
-  · exact f.defaultQNaN_lt hf
+  · rename_i q hq
+    rw [quiet_eq_passedNaN f hf]; exact f.passedNaN_lt hf (hops q (List.mem_of_find?_eq_some hq))
+  · split
+    · rename_i q hq; exact hops q (List.mem_of_find?_eq_some hq)
+    · exact f.defaultQNaN_lt hf
 
 end Format
 
-/-- Table 6.3 (MD00082 Vol I-A Rev 6.01, p.82): the single new QNaN is `0x7fbf ffff`. -/
-theorem newQNaN_binary32 : binary32.newQNaN = 0x7FBFFFFF := by decide
+/-- Table 6.3 (MD00082 Vol I-A Rev 6.01, p.82, column `FCSR.NAN2008 = 1`): the single new QNaN is
+`0x7fc0 0000`. -/
+theorem newQNaN_binary32 : binary32.newQNaN = 0x7FC00000 := by decide
 
-/-- Table 6.3: the double new QNaN is `0x7ff7 ffff ffff ffff`. -/
-theorem newQNaN_binary64 : binary64.newQNaN = 0x7FF7FFFFFFFFFFFF := by decide
+/-- Table 6.3 (column `FCSR.NAN2008 = 1`): the double new QNaN is `0x7ff8 0000 0000 0000`. -/
+theorem newQNaN_binary64 : binary64.newQNaN = 0x7FF8000000000000 := by decide
 
 end Mips.Fp
