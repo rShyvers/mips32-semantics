@@ -159,8 +159,8 @@ Trusted surface per wave (`Statements.lean` theorem count, checked from the comm
   CLASS, RINT: 175 → 201. End to end (decode/encode, exec, `_spec_raw`, Manual transcription, refinement, choice rows, assembler,
   QEMU/LLVM oracle tests). New references in `FpOpsSpec` (`FmaSpec`, `CmpSpec`, `MinMaxSpec`, `ClassSpec`, `RintSpec`,
   `WithFlushInexact`). Orchestrator decision: FS = 1 input flushing now signals Inexact in every non-comparison operation (MD00082
-  Vol I-A Rev 6.01 §6.7.2.4 p.102). **11 FP statements added** (`cmpTable_formula`, `f32/f64Cmp_spec`, `Fma_spec`, `MinMax_spec`,
-  `Class_spec`, `Rint_spec`) and **18 FP statements restated stronger** (they now carry `WithFlushInexact`: `f32/f64Add/Sub/Mul/Div/
+  Vol I-A Rev 6.01 §6.7.2.4 p.102). **11 FP statements added** (`cmpTable_formula`, `f32/f64Cmp_spec`, `f32/f64Fma_spec`, `f32/f64MinMax_spec`,
+  `f32/f64Class_spec`, `f32/f64Rint_spec`) and **18 FP statements restated stronger** (they now carry `WithFlushInexact`: `f32/f64Add/Sub/Mul/Div/
   Sqrt_spec`, `f64Sqrt_correct`, `f32ToF64_spec`, `f64ToF32_spec`, `f32/f64ToW32_spec`, `f32/f64ToW64_spec`; stronger because the
   conclusion additionally fixes Inexact; no hypothesis added). `Manual/Accuracy.RecipFlagsOK` strengthened. 201 constructors,
   221 statements; oracle 180 tests, 161 pass, 19 declared QEMU deviations, 0 known model bugs. (A comment-stripped text diff of
@@ -179,7 +179,7 @@ Trusted surface per wave (`Statements.lean` theorem count, checked from the comm
 Gate record at R6-7 (merge 63e01a2): corpus 29 programs vs MARS, 7 equivalence cases, 184 QEMU/LLVM oracle tests, 203 constructors
 and 750 spec theorems traced, axioms `propext`, `Quot.sound`, `Classical.choice`, 0 warnings.
 
-Optimization pass (merge 4f6e449, cleanup 2348026; no statement changed, no trusted theorem added): about 2,000 lines fewer. The 203 `instrRefines_*` wrappers became the tactic `apply_ctor_lemma` (`Refine/Instr.lean`); 47 `cf_*` and 58 `rw_*` lemmas went to generic dispatch (`cf_<ctor>` remain only for `LL`, `SC`, `CFC1`, `CTC1`, `DIV`/`MOD`/`DIVU`/`MODU`); `fp_refine` (`Refine/BridgeFpu.lean`) and `cb_refine` (`Refine/CompactBranch.lean`) factor the FP and compact-branch refinements; `decodeCop1S`/`decodeCop1D` merged into `decodeCop1Fmt` over the record `Cop1Fmt`; about 50 dead lemmas/defs removed (model `causeIpMask`, `isKseg0`, `Mips.Fp.accFlags`, `fcsrReservedMask`; trusted `run_bind`, `OpStep`, all unused). Gate at 2348026: 203 constructors, 748 spec theorems, 221 statements, 184 oracle tests.
+Optimization pass (merge 4f6e449, cleanup 2348026; no statement changed, no trusted theorem added): about 2,000 lines fewer. The 203 `instrRefines_*` wrappers became the tactic `apply_ctor_lemma` (`Refine/Instr.lean`); 47 `cf_*` and 58 `rw_*` lemmas went to generic dispatch (`cf_<ctor>` remain only for `LL`, `SC`, `CFC1`, `CTC1`, `DIV`/`MOD`/`DIVU`/`MODU`); `fp_refine` (`Refine/BridgeFpu.lean`) and `cb_refine` (`Refine/CompactBranch.lean`) factor the FP and compact-branch refinements; the S and D COP1 decoders merged into `decodeCop1Fmt` over the record `Cop1Fmt`; about 50 unused lemmas and defs removed (a few model helpers, two unused trusted helper statements; none was used by a statement). Gate at 2348026: 203 constructors, 748 spec theorems, 221 statements, 184 oracle tests.
 
 # History of the Release 2 model (tag `mips32r2-final`)
 
@@ -587,7 +587,7 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
 * **Witnesses** (`Refine/ChoiceWitness.lean`): the family `wo p ce` (operations → Reserved Instruction, values
   constant, `Cause.CE = ce`), `wo_valid`. The two `ce` differ from each other and from `Cause.CE` of the state
   (`ceA`, `ceB`), so no lemma "Operations do not read `causeCE`" is needed. Each `ConsultsOracle` row
-  (`rw_<ctor>`, found by name with `apply_ctor_lemma "rw_" ""` in `choiceFree_exact`; only the instructions that need their own proof have one, the rest are covered by the shared row lemmas such as `row_load`/`row_store`; `Refine/ChoiceRows{,Fp,Fma}.lean`) proves `RunP` for two witnesses by unfolding
+  (`rw_<ctor>`, found by name with `apply_ctor_lemma "rw_" ""` in `choiceFree_exact`; only the instructions that need their own proof have one, the rest are covered by the shared row lemmas such as `row_load`/`row_store`; `Refine/ChoiceRows{,Fp}.lean`) proves `RunP` for two witnesses by unfolding
   the Operation and splitting its `if`s (the `runp` tactic and its FP variants).
   FP facts in `Refine/ChoiceFp.lean` (NaN branch of the core, `Dist`, FCSR algebra).
 * **Spec change (`Manual/Relation.lean`, `ConsultsOracle`), three rows made exact:** `MFHC1` (`&& reg rt != 0`),

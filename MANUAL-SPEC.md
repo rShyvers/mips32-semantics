@@ -167,8 +167,7 @@ constants, `recipS/D`, `rsqrtS/D`. `Impl.WF` states these. `Oracle` fields: `sto
 `Config5.LLB = 1`: a store to the block makes the SC fail, a load does not; the fields take no address, so the spec admits oracles
 Release 6 forbids for same-block accesses, a looseness of the spec, not of the model), `causeCE`, `resetUndefined`, `jalrRsIsRd`,
 `linkSourceIs31`, `fprUpper`, `ctc1Unpredictable`, `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`, `ebaseWriteBEV0`,
-`cvtQNaNToD/ToS`, `badInstrNoWord`, `badInstrP`, `divByZero`. Fields removed with R2: `absNegNaN`, `fprOddRead/Write`, `mulHILO`,
-`divuByZero`. COP2-space words signal Coprocessor Unusable with `CE = 2` (no CP2; Vol III §6.2.22 p.100); QEMU raises Reserved
+`cvtQNaNToD/ToS`, `badInstrNoWord`, `badInstrP`, `divByZero`. The R2 oracle fields for the ABS/NEG QNaN reading, odd-FPR reads and writes and the HI/LO multiply results no longer exist (64-bit FPRs, `FCSR.ABS2008 = 1`, no HI/LO), and DIVU shares `divByZero`. COP2-space words signal Coprocessor Unusable with `CE = 2` (no CP2; Vol III §6.2.22 p.100); QEMU raises Reserved
 Instruction, a declared deviation.
 
 **Accuracy** (`Manual/Accuracy.lean`): `Impl.Valid = WF ∧ RecipAccurate ∧ RecipExact ∧ RsqrtAccurate ∧ RecipFlags`, with the 1-ULP
@@ -186,6 +185,7 @@ and DIV/MOD/DIVU/MODU by zero with `rd != 0`. Where it is `false` the Operation'
 `Cause.CE` "is loaded, but not defined", Vol III §6.2.3 p.87), at a word with an UNPREDICTABLE field value whose coprocessor is
 usable, at a CTI in a delay or forbidden slot, and at a `ConsultsOracle` row. `choiceFree_exact` (trusted) proves the other
 direction: where `ChoiceFree = false`, two valid oracles give different instruction times.
+The R6 rows are proved real in `Refine/ChoiceRows.lean` and `ChoiceRowsFp.lean`, dispatched by `consults_row` in `ChoiceExact.lean`: the loads and stores (`row_load`, `row_store`), `LWPC`, DIV/MOD/DIVU/MODU (`row_div`), `CTC1`, `MTC0`, `EXT`/`INS`, every 32-bit store into a 64-bit FPR (`row_upper` via `fpr32_row`: `LWC1`, `MTC1`, the `.S` arithmetic, `W` conversions, `CMP.cond.S`, `SEL`/`SELEQZ`/`SELNEZ`, `MADDF`/`MSUBF`, `MIN`/`MAX`/`MINA`/`MAXA`, `CLASS`, `RINT`), `CVT.D.S` of a QNaN (`rw_cvtDS`) and the B*ZALC branches with `rt = 31` (`row_sig`). Other constructors have `ConsultsOracle = false`. The R2 rows (MFHC1 into `GPR[0]`, `C.cond.D`, `MADD.D`/`MSUB.D`, odd-register pairs) do not exist in Release 6: FR = 1 gives 64-bit FPRs, and MADD/MSUB/C.cond were removed (Part IV.6 is the R2 history).
 
 `Oracle.Valid` formalizes the three restrictions of MD00086 Vol II-A Rev 6.06 §1.2.1 (p.3-4): non-interference in User Mode
 (`NIValue`/`NIOutcome` over `AccessibleSame`), the inaccessible state unchanged, no halt; the UNDEFINED fields held to §1.2.2 (p.4);
@@ -209,7 +209,7 @@ valid in Release 6.
 ## II.1 Rules
 
 1. **One `def` per manual page**, in `Semantics/Manual/Ops/<Family>.lean`, `namespace Manual.Ops`, named by the mnemonic (`ADD`,
-   `ADD_S` for `ADD.fmt` with fmt S, `CMP_condn_S`, ..). Add the arm to `Manual.Operation` and the format line to `Manual.enc`.
+   `ADD_S` for `ADD.fmt` with fmt S, `CMP_S`, ..). Add the arm to `Manual.Operation` and the format line to `Manual.enc`.
 2. **Docstring**: `**MNEMONIC operands** — MD00086 Vol II-A Rev 6.06, MNEMONIC, p.N.` followed by the page's Operation pseudocode
    verbatim in a code block, then any Restrictions sentence the Lean implements, with its page. Look every page up with
    `python3 manuals/mipsdoc.py insn MNEMONIC`; image-only pages are read from the PDF and say so. The page number is the PRINTED page.
@@ -431,6 +431,8 @@ meaning changed with `Oracle.Valid` and `ChoiceFree` (README, (b′)).
 
 ## IV.6 Wave 9: `ChoiceFree` is exact (proved), three rows refined, test robustness
 
+*R2 history. The rows MFHC1, `C.cond.D` and `MADD.D`/`MSUB.D` discussed below, their helpers and the odd-register oracle fields do not exist in Release 6; the Release 6 rows are listed in I.5.*
+
 **`choiceFree_exact` (trusted, `Refine/ChoiceExact.lean`).**
 
 ~~~lean
@@ -469,7 +471,7 @@ memory). This avoids a lemma "no Operation reads `causeCE`". Per row (`rw_<ctor>
 | `MOV.D`, `MOVF/MOVT/MOVN/MOVZ.D` | two quiet NaNs | `FPR` pair of `fd` |
 | `CVT.D.S`/`CVT.S.D` quiet NaN | the two QNaNs of each field | `FPR` |
 | `C.cond.D` | signaling NaN; quiet NaN (`cond3 = 0`) or +1.0 (`cond3 = 1`) | Invalid |
-| `MADD.D`/`MSUB.D` | five cases (the row lemmas of `Refine/ChoiceRowsFp.lean`/`ChoiceRowsFma.lean`, picked by `apply_ctor_lemma "rw_" ""`) | the result, Invalid, a trap, or the Invalid Flag (bit 6) |
+| `MADD.D`/`MSUB.D` | five cases (the row lemmas of `Refine/ChoiceRows*.lean`, picked by `apply_ctor_lemma "rw_" ""`) | the result, Invalid, a trap, or the Invalid Flag (bit 6) |
 
 The other cases of `ChoiceFree` (interrupt: `interrupt_choice_exists`; fetch error, undecodable word,
 UNPREDICTABLE encoding, CTI in a delay slot, an Operation that signals with `ConsultsOracle = false`

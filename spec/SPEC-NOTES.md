@@ -765,8 +765,8 @@ Inexact are left free (`modelImpl_valid`).
 | `badInstrP` | 0 outside a delay slot | Vol III §9.26 p.181 |
 | `divByZero` | `DIV`/`DIVU` dividend; `MOD`/`MODU` 0 | Vol II p.168-169 (item 2) |
 
-The oracle fields removed in the Release 6 retarget (HI/LO, `ctiInSlot` PAUSE special case, odd-FPR reads and writes,
-`absNegNaN`, `mulHILO`, the unfused multiply-add) are not needed: those cases no longer exist.
+The oracle fields removed in the Release 6 retarget (HI/LO, the PAUSE special case for a CTI in a slot, odd-FPR reads and writes,
+the ABS/NEG QNaN reading, the HI/LO multiply result, the unfused multiply-add) are not needed: those cases no longer exist.
 
 ### 11.3 Readings of the manual text (misprints and gaps; no model change)
 
