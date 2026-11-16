@@ -23,11 +23,10 @@ import Semantics.Exec.FpuR6
 
 `step` executes one instruction; `run` is `step` iterated with a fuel bound
 and nothing else. Ground truth: the latest manual revisions in
-`manuals/` are normative, read for the pre-Release-6 wording
+`manuals/` are normative, read for Release 6
 (MD00082 Vol I-A Rev 6.01, MD00086 Vol II-A Rev 6.06, MD00090 Vol III
 Rev 6.02; see CLAUDE.md), summarised per instruction in
-`docs/spec/INSTRUCTION-REF.md`. Comments below that cite "MD00086 Rev 2.50"
-with a table or page number are historical citations of that older revision.
+`docs/spec/INSTRUCTION-REF.md`.
 Pinned conventions and divergences from the MARS test oracle are in
 `docs/spec/SPEC-NOTES.md` §9.
 
@@ -136,13 +135,13 @@ shadow sets beyond the normal GPRs (`SRSCtl.HSS = 0`), EJTAG (see `docs/spec/SPE
 
 /-- **The execution tables**, one per instruction family (`Semantics/Exec/<Family>.lean`). Each
 returns the instruction's effect for the instructions of its family and `none` for every other;
-every instruction belongs to exactly one family. A later wave adds an instruction to its family's
-table only. -/
+every instruction belongs to exactly one family. A new instruction is added to its family's table
+only. -/
 def execTables : List (State → Instruction → Option State) :=
   [execIntArith, execShift, execBitOps, execImmediate, execMemory, execAtomic,
    execBranch, execJump, execTrap, execSyscall, execSystem, execCp0,
    execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert,
-   execFpuR6]  -- R6-6B: the Release 6 FPU instructions
+   execFpuR6]
 
 /-- The effect of the already-fetched, already-decoded instruction `instr` in state `s`, **after**
 `execInstr`'s guards (no control transfer in a delay slot; the coprocessor usable for the
@@ -160,7 +159,7 @@ macro "exec_unfold" : tactic =>
   `(tactic| dsimp only [execBody, execTables, List.findSome?, execIntArith, execShift, execBitOps,
     execImmediate, execMemory, execAtomic, execBranch, execJump, execTrap, execSyscall, execSystem,
     execCp0, execFpuMove, execFpuControl, execFpuMemory, execFpuArith, execFpuConvert, Option.getD,
-    execFpuR6,  -- R6-6B
+    execFpuR6,
     cp0WriteAt, cp0Write
     ])
 

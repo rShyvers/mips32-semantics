@@ -360,8 +360,8 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     simp [encode, decode, decodeFor, decodePrimary, decodeCop1, decodeIf, h1, h2, h3, e]
     split <;> simp_all <;> omega
   all_goals simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm,
-    decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h,
-    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD]  -- R6-6B
+    decodeSpecial3, decodeCop0, decodeCop1, decodeCop1Fmt, decodeFmtS, decodeFmtD, Option.bind_some, decodeIf,
+    h]
 
 -- Splits the whole `decode` table (~150 leaves).
 set_option maxHeartbeats 1000000 in
@@ -375,10 +375,8 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   have h13 := sa2Of_lt w; have h14 := imm19Of_lt w  -- R6-4
   have h15 := off21Of_lt w
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
-    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
-    decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ,
-    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD  -- R6-6B
-    ] at h
+    decodeCop0, decodeCop1, decodeCop1Fmt, decodeFmtS, decodeFmtD, Option.bind_some, Option.bind_none,
+    decodeIf, decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ] at h
   repeat' split at h
   all_goals
     (cases h <;>

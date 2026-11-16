@@ -2,7 +2,7 @@ import Semantics.Manual.Relation
 import Semantics.Refine.ChoicePoints
 
 /-!
-# Refine.Determinism — the model's choices are valid; the manual is deterministic where it makes none (7D, 8)
+# Refine.Determinism — the model's choices are valid; the manual is deterministic where it makes none
 
 * `modelOracle_valid`: every outcome of `modelOracle` is within the manual's limits
   (`Manual.Oracle.Valid`), so `Manual.Step` with the model's oracle is a behaviour the manual allows.
@@ -13,7 +13,7 @@ import Semantics.Refine.ChoicePoints
 * The other direction, proved for the `Cause.CE` choice only: `gep_causeCE_choice` (every exception
   other than Coprocessor Unusable gives two different `Cause` values under two valid oracles) and
   `interrupt_choice_exists` (an interrupt is a real choice). The full other direction, every row of
-  `ConsultsOracle` included, is `choiceFree_exact` (wave 9, `Refine/ChoiceExact.lean`).
+  `ConsultsOracle` included, is `choiceFree_exact` (`Refine/ChoiceExact.lean`).
 -/
 
 namespace Refine
@@ -68,7 +68,6 @@ outcomes do not name the state; its `badInstrNoWord`, `badInstrP` values are con
 is a function of the FPRs (accessible); its `.arbitrary` outcomes (`ctc1Unpredictable`) change `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  -- R6-3: two more conjuncts (`linkSourceIs31`)
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
@@ -99,12 +98,12 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _ _; trivial
-  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]  -- R6-5: `fprUpper`
+  · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]  -- `fprUpper`
   -- (no `cfc1Unpredictable` value: CFC1 of FRE signals Reserved Instruction)
   -- BadInstr / BadInstrP: constants
   · intro _ _ _ _ _; rfl
   · intro _ _ _ _ _; rfl
-  · intro _ _ _ _ _ _; rfl  -- R6-4: divByZero
+  · intro _ _ _ _ _ _; rfl  -- divByZero
   -- UNDEFINED
   · intros; trivial
   -- QNaN
@@ -287,11 +286,6 @@ Coprocessor Unusable: a valid oracle too (`causeCE` is not restricted). -/
 def modelOracleCE1 : Oracle := { modelOracle with causeCE := fun _ _ => 1#2 }
 
 theorem modelOracleCE1_valid : modelOracleCE1.Valid := modelOracle_valid
-
-theorem cause_bit28 (X : W32) (ce : BitVec 2) (code : BitVec 5) :
-    ((X &&& ~~~((3#32 <<< 28) ||| (0x1F#32 <<< 2))) ||| (ce.setWidth 32 <<< 28) |||
-      (code.setWidth 32 <<< 2)).getLsbD 28 = ce.getLsbD 0 := by
-  simp
 
 /-- **`Cause.CE` is a real choice**: for every exception other than Coprocessor Unusable, two valid
 oracles give different `Cause` registers after the general exception processing (MD00090 Vol III

@@ -297,7 +297,8 @@ theorem delaySlotRel_ldc1 (s : State) (t : W32) (a b c : W32) (hvec : s.pc + 4#3
       | (intro h; exact absurd (h.symm.trans (takeAddressException_pc_pb _ _ _ _)) hvec)
       | (intro _; simp only [mkNext, advance, writeFpD, writeFpReg64])
 
-set_option maxHeartbeats 0 in
+-- all 203 constructors; the bound is twice what the proof was measured to need (500000)
+set_option maxHeartbeats 1000000 in
 /-- The delay-slot relation holds for every non-control-transfer
 instruction. Proved structurally: after unfolding, both runs have the same
 shape and are compared leaf by leaf. -/

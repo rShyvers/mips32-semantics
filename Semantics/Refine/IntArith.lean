@@ -1,5 +1,4 @@
 import Semantics.Refine.Bridge
--- 7C S1
 import Semantics.Refine.BridgeIntAlu
 
 /-!
@@ -7,8 +6,8 @@ import Semantics.Refine.BridgeIntAlu
 
 `Refine.<ctor>_refines`: executing the instruction in the spec (`Manual.Execute`, from the fetched
 word `w` whose format diagram is the instruction's) is the model's `execInstr`, seen through `abs`.
-Sub-wave 7A proves the pilot `add`; sub-wave 7C S1 the rest of the family, through the shared
-steps of `Refine/BridgeIntAlu.lean`.
+Every proof goes through the shared steps of `Refine/BridgeIntAlu.lean` (`refine_gpr`, `refine_exc`,
+`alu_run`).
 -/
 
 namespace Refine
@@ -19,42 +18,18 @@ open Manual
 theorem add_refines (s : State) (hg : Good s) (rs rt rd w : W32)
     (hw : enc (.add rs rt rd) = some w) :
     Execute modelCtx w (.add rs rt rd) (abs s) = some (abs (execInstr s (.add rs rt rd))) := by
-  obtain ⟨hsz, -, h0⟩ := hg
-  have hw' : w = rFormat 0#32 rs rt rd 0#32 0x20#32 := by
-    have : enc (.add rs rt rd) = some (rFormat 0#32 rs rt rd 0#32 0x20#32) := rfl
-    rw [this] at hw; exact (Option.some.inj hw).symm
-  have hc1 : InCop1Space w = false := by
-    subst hw'; simp only [InCop1Space, opcode_rFormat]; decide
-  have hc0 : InCop0Space w = false := by
-    subst hw'; simp only [InCop0Space, opcode_rFormat, funct_rFormat]; decide
-  have hex : execInstr s (.add rs rt rd) =
-      (let av := readReg s (regIdx rs)
-       let bv := readReg s (regIdx rt)
-       if addOverflows (asSigned av) (asSigned bv) (asSigned (av + bv)) then takeException s excCodeOv
-       else mkNext s (writeReg s (regIdx rd) (av + bv))) := by
-    have h1 : isBranchLike (.add rs rt rd) = false := rfl
-    have h2 : usesCop1 (.add rs rt rd) = false := rfl
-    have h3 : usesCop0 (.add rs rt rd) = false := rfl
-    unfold execInstr; rw [h1, h2, h3]; rfl
-  rw [hex, execute_run modelCtx w _ _ (Ops.ADD rs rt rd) rfl hc1 hc0 rfl]
-  simp only [Pseudo.run, Ops.ADD, bind, GPR, readGPR_abs s h0, ← regIdx_eq_reg]
+  obtain rfl : rFormat 0#32 rs rt rd 0#32 0x20#32 = w := Option.some.inj hw
   have hov := add_ovf (readReg s (regIdx rs)) (readReg s (regIdx rt))
   cases h : addOverflows (asSigned (readReg s (regIdx rs))) (asSigned (readReg s (regIdx rt)))
       (asSigned (readReg s (regIdx rs) + readReg s (regIdx rt))) <;> rw [h] at hov
-  · simp only [of_decide_eq_false hov, ↓reduceIte, Bool.false_eq_true, add33_low]
-    show some (Complete (abs s) { arch := writeGPR (abs s) (regIdx rd) _ }) = _
-    rw [complete_plain, mkNext, abs_advance _ _ (by unfold writeReg; split <;> rfl),
-      abs_writeReg _ _ _ hsz]
-    have hpc : (writeReg s (regIdx rd) (readReg s (regIdx rs) + readReg s (regIdx rt))).pc = s.pc := by
-      unfold writeReg; split <;> rfl
-    rw [hpc]; rfl
-  · have hP := of_decide_eq_true hov
-    simp only [ne_eq] at hP ⊢
-    simp only [hP, not_false_eq_true, ↓reduceIte]
-    show some (GeneralExceptionProcessing modelImpl modelOracle .IntegerOverflow (abs s)) = _
-    rw [gep_take s .IntegerOverflow rfl excCodeOv (by decide)]
-
--- 7C S1 integer ALU: begin
+  · refine refine_gpr s hg _ _ (Ops.ADD rs rt rd) rd (readReg s (regIdx rs) + readReg s (regIdx rt))
+      (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ ?_
+    · alu_run [Ops.ADD, readGPR_abs s hg.2.2, of_decide_eq_false hov, add33_low]
+    · rw [execInstr_body s _ rfl rfl rfl]; exec_unfold; simp only [h]; rfl
+  · refine refine_exc s _ _ (Ops.ADD rs rt rd) .IntegerOverflow excCodeOv (fun h => nomatch h)
+      (by alu_space) (by alu_space) rfl ?_ rfl rfl ?_
+    · alu_run [Ops.ADD, readGPR_abs s hg.2.2, ne_eq, of_decide_eq_true hov, not_false_eq_true]; rfl
+    · rw [execInstr_body s _ rfl rfl rfl]; exec_unfold; simp only [h]; rfl
 
 /-- **ADDU refines.** -/
 theorem addu_refines (s : State) (hg : Good s) (rs rt rd w : W32)
@@ -154,8 +129,6 @@ theorem sltu_refines (s : State) (hg : Good s) (rs rt rd w : W32)
     (execInstr_body s _ rfl rfl rfl)
   by_cases hc : (readReg s (regIdx rs)).toNat < (readReg s (regIdx rt)).toNat <;>
     alu_run [Ops.SLTU, readGPR_abs s hg.2.2, ult_w, one_w, hc, decide_true, decide_false] <;> rfl
-
--- 7C S1 integer ALU: end
 
 /-! ## Release 6: MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA
 

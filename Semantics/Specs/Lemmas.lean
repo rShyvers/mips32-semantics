@@ -330,14 +330,6 @@ theorem writeMemByte_regs (s stored : State) (addr : W32) (v : UInt8)
 theorem extractLsb'_lo_append (hi lo : W32) : (hi ++ lo).extractLsb' 0 32 = lo :=
   BitVec.extractLsb'_append_eq_right
 
-/-- The high 32 bits of `hi ++ lo` are `hi`. -/
-theorem extractLsb'_hi_append (hi lo : W32) : (hi ++ lo).extractLsb' 32 32 = hi :=
-  BitVec.extractLsb'_append_eq_left
-
-/-- `hi ++ lo` of the two halves of a doubleword is the doubleword. -/
-theorem append_halves (x : BitVec 64) : x.extractLsb' 32 32 ++ x.extractLsb' 0 32 = x :=
-  BitVec.extractLsb'_append_extractLsb' (w := 32) (len := 32)
-
 /-- Writing the 64-bit `v` to FP register `i` and reading `i` back gives exactly `v`. -/
 theorem writeFpReg64_reads_back (s : State) (i : Fin 32) (v : BitVec 64)
     (hsize : s.fpRegs.size = 32) : readFpReg64 (writeFpReg64 s i v) i = v := by

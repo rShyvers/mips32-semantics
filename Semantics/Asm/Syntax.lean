@@ -39,13 +39,6 @@ def ktextBase : W32 := 0x80000180
 convention). -/
 def kdataBase : W32 := 0x90000000
 
-/-- `$at` (register 1), the scratch register used by the `li`/`la` two-word
-expansion, matching MARS's convention (`PseudoOps.txt`). -/
-def atReg : Nat := 1
-
-/-- `$zero`, used as the implicit source for `move`/`li`'s one-word forms. -/
-def zeroReg : Nat := 0
-
 /-- A natural number as a 32-bit word (modulo 2^32). -/
 def natToW32 (n : Nat) : W32 := BitVec.ofNat 32 n
 

@@ -1,7 +1,7 @@
 import Semantics.Refine.Bridge
 
 /-!
-# Refine.BridgeControl — bridge lemmas for the control and system instructions (7C S3)
+# Refine.BridgeControl — bridge lemmas for the control and system instructions
 
 Facts used by `Refine/{Branch,BranchLikely,Jump,Cp0,System}.lean`: the signed comparisons with zero
 (`BitVec.sle`/`slt` against the model's `asSigned`), the jump-target concatenation, the encoding
@@ -34,12 +34,7 @@ theorem zero_sle (x : W32) : BitVec.sle 0#32 x = decide (0 ≤ asSigned x) := by
 theorem pc_add_eight (p : W32) : p + 4#32 + 4#32 = p + 8#32 := by
   rw [BitVec.add_assoc]; rfl
 
-/-! ## The model's UNPREDICTABLE choices of the control instructions -/
-
-/-- A `.proceed` resolution: the body of an Operation runs as written (`JALR` with `rs = rd`). -/
-theorem link31_proceed (c : Bool) (body : Pseudo Unit) :
-    (if c = true then unpredictableOr .proceed body else body) = body := by
-  split <;> rfl
+/-! ## The program counter and the branch delay slot through `abs` -/
 
 /-- The model's state with a new `pc` and `pendingBranch`, seen through `abs`. -/
 theorem abs_pc_pb (s : State) (p : W32) (b : Option W32) :
@@ -182,24 +177,10 @@ theorem complete_writeReg (s : State) (hsz : s.regs.size = 32) (i : Fin 32) (v :
     some (Complete (abs s) { arch := writeGPR (abs s) i v }) = some (abs (mkNext s (writeReg s i v))) :=
   complete_writeReg' s s hsz rfl rfl i v
 
-/-! ## The coprocessor 0 registers as `MFC0` reads them (`CPRRead` against the model's arm) -/
+/-! ## The coprocessor 0 registers as `MFC0` reads them (`CPRRead` against the model's arm)
 
-theorem cprRead_hwrena (s : State) : CPRRead modelImpl 7 0 (abs s) = s.cp0HWREna := rfl
-theorem cprRead_badvaddr (s : State) : CPRRead modelImpl 8 0 (abs s) = s.cp0BadVAddr := rfl
-theorem cprRead_count (s : State) : CPRRead modelImpl 9 0 (abs s) = s.cp0Count := rfl
-theorem cprRead_compare (s : State) : CPRRead modelImpl 11 0 (abs s) = s.cp0Compare := rfl
--- R6-5: `Status` reads with `FR = 1` (`StatusRead`, the model's `statusValue`).
-theorem cprRead_status (s : State) : CPRRead modelImpl 12 0 (abs s) = statusValue s := by
-  show StatusRead (abs s) = statusValue s
-  simp only [StatusRead, StatusFR, statusValue, statusFrMask, ite_true]; rfl
-theorem cprRead_intctl (s : State) : CPRRead modelImpl 12 1 (abs s) = intCtlValue := rfl
-theorem cprRead_srsctl (s : State) : CPRRead modelImpl 12 2 (abs s) = srsCtlValue := rfl
-theorem cprRead_epc (s : State) : CPRRead modelImpl 14 0 (abs s) = s.cp0Epc := rfl
-theorem cprRead_prid (s : State) : CPRRead modelImpl 15 0 (abs s) = prIdValue := rfl
-theorem cprRead_config1 (s : State) : CPRRead modelImpl 16 1 (abs s) = config1Value := rfl
-theorem cprRead_config2 (s : State) : CPRRead modelImpl 16 2 (abs s) = config2Value := rfl
-theorem cprRead_config3 (s : State) : CPRRead modelImpl 16 3 (abs s) = config3Value := rfl
-theorem cprRead_errorepc (s : State) : CPRRead modelImpl 30 0 (abs s) = s.cp0ErrorEpc := rfl
+The plain registers read back by `rfl` (`Refine/Cp0.lean`, `cprRead_layout`); the computed ones are
+below. -/
 
 /-- `Cause` (13, 0): the stored bits, `HW5..HW0` in `IP7..IP2`, and the timer request in `TI` and
 `IP[IntCtl.IPTI]` = `IP7` (`modelImpl.IntCtl` has `IPTI = 7`). -/

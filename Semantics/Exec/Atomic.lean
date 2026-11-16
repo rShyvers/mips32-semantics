@@ -10,9 +10,9 @@ usable); `none` for every instruction of another family.
 
 /-- The effect of LL and SC; `none` for every other instruction. -/
 def execAtomic (s : State) : Instruction → Option State
-  -- `ll`/`sc`: real MIPS32 atomic synchronization primitives (opcodes
-  -- 0x30/0x38; MD00086 Rev 2.50 §3.2). `ll` loads like `lw` and additionally
-  -- sets `llBit`; `sc` performs its store only if `llBit` is set (checked
+  -- `ll`/`sc`: the atomic synchronization primitives (Release 6 encoding: SPECIAL3 functions
+  -- 0x36/0x26 with a 9-bit offset; MD00086 Vol II-A Rev 6.06, LL p.223-224, SC p.347). `ll` loads
+  -- like `lw` and additionally sets `llBit` and `llAddr`; `sc` performs its store only if `llBit` is set (checked
   -- *before* clearing it), writing success/failure back to `$rt`, and
   -- always clears `llBit` afterward -- see `Types.lean`'s `llBit` docstring
   -- for this model's single-hart simplification.

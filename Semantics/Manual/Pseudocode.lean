@@ -55,12 +55,6 @@ def run {α} (m : Pseudo α) (c : Ctx) (f : Frame) : Result α × Frame := m c f
 @[simp] theorem run_pure {α} (a : α) (c : Ctx) (f : Frame) :
     (pure a : Pseudo α).run c f = (.ok a, f) := rfl
 
-theorem run_bind {α β} (m : Pseudo α) (k : α → Pseudo β) (c : Ctx) (f : Frame) :
-    (m >>= k).run c f =
-      match m.run c f with
-      | (.ok a, f') => (k a).run c f'
-      | (.signal e, f') => (.signal e, f') := rfl
-
 /-- The architectural state. -/
 def get : Pseudo Arch := fun _ f => (.ok f.arch, f)
 
@@ -95,7 +89,6 @@ def resolve (out : Outcome) : Pseudo Unit := fun _ f =>
   | .proceed => (.ok (), f)
   | .arbitrary a => (.ok (), { f with arch := a })
 
--- 7B S3 control + system
 /-- **UNPREDICTABLE with a result the oracle may leave as the ordinary one**: if the oracle resolves
 the operation as `.proceed`, the Operation goes on as written (`normal`); otherwise the resolution
 (a signalled exception or another architectural state) replaces it. -/
@@ -103,7 +96,6 @@ def unpredictableOr (out : Outcome) (normal : Pseudo Unit) : Pseudo Unit :=
   match out with
   | .proceed => normal
   | o => resolve o
--- end 7B S3
 
 /-- `PC ← v` at time `I` (an instruction without a delay slot, e.g. `ERET`). -/
 def setPC (v : W32) : Pseudo Unit := fun _ f => (.ok (), { f with pcSet := some v })

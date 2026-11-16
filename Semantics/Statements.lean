@@ -22,7 +22,7 @@ What this file imports — and therefore what its statements are *about* — is 
 (`Word`, `Types`, `State`, `Instruction`, `FpOps`, `Step`), the environment layer `Env` (loader,
 hosted run: not part of the architecture), plus the statement vocabulary of
 `Semantics/Specs/Defs.lean` and `Semantics/Specs/WellFormed.lean`, and, for the last section (the
-refinement of the manual specification, Wave 7D), the manual specification `Semantics/Manual/*`
+refinement of the manual specification), the manual specification `Semantics/Manual/*`
 and the refinement vocabulary `Semantics/Refine/Defs.lean` (`Refine.abs`, `Refine.Inv`; definitions
 only). It imports no proof file.
 
@@ -102,7 +102,7 @@ Proved in `Semantics/Specs/` — Exception.lean. -/
 status and the coprocessor number `ce`: `PC ←` the general vector (`EBase`'s
 base with offset `0x180` — `0x80000180` at reset — or `0xBFC00380` when
 `Status.BEV = 1`); `Status.EXL ← 1` (no other `Status` bit changes); **the
-pending branch is abandoned**; **`LLbit` is unchanged** (Release 6 R6-2: the event that makes an `SC`
+pending branch is abandoned**; **`LLbit` is unchanged** (Release 6: the event that makes an `SC`
 fail is the return, "An ERET instruction is executed. (Release 5 includes ERETNC, which will not
 cause the SC to fail.)", MD00086 Vol II-A Rev 6.06, SC, p.347);
 and nothing else outside `EPC`/`Cause` (and `BadInstr`/`BadInstrP`) is touched — no general register,
@@ -246,7 +246,7 @@ and "UNPREDICTABLE operations may cause arbitrary exceptions" (§1.2.1, p.3); Re
 exactly this exception (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62). Whenever the instruction about
 to execute is in a delay slot (`s.pendingBranch = some _`) and is one of the instructions of
 `isBranchLike` (the branches and jumps, including the Release 6 compact ones, `eret`, `wait`,
-`pause`), `step` takes Reserved Instruction from the delay slot. (Wave R6-3: the forbidden slot of
+`pause`), `step` takes Reserved Instruction from the delay slot. (The forbidden slot of
 a not-taken conditional compact branch is represented as such a slot, `forbidden_slot_cti_reserved`.) -/
 theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr : Instruction)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some instr)
@@ -1399,7 +1399,7 @@ theorem runHosted_preserves_zero_register (env : HostEnv) (n : Nat) (h : Hosted)
     readReg (runHosted env n h).final.machine 0 = readReg h.machine 0 := by
   sorry
 
-/-! ## Interrupts, standby, IntCtl and SRSCtl (wave 6) -/
+/-! ## Interrupts, standby, IntCtl and SRSCtl -/
 
 /-- **An interrupt preempts the instruction at `pc`**: if an interrupt is requested and enabled,
 the step is the Interrupt exception followed by the timer; the instruction at `pc` is not fetched
@@ -1612,7 +1612,7 @@ theorem wrpgpr_spec_raw (s : State) (w rd rt : W32)
           pc := (writeReg s (regIdxSpec rd) (readReg s (regIdxSpec rt))).pc + 4#32 }) := by
   sorry
 
-/-! ## The refinement of the manual specification (Wave 7D)
+/-! ## The refinement of the manual specification
 
 The statements below relate the model to the independent manual specification `Semantics/Manual/*`
 through the projection `Refine.abs` and the invariant `Refine.Inv` (`Semantics/Refine/Defs.lean`).
@@ -1631,11 +1631,11 @@ pseudocode independently of the model; `docs/MANUAL-SPEC.md`), seen through the 
 `Refine.abs`. The manual's implementation constants and its UNDEFINED/UNPREDICTABLE choices are
 resolved as the model resolves them (`Manual.modelImpl`, `Manual.modelOracle`, each a pin documented in
 `docs/spec/SPEC-NOTES.md`), and the manual's decoder is the specification's own,
-`Manual.decodeDiagram` (wave 12b: the format diagrams `Manual.enc`, `Manual.Decode`; it is exactly
+`Manual.decodeDiagram` (the format diagrams `Manual.enc`, `Manual.Decode`; it is exactly
 the diagrams, `decode_diagram_sound`/`decode_diagram_complete`, and the model's `decode` agrees with
 it, `decode_agrees_manual`/`decode_none_manual`). It covers every path of the instruction time: interrupt, low-power (WAIT)
 standby, fetch errors, undecodable words (Reserved
-Instruction / Coprocessor Unusable), all 119 instructions, the delay-slot `I+1` effects, and the timer
+Instruction / Coprocessor Unusable), all 203 instructions, the delay-slot `I+1` effects, and the timer
 tick. `docs/MANUAL-SPEC.md` I.5. -/
 theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
     Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
@@ -1700,7 +1700,7 @@ theorem interrupt_choice_exists (i : Manual.Impl) (dec : W32 → Option Instruct
       Manual.InstructionTime i o₁ dec a ≠ Manual.InstructionTime i o₂ dec a := by
   sorry
 
-/-- **`ChoiceFree` is exact** (wave 9; the other direction of `manual_step_deterministic`): with the
+/-- **`ChoiceFree` is exact** (the other direction of `manual_step_deterministic`): with the
 model's implementation constants and any decoder, at every state where `Manual.ChoiceFree` is
 `false`, two valid resolutions of the manual's choices give different instruction times. Together
 with `manual_step_deterministic`, `ChoiceFree` holds exactly where the manual's instruction time is
@@ -1715,7 +1715,7 @@ theorem choiceFree_exact (dec : W32 → Option Instruction) (a : Manual.Arch)
 `RECIP.fmt` within 1 ULP of the IEEE-mandated representation of `1.0 / fs` (MD00086 Vol II-A Rev
 6.06, RECIP.fmt, p.336; `Manual.Impl.RecipAccurate`) and of the exact `1/fs`
 (`Manual.Impl.RecipExact`), and `RSQRT.fmt` within 2 ULP of the exact `1/√fs` (RSQRT.fmt, p.343;
-`Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`, wave 10); and
+`Manual.Impl.RsqrtAccurate`), the last two without flushing (`Manual/Accuracy.lean`); and
 both signal Invalid Operation and Division by Zero as `Manual.Impl.RecipFlags` requires (MD00082 Vol
 I-A Rev 6.01 §6.3.1.4-5, p.81-82; §6.7.2.1-2, p.100), and Inexact when `FCSR.FS = 1` flushes a
 subnormal operand (§6.7.2.4, p.102); otherwise Overflow, Underflow, Inexact left free. -/
@@ -1792,7 +1792,7 @@ theorem inv_hostedStart : Refine.Inv hostedStart := by
 theorem inv_load (p : Program) : Refine.Inv (load p) := by
   sorry
 
-/-! ## Wave 10: the IEEE rounding core is proved correct
+/-! ## The IEEE rounding core is proved correct
 
 `Mips.Fp.Format.RoundSpec` (`Semantics/FpOpsSpec.lean`) is the IEEE 754 definition the manual
 references, written from the manual and not from the core: the values of the encodings
@@ -1809,7 +1809,7 @@ theorem value_eq_toExact (f : Mips.Fp.Format) (n : Nat) (hn : n < 2 ^ f.width)
     (he : f.expField n ≠ f.expMax) : f.value n = some (f.toExact n).toRat := by
   sorry
 
-/-- **The rounding core is correct for binary32** (Wave 10; FCSR.FS = 0): for every nonzero exact
+/-- **The rounding core is correct for binary32** (FCSR.FS = 0): for every nonzero exact
 value, `roundCore` delivers what `Mips.Fp.Format.RoundSpec` requires: the value correctly rounded in
 direction `rm` (MD00082 Vol I-A Rev 6.01 Table 6.10, p.95; ties to even), overflow per §6.7.2.5 with
 the Table 6.14 result (p.100-102), the sign of the exact value, inexact iff the rounded value is not
@@ -1845,7 +1845,7 @@ theorem roundCore_flush_normal (f : Mips.Fp.Format) (rm : Mips.Fp.RoundingMode) 
     f.roundCore rm true w = f.roundCore rm false w := by
   sorry
 
-/-- **`ADD.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`ADD.S` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 sum is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact sum. -/
 theorem f32Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
@@ -1854,7 +1854,7 @@ theorem f32Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32
       Mips.Fp.f32Add e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`SUB.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`SUB.S` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 difference is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact difference. -/
 theorem f32Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
@@ -1863,7 +1863,7 @@ theorem f32Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32
       Mips.Fp.f32Sub e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`MUL.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`MUL.S` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 product is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact product. -/
 theorem f32Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
@@ -1872,7 +1872,7 @@ theorem f32Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32
       Mips.Fp.f32Mul e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`DIV.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`DIV.S` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 quotient is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact quotient. -/
 theorem f32Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32} {x y : Rat}
@@ -1881,7 +1881,7 @@ theorem f32Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 32
       Mips.Fp.f32Div e a b = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`SQRT.S` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`SQRT.S` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 square root is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact square root `√x` (`Mips.Fp.Cut.sqrt`). -/
 theorem f32Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 32} {x : Rat}
@@ -1890,7 +1890,7 @@ theorem f32Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 32}
       Mips.Fp.f32Sqrt e a = (BitVec.ofNat 32 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`ADD.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`ADD.D` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 sum is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact sum. -/
 theorem f64Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
@@ -1899,7 +1899,7 @@ theorem f64Add_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64
       Mips.Fp.f64Add e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`SUB.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`SUB.D` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 difference is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact difference. -/
 theorem f64Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
@@ -1908,7 +1908,7 @@ theorem f64Sub_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64
       Mips.Fp.f64Sub e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`MUL.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`MUL.D` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 product is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact product. -/
 theorem f64Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
@@ -1917,7 +1917,7 @@ theorem f64Mul_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64
       Mips.Fp.f64Mul e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`DIV.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`DIV.D` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 quotient is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact quotient. -/
 theorem f64Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64} {x y : Rat}
@@ -1926,7 +1926,7 @@ theorem f64Div_correct (e : Mips.Fp.Env) (he : e.flush = false) {a b : BitVec 64
       Mips.Fp.f64Div e a b = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
-/-- **`SQRT.D` is correctly rounded** (Wave 10; FCSR.FS = 0): for finite operands whose exact
+/-- **`SQRT.D` is correctly rounded** (FCSR.FS = 0): for finite operands whose exact
 square root is nonzero, the result and the flags are those of a rounding record meeting
 `Mips.Fp.Format.RoundSpec` for the exact square root `√x` (`Mips.Fp.Cut.sqrt`). -/
 theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64} {x : Rat}
@@ -1935,7 +1935,7 @@ theorem f64Sqrt_correct (e : Mips.Fp.Env) (he : e.flush = false) {a : BitVec 64}
       Mips.Fp.f64Sqrt e a = (BitVec.ofNat 64 R.bits, R.flags e.enables) := by
   sorry
 
-/-! ## Wave 11: every FP operand, the conversions, the compares, the FCSR
+/-! ## Every FP operand, the conversions, the compares, the FCSR
 
 The reference definitions extend `Semantics/FpOpsSpec.lean` (definitions only, written from MD00082
 Vol I-A Rev 6.01 ch.6 read for Release 6, `FCSR.NAN2008 = ABS2008 = 1`, and the MD00086 Vol II-A Rev
@@ -1974,7 +1974,7 @@ theorem nanResult_first_snan (f : Mips.Fp.Format) (ops : List Nat) (q : Nat)
     (h : ops.find? (fun x => f.isSNaN x) = some q) : f.nanResult ops = f.quiet q := by
   sorry
 
-/-- **`ADD.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
+/-- **`ADD.S` on every operand** (MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -1986,7 +1986,7 @@ theorem f32Add_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
       ((Mips.Fp.f32Add e a b).1.toNat, (Mips.Fp.f32Add e a b).2) := by
   sorry
 
-/-- **`SUB.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
+/-- **`SUB.S` on every operand** (MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -1998,7 +1998,7 @@ theorem f32Sub_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
       ((Mips.Fp.f32Sub e a b).1.toNat, (Mips.Fp.f32Sub e a b).2) := by
   sorry
 
-/-- **`MUL.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
+/-- **`MUL.S` on every operand** (MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2010,7 +2010,7 @@ theorem f32Mul_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
       ((Mips.Fp.f32Mul e a b).1.toNat, (Mips.Fp.f32Mul e a b).2) := by
   sorry
 
-/-- **`DIV.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
+/-- **`DIV.S` on every operand** (MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2022,7 +2022,7 @@ theorem f32Div_spec (e : Mips.Fp.Env) (a b : BitVec 32) :
       ((Mips.Fp.f32Div e a b).1.toNat, (Mips.Fp.f32Div e a b).2) := by
   sorry
 
-/-- **`SQRT.S` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
+/-- **`SQRT.S` on every operand** (MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2033,7 +2033,7 @@ theorem f32Sqrt_spec (e : Mips.Fp.Env) (a : BitVec 32) :
       ((Mips.Fp.f32Sqrt e a).1.toNat, (Mips.Fp.f32Sqrt e a).2) := by
   sorry
 
-/-- **`ADD.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
+/-- **`ADD.D` on every operand** (MD00086 Vol II-A Rev 6.06, ADD.fmt p.34): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2045,7 +2045,7 @@ theorem f64Add_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
       ((Mips.Fp.f64Add e a b).1.toNat, (Mips.Fp.f64Add e a b).2) := by
   sorry
 
-/-- **`SUB.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
+/-- **`SUB.D` on every operand** (MD00086 Vol II-A Rev 6.06, SUB.fmt p.389): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.AddSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2057,7 +2057,7 @@ theorem f64Sub_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
       ((Mips.Fp.f64Sub e a b).1.toNat, (Mips.Fp.f64Sub e a b).2) := by
   sorry
 
-/-- **`MUL.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
+/-- **`MUL.D` on every operand** (MD00086 Vol II-A Rev 6.06, MUL.fmt p.302): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.MulSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2069,7 +2069,7 @@ theorem f64Mul_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
       ((Mips.Fp.f64Mul e a b).1.toNat, (Mips.Fp.f64Mul e a b).2) := by
   sorry
 
-/-- **`DIV.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
+/-- **`DIV.D` on every operand** (MD00086 Vol II-A Rev 6.06, DIV.fmt p.170): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.DivSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2081,7 +2081,7 @@ theorem f64Div_spec (e : Mips.Fp.Env) (a b : BitVec 64) :
       ((Mips.Fp.f64Div e a b).1.toNat, (Mips.Fp.f64Div e a b).2) := by
   sorry
 
-/-- **`SQRT.D` on every operand** (Wave 11; MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
+/-- **`SQRT.D` on every operand** (MD00086 Vol II-A Rev 6.06, SQRT.fmt p.382): for all
 encodings (NaN, ±∞, ±0, finite) and every FCSR environment `e` (rounding mode, Enables, FS), each
 operand flushed under FS (`FlushedIn`), the result encoding and the signaled exceptions meet `Mips.Fp.Format.SqrtSpec` (`Semantics/FpOpsSpec.lean`).
 With FS = 1 the flush of a subnormal operand also signals Inexact, ORed into the operation's own
@@ -2256,7 +2256,7 @@ theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 3
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 := by
   sorry
 
-/-! ## Release 6 privileged architecture (wave R6-2)
+/-! ## Release 6 privileged architecture
 
 Proved in `Semantics/Specs/` — Exception.lean, Cp0.lean, Trap.lean. -/
 

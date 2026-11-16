@@ -15,9 +15,10 @@ collects them.
 * the UNPREDICTABLE / UNDEFINED operations (`CTC1`, `MFC0`/`MTC0`, `EXT`/`INS`, `JALR` with
   `rs = rd`): the witness oracle
   signals Reserved Instruction, so both runs signal and the two `Cause.CE` values tell them apart.
-(R6-5: the odd-register rows of `MFHC1`/`MTHC1`/`LDC1`/`SDC1` went with the 32-bit FPU; their
-`rw_<ctor>` are now the contradiction of the hypothesis or the `LLbit` row; `LWC1` is a row of the
-32-bit FPR results, `Refine/ChoiceRowsFp.lean`. The `SDC1` stored-doubleword lemmas below are kept.)
+(R6-5: the odd-register rows of `MFHC1`/`MTHC1`/`LDC1`/`SDC1` went with the 32-bit FPU; `LDC1`/`SDC1`
+are `LLbit` rows, `MFHC1`/`MTHC1`/`MFC0`/`CFC1` no rows (`consults_row` closes them from the
+hypothesis); `LWC1` is a row of the 32-bit FPR results, `Refine/ChoiceRowsFp.lean`. The compact
+branch-and-link rows share one arm of `consults_row`.)
 -/
 
 namespace Refine
@@ -66,9 +67,6 @@ theorem obs_LL (x y : Arch) (hx : x.LLbit = !true) (hy : y.LLbit = !false) : Obs
 theorem obs_GPR (r : Fin 32) (v₁ v₂ : W32) (hv : v₁ ≠ v₂) (x y : Arch) (hx : x.GPR r = v₁) (hy : y.GPR r = v₂) :
     Obs x ≠ Obs y := by
   intro he; have := congrArg (fun o => o.2.1 r) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
-theorem obs_Mem (q : PAddr) (b₁ b₂ : UInt8) (hv : b₁ ≠ b₂) (x y : Arch) (hx : x.Mem q = b₁) (hy : y.Mem q = b₂) :
-    Obs x ≠ Obs y := by
-  intro he; have := congrArg (fun o => o.2.2.2.2 q) he; simp only [Obs] at this; rw [hx, hy] at this; exact hv this
 
 /-! ## Loads and stores while `LLbit = 1` -/
 
@@ -105,15 +103,6 @@ end
 
 section
 set_option linter.unusedSimpArgs false
-
-/-- `CFC1` reads no oracle field (its `FRE` arm signals Reserved Instruction); no row. -/
-theorem rw_cfc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.cfc1 rt fs) a = true) : RowWitness (.cfc1 rt fs) a := by
-  simp [ConsultsOracle] at h
-
-/-- R6-5: `MFHC1` reads bits 63..32 of a 64-bit FPR; no row. -/
-theorem rw_mfhc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mfhc1 rt fs) a = true) :
-    RowWitness (.mfhc1 rt fs) a := by
-  simp [ConsultsOracle] at h
 
 end
 
@@ -173,9 +162,6 @@ set_option linter.unusedSimpArgs false
 theorem rw_ctc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.ctc1 rt fs) a = true) : RowWitness (.ctc1 rt fs) a := by
   simp only [ConsultsOracle, CTC1Unpredictable] at h
   exact row_sig rfl fun _ => by simp only [Ops.CTC1]; runp
-theorem rw_mfc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mfc0 rt rd sel) a = true) :
-    RowWitness (.mfc0 rt rd sel) a := by
-  simp [ConsultsOracle] at h
 theorem rw_mtc0 (rt rd sel : W32) (a : Arch) (h : ConsultsOracle (.mtc0 rt rd sel) a = true) :
     RowWitness (.mtc0 rt rd sel) a := by
   simp only [ConsultsOracle] at h
@@ -196,34 +182,6 @@ theorem rw_jalrHb (rs rd : W32) (a : Arch) (h : ConsultsOracle (.jalrHb rs rd) a
     RowWitness (.jalrHb rs rd) a := by
   simp only [ConsultsOracle, beq_iff_eq] at h
   exact row_sig rfl fun _ => by simp only [Ops.JALR_HB]; runp
--- The compact branch-and-link with `rt = 31` (`linkSourceIs31`): the witness oracle signals.
-theorem rw_blezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.blezalc rt off) a = true) :
-    RowWitness (.blezalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BLEZALC, Ops.BZALC]; runp
-theorem rw_bgezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgezalc rt off) a = true) :
-    RowWitness (.bgezalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BGEZALC, Ops.BZALC]; runp
-theorem rw_bgtzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bgtzalc rt off) a = true) :
-    RowWitness (.bgtzalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BGTZALC, Ops.BZALC]; runp
-theorem rw_bltzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bltzalc rt off) a = true) :
-    RowWitness (.bltzalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BLTZALC, Ops.BZALC]; runp
-theorem rw_beqzalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.beqzalc rt off) a = true) :
-    RowWitness (.beqzalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BEQZALC, Ops.BZALC]; runp
-theorem rw_bnezalc (rt off : W32) (a : Arch) (h : ConsultsOracle (.bnezalc rt off) a = true) :
-    RowWitness (.bnezalc rt off) a := by
-  simp only [ConsultsOracle, beq_iff_eq] at h
-  exact row_sig rfl fun _ => by simp only [Ops.BNEZALC, Ops.BZALC]; runp
-/-- R6-5: `MTHC1` writes bits 63..32 of a 64-bit FPR; no row. -/
-theorem rw_mthc1 (rt fs : W32) (a : Arch) (h : ConsultsOracle (.mthc1 rt fs) a = true) : RowWitness (.mthc1 rt fs) a := by
-  simp [ConsultsOracle] at h
 
 theorem rw_ldc1 (base ft off : W32) (a : Arch) (h : ConsultsOracle (.ldc1 base ft off) a = true) :
     RowWitness (.ldc1 base ft off) a := by
@@ -231,69 +189,7 @@ theorem rw_ldc1 (base ft off : W32) (a : Arch) (h : ConsultsOracle (.ldc1 base f
   exact row_load rfl fun _ _ => by simp only [Ops.LDC1]; runp
 end
 
-/-! ## `SDC1` of an odd register: the stored doubleword -/
-
-theorem laneByte_of (w : W32) (c : BitVec 8) (h : ∀ s, s < 25 → BitVec.extractLsb' s 8 w = c) (k : Nat) :
-    laneByte w k = ⟨c⟩ := by
-  unfold laneByte
-  have hk : laneShift k < 25 := by
-    unfold laneShift; simp only [BigEndianMem, Bool.false_eq_true, ↓reduceIte]
-    have := Nat.mod_lt k (show 4 > 0 by omega); omega
-  rw [h _ hk]
-
-theorem foldl_keep (base : PAddr) (w : W32) (b : UInt8) (hb : ∀ k, laneByte w k = b) (ls : List Nat) :
-    ∀ (m : PAddr → UInt8) (q : PAddr), m q = b →
-      ls.foldl (fun m l => updMem m (base + BitVec.ofNat 32 l) (laneByte w l)) m q = b := by
-  induction ls with
-  | nil => intro m q h; exact h
-  | cons l ls ih =>
-    intro m q h
-    simp only [List.foldl_cons]
-    exact ih _ _ (by simp only [updMem, hb]; split <;> simp_all)
-
-theorem foldl_lane (base : PAddr) (w : W32) (b : UInt8) (hb : ∀ k, laneByte w k = b) (ls : List Nat) :
-    ∀ (m : PAddr → UInt8) (l : Nat), l ∈ ls →
-      ls.foldl (fun m l => updMem m (base + BitVec.ofNat 32 l) (laneByte w l)) m (base + BitVec.ofNat 32 l) = b := by
-  induction ls with
-  | nil => intro m l h; cases h
-  | cons l0 ls ih =>
-    intro m l h
-    simp only [List.foldl_cons]
-    rcases List.mem_cons.mp h with rfl | h
-    · exact foldl_keep base w b hb ls _ _ (by simp [updMem, hb])
-    · exact ih _ l h
-
-theorem storedLanes_ne (p : Nat) : ∃ l, l ∈ storedLanes p 3 := ⟨p, by simp [storedLanes]⟩
-
-/-- The lanes the last word store of `SDC1` writes, at `q`, all hold `b`. -/
-def LastStore (q : PAddr) (b : UInt8) (x : Arch) : Prop :=
-  ∀ l ∈ storedLanes (q &&& 3#32).toNat WORD, x.Mem ((q &&& ~~~3#32) + BitVec.ofNat 32 l) = b
-
-theorem obs_lastStore (q : PAddr) (x y : Arch) (hx : LastStore q 0 x) (hy : LastStore q 255 y) : Obs x ≠ Obs y := by
-  obtain ⟨l, hl⟩ := storedLanes_ne (q &&& 3#32).toNat
-  exact obs_Mem _ 0 255 (by decide) x y (hx l hl) (hy l hl)
-
-theorem lb_zero (k : Nat) : laneByte (BitVec.extractLsb' 32 32 (0#64)) k = 0 :=
-  laneByte_of _ 0#8 (by decide) k
-theorem lb_zero' (k : Nat) : laneByte (BitVec.extractLsb' 0 32 (0#64)) k = 0 :=
-  laneByte_of _ 0#8 (by decide) k
-theorem lb_ones (k : Nat) : laneByte (BitVec.extractLsb' 32 32 (BitVec.allOnes 64)) k = 255 :=
-  laneByte_of _ 255#8 (by decide) k
-theorem lb_ones' (k : Nat) : laneByte (BitVec.extractLsb' 0 32 (BitVec.allOnes 64)) k = 255 :=
-  laneByte_of _ 255#8 (by decide) k
-
-/-- `runp` without closing the completed paths. -/
-macro "runp_core" : tactic => `(tactic| (
-  runp_simp
-  repeat' (case_ite <;> (try runp_simp))
-  all_goals (first | (simp_all [CEof]; done) | skip)))
-
-/-- The physical address of the second word an `SDC1` with effective address `v` stores
-(SDC1, Operation, p.362: `paddr ← paddr xor ((BigEndianCPU xor ReverseEndian) || 0^2)`, then
-`paddr xor 0b100`). -/
-def sdQ (a : Arch) (v : W32) : PAddr :=
-  FixedMapping (StatusERL a) (memory_address v) ^^^
-    ((BitVec.ofBool (BigEndianCPU a ^^ ReverseEndian a) ++ 0#2 : BitVec 3).setWidth 32) ^^^ 0b100#32
+/-! ## `SDC1` while `LLbit = 1` -/
 
 section
 set_option linter.unusedSimpArgs false

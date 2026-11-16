@@ -78,13 +78,10 @@ def execBranch (s : State) : Instruction → Option State
       { s with pc := pcNext, pendingBranch := some (pcNext + (signExt16 imm <<< 2)) }
     else
       { s with pc := pcNext, pendingBranch := some (s.pc + 8#32) }
-  -- REGIMM zero-comparison branches (opcode 0x01; MD00086 Rev 2.50 §3.2,
-  -- Table 3-2). `bltz`/`bgez` are plain conditional branches, same shape as
-  -- `blez`/`bgtz` above. `bltzal`/`bgezal` additionally link `$ra` to
-  -- `pcNext + 4` (`pc + 8`, past the delay slot, same convention as `jal`)
-  -- -- real MIPS32 performs this link **unconditionally**, on every
-  -- execution of the instruction, regardless of whether the branch itself
-  -- is taken; only the branch transfer is conditional.
+  -- REGIMM zero-comparison branches (opcode 0x01; MD00086 Vol II-A Rev 6.06, BLTZ p.97, BGEZ p.75):
+  -- plain conditional branches, same shape as `blez`/`bgtz` above. The linking forms
+  -- `BLTZAL`/`BGEZAL` are "removed in Release 6" (BLTZAL, p.98); their `rs = 0` cases remain as
+  -- `NAL` and `BAL` (below).
   | .bltz rs imm => some <|
     let pcNext := s.pc + 4#32
     if asSigned (readReg s (regIdx rs)) < 0 then

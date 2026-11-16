@@ -4,12 +4,12 @@ import Semantics.Specs.DecodeSpec
 /-!
 # Refine.Decode — the model's decoder against the manual's format diagrams
 
-* `enc_eq_encode`: for a well-formed instruction the manual's diagram `Manual.enc` is the model's
-  `encode` (one theorem, by cases over the constructors).
+* `enc_eq_encode_gen`: the manual's diagram `Manual.enc` is the model's `encode` for every
+  instruction that meets its diagram's constraint (`SelOK`: the 3-bit `sel` fields, the compact
+  branches' `rs`/`rt` relation, the `condn` table); `enc_eq_encode` for well-formed ones.
 * `encode_of_decode`: the model's `decode` is strict, so a word it decodes is the canonical
   encoding of the result.
-* `decode_enc` / `decoderSound_decode`: **`Manual.DecoderSound decode`** (proved; it was checked
-  only by `#guard`s before 7D).
+* `decode_enc` / `decoderSound_decode`: **`Manual.DecoderSound decode`**.
 * `decode_of_enc`: completeness: a word that is the diagram of a well-formed instruction decodes
   to it.
 -/
@@ -20,46 +20,67 @@ open Manual DecodeSpec
 
 /-! ## Word extensionality by fields (each shape's fields partition the 32 bits) -/
 
-set_option hygiene false in
-local macro "ext_by_toNat" : tactic =>
-  `(tactic| (simp only [BitVec.toNat_eq, opcodeOf, rsOf, rtOf, rdOf, shamtOf, functOf, immOf,
-      targetOf, coOf, code20Of, code10Of, code19Of, off9Of, bit6Of, sa3Of, sa2Of, pcrelOf, imm19Of,
-      BitVec.extractLsb, BitVec.toNat_setWidth, BitVec.extractLsb'_toNat,
-      Nat.shiftRight_eq_div_pow] at *; have := BitVec.isLt x; have := BitVec.isLt w; omega))
+/-- Two words agree on bit `i` when they agree on a field `hi..lo` (the model's field extractors
+`opcodeOf`, `rsOf`, ... are all of this form) that contains bit `i`. -/
+theorem getLsbD_eq_of_field {x w : W32} {hi lo : Nat}
+    (h : (x.extractLsb hi lo).zeroExtend 32 = (w.extractLsb hi lo).zeroExtend 32) {i : Nat}
+    (h1 : lo ≤ i) (h2 : i ≤ hi) (h3 : hi < 32) : x.getLsbD i = w.getLsbD i := by
+  have := congrArg (fun v => v.getLsbD (i - lo)) h
+  simp only [BitVec.getLsbD_setWidth, BitVec.getLsbD_extractLsb] at this
+  rw [show lo + (i - lo) = i by omega] at this
+  simpa [show i - lo < 32 by omega, show i - lo < hi - lo + 1 by omega] using this
+
+/-- `field_bit [h₁, ..]` closes `x.getLsbD i = w.getLsbD i` for a concrete bit `i` from the first
+field equation `hₖ : fieldOf x = fieldOf w` whose field contains `i` (or `i ≥ 32` by `omega`). -/
+local syntax "field_bit" " [" ident,* "]" : tactic
+macro_rules
+  | `(tactic| field_bit []) => `(tactic| omega)
+  | `(tactic| field_bit [$h:ident]) =>
+    `(tactic| first | (refine getLsbD_eq_of_field $h ?_ ?_ ?_ <;> omega) | omega)
+  | `(tactic| field_bit [$h:ident, $hs:ident,*]) =>
+    `(tactic| first | (refine getLsbD_eq_of_field $h ?_ ?_ ?_ <;> omega) | field_bit [$hs,*])
+
+/-- `ext_by_fields [h₁, ..]` proves `x = w` from equations of fields that together cover the 32 bits:
+bit by bit, each bit from the field that contains it. -/
+local macro "ext_by_fields" " [" hs:ident,* "]" : tactic => `(tactic| (
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i
+  all_goals field_bit [$hs,*]))
 
 theorem ext_rt {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
     (h3 : rtOf x = rtOf w) (h4 : rdOf x = rdOf w) (h5 : shamtOf x = shamtOf w)
-    (h6 : functOf x = functOf w) : x = w := by ext_by_toNat
+    (h6 : functOf x = functOf w) : x = w := by ext_by_fields [h1, h2, h3, h4, h5, h6]
 
 theorem ext_it {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
-    (h3 : rtOf x = rtOf w) (h4 : immOf x = immOf w) : x = w := by ext_by_toNat
+    (h3 : rtOf x = rtOf w) (h4 : immOf x = immOf w) : x = w := by ext_by_fields [h1, h2, h3, h4]
 
 theorem ext_jt {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : targetOf x = targetOf w) :
-    x = w := by ext_by_toNat
+    x = w := by ext_by_fields [h1, h2]
 
 /-- A Release 6 SPECIAL3 word with a 9-bit offset (`LL`, `SC`, `PREF`) by its fields. -/
 theorem ext_off9 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
     (h3 : rtOf x = rtOf w) (h4 : off9Of x = off9Of w) (h5 : bit6Of x = bit6Of w)
-    (h6 : functOf x = functOf w) : x = w := by ext_by_toNat
+    (h6 : functOf x = functOf w) : x = w := by ext_by_fields [h1, h2, h3, h4, h5, h6]
 
 theorem ext_code20 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : code20Of x = code20Of w)
-    (h3 : functOf x = functOf w) : x = w := by ext_by_toNat
+    (h3 : functOf x = functOf w) : x = w := by ext_by_fields [h1, h2, h3]
 
 theorem ext_trap {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
     (h3 : rtOf x = rtOf w) (h4 : code10Of x = code10Of w) (h5 : functOf x = functOf w) : x = w := by
-  ext_by_toNat
+  ext_by_fields [h1, h2, h3, h4, h5]
 
 theorem ext_wait {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : coOf x = coOf w)
-    (h3 : code19Of x = code19Of w) (h4 : functOf x = functOf w) : x = w := by ext_by_toNat
+    (h3 : code19Of x = code19Of w) (h4 : functOf x = functOf w) : x = w := by
+  ext_by_fields [h1, h2, h3, h4]
 
 /-- A word with a split `sa` field (`LSA`, `ALIGN`) by its fields. -/
 theorem ext_rt2 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
     (h3 : rtOf x = rtOf w) (h4 : rdOf x = rdOf w) (h5 : sa3Of x = sa3Of w) (h6 : sa2Of x = sa2Of w)
-    (h7 : functOf x = functOf w) : x = w := by ext_by_toNat
+    (h7 : functOf x = functOf w) : x = w := by ext_by_fields [h1, h2, h3, h4, h5, h6, h7]
 
 /-- A PCREL word with a 19-bit immediate (`ADDIUPC`, `LWPC`) by its fields. -/
 theorem ext_pc19 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
-    (h3 : pcrelOf x = pcrelOf w) (h4 : imm19Of x = imm19Of w) : x = w := by ext_by_toNat
+    (h3 : pcrelOf x = pcrelOf w) (h4 : imm19Of x = imm19Of w) : x = w := by ext_by_fields [h1, h2, h3, h4]
 
 /-! ## Ranges of the narrow fields -/
 
@@ -121,24 +142,39 @@ theorem fld3_sel (sel : W32) (h : sel.toNat < 8) : fld 3 0 sel = field 6 0 sel :
   have e' : sel &&& 63#32 = sel := and_63 sel (by omega)
   simp only [fld, field, maskLow, mask3, mask6, e, e']
 
+/-! ## `enc` is `encode` (every instruction whose diagram constraint holds: `SelOK`) -/
+
+/-- The `sel` field of `MFC0`/`MTC0`/`RDHWR` fits its 3 bits (`enc` writes 3 bits, `encode` 6 or 5). -/
+def SelOK : Instruction → Prop
+  | .mfc0 _ _ sel | .mtc0 _ _ sel | .rdhwr _ _ sel => sel.toNat < 8
+  -- the compact branches: the constraint of the diagram (`Manual.encIf`) holds
+  | .beqc rs rt _ | .bnec rs rt _ => (reg rs != 0 && decide ((reg rs).val < (reg rt).val)) = true
+  | .bltc rs rt _ | .bgec rs rt _ | .bltuc rs rt _ | .bgeuc rs rt _ =>
+    (reg rs != 0 && reg rt != 0 && reg rs != reg rt) = true
+  | .blezc rt _ | .bgezc rt _ | .bgtzc rt _ | .bltzc rt _ | .blezalc rt _ | .bgezalc rt _
+  | .bgtzalc rt _ | .bltzalc rt _ | .beqzalc rt _ | .bnezalc rt _ => (reg rt != 0) = true
+  | .beqzc rs _ | .bnezc rs _ => (reg rs != 0) = true
+  | .bovc rs rt _ | .bnvc rs rt _ => decide ((reg rt).val ≤ (reg rs).val) = true
+  | .cmpS cond _ _ _ | .cmpD cond _ _ _ => CmpCondnOK cond = true
+  | _ => True
+
 -- one simp set serves every constructor; some members are unused in the `mfc0`/`mtc0` arms
 set_option linter.unusedSimpArgs false in
-/-- **The manual's format diagram of a well-formed instruction is the model's encoding.** -/
-theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encode i) := by
+/-- `enc_eq_encode` without the field ranges: the diagram masks each field to its width as `encode`
+does. -/
+theorem enc_eq_encode_gen (i : Instruction) (h : SelOK i) : enc i = some (encode i) := by
   cases i
   case mfc0 rt rd sel =>
-    have := h.2.2
-    simp only [enc, encode, fld3_sel sel this]
+    simp only [enc, encode, fld3_sel sel h]
     simp only [fld, field, maskLow, mkRT, BitVec.or_assoc, mask1, mask2, mask3, mask4, mask5, mask6, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero,
       BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
   case mtc0 rt rd sel =>
-    have := h.2.2
-    simp only [enc, encode, fld3_sel sel this]
+    simp only [enc, encode, fld3_sel sel h]
     simp only [fld, field, maskLow, mkRT, BitVec.or_assoc, mask1, mask2, mask3, mask4, mask5, mask6, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero,
       BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
   case rdhwr rt rd sel =>
-    have e3 : sel &&& 7#32 = sel := and_7 sel h.2.2
-    have e5 : sel &&& 31#32 = sel := and_31 sel (by have := h.2.2; omega)
+    have e3 : sel &&& 7#32 = sel := and_7 sel h
+    have e5 : sel &&& 31#32 = sel := and_31 sel (by have : sel.toNat < 8 := h; omega)
     simp only [enc, encode, fld, field, maskLow, mkRT, mask3, mask5, mask6, e3, e5, BitVec.or_assoc,
       BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero,
       BitVec.zero_or]
@@ -152,24 +188,29 @@ theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encod
     simp only [enc, encode, fld, field, maskLow, mkRT, BitVec.or_assoc, mask1, mask3, mask5, mask6,
       BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft,
       BitVec.or_zero, BitVec.zero_or, BitVec.reduceOr, show (1#32 <<< 5 : W32) = 32#32 by decide]
-  -- CMP.condn.fmt: the diagram's `condn` constraint is `WellFormed`'s (the same table)
-  case cmpS cond fd fs ft | cmpD cond fd fs ft =>
-    simp only [enc]
-    rw [encIf_true (cmpCondnOK_eq cond ▸ h.1)]
-    simp only [encode, rFormat, fld, field, maskLow, mkRT, BitVec.or_assoc, mask5, mask6,
-      BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and, BitVec.zero_shiftLeft, BitVec.or_zero,
-      BitVec.zero_or]
   all_goals
-    simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, sa2Format, pc19Format,
-      fld, field, maskLow,
+    simp only [enc, encode, cop1R, rFormat, iFormat, trapFormat, codeFormat, off9Format, sa2Format,
+      pc19Format, fld, field, maskLow,
       mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, mkRT2, mkPc19, BitVec.or_assoc,
       mask1, mask2, mask3, mask4, mask5, mask6, mask9, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and,
       BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
-  -- the compact branches: the diagram's constraint holds (`WellFormed`); BEQZC/BNEZC's 21-bit field
+  -- the compact branches: `h` is the diagram's constraint; BEQZC/BNEZC's 21-bit field
   all_goals
-    rw [encIf_true (by cb_cond)]
+    rw [encIf_true h]
     try simp only [mkOff21, fld, field, maskLow, mask5, mask6, mask21, BitVec.or_assoc,
       BitVec.shiftLeft_zero, BitVec.reduceAnd]
+
+/-- A well-formed instruction meets its diagram's constraint. -/
+theorem selOK_of_wellFormed (i : Instruction) (h : i.WellFormed) : SelOK i := by
+  cases i <;> first
+    | trivial
+    | exact h.2.2
+    | exact (cmpCondnOK_eq _).symm.trans h.1
+    | (unfold SelOK; cb_cond)
+
+/-- **The manual's format diagram of a well-formed instruction is the model's encoding.** -/
+theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encode i) :=
+  enc_eq_encode_gen i (selOK_of_wellFormed i h)
 
 /-! ## `decode` is strict: a decoded word is the canonical encoding -/
 
@@ -215,10 +256,7 @@ local macro "word_goal" : tactic =>
 `decodeLtGe`, `decodeJumpOrZ`) re-encode to the word they decoded -/
 
 theorem ext_off21 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
-    (h3 : off21Of x = off21Of w) : x = w := by
-  simp only [BitVec.toNat_eq, opcodeOf, rsOf, off21Of, BitVec.extractLsb, BitVec.toNat_setWidth,
-    BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow] at *
-  have := BitVec.isLt x; have := BitVec.isLt w; omega
+    (h3 : off21Of x = off21Of w) : x = w := by ext_by_fields [h1, h2, h3]
 
 theorem off21Of_lt' (w : W32) : (off21Of w).toNat < 2097152 := off21Of_lt w
 
@@ -293,13 +331,13 @@ set_option maxHeartbeats 1000000 in
 theorem encode_of_decode (w : W32) (i : Instruction) (h : decode w = some i) : encode i = w := by
   have := coOf_lt w; have := bit6Of_lt w
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
-    decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
-    decodeR6Fmt, decodeR6FmtS, decodeR6FmtD] at h  -- R6-6B: decodeR6Fmt
+    decodeCop0, decodeCop1, decodeCop1Fmt, decodeFmtS, decodeFmtD, Option.bind_some, Option.bind_none,
+    decodeIf] at h
   repeat' split at h
   all_goals (cases h)
   all_goals (try compact_word)
   all_goals (try simp only [beq_iff_eq, Bool.and_eq_true, decide_eq_true_eq, BitVec.toNat_eq] at *)
-  all_goals (rw [← BitVec.toNat_eq]; simp only [encode])
+  all_goals (rw [← BitVec.toNat_eq]; simp only [encode, cop1R])
   all_goals word_goal
 
 /-! ## The decoder against the diagrams -/

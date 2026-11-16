@@ -1,9 +1,9 @@
 # jump_jal.asm — j and jal with a "return" (hardcoded j back to the known
 # call-site address, this program deliberately does not use jr).
 #
-# Real MIPS32 jumps always execute the instruction in their delay slot (the
-# one immediately following the jump) before transferring control — see
-# docs/spec/SPEC-NOTES.md §9 item 1. Each jump below is therefore followed
+# `j`/`jal` keep their delay slot in Release 6: the instruction immediately
+# following the jump executes before control transfers (MD00086 Vol II-A
+# Rev 6.06, JAL, p.195; see docs/spec/SPEC-NOTES.md §9 item 1). Each jump below is therefore followed
 # by a genuine no-op (`sll $zero, $zero, 0`, i.e. $zero <<= 0, into $zero)
 # as its delay-slot instruction, so this file's test intent is unchanged
 # under both our delay-slot-aware engine (which executes the nop

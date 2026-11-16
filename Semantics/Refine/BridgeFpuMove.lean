@@ -3,7 +3,7 @@ import Semantics.Refine.BridgeFpu
 import Semantics.Refine.Invariant
 
 /-!
-# Refine.BridgeFpuMove — bridge lemmas of the FPU memory/move/control/branch group (7C S4b)
+# Refine.BridgeFpuMove — bridge lemmas of the FPU memory/move/control/branch group
 
 Proved once for the refinement theorems of `Refine/FpuMemory.lean`, `FpuMove.lean`,
 `FpuControl.lean`:
@@ -53,18 +53,6 @@ theorem cop1_execute (s : State) (w : W32) (i : Instruction) (op : Pseudo Unit)
 
 /-! ## Registers -/
 
-theorem update_self {α : Type} (f : Fin 32 → α) (i : Fin 32) : update f i (f i) = f := by
-  funext j; unfold update; split <;> simp_all
-
-theorem regIdx_succ (f : W32) : regIdx (f + 1#32) = reg f + 1 := by
-  rw [regIdx_eq_reg]; unfold reg
-  apply Fin.ext
-  simp only [Fin.val_add, BitVec.toNat_add, BitVec.toNat_ofNat]
-  omega
-
-theorem reg_succ (f : W32) : reg (f + 1#32) = reg f + 1 := by
-  rw [← regIdx_eq_reg]; exact regIdx_succ f
-
 theorem low_32 (x : W32) : low x 32 = x := by
   unfold low; apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi]
 
@@ -77,13 +65,6 @@ theorem append_hi (hi lo : W32) : (hi ++ lo).extractLsb' 32 32 = hi := by
   simp only [BitVec.getElem_extractLsb', BitVec.getLsbD_append]; simp [hi', BitVec.getLsbD_eq_getElem]
 
 /-! ## Completion of the model's arms -/
-
-theorem abs_mkNext_self (s : State) :
-    abs (mkNext s s) =
-      { abs s with
-        PC := (abs s).BranchDelay.getD ((abs s).PC + 4#32)
-        BranchDelay := none } := by
-  rw [mkNext, abs_advance _ _ (by rfl)]; rfl
 
 theorem abs_mkNext_writeReg (s : State) (i : Fin 32) (v : W32) (hsz : s.regs.size = 32) :
     abs (mkNext s (writeReg s i v)) =
@@ -189,8 +170,6 @@ theorem ctc1_fenr' (F t : W32) (h : RZ F) :
       t.extractLsb' 7 5 ++ F.extractLsb' 2 5 ++ t.extractLsb' 0 2 : BitVec 32) = Mips.Fp.writeFENR F t := by
   rw [← fcsrWrite_of_rz _ (rz_writeControl F t _ 28 rfl h)]
   bits32
-
-theorem ctc1_fcsr (F t : W32) : FCSRWrite t = Mips.Fp.writeFCSR F t := rfl
 
 /-- `FCSR` bits 22..18 are 0 in the stored word (part of the invariant `FcsrReservedZero`,
 `Refine/Defs.lean`). -/
@@ -330,10 +309,6 @@ theorem xor4_eq (pa : W32) (h : pa.toNat % 8 = 0) : pa ^^^ 4#32 = pa + 4#32 := b
   by_cases hi2 : i = 2
   · subst hi2; simp only [h2, decide_true, Bool.false_xor, Bool.false_or]
   · simp only [hi2, decide_false, Bool.xor_false, Bool.or_false]
-
-/-- The second `paddr xor 0b100`: back to the first word. -/
-theorem xor4_xor4 (pa : W32) (h : pa.toNat % 8 = 0) : (pa + 4#32) ^^^ 4#32 = pa := by
-  rw [← xor4_eq pa h, BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
 
 /-- The model's four byte inserts of a word store at `p` (`writeMemWord`, the profile's byte
 order). -/

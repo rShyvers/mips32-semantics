@@ -1,12 +1,10 @@
 # mem_byte_half.asm — lb/lbu/lh/lhu/sh.
 #
-# NOTE: kept deliberately endian-invariant (see docs/spec/SPEC-NOTES.md §9 —
-# MARS 4.5 headless defaults to little-endian storage, while our language
-# spec is big-endian per the ISA): `lb`/`lbu` read individually-addressed
-# `.byte` cells (no multi-byte composition, so byte order can't matter), and
-# `lh`/`lhu` round-trip through an `sh` at the *same* address (write-then-read
-# within one engine's own convention always agrees, regardless of which
-# convention that is).
+# NOTE: kept endian-invariant. The model is the little-endian MIPS32 Release 6
+# profile (`Config.BE = 0`), the same byte order as MARS 4.5's storage, but the
+# program does not depend on it: `lb`/`lbu` read individually-addressed `.byte`
+# cells (no multi-byte composition), and `lh`/`lhu` round-trip through an `sh`
+# at the *same* address.
 #
 # `bytebuf` is padded to exactly 4 bytes so `halfbuf`'s label sits on an
 # already-word-aligned boundary — see DiffHarness report: `Asm.lean`'s

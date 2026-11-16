@@ -187,7 +187,7 @@ macro "zk_simp_next" : tactic => `(tactic|
   simp only [zeroKept_next, writeReg_regs_zero, writeFpReg_regs, writeFpD_regs,
     writeMemByte_getD_regs, *])
 
--- ~120 constructors through one generic tactic loop
+-- all 203 constructors through one generic tactic loop
 set_option maxHeartbeats 4000000 in
 /-- **Every instruction keeps `$zero`.** `execInstr` (the dispatch
 `step` calls after fetch/decode) never changes what register `0` reads,

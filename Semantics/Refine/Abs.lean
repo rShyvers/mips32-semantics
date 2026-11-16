@@ -80,22 +80,8 @@ theorem writeFpReg64_fpRegs_size' (s : State) (i : Fin 32) (v : BitVec 64) :
     (writeFpReg64 s i v).fpRegs.size = s.fpRegs.size := by
   simp [writeFpReg64]
 
-theorem lo_append (hi lo : W32) : (hi ++ lo).extractLsb' 0 32 = lo :=
-  BitVec.extractLsb'_append_eq_right
-
 theorem hi_append (hi lo : W32) : (hi ++ lo).extractLsb' 32 32 = hi :=
   BitVec.extractLsb'_append_eq_left
-
-theorem halves_append (x : BitVec 64) : x.extractLsb' 32 32 ++ x.extractLsb' 0 32 = x :=
-  BitVec.extractLsb'_append_extractLsb' (w := 32) (len := 32)
-
-theorem readFpReg_writeFpReg (s : State) (i j : Fin 32) (v : W32) (hsz : s.fpRegs.size = 32) :
-    readFpReg (writeFpReg s i v) j = if j = i then v else readFpReg s j := by
-  unfold writeFpReg readFpReg
-  rw [readFpReg64_writeFpReg64 _ _ _ _ hsz]
-  split
-  · exact lo_append _ _
-  · rfl
 
 theorem abs_writeFpReg64 (s : State) (i : Fin 32) (v : BitVec 64) (hsz : s.fpRegs.size = 32) :
     abs (writeFpReg64 s i v) = { abs s with FPR := update (abs s).FPR i v } := by

@@ -3,7 +3,7 @@ import Semantics.Refine.BridgeIntAlu
 import Semantics.Refine.BridgeControl
 
 /-!
-# Refine.BridgeMem — shared lemmas of the memory, atomic, trap and system-call refinements (7C S2)
+# Refine.BridgeMem — shared lemmas of the memory, atomic, trap and system-call refinements
 
 The model's `execInstr` of an instruction that is no CTI and uses no coprocessor is its `execBody`;
 the manual's completion of an Operation that wrote at most one GPR is the model's `mkNext`; the
@@ -197,9 +197,6 @@ theorem half_idx (va : W32) :
   rw [show (BitVec.ofBool false ++ 0#1 : BitVec 2) = 0#2 from rfl, BitVec.xor_zero]
   simp only [bits, BitVec.extractLsb'_toNat]; omega
 
-/-- `BigEndianCPU` on this profile (little-endian, `ReverseEndian = 0`). -/
-theorem bigEndianCPU_abs (s : State) : BigEndianCPU (abs s) = false := rfl
-
 theorem misaligned2_eq (va : W32) : bit va 0 = decide (va.toNat % 2 ≠ 0) := by
   simp only [bit, BitVec.getLsbD, Nat.testBit_zero]
   rw [Bool.eq_iff_iff]; simp only [decide_eq_true_eq]; omega
@@ -324,7 +321,7 @@ theorem lane_sh (v : W32) (N : Nat) (hN : N = 0 ∨ N = 2) :
 /-! ## The opening of a proof -/
 
 set_option hygiene false in
-/-- The common opening of a 7C S2 refinement theorem (hypotheses named `hg : Good s` and
+/-- The common opening of a memory/atomic/trap/system-call refinement theorem (hypotheses named `hg : Good s` and
 `hw : enc i = some w`): the word of the encoding, the coprocessor-space checks, `execInstr` =
 `execBody`, and the Operation `opn` (applied: `op`) run up to its first GPR reads. Binds
 `h0 : readReg s 0 = 0#32`. -/

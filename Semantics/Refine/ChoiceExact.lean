@@ -28,92 +28,27 @@ open Manual
 theorem operation_some (ins : Instruction) : ∃ op, Operation ins = some op := by
   cases ins <;> exact ⟨_, rfl⟩
 
+set_option linter.unusedSimpArgs false in
 /-- **Every row of `ConsultsOracle` is a real choice.** -/
 theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = true) : RowWitness ins a := by
   cases ins
-  case lb x₁ x₂ x₃ => exact rw_lb x₁ x₂ x₃ a h
-  case lbu x₁ x₂ x₃ => exact rw_lbu x₁ x₂ x₃ a h
-  case lh x₁ x₂ x₃ => exact rw_lh x₁ x₂ x₃ a h
-  case lhu x₁ x₂ x₃ => exact rw_lhu x₁ x₂ x₃ a h
-  case lw x₁ x₂ x₃ => exact rw_lw x₁ x₂ x₃ a h
-  case lwc1 x₁ x₂ x₃ => exact rw_lwc1 x₁ x₂ x₃ a h
-  case sb x₁ x₂ x₃ => exact rw_sb x₁ x₂ x₃ a h
-  case sh x₁ x₂ x₃ => exact rw_sh x₁ x₂ x₃ a h
-  case sw x₁ x₂ x₃ => exact rw_sw x₁ x₂ x₃ a h
-  case swc1 x₁ x₂ x₃ => exact rw_swc1 x₁ x₂ x₃ a h
-  case ldc1 x₁ x₂ x₃ => exact rw_ldc1 x₁ x₂ x₃ a h
-  case sdc1 x₁ x₂ x₃ => exact rw_sdc1 x₁ x₂ x₃ a h
-  case mfc0 x₁ x₂ x₃ => exact rw_mfc0 x₁ x₂ x₃ a h
-  case mtc0 x₁ x₂ x₃ => exact rw_mtc0 x₁ x₂ x₃ a h
-  case addD x₁ x₂ x₃ => exact rw_addD x₁ x₂ x₃ a h
-  case subD x₁ x₂ x₃ => exact rw_subD x₁ x₂ x₃ a h
-  case mulD x₁ x₂ x₃ => exact rw_mulD x₁ x₂ x₃ a h
-  case divD x₁ x₂ x₃ => exact rw_divD x₁ x₂ x₃ a h
-  case cfc1 x₁ x₂ => exact rw_cfc1 x₁ x₂ a h
-  case ctc1 x₁ x₂ => exact rw_ctc1 x₁ x₂ a h
-  case jalr x₁ x₂ => exact rw_jalr x₁ x₂ a h
-  case jalrHb x₁ x₂ => exact rw_jalrHb x₁ x₂ a h
-  case blezalc x₁ x₂ => exact rw_blezalc x₁ x₂ a h
-  case bgezalc x₁ x₂ => exact rw_bgezalc x₁ x₂ a h
-  case bgtzalc x₁ x₂ => exact rw_bgtzalc x₁ x₂ a h
-  case bltzalc x₁ x₂ => exact rw_bltzalc x₁ x₂ a h
-  case beqzalc x₁ x₂ => exact rw_beqzalc x₁ x₂ a h
-  case bnezalc x₁ x₂ => exact rw_bnezalc x₁ x₂ a h
-  case absS x₁ x₂ => exact rw_absS x₁ x₂ a h
-  case negS x₁ x₂ => exact rw_negS x₁ x₂ a h
-  case absD x₁ x₂ => exact rw_absD x₁ x₂ a h
-  case negD x₁ x₂ => exact rw_negD x₁ x₂ a h
-  case sqrtD x₁ x₂ => exact rw_sqrtD x₁ x₂ a h
-  case recipD x₁ x₂ => exact rw_recipD x₁ x₂ a h
-  case rsqrtD x₁ x₂ => exact rw_rsqrtD x₁ x₂ a h
-  case movD x₁ x₂ => exact rw_movD x₁ x₂ a h
-  case roundWD x₁ x₂ => exact rw_roundWD x₁ x₂ a h
-  case truncWD x₁ x₂ => exact rw_truncWD x₁ x₂ a h
-  case ceilWD x₁ x₂ => exact rw_ceilWD x₁ x₂ a h
-  case floorWD x₁ x₂ => exact rw_floorWD x₁ x₂ a h
-  case cvtWD x₁ x₂ => exact rw_cvtWD x₁ x₂ a h
-  case cvtDS x₁ x₂ => exact rw_cvtDS x₁ x₂ a h
-  case cvtDW x₁ x₂ => exact rw_cvtDW x₁ x₂ a h
-  case cvtSD x₁ x₂ => exact rw_cvtSD x₁ x₂ a h
-  case mfhc1 x₁ x₂ => exact rw_mfhc1 x₁ x₂ a h
-  case mthc1 x₁ x₂ => exact rw_mthc1 x₁ x₂ a h
-  case ext x₁ x₂ x₃ x₄ => exact rw_ext x₁ x₂ x₃ x₄ a h
-  case ins x₁ x₂ x₃ x₄ => exact rw_ins x₁ x₂ x₃ x₄ a h
-  case lwpc x₁ x₂ => exact rw_lwpc x₁ x₂ a h
-  case div x₁ x₂ x₃ => exact rw_div x₁ x₂ x₃ a h
-  case mod x₁ x₂ x₃ => exact rw_mod x₁ x₂ x₃ a h
-  case divu x₁ x₂ x₃ => exact rw_divu x₁ x₂ x₃ a h
-  case modu x₁ x₂ x₃ => exact rw_modu x₁ x₂ x₃ a h
-  -- The 32-bit FPR results (`fprUpper`)
-  case mtc1 x₁ x₂ => exact rw_mtc1 x₁ x₂ a h
-  case movS x₁ x₂ => exact rw_movS x₁ x₂ a h
-  case addS x₁ x₂ x₃ => exact rw_addS x₁ x₂ x₃ a h
-  case subS x₁ x₂ x₃ => exact rw_subS x₁ x₂ x₃ a h
-  case mulS x₁ x₂ x₃ => exact rw_mulS x₁ x₂ x₃ a h
-  case divS x₁ x₂ x₃ => exact rw_divS x₁ x₂ x₃ a h
-  case sqrtS x₁ x₂ => exact rw_sqrtS x₁ x₂ a h
-  case recipS x₁ x₂ => exact rw_recipS x₁ x₂ a h
-  case rsqrtS x₁ x₂ => exact rw_rsqrtS x₁ x₂ a h
-  case roundWS x₁ x₂ => exact rw_roundWS x₁ x₂ a h
-  case truncWS x₁ x₂ => exact rw_truncWS x₁ x₂ a h
-  case ceilWS x₁ x₂ => exact rw_ceilWS x₁ x₂ a h
-  case floorWS x₁ x₂ => exact rw_floorWS x₁ x₂ a h
-  case cvtWS x₁ x₂ => exact rw_cvtWS x₁ x₂ a h
-  case cvtSW x₁ x₂ => exact rw_cvtSW x₁ x₂ a h
-  case cvtSL x₁ x₂ => exact rw_cvtSL x₁ x₂ a h
-  case cmpS x₁ x₂ x₃ x₄ => exact rw_cmpS x₁ x₂ x₃ x₄ a h
-  case selS x₁ x₂ x₃ => exact rw_selS x₁ x₂ x₃ a h
-  case seleqzS x₁ x₂ x₃ => exact rw_seleqzS x₁ x₂ x₃ a h
-  case selnezS x₁ x₂ x₃ => exact rw_selnezS x₁ x₂ x₃ a h
-  case maddfS x₁ x₂ x₃ => exact rw_maddfS x₁ x₂ x₃ a h
-  case msubfS x₁ x₂ x₃ => exact rw_msubfS x₁ x₂ x₃ a h
-  case maxS x₁ x₂ x₃ => exact rw_maxS x₁ x₂ x₃ a h
-  case minS x₁ x₂ x₃ => exact rw_minS x₁ x₂ x₃ a h
-  case maxaS x₁ x₂ x₃ => exact rw_maxaS x₁ x₂ x₃ a h
-  case minaS x₁ x₂ x₃ => exact rw_minaS x₁ x₂ x₃ a h
-  case classS x₁ x₂ => exact rw_classS x₁ x₂ a h
-  case rintS x₁ x₂ => exact rw_rintS x₁ x₂ a h
-  all_goals simp [ConsultsOracle] at h
+  -- A 32-bit result stored into a 64-bit FPR (`fprUpper`): `fpr32_row` with the destination FPR.
+  case lwc1 _ ft _ | mtc1 _ ft | cmpS _ ft _ _ => fpr32_row ft
+  case movS fd _ | absS fd _ | negS fd _ | addS fd _ _ | subS fd _ _ | mulS fd _ _ | divS fd _ _
+    | sqrtS fd _ | recipS fd _ | rsqrtS fd _ | roundWS fd _ | truncWS fd _ | ceilWS fd _
+    | floorWS fd _ | cvtWS fd _ | roundWD fd _ | truncWD fd _ | ceilWD fd _ | floorWD fd _
+    | cvtWD fd _ | cvtSD fd _ | cvtSW fd _ | cvtSL fd _ | selS fd _ _ | seleqzS fd _ _
+    | selnezS fd _ _ | maddfS fd _ _ | msubfS fd _ _ | maxS fd _ _ | minS fd _ _ | maxaS fd _ _
+    | minaS fd _ _ | classS fd _ | rintS fd _ => fpr32_row fd
+  -- A compact branch-and-link with `rt = 31`: the witness oracle signals (`row_sig`).
+  case blezalc | bgezalc | bgtzalc | bltzalc | beqzalc | bnezalc =>
+    simp only [ConsultsOracle, beq_iff_eq] at h
+    exact row_sig rfl fun _ => by
+      simp only [Ops.BLEZALC, Ops.BGEZALC, Ops.BGTZALC, Ops.BLTZALC, Ops.BEQZALC, Ops.BNEZALC, Ops.BZALC]
+      runp
+  -- Every other row has its own `rw_<ctor>` (`Refine/ChoiceRows*.lean`); for a constructor without
+  -- one, `ConsultsOracle` is `false` and `h` is a contradiction.
+  all_goals apply_ctor_lemma "rw_" "" else simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/
 

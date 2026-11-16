@@ -1,7 +1,7 @@
 import Semantics.Refine.Bridge
 
 /-!
-# Refine.BridgeIntAlu — the shared steps of the integer ALU refinement proofs (sub-wave 7C S1)
+# Refine.BridgeIntAlu — the shared steps of the integer ALU refinement proofs
 
 The integer ALU instructions (`Refine/{IntArith,Shift,BitOps,Immediate}.lean`) are neither
 CTIs nor in a coprocessor encoding space, and their model arm is `execBody`. Each refinement theorem is
@@ -222,31 +222,6 @@ theorem mul_low (x y : W32) : low (x.signExtend 64 * y.signExtend 64) 32 = x * y
   simp only [low]
   rw [← BitVec.setWidth_eq_extractLsb' (by omega), BitVec.setWidth_mul _ _ (by omega), setWidth_sx64,
     setWidth_sx64]
-theorem low_ofInt33 (v : BitVec 33) : low v 32 = BitVec.ofInt 32 v.toInt := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [low, BitVec.extractLsb'_toNat, BitVec.toNat_ofInt, BitVec.toInt_eq_toNat_cond]
-  have := v.isLt
-  split <;> omega
-theorem ofInt32_bmod (z : Int) : BitVec.ofInt 32 (z.bmod (2^33)) = BitVec.ofInt 32 z := by
-  apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_ofInt]; unfold Int.bmod; dsimp only; split <;> omega
-theorem toInt_sx33 (x : W32) : (x.signExtend 33).toInt = x.toInt :=
-  BitVec.toInt_signExtend_of_le (by omega)
-theorem div_lo (x y : W32) :
-    low (BitVec.sdiv (x.signExtend 33) (y.signExtend 33)) 32 = ofInt32 ((asSigned x).tdiv (asSigned y)) := by
-  rw [low_ofInt33, BitVec.toInt_sdiv, ofInt32_bmod, toInt_sx33, toInt_sx33]; rfl
-theorem div_hi (x y : W32) :
-    low (BitVec.srem (x.signExtend 33) (y.signExtend 33)) 32 = ofInt32 ((asSigned x).tmod (asSigned y)) := by
-  rw [low_ofInt33, BitVec.toInt_srem, toInt_sx33, toInt_sx33]; rfl
-theorem divu_lo (x y : W32) :
-    sign_extend (low ((0#1 ++ x) / (0#1 ++ y)) 32) = BitVec.ofNat 32 (x.toNat / y.toNat) := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [sign_extend, BitVec.signExtend_eq, low, BitVec.extractLsb'_toNat, BitVec.toNat_udiv,
-    BitVec.toNat_append, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or, Nat.shiftRight_zero]
-theorem divu_hi (x y : W32) :
-    sign_extend (low ((0#1 ++ x) % (0#1 ++ y)) 32) = BitVec.ofNat 32 (x.toNat % y.toNat) := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [sign_extend, BitVec.signExtend_eq, low, BitVec.extractLsb'_toNat, BitVec.toNat_umod,
-    BitVec.toNat_append, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or, Nat.shiftRight_zero]
 theorem asSigned_eq_zero (y : W32) : (asSigned y == 0) = (y == 0#32) := by
   rw [Bool.eq_iff_iff]; simp only [beq_iff_eq, asSigned]
   constructor

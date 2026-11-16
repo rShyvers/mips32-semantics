@@ -19,8 +19,6 @@ theorem roundingMode_round : IEEE.roundingMode 0#2 = .RN := rfl
 theorem roundingMode_trunc : IEEE.roundingMode 1#2 = .RZ := rfl
 theorem roundingMode_ceil : IEEE.roundingMode 2#2 = .RP := rfl
 theorem roundingMode_floor : IEEE.roundingMode 3#2 = .RM := rfl
-theorem roundingMode_FCSR (s : State) :
-    IEEE.roundingMode (FCSR_RM (abs s)) = Mips.Fp.getRM s.fcsr := rfl
 -- R6-5: the rounding mode and `FCSR.FS` of the manual's state are the model's `fpEnv`.
 theorem roundingMode_env (s : State) : IEEE.roundingMode (FCSR_RM (abs s)) = (fpEnv s).rm := rfl
 theorem fcsrFS_abs (s : State) : FCSR_FS (abs s) = (fpEnv s).flush := rfl
@@ -30,364 +28,207 @@ theorem roundWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.roundWS fd fs) = some w) :
     Execute modelCtx w (.roundWS fd fs) (abs s) =
       some (abs (execInstr s (.roundWS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.ROUND_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.roundWS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32ToW32 .RN (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.ROUND_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_round]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.ROUND_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_round]
 
 /-- **ROUND.W.D refines.** -/
 theorem roundWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.roundWD fd fs) = some w) :
     Execute modelCtx w (.roundWD fd fs) (abs s) =
       some (abs (execInstr s (.roundWD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.ROUND_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.roundWD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToW32 .RN (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.ROUND_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_round]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.ROUND_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_round]
 
 /-- **TRUNC.W.S refines.** -/
 theorem truncWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.truncWS fd fs) = some w) :
     Execute modelCtx w (.truncWS fd fs) (abs s) =
       some (abs (execInstr s (.truncWS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.TRUNC_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.truncWS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32ToW32 .RZ (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.TRUNC_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_trunc]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.TRUNC_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_trunc]
 
 /-- **TRUNC.W.D refines.** -/
 theorem truncWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.truncWD fd fs) = some w) :
     Execute modelCtx w (.truncWD fd fs) (abs s) =
       some (abs (execInstr s (.truncWD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.TRUNC_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.truncWD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToW32 .RZ (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.TRUNC_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_trunc]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.TRUNC_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_trunc]
 
 /-- **CEIL.W.S refines.** -/
 theorem ceilWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.ceilWS fd fs) = some w) :
     Execute modelCtx w (.ceilWS fd fs) (abs s) =
       some (abs (execInstr s (.ceilWS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CEIL_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.ceilWS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32ToW32 .RP (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CEIL_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_ceil]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CEIL_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_ceil]
 
 /-- **CEIL.W.D refines.** -/
 theorem ceilWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.ceilWD fd fs) = some w) :
     Execute modelCtx w (.ceilWD fd fs) (abs s) =
       some (abs (execInstr s (.ceilWD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CEIL_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.ceilWD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToW32 .RP (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CEIL_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_ceil]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CEIL_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_ceil]
 
 /-- **FLOOR.W.S refines.** -/
 theorem floorWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.floorWS fd fs) = some w) :
     Execute modelCtx w (.floorWS fd fs) (abs s) =
       some (abs (execInstr s (.floorWS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.FLOOR_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.floorWS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32ToW32 .RM (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.FLOOR_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_floor]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.FLOOR_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_floor]
 
 /-- **FLOOR.W.D refines.** -/
 theorem floorWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.floorWD fd fs) = some w) :
     Execute modelCtx w (.floorWD fd fs) (abs s) =
       some (abs (execInstr s (.floorWD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.FLOOR_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.floorWD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToW32 .RM (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.FLOOR_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_floor]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.FLOOR_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_floor]
 
 /-- **CVT.W.S refines.** -/
 theorem cvtWS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtWS fd fs) = some w) :
     Execute modelCtx w (.cvtWS fd fs) (abs s) =
       some (abs (execInstr s (.cvtWS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_W_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtWS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32ToW32 (fpEnv s).rm (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_env]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CVT_W_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toWordS, fcsrFS_abs, roundingMode_env]
 
 /-- **CVT.W.D refines.** -/
 theorem cvtWD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtWD fd fs) = some w) :
     Execute modelCtx w (.cvtWD fd fs) (abs s) =
       some (abs (execInstr s (.cvtWD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_W_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtWD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToW32 (fpEnv s).rm (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_env]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CVT_W_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toWordD, fcsrFS_abs, roundingMode_env]
 
 /-- **CVT.D.S (the model's QNaN result is `Oracle.cvtQNaNToD`) refines.** -/
 theorem cvtDS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtDS fd fs) = some w) :
     Execute modelCtx w (.cvtDS fd fs) (abs s) =
       some (abs (execInstr s (.cvtDS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_D_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtDS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToF64 (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_D_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, Pseudo.oracle, modelCtx_oracle, cvtDS_model, fcsrFS_abs]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CVT_D_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, Pseudo.oracle, modelCtx_oracle, cvtDS_model, fcsrFS_abs]
 
 /-- **CVT.D.W refines.** -/
 theorem cvtDW_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtDW fd fs) = some w) :
     Execute modelCtx w (.cvtDW fd fs) (abs s) =
       some (abs (execInstr s (.cvtDW fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_D_W fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtDW fd fs) =
-      fpFinishD s fd (Mips.Fp.w32ToF64F (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_D_W, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, IEEE.cvtDW]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CVT_D_W, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, IEEE.cvtDW]
 
 /-- **CVT.S.D (the model's QNaN result is `Oracle.cvtQNaNToS`) refines.** -/
 theorem cvtSD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtSD fd fs) = some w) :
     Execute modelCtx w (.cvtSD fd fs) (abs s) =
       some (abs (execInstr s (.cvtSD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_S_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtSD fd fs) =
-      fpFinishS s fd (Mips.Fp.f64ToF32 (fpEnv s) (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_S_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, Pseudo.oracle, modelCtx_oracle, cvtSD_model]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CVT_S_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, Pseudo.oracle, modelCtx_oracle, cvtSD_model]
 
 /-- **CVT.S.W refines.** -/
 theorem cvtSW_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtSW fd fs) = some w) :
     Execute modelCtx w (.cvtSW fd fs) (abs s) =
       some (abs (execInstr s (.cvtSW fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_S_W fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtSW fd fs) =
-      fpFinishS s fd (Mips.Fp.w32ToF32 (fpEnv s) (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_S_W, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.cvtSW]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CVT_S_W, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, env_abs, IEEE.cvtSW]
 
 /-- **ROUND.L.S refines.** -/
 theorem roundLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.roundLS fd fs) = some w) :
     Execute modelCtx w (.roundLS fd fs) (abs s) =
       some (abs (execInstr s (.roundLS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.ROUND_L_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.roundLS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToW64 .RN (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.ROUND_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_round]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.ROUND_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_round]
 
 /-- **ROUND.L.D refines.** -/
 theorem roundLD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.roundLD fd fs) = some w) :
     Execute modelCtx w (.roundLD fd fs) (abs s) =
       some (abs (execInstr s (.roundLD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.ROUND_L_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.roundLD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64ToW64 .RN (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.ROUND_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_round]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.ROUND_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_round]
 
 /-- **TRUNC.L.S refines.** -/
 theorem truncLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.truncLS fd fs) = some w) :
     Execute modelCtx w (.truncLS fd fs) (abs s) =
       some (abs (execInstr s (.truncLS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.TRUNC_L_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.truncLS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToW64 .RZ (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.TRUNC_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_trunc]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.TRUNC_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_trunc]
 
 /-- **TRUNC.L.D refines.** -/
 theorem truncLD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.truncLD fd fs) = some w) :
     Execute modelCtx w (.truncLD fd fs) (abs s) =
       some (abs (execInstr s (.truncLD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.TRUNC_L_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.truncLD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64ToW64 .RZ (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.TRUNC_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_trunc]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.TRUNC_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_trunc]
 
 /-- **CEIL.L.S refines.** -/
 theorem ceilLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.ceilLS fd fs) = some w) :
     Execute modelCtx w (.ceilLS fd fs) (abs s) =
       some (abs (execInstr s (.ceilLS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CEIL_L_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.ceilLS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToW64 .RP (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CEIL_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_ceil]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CEIL_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_ceil]
 
 /-- **CEIL.L.D refines.** -/
 theorem ceilLD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.ceilLD fd fs) = some w) :
     Execute modelCtx w (.ceilLD fd fs) (abs s) =
       some (abs (execInstr s (.ceilLD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CEIL_L_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.ceilLD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64ToW64 .RP (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CEIL_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_ceil]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CEIL_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_ceil]
 
 /-- **FLOOR.L.S refines.** -/
 theorem floorLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.floorLS fd fs) = some w) :
     Execute modelCtx w (.floorLS fd fs) (abs s) =
       some (abs (execInstr s (.floorLS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.FLOOR_L_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.floorLS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToW64 .RM (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.FLOOR_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_floor]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.FLOOR_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_floor]
 
 /-- **FLOOR.L.D refines.** -/
 theorem floorLD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.floorLD fd fs) = some w) :
     Execute modelCtx w (.floorLD fd fs) (abs s) =
       some (abs (execInstr s (.floorLD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.FLOOR_L_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.floorLD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64ToW64 .RM (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.FLOOR_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_floor]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.FLOOR_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_floor]
 
 /-- **CVT.L.S refines.** -/
 theorem cvtLS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtLS fd fs) = some w) :
     Execute modelCtx w (.cvtLS fd fs) (abs s) =
       some (abs (execInstr s (.cvtLS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_L_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtLS fd fs) =
-      fpFinishD s fd (Mips.Fp.f32ToW64 (fpEnv s).rm (fpEnv s).flush (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_env]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CVT_L_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, Pseudo.get, IEEE.toLongS, fcsrFS_abs, roundingMode_env]
 
 /-- **CVT.L.D refines.** -/
 theorem cvtLD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtLD fd fs) = some w) :
     Execute modelCtx w (.cvtLD fd fs) (abs s) =
       some (abs (execInstr s (.cvtLD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_L_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtLD fd fs) =
-      fpFinishD s fd (Mips.Fp.f64ToW64 (fpEnv s).rm (fpEnv s).flush (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_env]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CVT_L_D, bind, valueFPR64_model, readFpD_abs, Pseudo.get, IEEE.toLongD, fcsrFS_abs, roundingMode_env]
 
 /-- **CVT.S.L refines.** -/
 theorem cvtSL_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtSL fd fs) = some w) :
     Execute modelCtx w (.cvtSL fd fs) (abs s) =
       some (abs (execInstr s (.cvtSL fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_S_L fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtSL fd fs) =
-      fpFinishS s fd (Mips.Fp.w64ToF32 (fpEnv s) (readFpD s fs)) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_S_L, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.cvtSL]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.CVT_S_L, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.cvtSL]
 
 /-- **CVT.D.L refines.** -/
 theorem cvtDL_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.cvtDL fd fs) = some w) :
     Execute modelCtx w (.cvtDL fd fs) (abs s) =
       some (abs (execInstr s (.cvtDL fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CVT_D_L fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.cvtDL fd fs) =
-      fpFinishD s fd (Mips.Fp.w64ToF64 (fpEnv s) (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CVT_D_L, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.cvtDL]
-
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.CVT_D_L, bind, valueFPR64_model, readFpD_abs, Pseudo.get, env_abs, IEEE.cvtDL]
 
 end Refine

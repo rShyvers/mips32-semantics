@@ -197,9 +197,6 @@ no caches (`Config1.IL = DL = 0`). No TLB exception can occur (there is no TLB, 
 "legal from" User Mode (MD00090 Vol III Rev 6.02 Table 4.1, p.28; Table 4.2, p.30). -/
 def isUseg (va : VAddr) : Bool := va.toNat < 0x80000000
 
-/-- kseg0, `0x8000_0000`-`0x9FFF_FFFF` (`VA31..29 = 0b100`, Table 4.1, p.28). -/
-def isKseg0 (va : VAddr) : Bool := 0x80000000 ≤ va.toNat && va.toNat < 0xA0000000
-
 /-- kseg1, `0xA000_0000`-`0xBFFF_FFFF` (`VA31..29 = 0b101`, Table 4.1, p.28). -/
 def isKseg1 (va : VAddr) : Bool := 0xA0000000 ≤ va.toNat && va.toNat < 0xC0000000
 

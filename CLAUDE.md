@@ -65,10 +65,10 @@ stripped) + manual-spec independence: `scripts/manual_independence.py` (token pr
   `Ops/*` one def per manual page, `Operation`, `Cycle` (`InstructionTime`), `Choices` (`modelImpl`/`modelOracle` pins)). It may import
   only `Word`, `Types` (W32/VAddr/PAddr), `Instruction` (constructor names), `FpOps` rounding core; enforced by gate step 1.
   `Semantics/Refine/` = proofs that `step` refines it: `Defs.lean` (`abs : State → Manual.Arch`, `Good`, `Inv` — trusted definitions),
-  `Abs`/`Bridge*`/`Fetch` plumbing, `<Family>.lean` `<ctor>_refines` (all 203), `Instr.lean` (`allInstrRefines`), `Cycle` (non-instruction
+  `Abs`/`Bridge*`/`Fetch` plumbing, `<Family>.lean` `<ctor>_refines` (all 203), `Instr.lean` (`allInstrRefines`, dispatched by the `apply_ctor_lemma` tactic), `Cycle` (non-instruction
   paths), `Decode` (`decoderSound_decode`), `DecodeDiagram`/`DecodeBridge` (`decode_agrees_manual`, `decode_diagram_complete`,
   `decode_none_manual`: the model's `decode` agrees with `Manual.Decode`), `Invariant` (`step_preserves_inv`), `Step.lean` (TOP: `step_eq_manual`, `run_refines_manual`),
-  `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, `cf_<ctor>`;
+  `Determinism` (`manual_step_deterministic`, `modelOracle_valid`, `interrupt_choice_exists`), `ChoicePoints` (`operation_choiceFree`, generic dispatch plus named `cf_<ctor>` lemmas for the oracle-reading instructions;
   imports `ChoiceFp`), `ChoiceWitness`/`ChoiceRows{,Fp,Fma}`/`ChoiceExact` (`choiceFree_exact`, `choiceFree_iff`: ChoiceFree is exact);
   `Manual/Relation.lean` = `Step`/`Oracle.Valid` (§1.2.1 limits incl. non-interference, §1.2.2 UNDEFINED, QNaN)/`UnpredictableLimits`/
   `ConsultsOracle` /exact `ChoiceFree`; `Manual/Choices.lean` = the pins `modelImpl`/`modelOracle`; `Manual/Accuracy.lean` = `Impl.Valid` (WF, RECIP/RSQRT ULP bounds;

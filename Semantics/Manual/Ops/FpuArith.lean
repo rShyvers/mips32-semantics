@@ -3,13 +3,13 @@ import Semantics.Manual.FPU
 /-!
 # Manual.Ops.FpuArith — FP arithmetic (MD00086 Vol II-A Rev 6.06)
 
-Sub-wave 7A transcribes the pilot `ADD.S`; 7B S4 the rest of the S and D arithmetic: `ADD.fmt`,
-`SUB.fmt`, `MUL.fmt`, `DIV.fmt`, `SQRT.fmt`, `ABS.fmt`, `NEG.fmt`, `RECIP.fmt`, `RSQRT.fmt` (Release 6
+The S and D arithmetic: `ADD.fmt`, `SUB.fmt`, `MUL.fmt`, `DIV.fmt`, `SQRT.fmt`, `ABS.fmt`, `NEG.fmt`, `RECIP.fmt`, `RSQRT.fmt` (Release 6
 removed `MADD.fmt`, `MSUB.fmt`, `NMADD.fmt`, `NMSUB.fmt`). The Coprocessor Unusable check (`Status.CU1 = 0`)
 is made for the whole COP1 encoding space before the Operation runs (MD00090 Vol III Rev 6.02
 §6.2.22, p.100; `Manual.Cycle`). Every arithmetic result goes through `FPResult` (FCSR Cause,
 `CheckFPException`, Flags; MD00082 Vol I-A Rev 6.01 §6.7.1, p.98-99). The paired-single format `PS`
-is not part of the profile (UNPREDICTABLE with `FR = 0`, SPEC-NOTES §9 item 13).
+is not part of the profile: "ADD.PS has been removed in Release 6" (ADD.fmt, p.34; likewise the other
+`.PS` forms), so there is no `PS` arm (SPEC-NOTES §9 item 13).
 Transcribed for the Release 6 FPU of this profile (`FR = 1`, `FCSR.NAN2008 = ABS2008 = 1`: `ABS`
 and `NEG` are non-arithmetic, ABS.fmt p.32, NEG.fmt p.307).
 -/

@@ -141,16 +141,18 @@ structure State where
   (`Exec/Branch.lean`).
   -/
   pendingBranch : Option W32 := none
-  /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086
-  Rev 6.06, "LL"/"SC"). Cleared by `sc` (success or failure) and by `eret` ("An
+  /-- The link bit (`LLbit`) set by `ll` and tested/cleared by `sc` (MD00086 Vol II-A
+  Rev 6.06, LL p.223-224, SC p.347-348). Cleared by `sc` (success or failure) and by `eret` ("An
   ERET instruction is executed. (Release 5 includes ERETNC, which will not cause the SC to fail.)",
-  SC p.347); exception entry and `eretnc` leave it alone. Pinned model choice: every store-class
-  instruction (`sb`, `sh`, `sw`, `swc1`, `sdc1`) also clears it. MD00086 "SC": when a memory access instruction (load, store or
-  prefetch) executes on the same processor between `ll` and `sc`, "the SC
-  may succeed or it may fail; the success or failure is not predictable".
-  Failing the `sc` after an intervening store is therefore one legal
-  outcome, chosen here; it is not architecturally mandated. (After an
-  intervening *load* the model lets the `sc` succeed — equally legal.)
+  SC p.347); exception entry and `eretnc` leave it alone. The profile has `Config5.LLB = 1`
+  (`config5Value`), under which, on this single processor, SC p.347-348 says: a store "to the block
+  of synchronizable physical memory containing the word" between `ll` and `sc` makes the SC fail; a
+  load to that block "will not cause the SC to fail"; a load or store "that is not to the block" may
+  make it fail ("success is not predictable"). Pinned model choice: every store-class instruction
+  (`sb`, `sh`, `sw`, `swc1`, `sdc1`) clears it, whatever its address: the required failure for a
+  store to the block, one of the allowed outcomes for any other store. Loads and `pref` leave it
+  alone. `sc` also fails when its aligned address differs from `llAddr` ("An SC will fail if the
+  aligned address of the SC does not match that of the preceding LL", p.347).
   Defaults `false`. -/
   llBit : Bool := false
   /-- Coprocessor 0 `Status` (register 12, sel 0; MD00090 Vol III Rev 6.02 §9.32,
@@ -440,10 +442,6 @@ def causeWriteMask : W32 := 0x08800300
 /-- `Cause.IV` (bit 23): interrupts use the special interrupt vector (offset `0x200`) instead of
 the general exception vector (MD00090 Vol III Rev 6.02 Table 9.52, p.210; §6.2.26, p.102). -/
 def causeIvMask : W32 := 0x00800000
-
-/-- `Cause.IP7..IP0` (bits 15..8): the pending interrupt requests, in the bit positions of
-`Status.IM7..IM0` (MD00090 Vol III Rev 6.02 Table 9.52, p.211-212; Table 6.2, p.73). -/
-def causeIpMask : W32 := 0x0000ff00
 
 /-- Vector offset of the Interrupt exception when `Cause.IV = 1` (MD00090 Vol III Rev 6.02
 Table 6.9, p.86: "Interrupt, CauseIV = 1 ... 0x200"; §6.2.3 Operation, p.88). -/

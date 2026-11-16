@@ -210,103 +210,67 @@ theorem bc1nez_refines (s : State) (hg : Good s) (ft off w : W32)
 theorem selS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.selS fd fs ft) = some w) :
     Execute modelCtx w (.selS fd fs ft) (abs s) = some (abs (execInstr s (.selS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SEL_S fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.selS fd fs ft) =
-      mkNext s (writeFpReg s (regIdx fd) (if (readFpReg s (regIdx fd)).getLsbD 0 then readFpReg s (regIdx ft) else readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_store32 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx fd)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SEL_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store32 fd =>
+    cases hb : (readFpReg s (regIdx fd)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SEL_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-- **SELEQZ.S refines.** -/
 theorem seleqzS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.seleqzS fd fs ft) = some w) :
     Execute modelCtx w (.seleqzS fd fs ft) (abs s) = some (abs (execInstr s (.seleqzS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SELEQZ_S fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.seleqzS fd fs ft) =
-      mkNext s (writeFpReg s (regIdx fd) (if (readFpReg s (regIdx ft)).getLsbD 0 then 0#32 else readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_store32 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SELEQZ_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store32 fd =>
+    cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SELEQZ_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-- **SELNEZ.S refines.** -/
 theorem selnezS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.selnezS fd fs ft) = some w) :
     Execute modelCtx w (.selnezS fd fs ft) (abs s) = some (abs (execInstr s (.selnezS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SELNEZ_S fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.selnezS fd fs ft) =
-      mkNext s (writeFpReg s (regIdx fd) (if (readFpReg s (regIdx ft)).getLsbD 0 then readFpReg s (regIdx fs) else 0#32)) from rfl]
-  rw [← runAbs_store32 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SELNEZ_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store32 fd =>
+    cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SELNEZ_S, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-- **SEL.D refines.** -/
 theorem selD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.selD fd fs ft) = some w) :
     Execute modelCtx w (.selD fd fs ft) (abs s) = some (abs (execInstr s (.selD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SEL_D fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.selD fd fs ft) =
-      mkNext s (writeFpD s fd (if (readFpReg s (regIdx fd)).getLsbD 0 then readFpD s ft else readFpD s fs)) from rfl]
-  rw [← runAbs_store64 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx fd)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SEL_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store64 fd =>
+    cases hb : (readFpReg s (regIdx fd)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SEL_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-- **SELEQZ.D refines.** -/
 theorem seleqzD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.seleqzD fd fs ft) = some w) :
     Execute modelCtx w (.seleqzD fd fs ft) (abs s) = some (abs (execInstr s (.seleqzD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SELEQZ_D fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.seleqzD fd fs ft) =
-      mkNext s (writeFpD s fd (if (readFpReg s (regIdx ft)).getLsbD 0 then 0#64 else readFpD s fs)) from rfl]
-  rw [← runAbs_store64 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SELEQZ_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store64 fd =>
+    cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SELEQZ_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-- **SELNEZ.D refines.** -/
 theorem selnezD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.selnezD fd fs ft) = some w) :
     Execute modelCtx w (.selnezD fd fs ft) (abs s) = some (abs (execInstr s (.selnezD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.SELNEZ_D fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.selnezD fd fs ft) =
-      mkNext s (writeFpD s fd (if (readFpReg s (regIdx ft)).getLsbD 0 then readFpD s fs else 0#64)) from rfl]
-  rw [← runAbs_store64 s hfsz fd]
-  apply runAbs_congr
-  cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
-    simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
-    simp only [Ops.SELNEZ_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
-      ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
-      regIdx_eq_reg] <;> rfl
+  fp_refine runAbs_store64 fd =>
+    cases hb : (readFpReg s (regIdx ft)).getLsbD 0 <;>
+      simp only [regIdx_eq_reg, readFpReg_eq] at hb <;>
+      simp only [Ops.SELNEZ_D, bind, ValueFPR32, abs_FPR, bit, hb, Bool.not_false, Bool.not_true,
+        ite_true, ite_false, Bool.false_eq_true, valueFPR64_model, pure, readFpD_abs, readFpReg_eq,
+        regIdx_eq_reg] <;> rfl
 
 /-! ## The arithmetic ones -/
 
@@ -314,145 +278,85 @@ theorem selnezD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
 theorem maddfS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maddfS fd fs ft) = some w) :
     Execute modelCtx w (.maddfS fd fs ft) (abs s) = some (abs (execInstr s (.maddfS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MADDF_S false fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maddfS fd fs ft) = fpFinishS s fd (Mips.Fp.f32Fma (fpEnv s) false (readFpReg s (regIdx fd)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MADDF_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.fmaS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MADDF_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.fmaS]
 
 /-- **msubfS refines.** -/
 theorem msubfS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.msubfS fd fs ft) = some w) :
     Execute modelCtx w (.msubfS fd fs ft) (abs s) = some (abs (execInstr s (.msubfS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MADDF_S true fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.msubfS fd fs ft) = fpFinishS s fd (Mips.Fp.f32Fma (fpEnv s) true (readFpReg s (regIdx fd)) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MADDF_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.fmaS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MADDF_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.fmaS]
 
 /-- **maxS refines.** -/
 theorem maxS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maxS fd fs ft) = some w) :
     Execute modelCtx w (.maxS fd fs ft) (abs s) = some (abs (execInstr s (.maxS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_S .max fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maxS fd fs ft) = fpFinishS s fd (Mips.Fp.f32MinMax .max (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
 
 /-- **minS refines.** -/
 theorem minS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.minS fd fs ft) = some w) :
     Execute modelCtx w (.minS fd fs ft) (abs s) = some (abs (execInstr s (.minS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_S .min fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.minS fd fs ft) = fpFinishS s fd (Mips.Fp.f32MinMax .min (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
 
 /-- **maxaS refines.** -/
 theorem maxaS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maxaS fd fs ft) = some w) :
     Execute modelCtx w (.maxaS fd fs ft) (abs s) = some (abs (execInstr s (.maxaS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_S .maxa fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maxaS fd fs ft) = fpFinishS s fd (Mips.Fp.f32MinMax .maxa (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
 
 /-- **minaS refines.** -/
 theorem minaS_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.minaS fd fs ft) = some w) :
     Execute modelCtx w (.minaS fd fs ft) (abs s) = some (abs (execInstr s (.minaS fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_S .mina fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.minaS fd fs ft) = fpFinishS s fd (Mips.Fp.f32MinMax .mina (fpEnv s) (readFpReg s (regIdx fs)) (readFpReg s (regIdx ft))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.MINMAX_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs, IEEE.minMaxS]
 
 /-- **maddfD refines.** -/
 theorem maddfD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maddfD fd fs ft) = some w) :
     Execute modelCtx w (.maddfD fd fs ft) (abs s) = some (abs (execInstr s (.maddfD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MADDF_D false fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maddfD fd fs ft) = fpFinishD s fd (Mips.Fp.f64Fma (fpEnv s) false (readFpD s fd) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MADDF_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.fmaD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MADDF_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.fmaD]
 
 /-- **msubfD refines.** -/
 theorem msubfD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.msubfD fd fs ft) = some w) :
     Execute modelCtx w (.msubfD fd fs ft) (abs s) = some (abs (execInstr s (.msubfD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MADDF_D true fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.msubfD fd fs ft) = fpFinishD s fd (Mips.Fp.f64Fma (fpEnv s) true (readFpD s fd) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MADDF_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.fmaD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MADDF_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.fmaD]
 
 /-- **maxD refines.** -/
 theorem maxD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maxD fd fs ft) = some w) :
     Execute modelCtx w (.maxD fd fs ft) (abs s) = some (abs (execInstr s (.maxD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_D .max fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maxD fd fs ft) = fpFinishD s fd (Mips.Fp.f64MinMax .max (fpEnv s) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
 
 /-- **minD refines.** -/
 theorem minD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.minD fd fs ft) = some w) :
     Execute modelCtx w (.minD fd fs ft) (abs s) = some (abs (execInstr s (.minD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_D .min fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.minD fd fs ft) = fpFinishD s fd (Mips.Fp.f64MinMax .min (fpEnv s) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
 
 /-- **maxaD refines.** -/
 theorem maxaD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.maxaD fd fs ft) = some w) :
     Execute modelCtx w (.maxaD fd fs ft) (abs s) = some (abs (execInstr s (.maxaD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_D .maxa fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.maxaD fd fs ft) = fpFinishD s fd (Mips.Fp.f64MinMax .maxa (fpEnv s) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
 
 /-- **minaD refines.** -/
 theorem minaD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
     (hw : enc (.minaD fd fs ft) = some w) :
     Execute modelCtx w (.minaD fd fs ft) (abs s) = some (abs (execInstr s (.minaD fd fs ft))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.MINMAX_D .mina fd fs ft) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.minaD fd fs ft) = fpFinishD s fd (Mips.Fp.f64MinMax .mina (fpEnv s) (readFpD s fs) (readFpD s ft)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.MINMAX_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.minMaxD]
 
 /-! ## CLASS.fmt (FCSR untouched), RINT.fmt -/
 
@@ -460,52 +364,29 @@ theorem minaD_refines (s : State) (hg : Good s) (fd fs ft w : W32)
 theorem classS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.classS fd fs) = some w) :
     Execute modelCtx w (.classS fd fs) (abs s) = some (abs (execInstr s (.classS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CLASS_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.classS fd fs) =
-      mkNext s (writeFpReg s (regIdx fd) (Mips.Fp.f32Class (readFpReg s (regIdx fs)))) from rfl]
-  rw [← runAbs_store32 s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CLASS_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, IEEE.classS]
+  fp_refine runAbs_store32 fd =>
+    simp only [Ops.CLASS_S, bind, ValueFPR32, abs_FPR, readFpReg_eq, regIdx_eq_reg, IEEE.classS]
 
 /-- **CLASS.D refines.** -/
 theorem classD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.classD fd fs) = some w) :
     Execute modelCtx w (.classD fd fs) (abs s) = some (abs (execInstr s (.classD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.CLASS_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.classD fd fs) =
-      mkNext s (writeFpD s fd (Mips.Fp.f64Class (readFpD s fs))) from rfl]
-  rw [← runAbs_store64 s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.CLASS_D, bind, valueFPR64_model, readFpD_abs, IEEE.classD]
+  fp_refine runAbs_store64 fd =>
+    simp only [Ops.CLASS_D, bind, valueFPR64_model, readFpD_abs, IEEE.classD]
 
 /-- **RINT.S refines.** -/
 theorem rintS_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.rintS fd fs) = some w) :
     Execute modelCtx w (.rintS fd fs) (abs s) = some (abs (execInstr s (.rintS fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.RINT_S fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.rintS fd fs) =
-      fpFinishS s fd (Mips.Fp.f32Rint (fpEnv s) (readFpReg s (regIdx fs))) from rfl]
-  rw [← runAbs_finS s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.RINT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs,
-    IEEE.rintS]
+  fp_refine runAbs_finS fd =>
+    simp only [Ops.RINT_S, bind, ValueFPR32, Pseudo.get, abs_FPR, readFpReg_eq, regIdx_eq_reg, env_abs,
+      IEEE.rintS]
 
 /-- **RINT.D refines.** -/
 theorem rintD_refines (s : State) (hg : Good s) (fd fs w : W32)
     (hw : enc (.rintD fd fs) = some w) :
     Execute modelCtx w (.rintD fd fs) (abs s) = some (abs (execInstr s (.rintD fd fs))) := by
-  obtain ⟨-, hfsz, -⟩ := hg
-  obtain ⟨h1, h0⟩ := cop1_rFormat _ _ _ _ _ _ rfl rfl hw
-  refine execute_cop1 s w _ (Ops.RINT_D fd fs) rfl h1 h0 rfl rfl rfl rfl fun _ => ?_
-  rw [show execBody s (.rintD fd fs) = fpFinishD s fd (Mips.Fp.f64Rint (fpEnv s) (readFpD s fs)) from rfl]
-  rw [← runAbs_finD s hfsz fd]
-  apply runAbs_congr
-  simp only [Ops.RINT_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.rintD]
+  fp_refine runAbs_finD fd =>
+    simp only [Ops.RINT_D, bind, valueFPR64_model, Pseudo.get, readFpD_abs, env_abs, IEEE.rintD]
 
 end Refine
