@@ -4,19 +4,31 @@ Notes about *how the proofs and their files came to be*, kept out of the Lean so
 read as a specification. Nothing here is needed to trust a theorem: the statements are in
 `Semantics/Statements.lean` and `Semantics/Specs/*.lean`, and the kernel checks the proofs.
 
+The model is MIPS32 **Release 6** (little-endian, 64-bit FPU, IEEE 754-2008 NaNs, Fixed Mapping MMU, 203 constructors). Sections
+up to "Release 6 waves" describe the current tree. Everything under "History of the Release 2 model" describes the model of tag
+`mips32r2-final` (183 constructors, big-endian, branch-likely, HI/LO, legacy FP) and is kept as a record of how the proofs
+developed; theorem names, counts and file names there are those of that model.
+
 ## What to read, in order
 
-1. The model: `Semantics/Word.lean`, `Types.lean`, `State.lean`, `Instruction.lean`, `FpOps.lean`,
-   `Step.lean` (definitions only; their tests are in `Semantics/Tests/`). Then, separately, the environment
-   around the processor (not the architecture): `Env.lean`.
-2. The statement vocabulary: `Semantics/Specs/Defs.lean`, `Semantics/Specs/WellFormed.lean`.
-3. The statements: `Semantics/Statements.lean` (the selected surface, proofs elided), then, for any
-   family of interest, `Semantics/Specs/<Family>.lean` (index and table: `Semantics/Specs/StepSpec.lean`).
-4. Once: `Semantics/Specs/Tactics.lean` (the two proof scripts).
+1. The model: `Semantics/Word.lean`, `Types.lean` (`Release`/`Profile`, `State`), `State.lean`, `Instruction.lean` (`Instruction`, the
+   per-release decoder tables `decodeFor`, `encode`), `FpOps.lean`, then `Step.lean` and its per-family tables
+   `Semantics/Exec/{Base,Atomic,BitOps,Branch,Cp0,FpuArith,FpuControl,FpuConvert,FpuMemory,FpuMove,FpuR6,Immediate,IntArith,Jump,Memory,Shift,Syscall,System,Trap}.lean`
+   (definitions only; their tests are in `Semantics/Tests/`). Then, separately, the environment around the processor (not the
+   architecture): `Env.lean`.
+2. The statement vocabulary: `Semantics/Specs/Defs.lean`, `Semantics/Specs/WellFormed.lean`, and for the refinement statements
+   `Semantics/Refine/Defs.lean` (`abs`, `Good`, `FcsrReservedZero`, `StatusImplemented`, `Inv`).
+3. The independent specification: `Semantics/Manual/*` (design and transcription guide: `docs/MANUAL-SPEC.md`), above all
+   `Choices.lean` (the pins `modelImpl`/`modelOracle`), `Accuracy.lean`, `Relation.lean`, `Cycle.lean`, then one `Ops/<Family>.lean`.
+4. The statements: `Semantics/Statements.lean` (the selected surface, proofs elided; 221 statements), then, for any family of interest,
+   `Semantics/Specs/<Family>.lean` (index and table: `Semantics/Specs/StepSpec.lean`) and `Semantics/Refine/<Family>.lean`
+   (`<ctor>_refines`). The top theorem is `step_eq_manual` (`Refine/Step.lean`).
+5. The FP reference: `Semantics/FpOpsSpec.lean` (trusted definitions), then `FpOpsCorrect*.lean` (the proofs against it).
+6. Once: `Semantics/Specs/Tactics.lean` (the three proof scripts `step_spec`, `fp_step_spec`, `cp0_step_spec`).
 
 `Lemmas.lean`, the proof-device parts of `DelaySlot.lean` / `Invariants.lean` / `RegFileSize.lean`,
-`DecodeSpec.lean`'s field lemmas, `FpOpsFacts.lean` and `FpCompareFacts.lean`'s arithmetic cores need
-not be read: they are plumbing, replayed by `lake check`.
+`DecodeSpec.lean`'s field lemmas, `FpOpsFacts.lean` and `FpCompareFacts.lean`'s arithmetic cores, and the `Refine/Bridge*` and
+`Refine/Choice*` files need not be read: they are plumbing, replayed by `lake check`.
 
 ## The comparator arrangement
 
@@ -24,15 +36,12 @@ not be read: they are plumbing, replayed by `lake check`.
 module against a *challenge* module: for each name in `comparator.json` it requires the same
 statement in both, no axiom outside `permitted_axioms`, and kernel acceptance of the solution.
 
-* **Challenge:** `Semantics/Statements.lean`. Statements only, every proof is `sorry`. It imports the
-  model and `Specs/Defs.lean` (which re-exports `Specs/WellFormed.lean`), and no proof file.
+* **Challenge:** `Semantics/Statements.lean`. Statements only, every proof is `sorry`; **221 theorems** (`grep -c '^theorem'
+  Semantics/Statements.lean`). It imports the model, `Specs/Defs.lean` (which re-exports `Specs/WellFormed.lean`),
+  `Refine/Defs.lean` (and through it `Manual/*`), `FpOpsSpec.lean` and `Manual/Accuracy.lean`, and no proof file.
 * **Solution:** `Semantics/StatementsProofs.lean`. The same statements, in the same order, each proved
   by the real theorem of the same name (`_root_.add_spec_raw s w rs rt rd hfetch hdecode hpb`).
-* Both put the theorems in `namespace Trusted`, so `comparator.json` lists `Trusted.<name>`.
-
-Before this arrangement `comparator.json` named `Semantics.Specs.StepSpec` as both challenge and
-solution, so the statement comparison compared a file with itself and only the axiom check had
-content (8 theorems).
+* Both put the theorems in `namespace Trusted`, so `comparator.json` lists the 221 `Trusted.<name>` entries.
 
 **Why a bridging solution module, and not the proof files directly.** A statement containing a
 `match` refers to an auxiliary "matcher" constant that Lean names after the first theorem *of the
@@ -60,12 +69,125 @@ earlier, at the build.
 
 **Adding a theorem to the surface:** add its statement (with docstring, proof `sorry`) to
 `Statements.lean`; add the same statement with proof `_root_.<name> <binders…>` at the same position
-in `StatementsProofs.lean`; add `Trusted.<name>` to `comparator.json`. If the positions differ, a
+in `StatementsProofs.lean`; add `Trusted.<name>` to `comparator.json`; run `scripts/gate.sh --fix`. If the positions differ, a
 `match` may be named differently on the two sides and the comparator will say so.
+
+## What the trusted statements rest on
+
+The `_spec_raw` theorems restate what `step` computes (proved by `step_spec`/`fp_step_spec`/`cp0_step_spec`, `rfl`-style); they are
+not independent of `Step.lean`. The independent result is `step_eq_manual` (`step` refines `Manual.InstructionTime` through
+`Refine.abs`, for every state with `Refine.Inv`), with `run_refines_manual`, the choice theorems and the decoder agreement theorems.
+The FP statements are stated against `FpOpsSpec.lean`, written from MD00082 Vol I-A Rev 6.01 chapter 6.
+
+**`FcsrReservedZero` and `ctc1`.** `ctc1_refines` and `ctc1_run` (`Semantics/Refine/FpuControl.lean`) take `FcsrReservedZero s`
+(`s.fcsr &&& 0xFEFC0000#32 = 0#32`, `Refine/Defs.lean`) as a hypothesis: the manual writes `FCSRWrite` of a word built from the old
+FCSR, which drops the non-R/W bits, while the model's `writeControl` keeps the old bits. `cfc1_refines` still lists it but no
+longer uses it since R6-5. The hypothesis is supplied by `Refine.Inv` (`Inv s = Good s ∧ FcsrReservedZero s ∧ StatusImplemented
+s`), established by `resetState`/`hostedStart`/`load` and preserved by `step` (`step_preserves_fcsrReservedZero`,
+`Refine/Invariant.lean`). It is an internal hypothesis of the proof files, not a hypothesis of any trusted statement beyond the
+`Refine.Inv s` that the top theorems already carry, and nothing in `Statements.lean` was weakened for it.
 
 ## The proof scripts (`Semantics/Specs/Tactics.lean`)
 
-176 per-instruction proofs (before wave 5, which added `rdhwr_spec_raw`, also by `step_spec`) were the same two scripts copied: 103 of the form destructure `s`,
+The per-instruction `_spec_raw` proofs are closed by three scripts: `step_spec` (destructure `s`, rewrite the step with
+`step_of_executesInstr`, then the fetch and decode hypotheses, `rfl`), `fp_step_spec` (additionally discharges the delay-slot /
+Coprocessor-Unusable guards with `execInstr_eq_body`, and selects `fpFinishS_eq`/`fpFinishD_eq`/`fpFinishCmp_eq` by rewriting the
+statement's right-hand side right-to-left: a plain `first | exact … | exact …` made Lean unfold large FP terms before failing,
+deterministic timeouts in `FpuArith`), and `cp0_step_spec` (the three guards of a CP0 instruction). Proofs that differ were left as
+they were (overflow corollaries, taken/not-taken corollaries, `syscall`, `break`, the structural invariants, ..).
+`Semantics/Specs` has 204 `_spec_raw` theorems.
+
+## Layout decisions
+
+* **Tests out of the definition files.** `Word`, `Types`, `State`, `Instruction`, `Asm`, `FpOps`, `Step` hold definitions only; their
+  `#guard`/`example` blocks are in `Semantics/Tests/`. `Step.lean`'s test helpers are `namespace StepTest` in
+  `Tests/StepFixtures.lean`.
+* **Specs do not import Tests.** The spec files' own example builders (`prog1Spec`, `setRegsSpec`, `buildProgSpec`) are in
+  `Specs/Fixtures.lean`, so that the proof files depend only on the model.
+* **`FpOps.lean`'s kernel-checked facts** are `Semantics/FpOpsFacts.lean`, the differential tests against the host's floats
+  `Semantics/Tests/FpOpsTests.lean`.
+* **`Instruction.WellFormed`** is in `Specs/WellFormed.lean`, because it is part of the statement of `decode_encode`.
+* **`#guard` vs `decide`.** `State.physMem` and the `Program` a fixture loads into it are `Std.HashMap`s that do not reduce in the
+  kernel, so every check that runs `step` on a concrete program is a `#guard` (compiled evaluation), while pure arithmetic side
+  conditions use `by decide`.
+* **Per-family tables (R6-1).** `Step.lean` was split into `Semantics/Exec/<Family>.lean` (`execBody` = the first table that handles the
+  instruction) and `Asm.lean` into `Semantics/Asm/*`, so no file is one large `match`; the decoder is per-opcode tables
+  (`decodeFor : Release → W32 → Option Instruction`) and CP0 access is a table `cp0Layout : Release → Nat → Nat → Option Cp0Reg`.
+
+## Release 6 waves (branch `dev/r6`, R2 model retired in place; one gated commit and merge per wave)
+
+Trusted surface per wave (`Statements.lean` theorem count, checked from the commits): R6-1 216 → 196, R6-2 → 203, R6-4 → 203
+(no statement), R6-3 → 205, R6-5 → 210, R6-6 → 221, R6-7 → 221. Constructors: 183 → 119 (R6-1) → 122 (R6-2) → 136 (R6-4) → 139 (R6-2 + R6-4 merged) → 163 (+ R6-3) → 175 (+ R6-5; 151 on its own branch) → 201 (R6-6) → 203 (R6-7).
+
+* **R6-1, foundation (commit 6868020).** `Release`/`Profile` keying (`Release.r6`, little-endian), decoder as per-opcode tables,
+  `configARFor` hook. 63 constructors removed (HI/LO family, SPECIAL2 mul/madd, MOVN/MOVZ, ADDI, LWL/LWR/SWL/SWR, branch-likely,
+  trap-immediate, COP1X, `c.cond`, FCC moves/branches, unfused MADD); `jr`/`jr.hb` removed (JALR with `rd = 0`, JR p.207), `lui` is
+  AUI with `rs = 0`, `bltzal`/`bgezal` become `nal`/`bal`, `pause` added: 183 → 119. R6 encodings (CLO/CLZ, LL/SC/PREF as SPECIAL3 with a
+  9-bit offset, RDHWR `sel`); removed encodings raise Reserved Instruction. Little-endian memory, loader, LDC1/SDC1, assembler data,
+  `Manual.BigEndianMem = false`. `Step.lean` split into `Exec/<Family>.lean`, `Asm` into `Asm/*`.
+  **Trusted surface: 21 statements removed** (instructions or state that do not exist in Release 6: `addi_overflow_raises_ov`,
+  `addi_spec_raw`, `bc1t_spec_raw`, `beql_not_taken_squashes_delay_slot`, `beql_spec_raw`, `cCondS_spec_raw`, `c_lt_s_sets_cc`,
+  `div_by_zero_spec`, `div_spec_raw`, `lwl_spec_raw`, `maddS/D_separate`, `msubS/D_separate`, `nmaddS/D_separate`,
+  `nmsubS/D_separate`, `movf_spec_raw`, `mult_spec_raw`, `step_nullified`), **1 added** (`rdhwr_reserved_sel`), **16 restated** (hi/lo
+  conjuncts dropped, Config value, `signExt9` for `ll`/`sc`, RDHWR `sel`, `ext_spec_raw`, `sll_spec_raw`, `fcsrSpec_unique`,
+  `f64Sqrt_correct`, ..). The top theorems are textually unchanged. Oracle retargeted to `qemu-system-mipsel -cpu mips32r6-generic` /
+  `llvm-mc mipsel mips32r6`; 37 known model bugs declared for later waves; corpus pruned to the 29 programs valid in Release 6.
+* **R6-2, privileged architecture (f163a12).** CP0 layout table `cp0Layout`, `UserLocal`, `BadInstr`/`BadInstrP`, `LLAddr.LLB`, `KScratch1..6`,
+  Config3/4/5 (`SBRI`), `CU0` removed (Status bit 28 is RW; CP0 usable in Kernel Mode only), MFC0/MTC0 of an unimplemented register
+  reads 0 / is ignored, RDHWR 5 (`XNP`) and 29 (`ULR`), the Release 6 WAIT, new ERETNC, SIGRIE, CACHE (no-op); SDBBP/DERET/TLB*
+  not decoded (Reserved Instruction). Exception entry no longer clears `LLbit` (SC p.347, ERETNC p.179). **7 CP0 statements added**
+  (`cache_spec_raw`, `eretnc_spec_raw`, `exceptionEntry_badInstr`, `mfc0_unimplemented_reads_zero`, `mtc0_unimplemented_ignored`,
+  `sigrie_spec_raw`, `takeInterrupt_badInstr_unchanged`) and **9 restated** (`mfc0_spec_raw`, `mtc0_spec_raw`, `wait_spec_raw`,
+  `cp0Usable_false_iff`, `exceptionEntry_always`, `hwrValue_unimplemented`, `hwrena_write_masked`, `rdhwr_reserved_unimplemented`,
+  `fcsrSpec_unique`), 196 → 203.
+* **R6-4, integer and PC-relative (6133703).** MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA, ALIGN, BITSWAP, ADDIUPC, AUIPC,
+  ALUIPC, LWPC: 119 → 136. `Oracle.divByZero` (pin: dividend / 0, matches QEMU). PREF hints 24..31 raise Reserved Instruction.
+  The misaligned-access pin (D3) is documented in `Manual/Ops/Memory`. No trusted statement changed.
+* **R6-3, compact branches and forbidden slots (dae68a0, merged ad34be6).** 24 constructors (bc, balc, beqc .. bnezalc, bovc, bnvc, jic,
+  jialc), decode by the Table A.26 rs/rt relations, `Delay.forbiddenSlot`; forbidden slot = `pendingBranch := some (pc+8)` on a
+  not-taken conditional compact branch (D6). New oracle field `linkSourceIs31`. Trusted +2 (`beqc_spec_raw`,
+  `forbidden_slot_cti_reserved`), `branch_in_delay_slot_reserved_instruction` restated: 163 constructors, 205 statements.
+* **R6-5, FPU (029d5ce, merged 95e3b4e).** 64-bit FPRs (`Status.FR` read-only 1), `FCSR.NAN2008 = ABS2008 = 1` read-only,
+  `FIR = 0x00F30000`, non-arithmetic ABS/NEG, FS input flushing, the R6 CFC1/CTC1 rules, the 12 L-format conversions (151 constructors),
+  `FpOpsSpec` and `FpOpsCorrect*` re-proved, manual spec and refinement updated; all W5 known-model-bug declarations removed. Merge:
+  `ConsultsOracle`/`Oracle.Valid` keep the R6-3 `linkSourceIs31` rows and take W5's removal of the odd-FPR, ABS/NEG QNaN and
+  `fprOddWrite` rows; `bc`/`balc_refines` use `readFpReg64`. Trusted +5 (`f32ToW64_spec`, `f64ToW64_spec`, `w64ToF32_spec`,
+  `w64ToF64_spec`, `nanResult_first_snan`) and 28 restated for NAN2008 (`f32Add_spec` .. `f64Neg_spec`, `newQNaN_binary32/64`,
+  `nanResult_first`, `cfc1_spec_raw`, `ctc1_spec_raw`, `cvtWS_spec_raw`, `resetState_spec`, ..): 210 statements after the merge.
+* **R6-6, new FPU instructions (a43084c, merged 4d9c7c8).** 26 constructors: CMP.condn.S/D (22 predicates, table-driven),
+  BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ, fused MADDF/MSUBF (single rounding, `FmaSpec` proved for all operands), MIN/MAX/MINA/MAXA,
+  CLASS, RINT: 175 → 201. End to end (decode/encode, exec, `_spec_raw`, Manual transcription, refinement, choice rows, assembler,
+  QEMU/LLVM oracle tests). New references in `FpOpsSpec` (`FmaSpec`, `CmpSpec`, `MinMaxSpec`, `ClassSpec`, `RintSpec`,
+  `WithFlushInexact`). Orchestrator decision: FS = 1 input flushing now signals Inexact in every non-comparison operation (MD00082
+  Vol I-A Rev 6.01 §6.7.2.4 p.102). **11 FP statements added** (`cmpTable_formula`, `f32/f64Cmp_spec`, `Fma_spec`, `MinMax_spec`,
+  `Class_spec`, `Rint_spec`) and **18 FP statements restated stronger** (they now carry `WithFlushInexact`: `f32/f64Add/Sub/Mul/Div/
+  Sqrt_spec`, `f64Sqrt_correct`, `f32ToF64_spec`, `f64ToF32_spec`, `f32/f64ToW32_spec`, `f32/f64ToW64_spec`; stronger because the
+  conclusion additionally fixes Inexact; no hypothesis added). `Manual/Accuracy.RecipFlagsOK` strengthened. 201 constructors,
+  221 statements; oracle 180 tests, 161 pass, 19 declared QEMU deviations, 0 known model bugs. (A comment-stripped text diff of
+  `Statements.lean` against the merge parent finds 17 changed statements, all FP; 18 is the count in the commit message; the one-statement
+  difference was not traced.)
+* **R6-7, closure (0e7ef66, merged 63e01a2).** All 263 Vol II-A 6.06 pages classified: 137 implemented, 77 removed in Release 6, 36
+  optional/absent, 6 TLB instructions that raise Reserved Instruction under the Fixed Mapping MMU, 7 assembler idioms, 0 open gaps
+  (`docs/spec/R6-COVERAGE.md`). DVP/EVP added as no-ops with `Config5.VP = 0` (201 → 203; they used to raise Reserved Instruction).
+  CFC1 `fs = 5` (FRE) raises Reserved Instruction (CFC1 p.129; p.130 `ConfigAR <= 2` read as `< 2`), removing the `cfc1Unpredictable`
+  choice point; `cfc1_spec_raw`'s text is unchanged, its meaning and docstring changed. `RecipFlagsOK` gains the flushed-subnormal-input clause
+  (Vol I-A 6.01 §6.7.2.4 p.102). Pins re-audited, 16 citations corrected (`docs/AUDIT.md`). bgtc/blec/bgtuc/bleuc operand-swap idioms
+  (B<cond>C p.83) added to the assembler; SSNOP rejected (SSNOP p.387). New gate check: every constructor must be executed by
+  some QEMU oracle program (`MipsRun --coverage`, `oracle.py`, gate step 7; 203/203). Wave scaffold comments removed. Statement
+  count and statement texts unchanged (221; no theorem of `Statements.lean` differs from R6-6 once the wave marker comments are ignored).
+
+Gate record at R6-7 (merge 63e01a2): corpus 29 programs vs MARS, 7 equivalence cases, 184 QEMU/LLVM oracle tests, 203 constructors
+and 750 spec theorems traced, axioms `propext`, `Quot.sound`, `Classical.choice`, 0 warnings.
+
+# History of the Release 2 model (tag `mips32r2-final`)
+
+Waves 1-12b built the pre-Release-6 model. The text below is kept as written (apart from this heading): theorem names, statement counts
+(73 → 216), the 183 constructors and the file names are those of that model. Several statements it mentions no longer exist
+(see R6-1 above for the 21 removed). R6-1 to R6-7 replaced the model in place.
+
+## The pre-Release-6 proof scripts
+
+176 per-instruction (R2) proofs (before wave 5, which added `rdhwr_spec_raw`, also by `step_spec`) were the same two scripts copied: 103 of the form destructure `s`,
 substitute `pendingBranch := none`, `unfold step`, rewrite fetch (`hfetch : readMemWord s s.pc = some w`
 since the pure-step wave) and decode, `rfl` (now `step_spec`), and 73 FPU ones that additionally discharge the delay-slot / Coprocessor-Unusable
 guards with `execInstr_eq_body` (now `fp_step_spec`). `di`/`ei`/`pref` omitted one `dsimp only`;
@@ -77,27 +199,7 @@ before failing (deterministic timeouts in `FpuArith`).
 Proofs that differ were left as they were (overflow corollaries, taken/not-taken corollaries,
 `syscall`, `break`, the structural invariants, …).
 
-## Layout decisions
-
-* **Tests out of the definition files.** `Word`, `Types`, `State`, `Instruction`, `Asm`, `FpOps`,
-  `Step` now hold definitions only; their `#guard`/`example` blocks moved verbatim to
-  `Semantics/Tests/`. To make that possible two `Asm.lean` helpers lost `private`
-  (`natToW32`, `fpCondNames`: the tests name them) and `cop1Mnemonics` (the names of the still
-  private `cop1Table`; `scripts/oracle.py` now finds its tables with or without `private`) was added for
-  the one test that checks the table has no duplicate names — no existing definition changed.
-  `Step.lean`'s `private` test helpers became `namespace StepTest` in `Tests/StepFixtures.lean`.
-* **Specs do not import Tests.** The spec files' own example builders (`prog1Spec`, `setRegsSpec`,
-  `buildProgSpec`) are in `Specs/Fixtures.lean`; they duplicate three helpers of
-  `Tests/StepFixtures.lean` on purpose, so that the proof files depend only on the model.
-* **`FpOps.lean` §10/§11.** The kernel-checked facts are now `Semantics/FpOpsFacts.lean`, the
-  differential tests against the host's floats `Semantics/Tests/FpOpsTests.lean`.
-* **`Instruction.WellFormed`** moved from `DecodeSpec.lean` to `Specs/WellFormed.lean`, because it
-  is part of the statement of `decode_encode`.
-* The former section numbering of `StepSpec.lean` ("Group 0 … Group 8", "Group N", "Group N+1",
-  with "Group 5" used seven times) reflected the order in which sections were written; the family
-  files replace it.
-
-## History, by theorem
+## History, by theorem (R2)
 
 * **`syscall1_spec`** (`Syscall.lean`; since the pure-step wave `hosted_print_int`, `Hosted.lean`) originally lacked `hpb : s.pendingBranch = none` and was
   false as stated: with `s.pendingBranch = some 0xabcd#32`, `step` yields `pc = 0xabcd#32`. The
@@ -623,3 +725,4 @@ Added (no existing statement changed or removed): `canonicalVAddr_loadAddr` (lef
 * **Independence check on the elaborated environment:** gate step 1 also runs `scripts/manual_deps.py`
   (`scripts/ManualIndependence.lean`); its allow-list is the list of items the spec shares with the model
   (README (b′)).
+

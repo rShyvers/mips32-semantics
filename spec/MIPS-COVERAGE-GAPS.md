@@ -1,100 +1,88 @@
-# What the model does not cover
+# What the model does not cover (Release 6)
 
-This is the gap analysis of the modeled processor against the architecture it targets: a pre-Release-6
-MIPS32 processor with the Release 2 feature set, big-endian, 32-bit FPU (`Status.FR = 0`), legacy FP
-(`FIR.Has2008 = 0`). The normative documents are MD00086 Vol II-A Rev 6.06, MD00090 Vol III Rev 6.02
-and MD00082 Vol I-A Rev 6.01, read for their pre-Release-6 wording. Citations give document, revision,
-instruction or section, and the printed page; each was looked up with
-`manuals/mipsdoc.py`. The "priority" column is the authors' judgment, not the manual's.
+**Open gaps: 0.** All 263 instruction pages of MD00086 Vol II-A Rev 6.06 are classified in [`R6-COVERAGE.md`](R6-COVERAGE.md)
+(checked by `tools/compliance.py check`):
 
-What *is* modeled is in the root `README.md` (coverage table, generated from `scripts/trace.py`) and
-`docs/TRACE.md`. The items below were checked against `python3 scripts/trace.py --json` (the 179
-constructors of `Instruction`): none of them has a constructor. Pinned UNPREDICTABLE choices and
-deliberate divergences are in `SPEC-NOTES.md`, not here.
+| class | pages |
+|---|---:|
+| (a) implemented (203 `Instruction` constructors) | 137 |
+| (b) removed in Release 6 (the word does not decode: Reserved Instruction) | 77 |
+| (c) optional module or feature absent | 36 |
+| (d) TLB instruction, Reserved Instruction under the Fixed Mapping MMU | 6 |
+| (e) assembler idiom of an implemented instruction | 7 |
+| (f) open gap | 0 |
 
-## 1. What the manual requires, and the model lacks
+What follows is what the profile leaves out on purpose. Each item is a choice the manual permits, not a gap; the pins are in
+[`SPEC-NOTES.md`](SPEC-NOTES.md). The profile is in `CLAUDE.md` ("Target profile"). The wave R6-7 audit closed the only two gaps it
+found: DVP (p.172-173) and EVP (p.181-182) were Reserved Instruction and are now no-ops with `Config5.VP = 0`
+(MD00086 Vol II-A Rev 6.06; MD00090 Vol III Rev 6.02 Table 9.69, p.263).
 
-MD00086 §3.1.1 (Vol II-A Rev 6.06, p.29): "All non-privileged ... CPU (non-FPU) instructions must be
-implemented — no subsetting of these are allowed — per the MIPS Instruction Set Architecture release
-supported." Privileged features and the optional units are subsettable (p.30-31); each row says which
-case applies.
+## 1. Left out by the profile
 
-### 1.1 Non-privileged instructions and the FPU
+- **Other releases.** Only Release 6 is modeled. Release 5, 3, 2 and 1 will be added backwards as profiles
+  (`Release`/`Profile`, per-release decoder tables and CP0 layout table: `docs/DESIGN.md`). The Release 2 model is at tag `mips32r2-final`.
+- **Big-endian.** `Config5.DEC = 0`, `Config.BE = 0`: little-endian only, which Release 6 requires every implementation to support
+  (MD00090 Vol III Rev 6.02, Config5, p.261). The byte order sits behind one constant.
+- **Optional modules:** MSA, microMIPS, VZ, MT, DSP, EVA, XPA, MCU, CRC, GINV, VP, EJTAG (their `Config` bits read 0). Their
+  instruction pages are class (c) below.
+- **MMU.** Fixed Mapping MMU (`Config.MT = 3`, MD00082 Vol I-A Rev 6.01 §2.4.2, p.32): TLB registers read 0 and ignore writes, and
+  TLBP, TLBR, TLBWI, TLBWR, TLBINV, TLBINVF raise Reserved Instruction (MD00090 Vol III Rev 6.02 A.1.3, p.317; MD00086 Vol II-A
+  Rev 6.06 TLBINV p.423). No Supervisor Mode.
+- **Caches.** None; CACHE and the prefetches are no-ops (CACHE p.119; D8 in `SPEC-NOTES.md`).
+- **Misaligned loads and stores** raise Address Error (MD00082 Vol I-A Rev 6.01 App. B.2, p.128); LL/SC always do.
+- **FPU.** 64-bit FPU only (`Status.FR = 1`, read-only); paired-single, 3D and the FCCR/FEXR/FENR registers are removed in Release 6.
+- **CP0 registers** not in the table `cp0Layout` (`Semantics/Exec/Cp0.lean`): 44 of the 67 sections of Vol III chapter 9 (see
+  [`COMPLIANCE.md`](COMPLIANCE.md) section A). Coprocessor 2 does not exist: its encodings raise Coprocessor Unusable with `CE = 2`.
+- **Hardware interrupt lines and the platform** are the environment (`hwInt`), not the architecture.
 
-| Missing | Manual | Status in the manual | Priority |
+## 2. Class (c): optional module or feature absent
+
+| Mnemonic | Title | Behaviour in the model | Citation |
 |---|---|---|---|
-| L-format (`cvt.l.fmt`, `round.l`, `trunc.l`, `ceil.l`, `floor.l`, `cvt.s.l`, `cvt.d.l`) | MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154; ROUND.L p.341; TRUNC.L p.440; CEIL.L p.127; FLOOR.L p.185 | UNPREDICTABLE in the FR = 0 model (p.154: "The result of this instruction is UNPREDICTABLE if the processor is executing in the FR=0 32-bit FPU register model"). Yet p.30 lists the pre-Release-6 FPU with `FIR.L = 1` and "Status.FR=0 support is required", and Vol I-A Table 6.4 (p.85) requires `FIR.D = FIR.L = 1` on a Release 2 32-bit FPU. **The manual is inconsistent here** (see also SPEC-NOTES §9 item 13); the model reports `FIR.L = 1` (as p.30 and Table 6.4 require) and does not decode these words (Reserved Instruction: a pin of the UNPREDICTABLE result) | Low: nothing predictable can be specified for FR = 0 |
-| `LUXC1`, `SUXC1` | MD00086 Vol II-A Rev 6.06, LUXC1 p.234, SUXC1 p.391 (MIPS32 Release 2, removed in Release 6) | The FR = 0 restriction applies to these too: the model does not decode them | Low |
-| Paired-single (`add.ps` ... `c.cond.ps`, `movf.ps`, `cvt.ps.s`, `cvt.s.pl`/`pu`, `pll`/`plu`/`pul`/`puu.ps`, `alnv.ps`) | MD00086 Vol II-A Rev 6.06, CVT.S.PL p.157, CVT.S.PU p.158, PLL.PS p.319, PLU.PS p.320, PUL.PS p.330, PUU.PS p.331, ALNV.PS p.41-42; NEG.PS p.307 | Optional (`FIR.PS`, p.30) and "UNPREDICTABLE if the processor is executing in the FR=0 32-bit FPU register model" (NEG.PS, p.307) | Low |
+| BC2EQZ BC2NEZ | Branch if Coprocessor 2 Condition (Register) Equal/Not Equal to Zero | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 BC2EQZ BC2NEZ p.64-65; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| CACHEE | Perform Cache Operation EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 CACHEE p.121-126; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| CFC2 | Move Control Word From Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 CFC2 p.131; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| COP2 | Coprocessor Operation to Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 COP2 p.141-142; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| CRC32B, CRC32H, CRC32W | Generate CRC with reversed polynomial 0xEDB88320 | model: RI | MD00086 Vol II-A Rev 6.06 CRC32B, CRC32H, CRC32W p.143-145; CRC module absent (Config5.CRCP = 0, D10) |
+| CRC32CB, CRC32CH, CRC32CW | Generate CRC with reversed polynomial 0x82F63B78 | model: RI | MD00086 Vol II-A Rev 6.06 CRC32CB, CRC32CH, CRC32CW p.146-148; CRC module absent (Config5.CRCP = 0, D10) |
+| CTC2 | Move Control Word to Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 CTC2 p.152; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| DERET | Debug Exception Return | model: RI (SDBBP: SPECIAL funct 0x0e; DERET: COP0 space, CpU CE=0 outside Kernel Mode) | MD00086 Vol II-A Rev 6.06 DERET p.163; "If EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out" (MD00082 Vol I-A Rev 6.01 2.4.1 p.31; D5, D7) |
+| GINVI | Global Invalidate Instruction Cache | model: RI | MD00086 Vol II-A Rev 6.06 GINVI p.187-188; GINV module absent (Config5.GI = 0, D10; SYNC p.407 "Release 6 (with Config5GI =10/11)") |
+| GINVT | Global Invalidate TLB | model: RI | MD00086 Vol II-A Rev 6.06 GINVT p.189-192; GINV module absent (Config5.GI = 0, D10; SYNC p.407 "Release 6 (with Config5GI =10/11)") |
+| LBE | Load Byte EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LBE p.212; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| LBUE | Load Byte Unsigned EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LBUE p.214; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| LDC2 | Load Doubleword to Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 LDC2 p.216-217; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| LHE | Load Halfword EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LHE p.220; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| LHUE | Load Halfword Unsigned EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LHUE p.222; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| LLE | Load Linked Word EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LLE p.225-227; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| LLWP | Load Linked Word Paired | model: RI (does not decode; Manual: LL/SC bit 6 UnpredictableEncoding -> oracle RI) | MD00086 Vol II-A Rev 6.06 LLWP p.228-229; "only present if Config5XNP=0" (LLWP p.228, SCWP p.355); Config5.XNP = 1 "LLX/SCX family of instructions is not present" (MD00090 Vol III Rev 6.02 Table 9.40 p.176, Table 9.69 p.261; D13) |
+| LLWPE | Load Linked Word Paired EVA | model: RI | MD00086 Vol II-A Rev 6.06 LLWPE p.230-231; "only present if Config5XNP=0 and Config5EVA=1" (LLWPE p.230, SCWPE p.359) |
+| LWC2 | Load Word to Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 LWC2 p.237-238; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| LWE | Load Word EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 LWE p.239-240; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| MFC2 | Move Word From Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 MFC2 p.268-269; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| MFHC0 | Move from High Coprocessor 0 | model: RI in Kernel Mode, CpU CE=0 outside (COP0 space, Table A.1 p.451 priority) | MD00086 Vol II-A Rev 6.06 MFHC0 p.270; "if Config5MVH = 0 then SignalException(ReservedInstruction)" (MFHC0 p.270, MTHC0 p.294); Config5.MVH = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.263) |
+| MFHC2 | Move Word From High Half of Coprocessor 2 Register | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 MFHC2 p.272; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| MTC2 | Move Word to Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 MTC2 p.293; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| MTHC0 | Move to High Coprocessor 0 | model: RI in Kernel Mode, CpU CE=0 outside (COP0 space, Table A.1 p.451 priority) | MD00086 Vol II-A Rev 6.06 MTHC0 p.294; "if Config5MVH = 0 then SignalException(ReservedInstruction)" (MFHC0 p.270, MTHC0 p.294); Config5.MVH = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.263) |
+| MTHC2 | Move Word to High Half of Coprocessor 2 Register | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 MTHC2 p.296; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| PREFE | Prefetch EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 PREFE p.325-328; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| SBE | Store Byte EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 SBE p.346; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| SCE | Store Conditional Word EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 SCE p.351-353; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| SCWP | Store Conditional Word Paired | model: RI (does not decode; Manual: LL/SC bit 6 UnpredictableEncoding -> oracle RI) | MD00086 Vol II-A Rev 6.06 SCWP p.354-357; "only present if Config5XNP=0" (LLWP p.228, SCWP p.355); Config5.XNP = 1 "LLX/SCX family of instructions is not present" (MD00090 Vol III Rev 6.02 Table 9.40 p.176, Table 9.69 p.261; D13) |
+| SCWPE | Store Conditional Word Paired EVA | model: RI | MD00086 Vol II-A Rev 6.06 SCWPE p.358-360; "only present if Config5XNP=0 and Config5EVA=1" (LLWPE p.230, SCWPE p.359) |
+| SDBBP | Software Debug Breakpoint | model: RI (SDBBP: SPECIAL funct 0x0e; DERET: COP0 space, CpU CE=0 outside Kernel Mode) | MD00086 Vol II-A Rev 6.06 SDBBP p.361; "If EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out" (MD00082 Vol I-A Rev 6.01 2.4.1 p.31; D5, D7) |
+| SDC2 | Store Doubleword from Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 SDC2 p.363; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| SHE | Store Halfword EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 SHE p.374; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
+| SWC2 | Store Word from Coprocessor 2 | model: CpU, CE=2 (isCop2Word; Manual.Undecodable InCop2Space) - correct per 6.2.22; QEMU raises RI (declared deviation, r6gap_absent_modules) | MD00086 Vol II-A Rev 6.06 SWC2 p.394-395; no coprocessor 2: Config1.C2 = 0 (MD00090 Vol III Rev 6.02 Table 9.65 p.239); MD00090 Vol III Rev 6.02 6.2.22 p.100: COP2/LWC2/SWC2/LDC2/SDC2 "and the CU2 bit ... was a zero" -> Coprocessor Unusable, CE = unit 2; CU2 reads 0 (MD00090 Vol III Rev 2.50 Table 8-19 p.79, R6 Table 9.47 p.190 image-only) |
+| SWE | Store Word EVA | model: RI (word does not decode) | MD00086 Vol II-A Rev 6.06 SWE p.396; Config5.EVA = 0 (MD00090 Vol III Rev 6.02 Table 9.69 p.259-264; DECISIONS D5) |
 
-### 1.2 Privileged resources (Coprocessor 0)
+## 3. Class (d): TLB instructions
 
-| Missing | Manual | Status in the manual | Priority |
+| Mnemonic | Title | Behaviour in the model | Citation |
 |---|---|---|---|
-| Vectored Interrupt (VI) and External Interrupt Controller (EIC) modes; `SRSMap` (12, 3); GPR shadow sets beyond the normal GPRs. (Interrupt compatibility mode, the Interrupt exception, `IntCtl`, `SRSCtl` and `RDPGPR`/`WRPGPR` on shadow set 0 are modeled since wave 6: SPEC-NOTES §9 item 29) | MD00090 Vol III Rev 6.02, §6.1.1 p.72 (VI, EIC: "optional"), §9.35 SRSMap p.207, §7 p.103; §9.34 SRSCtl p.203 (`HSS = 0`: "only the normal GPRs are implemented") | Optional: VI/EIC are announced by `Config3.VInt`/`VEIC` (absent: Config3 reads 0); SRSMap is required only "if Additional Shadow Sets and Vectored Interrupt Mode are Implemented" (p.207) | Low |
-| TLB and the TLB instructions `TLBP`, `TLBR`, `TLBWI`, `TLBWR` (and optional `TLBINV`, `TLBINVF`); TLB exceptions; `Index`, `Random`, `EntryLo0/1`, `Context`, `PageMask`, `Wired`, `EntryHi` | MD00086 Vol II-A Rev 6.06, TLBP p.427, TLBR p.428-429, TLBWI p.430-431, TLBWR p.432-433, TLBINV p.422-424 (optional, `Config4.IE`); MD00090 Vol III Rev 6.02, §6.2.10 p.93, §9.4 Index p.119, §9.6 Random p.123, §9.7 EntryLo p.125, §9.9 Context p.137, §9.13 PageMask p.147, §9.21 Wired p.169, §9.29 EntryHi p.185 Optional: the model has the Fixed Mapping MMU instead (`Config.MT = 3`; MD00090 Vol III Rev 6.02 Appendix A.1, p.313-317), under which "The TLBWR, TLBWI, TLBP, and TLBR instructions are no longer required and must cause a Reserved Instruction Exception" (§A.1.3, p.317) and the TLB registers "may be removed" (p.317). Segments, the `ERL = 1` kuseg mapping, kseg0/kseg1 aliasing and the User-Mode Address Errors are modeled (SPEC-NOTES §9 item 27) | Medium: a TLB is needed to run a paging OS; not needed for bare programs |
-| `CACHE` (and the cache-related CP0 state) | MD00086 Vol II-A Rev 6.06, CACHE p.114-121 | Caches are optional (p.30); `Config1` reports none | Low |
-| Watch registers `WatchLo`/`WatchHi`, Watch exception | MD00090 Vol III Rev 6.02, §9.55 p.279 ("Compliance Level: Optional"), §9.56 p.281, §6.2.25 p.101 | Optional (`Config1.WR = 0`) | Low |
-| EJTAG: `SDBBP`, `DERET`, `Debug`, `DEPC`, `DESAVE` | MD00086 Vol II-A Rev 6.06, SDBBP p.361, DERET p.163; MD00090 Vol III Rev 6.02, §9.58 Debug p.285, §9.60 DEPC p.289, §9.69 DESAVE p.309 | Optional; "If EJTAG is not implemented, the EJTAG instructions (SDBBP and DERET) can be subsetted out" (MD00086 p.31) | Low |
-| Coprocessor 2: `COP2`, `MFC2`, `MTC2`, `CFC2`, `CTC2`, `LWC2`, `SWC2`, `LDC2`, `SDC2`, `BC2F/T/FL/TL` | MD00086 Vol II-A Rev 6.06, COP2 p.141-142, CFC2 p.131, LDC2 p.216-217, BC2F p.66; p.30 ("Coprocessor 2 is optional and may be omitted") | Optional. The model has `Config1.C2 = 0`, so every COP2-space word raises Coprocessor Unusable with `Cause.CE = 2` (SPEC-NOTES §9 item 10) rather than Reserved Instruction | None unless a COP2 is wanted |
-| Other CP0 registers (`Config4`, `Config5`, `UserLocal`, `PerfCtl`/`PerfCnt`, `LLAddr`, `NestedEPC`, `CMGCRBase`, ...), and `mfc0`/`mtc0` of any unmodeled register or `sel` | MD00090 Vol III Rev 6.02, §9.49-9.50 Config4-5 p.253-266, §9.11 UserLocal p.143, §9.61 Performance Counter p.291, §9.52 LLAddr p.269 | The model implements `HWREna`, `BadVAddr`, `Count`, `Compare`, `Status`, `IntCtl`, `SRSCtl`, `Cause`, `EPC`, `PRId`, `EBase`, `Config`, `Config1`, `Config2`, `Config3`, `ErrorEPC`; an access to any other register raises Reserved Instruction (SPEC-NOTES §9 items 10, 11). UserLocal (and so `rdhwr 29`) is optional pre-Release 6 and absent (`Config3.ULRI = 0`; SPEC-NOTES §9 item 28) | Low |
-
-## 2. Later-release and optional features that are out of the Release 2 profile
-
-These are not required by Release 2 and are not planned; they are listed so that "not implemented" is not
-read as "forgotten".
-
-| Item | Manual | Why not in the profile |
-|---|---|---|
-| `ERETNC`, `MFHC0`/`MTHC0` | MD00086 Vol II-A Rev 6.06, ERETNC p.179-180 ("MIPS32 Release 5"), MFHC0 p.270, MTHC0 p.294 ("MIPS32 Release 5") | Release 5 |
-| EVA instructions (`LBE`, `LBUE`, `LHE`, `LHUE`, `LWE`, `LLE`, `LWLE`, `LWRE`, `SBE`, `SHE`, `SWE`, `SCE`, `SWLE`, `SWRE`, `CACHEE`, `PREFE`) | e.g. LBE p.212: "Implementation of this instruction is specified by the Config5 EVA field being set to one" | Config5.EVA; Release 3 and later privileged feature |
-| `JALX` | MD00086 Vol II-A Rev 6.06, JALX p.201-202; p.31: required "if and only if ISA mode-switching is possible" | Only with microMIPS or MIPS16e |
-| MIPS64 instructions (`DDIV`, `DDIVU`, ...) | MD00086 Vol II-A Rev 6.06, DDIV p.161, DDIVU p.162 | 32-bit processor |
-| Release 6 instructions and encodings (`BALC`, `BC`, `AUI`, `ALUIPC`, `LSA`, `ALIGN`, `BITSWAP`, `MUL/MUH`, `DIV/MOD`, `CMP.cond.fmt`, `MADDF/MSUBF`, `SEL.fmt`, `SELEQZ`, `CRC32*`, `LLWP`, `SIGRIE`, `GINVI`, `DVP`/`EVP`, ...) | MD00086 Vol II-A Rev 6.06, e.g. BALC p.52, LSA p.232, ALIGN p.39-41, LLWP p.228-229, SIGRIE p.375 | Release 6 removes delay slots, HI/LO and the branch-likely and unaligned instructions that this model implements; it is a different architecture |
-| DSP, MSA, MT, VZ, SmartMIPS, MDMX, microMIPS, MIPS16e ASEs and modules | MD00086 Vol II-A Rev 6.06 p.30 ("Supported Modules/ASEs are optional and may be subsetted out") | Optional |
-
-Permanently out of scope: MIPS64, DSP, MSA, microMIPS, MIPS16e, Release 6.
-
-## 3. Closed since the previous version of this document
-
-The previous version of this file (written when 76 instruction variants were modeled and only about 16
-had proofs) listed as missing, and the model now has (each with a constructor, decode/encode round trip,
-step arm and a `_spec_raw` theorem; see `docs/TRACE.md`):
-
-- Register-indirect jumps `jr`, `jalr` (and `jr.hb`/`jalr.hb` as their own constructors: hint `10000`; hint 0 is `jr`/`jalr`, any other hint is Reserved Instruction); `b`/`bal`
-  assembler idioms.
-- Zero-comparison branches `bltz`, `bgez`, `bltzal`, `bgezal` and the eight branch-likely instructions.
-- Variable shifts, `rotr`/`rotrv`, `ext`/`ins`, `seb`/`seh`/`wsbh`, `clo`/`clz`, `movn`/`movz`.
-- `mul`, `madd`/`maddu`/`msub`/`msubu`, `mthi`/`mtlo`.
-- `lwl`/`lwr`/`swl`/`swr`, `ll`/`sc` (including the address match), `sb`, `sync`/`synci`, `pref`.
-- The immediate trap family `teqi` ... `tltiu`.
-- Double precision (`.d` arithmetic, `ldc1`/`sdc1`, conversions), all sixteen compare predicates with
-  eight condition codes, `round/trunc/ceil/floor.w.fmt`, `cfc1`/`ctc1`/FCSR with rounding modes, flags,
-  enables and the Floating Point exception, `mfhc1`/`mthc1`, `movf`/`movt` and the FP conditional moves,
-  `bc1fl`/`bc1tl`, indexed loads/stores `lwxc1`/`ldxc1`/`swxc1`/`sdxc1`, `prefx`, `madd.fmt` family,
-  `recip`/`rsqrt`. The previous version's remark "Single-Precision Only" is obsolete.
-- Coprocessor 0 access and exception model: `mfc0`/`mtc0` with `sel`, `di`/`ei`, `eret`, `wait`, `rdpgpr`/`wrpgpr`, the
-  exception-entry sequence (EPC, `Cause.BD`, `EXL`, vectors, `BadVAddr`, `ErrorEPC`), Reserved Instruction,
-  Address Error, Overflow, Trap, Breakpoint, System Call and Coprocessor Unusable as architectural
-  exceptions rather than halts.
-- Operating modes (wave 3): Kernel Mode and User Mode (`Status.UM`, `EXL`, `ERL`; MD00090 Vol III
-  Rev 6.02 ch.3, p.21-23), `Status.CU0`, and Coprocessor Unusable (`Cause.CE = 0`) for every CP0
-  instruction and every undecodable COP0/CACHE word executed outside Kernel Mode with `CU0 = 0`
-  (§6.2.22, p.100). Exception entry enters Kernel Mode; `eret` returns to User Mode.
-- The Reset exception and the reset state (wave 3): `resetException`, `resetState` (`pc =
-  0xBFC0_0000`, `Status.BEV = ERL = 1`, `Cause.DC = 0`, `EBase`, `Config.K0 = 2`, `ErrorEPC`;
-  §6.2.5, p.89-90); the hosted start state is reset followed by a named boot convention, and
-  `MipsRun --reset` starts at the reset vector.
-- Timer and hardware registers (wave 5): `Count`, `Compare`, `Cause.TI`/`DC`/`IP7` (`Count` + 1 per
-  step unless `DC = 1`; `Count = Compare` sets `TI`; a `Compare` write clears it; MD00090 Vol III Rev 6.02
-  §9.27 p.183, §9.30 p.187, Table 9.52 p.209-211), `HWREna` (§9.23, p.175) and `rdhwr` (MD00086 Vol II-A
-  Rev 6.06, p.332-334: registers 0-3; Reserved Instruction otherwise).
-- Interrupts and shadow-set registers (wave 6): interrupt compatibility mode (request = `Cause.IP & Status.IM`,
-  taken when `IE = 1`, `EXL = ERL = 0`, before the next instruction; `ExcCode` 0; vector offset `0x180`/`0x200`
-  by `Cause.IV`; MD00090 Vol III Rev 6.02 §6.1 p.71-73, §6.2.26 p.102), software, timer and hardware-line
-  requests (the lines are inputs the environment holds deasserted), `wait` as standby until an interrupt
-  request (MD00086 Vol II-A Rev 6.06, WAIT, p.442-443), `IntCtl` (`IPTI = 7`, `VS = 0`), `SRSCtl` (`HSS = 0`),
-  `rdpgpr`/`wrpgpr` on shadow set 0 (p.335, p.444). SPEC-NOTES §9 items 23, 29.
-- Proofs: every constructor has a spec theorem, `decode (encode i) = some i` is proved for all constructors,
-  and `step`/`run` preserve the zero register and register-file sizes (README, "What is proved, what is
-  tested, what is trusted").
+| TLBINV | TLB Invalidate | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBINV p.422-424, p.423: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception"); TLBINV/TLBINVF optional, "indicated by the IE field in Config4" (Config4.IE = 0, D4) |
+| TLBINVF | TLB Invalidate Flush | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBINVF p.425-426, p.426: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception"); TLBINV/TLBINVF optional, "indicated by the IE field in Config4" (Config4.IE = 0, D4) |
+| TLBP | Probe TLB for Matching Entry | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBP p.427, p.427: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception") |
+| TLBR | Read Indexed TLB Entry | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBR p.428-429, p.428: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception") |
+| TLBWI | Write Indexed TLB Entry | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBWI p.430-431, p.430: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception") |
+| TLBWR | Write Random TLB Entry | RI (COP0 space: CpU CE=0 outside Kernel Mode); word does not decode | MD00086 Vol II-A Rev 6.06 TLBWR p.432-433, p.432: "On processors that include a ... Fixed Mapping (FM) MMU (ConfigMT = 2 or 3), the operation of this instruction causes a Reserved Instruction exception (RI)"; MD00090 Vol III Rev 6.02 A.1.3 p.317 (TLBWR/TLBWI/TLBP/TLBR "must cause a Reserved Instruction Exception") |

@@ -1,64 +1,303 @@
 # The independent manual specification (`Semantics/Manual/`) and the refinement of `step`
 
-This is the design document of Wave 7. Part I records what was built and decided (kept current);
-Part II is the guide for the 7B transcription agents; Part III is the approved plan as it was handed
-over (its §5.2 recommendation was overridden by the owner, see I.2).
+Target: MIPS32 **Release 6** (little-endian, 64-bit FPU with `Status.FR = 1`, IEEE 754-2008 NaNs, Fixed Mapping MMU, no optional
+modules), 203 `Instruction` constructors. Manual revisions (normative, `manuals/`): MD00082 Vol I-A Rev 6.01, MD00086 Vol II-A
+Rev 6.06, MD00090 Vol III Rev 6.02; citations are document + revision + instruction/section + PRINTED page.
 
-# Part I. As built (sub-wave 7A)
+`Semantics/Manual/` is the manual's pseudocode transcribed, independently of the model (`Semantics/Step.lean`, `Exec/*`).
+`Semantics/Refine/` proves that `step` refines it. The independent correctness result is `step_eq_manual`.
+
+Layout of this document. Part I describes the specification as it is now (Release 6). Part II is the guide for transcribing one
+Operation. Part III is the design rationale. Part IV is the history of the pre-Release-6 model (Release 2, tag `mips32r2-final`):
+its wave records are kept for the reasoning they hold; nothing in Part IV describes the current model, and its constructor counts,
+file lists and statement counts are those of that model.
+
+# Part I. The specification (Release 6)
 
 ## I.1 Files
 
+`ls Semantics/Manual` and `ls Semantics/Refine` are the authority; the list below says what each file is for.
+
 | File | Contents |
 |---|---|
-| `Manual/Arch.lean` | `Arch` (the manual's state, functions for register files and memory), `Delay` (an `I+1:` effect), `update` |
-| `Manual/Choices.lean` | `Exception`, `Outcome`, `Impl`, `Impl.WF` (7R), `AbsNegNaN` (7R), `Oracle`, `IsPAUSE`, `modelImpl`, `modelOracle`, `modelImpl_WF` (7R) |
-| `Manual/Pseudocode.lean` | `Ctx`, `Frame`, `Result`, `Pseudo` (+ `Monad`), `Pseudo.run/get/modify/impl/oracle`, `SignalException`, `I1`, `resolve`, `setPC`, `PC`, `readGPR`/`GPR`/`writeGPR`/`setGPR`, `HI`/`LO`/`setHI`/`setLO`, `reg`, `bits`, `bit`, `low`, `sign_extend`, `zero_extend`, `imm16`, `memory_address` |
-| `Manual/CP0.lean` | Status/Cause field reads by bit (`StatusIE` … `StatusCU1`, `CauseIV`, `CauseDC`), `StatusWritable`, `CauseWritable`, `HWREnaWritable`, `KernelMode`, `UserMode`, `CP0Usable`, `IntCtlIPTI`, `CauseRead`, `EBaseRead`, `ConfigRead`, `IsCoprocessorRegisterImplemented`, `CPRWrite`, `CPRRead` |
-| `Manual/Memory.lean` | `IorD`, `LorS`, `BYTE`/`HALFWORD`/`TRIPLEBYTE`/`WORD`, `BigEndianMem`, `ReverseEndian`, `BigEndianCPU`, `FixedMapping`, `CCAOf`, `AddressTranslation`, `MemElemAt`, `LoadMemory`, `laneByte`, `updMem`, `StoreMemory`, `InstructionFetch` |
-| `Manual/FPU.lean` | `FCSR_RM/Enables/FS`, `IEEE.env`, `IEEE.addS` (the shared rounding core, proved correct since wave 10, I.8), `Fmt`, `ValueFPR32`, `StoreFPR32`, `CheckFPException`, `FPResult` |
-| `Manual/Exceptions.lean` | `ExcCode`, `FaultingCoprocessorNumber`, `AdditionalState`, `vectorOffset`, `vectorBase`, `GeneralExceptionProcessing` |
-| `Manual/Interrupts.lean` | `InterruptRequests`, `InterruptsEnabled`, `InterruptTaken`, `LowPowerTime` |
-| `Manual/Timer.lean` | `TimerTick` |
-| `Manual/Reset.lean` | `ResetException` |
-| `Manual/Encoding.lean` | `fld`, `rFormat`, `iFormat`, `trapFormat`, `codeFormat`, `enc` (every constructor since 7B), `opcode`, `InCop0Space`, `InCop1Space`, `InCop2Space`, `fldOf`, `UnpredictableEncoding` (7R) |
-| `Manual/Ops/*.lean` | the pilot Operations `Ops.ADD`, `Ops.LW`, `Ops.SW`, `Ops.LWL`, `Ops.BEQ`, `Ops.BEQL`, `Ops.ADD_S`, `Ops.MTC0` |
-| `Manual/Operation.lean` | `Operation : Instruction → Option (Pseudo Unit)` (`none` = not transcribed yet) |
-| `Manual/Cycle.lean` | `IsCTI`, `DecoderSound`, `Complete`, `Execute` (+ `Execute.runOperation`), `Undecodable`, `Unpredictable` (7R), `FetchExecute`, `InstructionTime` |
-| `Refine/Defs.lean` (7D part 2) | definitions only, the refinement vocabulary of the trusted statements: `memOf`, `abs`, `Good`, `FcsrReservedZero`, `StatusImplemented`, `Inv` |
-| `Refine/Abs.lean` | `abs_*` projections, `readGPR_abs`, `regIdx_eq_reg`, `abs_writeReg`, `abs_writeFpReg` |
-| `Refine/Bridge.lean` | constants (`statusWritable_eq` …), single-bit reads, `abs_advance`, `complete_plain`, `cause_update`, `vector_eq`, `gep_eq`, `gep_take`, `Simple`, `modelCtx`, format lemmas, `branch_offset`, `offset16`, `cu1_abs`, `kernel_abs`, `cp0usable_abs`, `execute_run`, `execute_cti_slot`, `execute_cti_run`, ADD's 33-bit lemmas (`add33_low`, `add_ovf`) |
-| `Refine/Fetch.lean` | `erl_abs`, `userMode_abs`, `denied_eq`, `fixedMapping_eq`, `addrTrans_run`, `word_of_bytes`, `base_of_aligned`, `fixedMappingPA_aligned`, `memElem_eq`, `misaligned_eq`, `readMemWord_eq`, `memOf_insert`, `laneByte_eq` |
-| `Refine/{IntArith,Memory,Unaligned,Branch,BranchLikely,FpuArith,Cp0}.lean` | `add_refines`, `lw_refines`, `sw_refines`, `lwl_refines`, `beq_refines`, `beql_refines`, `addS_refines`, `mtc0_refines` |
-| `Refine/BridgeIntAlu.lean` (7C S1) | `execute_plain`, `execInstr_body`, `refine_ok`/`refine_gpr`/`refine_exc`, encoding-space lemmas, `alu_space`/`alu_run`, value lemmas (shifts, multiply/divide, `manualCount`, `wsbh_eq`) |
-| `Refine/{IntArith,Shift,MulDiv,BitOps,Immediate}.lean` (7C S1, merge) | the integer ALU `_refines`, including `ext_refines`/`ins_refines` (merge; `lowBitsMask_getLsbD`, `ext_eq`, `ins_eq`) |
-| `Refine/BridgeControl.lean` (7C S3) | signed compares with zero, `jump_target`, `branch_refine` macro, COP0 opcode lemmas, `execute_cop0`, `execInstr_cop0`, `complete_writeReg`, `cprRead_*` |
-| `Refine/{Branch,BranchLikely,Jump,Cp0,System}.lean` (7C S3, merge) | branches, branch-likely, `j`/`jal`/`jr`/`jalr`/`jrHb`/`jalrHb`, `mfc0`/`mtc0`/`di`/`ei`/`rdpgpr`/`wrpgpr`, `wait`/`rdhwr`/`eret` |
-| `Refine/BridgeMem.lean` (7C S2) | `writeReg_pb`, `complete_nop`, `complete_writeReg_eq`, trap/`SYSCALL` encoding-space lemmas, the common end of a conditional trap |
-| `Refine/{Memory,Atomic,Unaligned,Trap,Syscall}.lean` (7C S2, merged 7D part 2) | loads/stores, `sync`/`synci`/`pref`, `ll`/`sc`, `lwl`/`lwr`/`swl`/`swr`, the twelve traps, `break`, `syscall` |
-| `Refine/BridgeFpu.lean` (7C S4a) | FPR/FCSR bridges, `FPResult` against `fpFinishS/D`, `ValueFPR64`/`StoreFPR64` under `modelOracle` |
-| `Refine/{FpuArith,FpuConvert,FpuCompare}.lean` (7C S4a, merged 7D part 2) | FPU arithmetic (incl. the multiply-add family), conversions, `C.cond.fmt` |
-| `Refine/BridgeFpuMove.lean` (7C S4b) | `cop1_execute`, `cop1_cti_execute`, `fpcc_run`, doubleword accesses, `CFC1`/`CTC1` bridges, `fcsrReservedZero_extract` |
-| `Refine/{FpuMemory,FpuMove,FpuControl,FpuBranch}.lean` (7C S4b, merged 7D part 2) | FP loads/stores, moves and conditional moves, `cfc1`/`ctc1`, `bc1f`/`bc1t`/`bc1fl`/`bc1tl` |
+| `Manual/Arch.lean` | `Arch` (the manual's state: `PC`, `GPR`, 32 64-bit `FPR`, `FCSR`, the CP0 registers under the manual's names including the Release 6 `UserLocal`, `BadInstr`, `BadInstrP`, `KScratch1..6`, `Config5.SBRI`, `LLAddr`/`LLbit`; `Mem`; `BranchDelay`; the inputs `HW`, `LowPower`), `Delay` (an `I+1:` effect: `jump`, `fallThrough`, `forbiddenSlot`), `update`, `FCSRWritable`/`FCSRWrite`/`FCSRRead` |
+| `Manual/Choices.lean` | `Exception`, `Outcome`, `Impl` (the implementation constants), `Oracle` (one field per place the manual leaves a choice), `Impl.WF`, `modelImpl`, `modelOracle`, `modelImpl_WF`: the pins |
+| `Manual/Accuracy.lean` | `FPValue` (Table 6.2 re-transcribed, because `Manual/` may not import `FpOpsSpec`), `ULP`, `WithinULPs`, `Impl.RecipExact`, `Impl.RsqrtAccurate`, `RecipFlagsOK`, `Impl.RecipFlags`, `Impl.Valid` |
+| `Manual/Pseudocode.lean` | `Ctx`, `Frame`, `Result`, `Pseudo` (+ `Monad`), `SignalException`, `I1`, `resolve`, `unpredictableOr`, `setPC`, `PC`, `GPR`/`setGPR`, `reg`, `bits`, `bit`, `low`, `sign_extend`, `zero_extend`, `imm16`, `imm9`, `memory_address`. There is no `HI`/`LO`: Release 6 removed them |
+| `Manual/CP0.lean` | the Release 6 Status/Cause field readers (`StatusCU1`, `StatusFR`, no `CU0`), `StatusRead`/`StatusWritable`, `KernelMode`, `UserMode`, `CP0Usable`, `CauseRead`/`CauseWritable`, `IntCtlIPTI`, `EBaseRead`, `ConfigRead`, `Config5Read`, `LLAddrRead`, `HWREnaWritable`, `IsCoprocessorRegisterImplemented`, `CPRRead`/`CPRWrite`, `updateKScratch` |
+| `Manual/Memory.lean` | `BigEndianMem` (= `false`), `ReverseEndian`, `BigEndianCPU`, `FixedMapping`, `AddressTranslation`, `LoadMemory`/`StoreMemory`, `InstructionFetch` |
+| `Manual/FPU.lean` | `FCSR_RM/Enables/FS`, `env`, the shared IEEE rounding core wrapped (`addS` .. `sqrtS`, `D` forms, `toWordS/D`, `toLongS/D`, `cvt*`, `ltS`/`eqS`, `fmaS/D`, `minMaxS/D`, `classS/D`, `rintS/D`), `FP32RegistersMode`, `ValueFPR32/64`, `StoreFPR32/64`, `CheckFPException`, `FPResult` |
+| `Manual/Exceptions.lean` | `ExcCode`, `FaultingCoprocessorNumber`, `vectorOffset`, `vectorBase`, `FaultingInstructionWord`, `GeneralExceptionProcessing` (with the Release 6 `BadInstr`/`BadInstrP` and the forbidden slot) |
+| `Manual/Interrupts.lean`, `Timer.lean`, `Reset.lean` | `InterruptRequests`/`InterruptTaken`/`LowPowerTime`, `TimerTick`, `ResetException` |
+| `Manual/Encoding.lean` | the format diagrams: `fld`, `rFormat`, `iFormat`, `off9Format`, `sa2Format`, `pc19Format`, `encIf`, `enc` (every constructor), `CmpCondnOK`, `opcode`, `InCop0Space`/`InCop1Space`/`InCop2Space`, `UnpredictableEncoding` |
+| `Manual/Decode.lean` | the spec's own decoder `Decode`/`decodeDiagram` from `enc` (not the model's `decode`) |
+| `Manual/Ops/*.lean` (21 files) | one `def` per manual page: `IntArith`, `Shift`, `BitOps`, `Immediate`, `PcRel`, `Memory`, `Atomic`, `Trap`, `Syscall`, `Branch`, `CompactBranch`, `Jump`, `Cp0`, `System`, `VP` (DVP/EVP), `FpuArith`, `FpuConvert`, `FpuMemory`, `FpuMove`, `FpuControl`, `FpuR6` |
+| `Manual/Operation.lean` | `Operation : Instruction → Option (Pseudo Unit)`, one line per constructor |
+| `Manual/Cycle.lean` | `IsCTI`, `DecoderSound`, `Execute`, `Undecodable`, `Unpredictable`, `FetchExecute`, `InstructionTime` |
+| `Manual/Relation.lean` | `UnpredictableLimits`, `UndefinedOutcomeValid`, `NIValue`/`NIOutcome`, `QNaNValid`, `Oracle.Valid`, `Step`, `InstructionTimes`, `CTC1Unpredictable`, `ConsultsOracle`, `ChoiceFree` (exact) |
+| `Refine/Defs.lean` | definitions only (trusted): `memOf`, `abs`, `Good`, `FcsrReservedZero`, `StatusImplemented`, `Inv` |
+| `Refine/Abs`, `Bridge`, `BridgeIntAlu`, `BridgeBits`, `BridgeControl`, `BridgeMem`, `BridgeFpu`, `BridgeFpuMove`, `Fetch` | the plumbing: `abs_*` projections, constants, format lemmas, `execute_run`, FPR/FCSR bridges |
+| `Refine/<Family>.lean` | `<ctor>_refines`, one per constructor (203): `IntArith`, `Shift`, `BitOps`, `Immediate`, `PcRel`, `Memory`, `Atomic`, `Trap`, `Syscall`, `Branch`, `CompactBranch`, `Jump`, `Cp0`, `System`, `FpuArith`, `FpuConvert`, `FpuMemory`, `FpuMove`, `FpuControl`, `FpuR6` |
+| `Refine/Instr.lean` | `InstrRefines`, `instrRefines_<ctor>`, `allInstrRefines` |
+| `Refine/Cycle.lean`, `Decode.lean`, `DecodeDiagram.lean`, `DecodeBridge.lean`, `Invariant.lean` | the non-instruction paths (timer, interrupt, standby, fetch error, undecodable word), `decoderSound_decode`, the decoder agreement theorems, preservation of `Inv` |
+| `Refine/Step.lean` | TOP: `step_eq_manual`, `step_refines_manual`, `run_refines_manual`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv` |
+| `Refine/Determinism.lean` | `modelOracle_valid`, `manual_step_deterministic`, `step_unique_of_choiceFree`, `interrupt_choice_exists` |
+| `Refine/ChoicePoints.lean` | `operation_choiceFree` and the `cf_<ctor>` lemmas (56) |
+| `Refine/ChoiceFp.lean`, `ChoiceWitness.lean`, `ChoiceRows.lean`, `ChoiceRowsFp.lean`, `ChoiceExact.lean` | the other direction: the `rw_<ctor>` row lemmas, `choiceFree_exact`, `choiceFree_iff` |
+| `Refine/ImplValid.lean` | `modelImpl_valid` |
 
-`scripts/manual_independence.py` (gate step 1) enforces the independence rule (§6.3 of the plan):
-`Semantics/Manual/*` imports only `Word`, `Types`, `Instruction`, `FpOps` and other `Manual` modules,
-and names no definition of `Step.lean`/`State.lean`/`Types.lean` (except `W32`/`VAddr`/`PAddr`), no
-`decode`/`encode`, no `*Mask`, no FCSR helper of `FpOps.lean` (`fpUpdate`, `envOf`, …).
-Since wave 12b gate step 1 also runs `scripts/manual_deps.py`, which checks the same rule on the elaborated
-environment (`scripts/ManualIndependence.lean`): every constant reached transitively from a `Manual.*` constant
-(`getUsedConstants`; a theorem's statement only) is a `Manual.*` constant, a core Lean/Std/Mathlib constant,
-`W32`/`VAddr`/`PAddr`, the `Instruction` type and what Lean generates for it, or one of the listed shared items
-of `FpOps.lean` (the IEEE core, `RoundingMode.ofBits`, `Flags.*` including the field projections `Flags.invalid`/`divZero`/`overflow`/`underflow`/`inexact`, the `BitVec` NaN classifiers `isQNaN32`/`64`, `isSNaN32`/`64`; not the `Format.is*`/`signBit` classifiers: the spec classifies encodings by its own Table 6.2 transcription `Manual.FPIsNaN`, ..., `Manual/Accuracy.lean`). This catches what the
-token scan cannot see (`open Mips in … Fp.envOf`, `Mips.Fp.f32Abs`, `isModeledCp0Reg`, `opcodeOf`).
+**Independence rule.** `scripts/manual_independence.py` (gate step 1, token pre-check) and `scripts/manual_deps.py`
+(`scripts/ManualIndependence.lean`, on the elaborated environment) enforce that `Semantics/Manual/*` imports only `Word`, `Types`
+(`W32`/`VAddr`/`PAddr`), `Instruction` (constructor names) and `FpOps` (the IEEE rounding core and the listed shared items), and
+names no model definition (`decode`, `encode`, `*Mask`, `fpUpdate`, `envOf`, anything of `Step.lean`/`State.lean`/`Exec/*`). Every
+constant reached from a `Manual.*` constant must be a `Manual.*` constant, core Lean/Std, `W32`/`VAddr`/`PAddr`, the `Instruction`
+type, or an allow-listed item of `FpOps.lean`. The spec classifies NaNs by its own Table 6.2 transcription (`Manual.FPIsNaN` ..).
 
-**The spec's decoder (wave 12b).** `Manual.Decode` (`Semantics/Manual/Decode.lean`) decodes by the format
-diagrams `Manual.enc`, not by the model's `decode`; the top theorems take `Manual.decodeDiagram`. On the trusted
-surface: `decode_diagram_sound`/`decode_diagram_complete` (it decodes exactly the diagram words),
-`decode_agrees_manual` (where `decode` accepts, it agrees), `decode_none_manual` (where `decode` rejects a
-diagram word, the Operation reaches an oracle choice: MFC0/MTC0 of an absent CP0 register, EXT/INS out of
-range), `decoderSound_decodeDiagram`. Proofs: `Refine/DecodeDiagram.lean`, `Refine/DecodeBridge.lean`.
+**The spec's decoder.** `Manual.Decode` decodes by the format diagrams `Manual.enc`; the top theorems take `Manual.decodeDiagram`.
+On the trusted surface: `decode_diagram_sound`, `decode_diagram_complete`, `decode_agrees_manual` (where the model's `decode`
+accepts, it agrees), `decode_none_manual` (where `decode` rejects a diagram word, the Operation reaches an oracle choice: EXT/INS out
+of range), `decoderSound_decodeDiagram`; `decoderSound_decode` for the model's decoder. Proofs: `Refine/DecodeDiagram.lean`,
+`Refine/DecodeBridge.lean`. The model's `decode` is `decodeFor profile.release`, one table per release (`Release` has one arm,
+`.r6`); the spec's `Manual.enc` is the Release 6 diagrams only.
 
-## I.2 Decisions
+## I.2 What `abs`, `Inv` and the top theorems say
+
+`Refine.abs : State → Manual.Arch` projects the model state onto the manual's (physical memory as a function). `Refine.Inv s` is
+`Good s ∧ FcsrReservedZero s ∧ StatusImplemented s`:
+
+* `Good`: both register files have 32 entries and `$zero` reads 0;
+* `FcsrReservedZero s := s.fcsr &&& 0xFEFC0000#32 = 0#32`: the stored FCSR holds only its R/W fields (bits 31..25 and 23..18 read 0 in the
+  word; `ABS2008` and `NAN2008` are added on read, Vol I-A Rev 6.01 Table 6.8 p.92-94). `ctc1_refines` and `ctc1_run` assume it
+  (the manual writes `FCSRWrite` of a word built from the old FCSR, which drops the non-R/W bits; the model's `writeControl` keeps
+  the old ones); `cfc1_refines` takes it but no longer uses it. It is an internal hypothesis of `Refine/`, supplied by `Inv`
+  and preserved by `step` (`step_preserves_fcsrReservedZero`), `resetState`, `hostedStart` and `load`; no trusted statement
+  was weakened for it;
+* `StatusImplemented`: `Status` holds only implemented bits (needed by the Reset refinement).
+
+~~~lean
+theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
+    Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
+      some (Refine.abs (step s))
+~~~
+
+Also trusted: `step_refines_manual` (`Manual.Step`, the relation over valid oracles), `run_refines_manual` (`n` steps),
+`step_unique_of_choiceFree`, `manual_step_deterministic`, `modelOracle_valid`, `modelImpl_valid`, `interrupt_choice_exists`,
+`choiceFree_exact`, `resetException_refines_manual`, `resetState_refines_manual`, `step_preserves_inv`, `inv_resetState`,
+`inv_hostedStart`, `inv_load`, and the five decoder statements. **What the comparator trusts for them:** `Statements.lean` imports
+`Refine/Defs.lean` and through it `Manual/*`; the meaning of the statements rests on the `Manual` definitions, the pins
+`modelImpl`/`modelOracle`, `Refine.abs`/`Refine.Inv`, the model (`step`, `run`, `decode`, `resetException`, `resetState`,
+`hostedStart`, `load`) and the IEEE core of `FpOps.lean` that `Manual.IEEE.*` wraps. Not their proofs, which the kernel replays.
+
+## I.3 Decisions of the Release 6 spec
+
+1. **`I+1:` representation.** An Operation schedules its `I+1:` statements with `I1 d`, `Delay.jump t | fallThrough | forbiddenSlot`.
+   `Complete` turns that into `PC := PC + 4` (the delay or forbidden slot) and `BranchDelay := some t` (taken) or
+   `some (branchPC + 8)` (not taken). `BranchDelay.isSome` is `InstructionInBranchDelaySlot`. There is no `nullify`: Release 6
+   has no branch-likely instruction, so no slot is ever nullified, and the model has no `nullified` field.
+2. **Decoding is a parameter.** `InstructionTime impl oracle dec a` takes the decoder; the spec requires `DecoderSound dec`.
+3. **`Operation` is `Option`-valued** for historical reasons; every constructor is `some`, and `step_eq_manual` is stated as
+   `... = some (abs (step s))`.
+4. **Exceptions keep the partial state.** `Pseudo` keeps the state at `SignalException`, so FCSR.Cause written before
+   `CheckFPException` survives (Vol I-A Rev 6.01 §6.7.1 p.99).
+5. **Exception entry does not clear `LLbit`** (Release 6): `Manual.GeneralExceptionProcessing` leaves it alone; ERET clears it,
+   ERETNC does not (MD00086 Vol II-A Rev 6.06 SC p.347, ERETNC p.179; SC p.350 "Exceptions between the LL and SC cause SC to fail"
+   is read with the ERET/ERETNC pages).
+6. **Conditions are `Bool`** (`!=`, `==`, `&&`), not `Prop`: `simp` cannot rewrite under a `Decidable` instance and the refinement
+   proofs break (Part II, rule 6).
+7. **Dependent widths** are written with `low x n` and `++` then `.setWidth`.
+8. **Misaligned accesses.** Every misaligned load/store is an Address Error; LL/SC always (D3: Vol I-A Rev 6.01 Appendix B.2
+   p.128, "it is permitted for a processor implementation to produce the Address Error exception for all misaligned accesses";
+   SC p.349). The Operations check alignment; `Manual/Ops/Memory.lean` documents the pin. Hardware support would be the alternative.
+9. **Refinement statement shape.** `Refine.<ctor>_refines (s) (hg : Good s) .. (hw : enc i = some w) :
+   Execute modelCtx w i (abs s) = some (abs (execInstr s i))`.
+
+## I.4 Release 6 transcription notes
+
+Each is a reading of the pages; the pin is in `Manual/Choices.lean` or the Operation docstring and in `docs/spec/SPEC-NOTES.md`.
+Citations are the corrected ones of the R6-7 re-audit (below, `docs/AUDIT.md` section 1).
+
+**Compact branches and the forbidden slot** (`Manual/Ops/CompactBranch.lean`, 24 constructors). BC and BALC have no delay and
+no forbidden slot (BC p.53, BALC p.52). The conditional compact branches (BEQC, BNEC, BLTC, BGEC, BLTUC, BGEUC, BLEZC, BGEZC, BGTZC,
+BLTZC, BEQZC, BNEZC, the B*ZALC family, BOVC, BNVC; B<cond>C p.82-85) share `CompactIf cond target_offset`: taken sets `PC`, not taken
+schedules `Delay.forbiddenSlot`. The forbidden slot is not an `I+1:` statement of the pages; it comes from the Restrictions (B<cond>C
+p.84) and MD00082 Vol I-A Rev 6.01 §5.3.2, p.62: a control transfer instruction in a delay or forbidden slot signals Reserved
+Instruction (§5.3.2.1, p.62; BEQ p.72, JALR p.196: "Release 6 implementations are required to signal a Reserved Instruction
+exception"). Pin D6: an exception in a forbidden slot reports EPC = the compact branch and `Cause.BD = 1` (Vol I-A §5.3.2.2 p.62;
+"StatusBD" there is a misprint for `CauseBD`, Vol III Table 9.52 p.209); Vol III §6.2.3 p.87 and `BadInstrP` p.181 speak only of
+a branch delay slot. `BadInstrP` for a forbidden slot is the compact branch word, a permitted value (the spec fixes it instead of
+asking `Oracle.badInstrP`, so it is stricter than the manual there). Misprint readings: the B<cond>C Operation p.84 writes
+`PC+4+sign_extend(offset)` where p.83 and the encoding define `target_offset` (18/23-bit signed offset, the field shifted left
+2): `target_offset` is used (D11); BOVC/BNVC p.107-108 and BC1EQZ/BC1NEZ p.54-55 read the same way. B*ZALC with `rt = 31` is
+UNPREDICTABLE (p.78): `Oracle.linkSourceIs31`, pin `.proceed`. The reversed-operand idioms BGTC/BLEC/BGTUC/BLEUC (B<cond>C p.83) are
+assembler aliases, not constructors.
+
+**Release 6 integer** (`Ops/IntArith`, `BitOps`, `PcRel`): MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA, ALIGN, BITSWAP,
+ADDIUPC, AUIPC, ALUIPC, LWPC. DIV/MOD by zero is UNPREDICTABLE (DIV MOD DIVU MODU p.168-169): `Oracle.divByZero`, the model delivers
+dividend / 0 (matches QEMU). ALIGN's Operation (image-only p.39, read in the PDF) writes `tmp_rt_lo` where only `tmp_rs_lo` is defined;
+`tmp_rs_lo` is used.
+
+**Release 6 FPU** (`Ops/FpuR6`, `FpuArith`, `FpuConvert`, `FpuControl`): the register file is 32 64-bit FPRs
+(`FP32RegistersMode = 1`, Vol I-A §6.4.1 p.84); there are no odd-FPR choice points. A 32-bit result leaves the upper half of the
+FPR UNPREDICTABLE (Vol I-A §6.6.2 p.98): `Oracle.fprUpper`. NaNs follow `NAN2008`/`ABS2008` (`FIR = 0x00F30000`, Vol I-A §6.5.1
+p.88-89); ABS/NEG are non-arithmetic. New: CMP.condn.S/D (the 22 predicates of Table A.17 p.457; other `condn` values are Reserved
+Instruction, CMP p.136), BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ (no FCSR effect, p.368, p.371), fused MADDF/MSUBF (one rounding; the
+pages' Operation p.260 has `vfr` and MADDF twice, read as `ft` and MSUBF), MAX/MIN/MAXA/MINA (funct from the diagrams p.262, not
+Table A.15), CLASS, RINT, and the L-format conversions. "-2^63-1" printed on the .L and CVT.W pages is read as the Table 6.3 value
+(Vol I-A p.82). FS = 1 flushes subnormal inputs and signals Inexact in every non-comparison instruction (§6.7.2.4 p.102; Table 7.9
+p.110 lists CLASS, CMP, MAX, MAXA, MIN, MINA as comparisons): `FPResult` and `Impl.RecipFlags` carry it. CFC1 of FRE (`fs = 5`)
+raises Reserved Instruction (CFC1 p.129 Restrictions; the page p.130 prints a relational glyph read as `ConfigAR < 2`);
+CTC1 of a missing or Release 6 reserved register is Reserved Instruction, and its final `CheckFPException()` runs (p.149-150).
+
+**CP0 Release 6 layout** (`Manual/CP0.lean`, model: `cp0Layout : Release → Nat → Nat → Option Cp0Reg` in `Exec/Cp0.lean`, a table
+keyed by (register, select)). `Status` bit 28 is `RW`, not `CU0` (Vol III Table 9.47 p.190, image-only page; §3.5.3 p.23 still
+mentions CU0): CP0 is usable in Kernel Mode only. `UserLocal`, `BadInstr`/`BadInstrP` (always implemented, Config3 §9.48 p.246),
+`KScratch1..6` (Config4 `KScrExist = 0xFC`, p.255), `LLAddr.LLB`, Config3/4/5 are implemented. MFC0/MTC0 of an unimplemented
+register reads 0 / is ignored (MFC0 p.266, MTC0 p.290). Fixed Mapping MMU (D4): TLB registers read 0 and writes are ignored, and
+TLBWR/TLBWI/TLBP/TLBR, TLBINV/TLBINVF raise Reserved Instruction (Vol III A.1.3 p.317; TLBINV p.423, TLBINVF p.426). RDHWR 5 (`XNP`)
+and 29 (`ULR`). SDBBP/DERET are subsetted out (no EJTAG; Vol I-A §2.4.1 p.31, SDBBP p.361), CACHE is a no-op with no caches (CACHE
+p.119), DVP/EVP are no-ops with `Config5.VP = 0` (DVP p.172-173, EVP p.181-182). WAIT transcribes the Release 6 pseudocode
+(`interrupt_pending_and_not_masked_out`, WAIT p.442-443). SIGRIE (Config5.SBRI), ERETNC are new.
+
+**Choices pins** (`Manual/Choices.lean`; the R6-7 audit re-checked each, `docs/AUDIT.md`). `Impl`: `CountIncrement = 1` (Vol III §9.27
+p.183), `PRId`, `ConfigFixed = 0x8000_0980` (BE = 0, AR = 2 "Release 6", MT = 3 "Fixed Mapping", Table 9.64 p.233-235),
+`Config1 = 0x8000_0001`, `Config2 = 0x8000_0000`, `Config3 = 0x8C00_3000` (M, BP, BI, ULRI, RXI), `Config4 = 0x80FC_0000`,
+`Config5Fixed = 0x0000_2010` (`XNP = 1`, `LLB = 1`, `DEC = 0`; Table 9.69 p.259-264), `FIR = 0x00F3_0000`, `IntCtl`/`SRSCtl`
+constants, `recipS/D`, `rsqrtS/D`. `Impl.WF` states these. `Oracle` fields: `storeClearsLL = true`, `loadClearsLL = false` (with
+`Config5.LLB = 1`: a store to the block makes the SC fail, a load does not; the fields take no address, so the spec admits oracles
+Release 6 forbids for same-block accesses, a looseness of the spec, not of the model), `causeCE`, `resetUndefined`, `jalrRsIsRd`,
+`linkSourceIs31`, `fprUpper`, `ctc1Unpredictable`, `extOutOfRange`, `insLsbAboveMsb`, `unpredictableEncoding`, `ebaseWriteBEV0`,
+`cvtQNaNToD/ToS`, `badInstrNoWord`, `badInstrP`, `divByZero`. Fields removed with R2: `absNegNaN`, `fprOddRead/Write`, `mulHILO`,
+`divuByZero`. COP2-space words signal Coprocessor Unusable with `CE = 2` (no CP2; Vol III §6.2.22 p.100); QEMU raises Reserved
+Instruction, a declared deviation.
+
+**Accuracy** (`Manual/Accuracy.lean`): `Impl.Valid = WF ∧ RecipAccurate ∧ RecipExact ∧ RsqrtAccurate ∧ RecipFlags`, with the 1-ULP
+bound of RECIP.fmt (p.336), 2-ULP of RSQRT.fmt (p.343), and, since R6-7, a clause for a flushed subnormal input in `RecipFlagsOK`:
+`divZero = true, invalid = false` (Vol I-A Rev 6.01 §6.7.2.4 p.102). `modelImpl_valid` proves it for the model.
+
+## I.5 Choice points: `ConsultsOracle`, `Oracle.Valid`, `ChoiceFree`
+
+`ConsultsOracle ins a` lists, per Operation that reads the oracle, the condition under which the read is reached and its value can
+change the result. In Release 6: loads and stores while `LLbit = 1` (and `LWPC`), `CTC1` UNPREDICTABLE arms, `MTC0` of `EBase` with
+`BEV = 0`, `EXT`/`INS` out of range, `JALR`/`JALR.HB` with `rs = rd`, B*ZALC with `rt = 31`, every instruction that stores a 32-bit
+result into an FPR (`fprUpper`; the `.S` forms, `MTC1`, `LWC1`, the `W` conversions, the Release 6 `.S` forms), `CVT.D.S` of a QNaN,
+and DIV/MOD/DIVU/MODU by zero with `rd != 0`. Where it is `false` the Operation's run is the same under every oracle
+(`Refine.operation_choiceFree`). `ChoiceFree` is false at an interrupt, at every exception other than Coprocessor Unusable (its
+`Cause.CE` "is loaded, but not defined", Vol III §6.2.3 p.87), at a word with an UNPREDICTABLE field value whose coprocessor is
+usable, at a CTI in a delay or forbidden slot, and at a `ConsultsOracle` row. `choiceFree_exact` (trusted) proves the other
+direction: where `ChoiceFree = false`, two valid oracles give different instruction times.
+
+`Oracle.Valid` formalizes the three restrictions of MD00086 Vol II-A Rev 6.06 §1.2.1 (p.3-4): non-interference in User Mode
+(`NIValue`/`NIOutcome` over `AccessibleSame`), the inaccessible state unchanged, no halt; the UNDEFINED fields held to §1.2.2 (p.4);
+`QNaNValid` (MD00082 Vol I-A §6.3.1.5 p.82); a Reset changes registers only; and the model-side strengthening that no UNPREDICTABLE or
+UNDEFINED outcome changes the hardware interrupt inputs `HW` (Vol III Table 6.2 p.73; `IP7..IP2` read-only, Table 9.52 p.211).
+
+**Spec looser or stricter than the manual (recorded, not a bug in the model).** Looser: the same-block LL/SC oracle fields above.
+Stricter: `BadInstrP` in a forbidden slot (above). Each is also in `docs/AUDIT.md` section 1.
+
+## I.6 Validation
+
+`lake exe EquivHarness` (gate step 6) runs every `tests/corpus` and `tests/oracle` program hosted and compares, on every state,
+`Manual.InstructionTime modelImpl modelOracle decode (abs s)` with `abs (step s)`. The gate also runs the corpus (29 programs, valid
+Release 6, against MARS), the QEMU/LLVM oracle (`qemu-system-mipsel -cpu mips32r6-generic`, 184 oracle tests at R6-7 including the
+runnable `tests/asm` programs, 176 of them `tests/oracle/*.asm`; every constructor must be executed by some oracle program, 203/203)
+and `Semantics/Tests/ManualTests.lean` `#guard`s. MARS cannot run Release 6; it is a differential oracle only for corpus programs that are
+valid in Release 6.
+
+# Part II. Transcribing an Operation (guide)
+
+## II.1 Rules
+
+1. **One `def` per manual page**, in `Semantics/Manual/Ops/<Family>.lean`, `namespace Manual.Ops`, named by the mnemonic (`ADD`,
+   `ADD_S` for `ADD.fmt` with fmt S, `CMP_condn_S`, ..). Add the arm to `Manual.Operation` and the format line to `Manual.enc`.
+2. **Docstring**: `**MNEMONIC operands** — MD00086 Vol II-A Rev 6.06, MNEMONIC, p.N.` followed by the page's Operation pseudocode
+   verbatim in a code block, then any Restrictions sentence the Lean implements, with its page. Look every page up with
+   `python3 manuals/mipsdoc.py insn MNEMONIC`; image-only pages are read from the PDF and say so. The page number is the PRINTED page.
+3. **Pseudocode lines as comments**: each Lean statement is preceded by the manual line it implements.
+4. **Vocabulary** (`Manual/Pseudocode.lean` etc.; nothing else from the model):
+   * registers: `GPR (reg rs)` (read; r0 reads 0), `setGPR (reg rd) v`, `PC`, `setPC v` (time `I`), `I1 (.jump t)` /
+     `I1 .fallThrough` / `I1 .forbiddenSlot` (time `I+1`);
+   * fields of the raw instruction: `reg w : Fin 32`, `imm16 w`, `imm9 w`, `w.toNat` for `rd`/`sel`;
+   * bit strings: `bits x hi lo`, `bit x k`, `low x n`, `a ++ b`, `BitVec.fill n b`, `BitVec.ofBool b`, `sign_extend v`,
+     `zero_extend v`, `memory_address`;
+   * exceptions: `SignalException .IntegerOverflow` etc. (`Manual.Exception`; Address Error carries the failing address);
+   * memory: `AddressTranslation vAddr .DATA .LOAD|.STORE`, `LoadMemory`, `StoreMemory`, `BYTE`/`HALFWORD`/`WORD`;
+   * FPU: `ValueFPR32/64`, `StoreFPR32/64`, `FPResult (IEEE.op a x y)` for every arithmetic result (Cause, CheckFPException,
+     Flags);
+   * CP0: the field readers of `Manual/CP0.lean`, `CPRRead`, `CPRWrite`, `IsCoprocessorRegisterImplemented`;
+   * UNPREDICTABLE / UNDEFINED: read a field of `Pseudo.oracle` and `resolve` it; add the field to `Oracle` with the manual
+     sentence, its model choice to `modelOracle` with the SPEC-NOTES pin, and a `ConsultsOracle` row (the build tells you).
+5. **Never** name a model definition (`readReg`, `execBody`, `decode`, masks, `fpUpdate`, ..); gate step 1 rejects it.
+6. **Write conditions as `Bool`** (`if x != 0#2 then`), not `Prop` (`≠`).
+7. **Coprocessor Unusable and CTI-in-slot** are not in the Operation: `Cycle.Execute` does them from the word's encoding space and
+   from `IsCTI`.
+8. Run `lake exe EquivHarness` after each family: every mismatch is investigated (spec bug: fix the transcription; model bug:
+   SPEC-NOTES entry with the reproducer, fix the model).
+
+## II.2 Worked example 1: ADD (MD00086 Vol II-A Rev 6.06, ADD, p.33)
+
+~~~lean
+/-- **ADD rd, rs, rt** — MD00086 Vol II-A Rev 6.06, ADD, p.33.
+```
+temp ← (GPR[rs]31||GPR[rs]31..0) + (GPR[rt]31||GPR[rt]31..0)
+if temp32 ≠ temp31 then
+   SignalException(IntegerOverflow)
+else
+   GPR[rd] ← temp
+endif
+``` -/
+def ADD (rs rt rd : W32) : Pseudo Unit := do
+  let x ← GPR (reg rs)
+  let y ← GPR (reg rt)
+  -- temp ← (GPR[rs]31||GPR[rs]31..0) + (GPR[rt]31||GPR[rt]31..0)
+  let temp : BitVec 33 := (BitVec.ofBool (bit x 31) ++ x) + (BitVec.ofBool (bit y 31) ++ y)
+  -- if temp32 ≠ temp31 then SignalException(IntegerOverflow)
+  if bit temp 32 ≠ bit temp 31 then SignalException .IntegerOverflow
+  -- else GPR[rd] ← temp
+  else setGPR (reg rd) (low temp 32)
+~~~
+(ADD's test `≠` between two `Bool`s predates rule 6; new code writes `!=`.) Refinement: `Refine.add_refines`
+(`Refine/IntArith.lean`): the 33-bit overflow test is the model's `addOverflows` (`add_ovf`), the low 32 bits are `x + y`.
+
+## II.3 Worked example 2: BEQC (MD00086 Vol II-A Rev 6.06, B<cond>C, p.82-85)
+
+~~~lean
+/-- **BEQC rs, rt, offset** — B<cond>C, p.82-85. -/
+def BEQC (rs rt offset : W32) : Pseudo Unit := do
+  let target_offset := sign_extend (imm16 offset ++ 0#2)
+  -- BEQC: cond ← GPR[rs] = GPR[rt]
+  let cond := (← GPR (reg rs)) == (← GPR (reg rt))
+  CompactIf cond target_offset
+~~~
+`CompactIf cond target_offset` is `if cond then setPC (PC + 4 + target_offset) else ForbiddenSlot`: taken sets `PC` at once
+(compact branches have no delay slot), not taken schedules the forbidden slot (`Delay.forbiddenSlot`, see I.4). Refinement:
+`Refine.beqc_refines` (`Refine/CompactBranch.lean`).
+
+# Part III. Design rationale
+
+* **A function with an explicit choice argument, and a relation on top.** `Manual.InstructionTime impl oracle dec : Arch → Option Arch`
+  is deterministic once the oracle is given and runs, so it can be tested against `step` on the corpus before any proof work;
+  `Manual.Step impl dec a a' := ∃ o, o.Valid ∧ InstructionTime impl o dec a = some a'` allows every outcome the manual permits.
+* **`Impl` and `Oracle`.** `Impl` holds the fixed constants of one implementation (Count rate, PRId, Config registers, FIR, the
+  reciprocal approximations); `Oracle` has one field per place the manual allows several outcomes, typed by what it is asked.
+  `modelImpl`/`modelOracle` are the model's instance, each field a one-line pin citing SPEC-NOTES.
+* **`Pseudo`** is `ReaderT (Impl × Oracle) (StateT Arch (Except Signal))`, so `SignalException` aborts the instruction as
+  MD00086 §2.2.2.5.1 p.26 says.
+* **Why `abs`.** `State.physMem` is a `Std.HashMap`; two maps built in a different order are not equal values, so the statement is
+  about `abs s`, with memory as a function. Reason about `abs`, not the `State` record: rewrite through the `abs_*` and bridge lemmas.
+* **One theorem per constructor**, closed by one macro-style script; the top theorem does `cases instr` and closes each case with
+  `Refine.<ctor>_refines`, so no large `match` is elaborated. No `decide` on `BitVec`, no default `simp` set, no `bv_decide`.
+* **What the model and the manual share.** Only the IEEE rounding core of `FpOps.lean`, proved against `FpOpsSpec.lean` (see Part IV
+  and `docs/PROOF-NOTES.md`); FCSR Cause/Flags/Enables and `CheckFPException` are transcribed again (Vol I-A §6.7.1 p.99, Vol II-A p.23).
+
+# Part IV. History of the Release 2 model (tag `mips32r2-final`)
+
+Everything below describes the pre-Release-6 model (183 constructors, big-endian, 32-bit FPU, legacy NaNs, branch-likely, HI/LO), as
+built in waves 7A-12b. The wave-8 to wave-11 choice and FP machinery survives in Release 6 in changed form (Part I); the
+constructor, row and statement counts and the file names below are those of the old model. Pre-Release-6 pages cited here
+(for example BEQL p.73) are the Rev 6.06 pages of instructions Release 6 removed. The original plan document (a 150-line
+design handed to the 7B agents, with its R2-specific section on branch-likely) is not reproduced.
+
+## IV.1 Decisions of 7A (R2)
 
 1. **Branch-likely: faithful two instruction times (owner decision, overrides plan §5.2).** The model
    gained `State.nullified` (Task 0; SPEC-NOTES §9 item 1b). The spec's `Arch.Nullify` is the same
@@ -93,7 +332,8 @@ range), `decoderSound_decodeDiagram`. Proofs: `Refine/DecodeDiagram.lean`, `Refi
    branches (the spec's completion writes `Nullify`). `Good s` = both register files have 32 entries
    and `$zero` reads 0 (all invariants of `step`).
 
-## I.3 Validation (plan §3)
+
+## IV.2 Validation at 7A (R2)
 
 `lake exe EquivHarness` (gate step 6) runs every `tests/corpus` and `tests/oracle` program hosted and
 compares, on every state, `Manual.InstructionTime modelImpl modelOracle decode (abs s)` with
@@ -103,7 +343,7 @@ skipped (instruction not transcribed). A deliberate spec bug (`BEQL` not nullify
 mismatch, `tests/oracle/branch_likely_not_taken.asm`). `Semantics/Tests/ManualTests.lean` has
 `#guard`s on concrete states.
 
-## I.4 Review fixes (Wave 7R)
+## IV.3 Review fixes (Wave 7R, R2)
 
 The independent review of 7B led to these changes (details and citations in `docs/spec/SPEC-NOTES.md`
 §9 items 13, 21 and §11):
@@ -126,26 +366,7 @@ The independent review of 7B led to these changes (details and citations in `doc
    an `Outcome`.
 9. **Reset**: the oracle's `Status` is masked with the implemented Status bits.
 
-## I.5 The cycle refinement and the top theorems (Wave 7D, part 1)
-
-### Files
-
-| File | Contents |
-|---|---|
-| `Manual/Relation.lean` (spec) | `UserPAddr`, `CP0Same`, `InaccessibleSame`, `AccessibleSame`, `SameMode`, `UnpredictableLimits`, `OutcomeValid`, `UndefinedOutcomeValid`, `OutcomeAgree`, `NIValue`, `NIOutcome`, `QNaNValid`, `Oracle.Valid`, `Step`, `InstructionTimes`, `OddFPR`, `FPRPair`, `FPCC`, `CTC1Unpredictable`, `CmpAbsorbs`, `MaddAbsorbs` (wave 9), `ConsultsOracle`, `ctxOf`, `ChoiceFree` (wave 8: `KernelState` and `OracleFreeOp` removed) |
-| `Refine/Cycle.lean` | the non-instruction paths: `timerTick_abs`, `causeValue_abs`, `interruptRequests_abs`, `interruptsEnabled_abs`, `interruptTaken_abs`, `intVector_eq`, `takeInterrupt_abs`, `standbyStep_abs`, `nullifiedStep_abs`, `fetch_run`, `fetchError_abs`, `undecodable_abs` (+ encoding-space lemmas `isCop0Word_eq`, `isCop1Word_eq`, `isCop2Word_eq`, `cop01_disjoint`, `cop2_of_unpredictable`) |
-| `Refine/Decode.lean` | `decode_enc` (`decode w = some i → enc i = some w`), `decoderSound_decode : DecoderSound decode`, `encode_of_decode`, `enc_eq_encode`, `decode_of_enc` (completeness on well-formed instructions) |
-| `Refine/Invariant.lean` | the preservation of `FcsrReservedZero`, `StatusImplemented` (defined in `Refine/Defs.lean`) by `step`, `resetException`, establishment by `resetState`, `hostedStart`, `load` |
-| `Refine/Instr.lean` | `InstrRefines`, `instrRefines_<ctor>` (all 183, generated), `allInstrRefines` |
-| `Refine/Step.lean` | `step_preserves_inv`, `inv_resetState`, `inv_hostedStart`, `inv_load`, `execute_abs`, `stepCore_abs`, `step_eq_manual`, `run_refines_manual`, `resetException_refines_manual`, `resetState_refines_manual` |
-| `Refine/ChoicePoints.lean` (wave 8) | `cf_<ctor>` for the 70 constructors whose Operation reads the oracle, `operation_choiceFree` (all 183), the tactics `case_ite`/`ofree` |
-| `Refine/Determinism.lean` | `qnan32_to64`, `qnan64_to32`, `modelOracle_valid`, `step_refines_manual`, `fetch_oracleFree`, `execute_oracleFree`, `instructionTime_oracleFree`, `manual_step_deterministic`, `step_unique_of_choiceFree`, `modelOracleCE1`, `gep_causeCE_choice`, `interrupt_not_choiceFree`, `interrupt_choice_exists` |
-| `Refine/ChoiceFp.lean` (wave 9) | `FPResult_eq`, `fpc`/`fpf`/`trapC` and their algebra (`trapC_inv`, `trapC_en`, `trapC_fpf`, `fpf_fpf`, `bit6_fpf`, `bit16_fpf`), the NaN branch of the binary FP operations (`NR`, `add_nan` …, `mul_qnan_left` …), `Dist`, `dist_left`/`dist_right`/`dist_both`, witness constants `QA64`, `QB64`, `SN64`, `One64`, `Four64`, `QA32`, `QB32` |
-| `Refine/ChoiceWitness.lean` (wave 9) | the witness oracles `WP`, `wo`, `wo_valid`; `CEof`, `ceA`, `ceB`, `gep_CE`; `Obs`, `RunP`, `RowWitness` |
-| `Refine/ChoiceRows.lean`, `ChoiceRowsFp.lean`, `ChoiceRowsFma.lean` (wave 9) | `rw_<ctor>` for the 68 constructors with a `ConsultsOracle` row; the tactics `runp`, `runp_fp`, `runp_fe` |
-| `Refine/ChoiceExact.lean` (wave 9) | `operation_some`, `consults_row`, `Sep`, `resOf`, `sep_run`, `fetch_notCpU`, `choiceFree_exact`, `choiceFree_iff` |
-
-### Decisions
+## IV.4 The cycle refinement (Wave 7D, R2)
 
 1. **`InstructionTime` stays `Option`-valued**: `Operation` is total in content since 7B (every
    constructor is `some`), but making the type total would restate all per-instruction theorems; the
@@ -170,303 +391,7 @@ The independent review of 7B led to these changes (details and citations in `doc
 5. **`UnpredictableLimits` / `Oracle.Valid`** formalize the three restrictions of §1.2.1 (p.3-4) since
    wave 8 (I.6); until then "must not depend on inaccessible data" was not formalized.
 
-### Top theorems (on the trusted surface since 7D part 2)
-
-Proved in `Refine/` and restated in `Semantics/Statements.lean` (namespace `Trusted`, last section),
-`StatementsProofs.lean` and `comparator.json` (143 → 156 statements; 158 since wave 8, I.6; 159 since wave 9, I.7):
-
-~~~lean
-theorem step_eq_manual (s : State) (hs : Refine.Inv s) :
-    Manual.InstructionTime Manual.modelImpl Manual.modelOracle Manual.decodeDiagram (Refine.abs s) =
-      some (Refine.abs (step s))
-theorem step_refines_manual (s : State) (hs : Refine.Inv s) :
-    Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) (Refine.abs (step s))
-theorem run_refines_manual (s : State) (hs : Refine.Inv s) (n : Nat) :
-    Manual.InstructionTimes Manual.modelImpl Manual.modelOracle Manual.decodeDiagram n (Refine.abs s) =
-      some (Refine.abs (run s n))
-theorem step_unique_of_choiceFree (s : State) (hs : Refine.Inv s)
-    (h : Manual.ChoiceFree Manual.modelImpl Manual.decodeDiagram (Refine.abs s) = true) (a' : Manual.Arch)
-    (h' : Manual.Step Manual.modelImpl Manual.decodeDiagram (Refine.abs s) a') : a' = Refine.abs (step s)
-theorem modelOracle_valid : Manual.modelOracle.Valid
-theorem manual_step_deterministic (i : Manual.Impl) (dec : W32 → Option Instruction)
-    (a a₁ a₂ : Manual.Arch) (h : Manual.ChoiceFree i dec a = true) (h₁ : Manual.Step i dec a a₁)
-    (h₂ : Manual.Step i dec a a₂) : a₁ = a₂
-theorem decoderSound_decode : Manual.DecoderSound decode
-theorem resetException_refines_manual (s : State) (h : Refine.StatusImplemented s) :
-    Refine.abs (resetException s) = Manual.ResetException Manual.modelOracle (Refine.abs s)
-theorem resetState_refines_manual :
-    Refine.abs resetState = Manual.ResetException Manual.modelOracle (Refine.abs powerOnState)
-theorem step_preserves_inv (s : State) (h : Refine.Inv s) : Refine.Inv (step s)
-theorem inv_resetState : Refine.Inv resetState
-theorem inv_hostedStart : Refine.Inv hostedStart
-theorem inv_load (p : Program) : Refine.Inv (load p)
-~~~
-
-**What the comparator trusts for them.** `Statements.lean` imports `Semantics/Refine/Defs.lean`
-(definitions only) and through it `Semantics/Manual/*`. The comparator checks that each solution
-proves the same statement over the same constants; the meaning of these statements therefore rests
-on the definitions they mention: the `Manual` definitions (the transcription), `modelImpl` and
-`modelOracle` (the pins), `Refine.abs` and `Refine.Inv`, the model (`step`, `run`, `decode`,
-`resetException`, `resetState`, `powerOnState`, `hostedStart`, `load`), and the IEEE rounding core of
-`FpOps.lean` that `Manual.IEEE.*` wraps. Not their proofs (`Semantics/Refine/*`), which the kernel
-replays (`lake check`).
-
-# Part II. Transcribing an Operation (guide for 7B)
-
-## II.1 Rules
-
-1. **One `def` per manual page**, in `Semantics/Manual/Ops/<Family>.lean`, `namespace Manual.Ops`,
-   named by the mnemonic (`ADD`, `LWL`, `ADD_S` for `ADD.fmt` with fmt S, `C_cond_S`, …). Add the arm
-   to `Manual.Operation` and the format line to `Manual.enc` (in 7B: `Manual/Encoding/<Group>.lean`).
-2. **Docstring**: `**MNEMONIC operands** — MD00086 Vol II-A Rev 6.06, MNEMONIC, p.N.` followed by the
-   page's Operation pseudocode verbatim in a code block, then any Restrictions sentence the Lean
-   implements (pre-Release-6 alignment), with its page. Look every page up with
-   `python3 manuals/mipsdoc.py insn MNEMONIC`; image-only pages are read from the PDF and
-   say so. The page number is the PRINTED page.
-3. **Pseudocode lines as comments**: each Lean statement is preceded by the manual line it
-   implements (`-- vAddr ← sign_extend(offset) + GPR[base]`).
-4. **Vocabulary** (`Manual/Pseudocode.lean` etc.; nothing else from the model):
-   * registers: `GPR (reg rs)` (read; r0 reads 0), `setGPR (reg rd) v`, `HI`, `LO`, `setHI`, `setLO`,
-     `PC`, `setPC v` (time `I`), `I1 (.jump t)` / `I1 .fallThrough` / `I1 .nullify` (time `I+1`);
-   * fields of the raw instruction: `reg w : Fin 32`, `imm16 w : BitVec 16`, `w.toNat` for `rd`/`sel`;
-   * bit strings: `bits x hi lo` (`x_{hi..lo}`), `bit x k` (`x_k`, Bool), `low x n` (`x_{n-1..0}`),
-     `a ++ b` (`a || b`), `BitVec.fill n b` (`b^n`), `BitVec.ofBool b`, `sign_extend v` (width of `v`),
-     `zero_extend v`, `memory_address`;
-   * exceptions: `SignalException .IntegerOverflow` etc. (`Manual.Exception`; Address Error carries
-     the failing address);
-   * memory: `AddressTranslation vAddr .DATA .LOAD|.STORE`, `LoadMemory CCA len pAddr vAddr .DATA`
-     (returns the aligned word), `StoreMemory CCA len memElem pAddr vAddr`, `BYTE`/`HALFWORD`/`WORD`,
-     `BigEndianMem`, `BigEndianCPU a`, `ReverseEndian a`;
-   * FPU: `ValueFPR32`, `StoreFPR32` (D/L formats: add `ValueFPR64`/`StoreFPR64` with the oracle for an
-     odd register), `FPResult (IEEE.op a x y)` for every arithmetic result (Cause, CheckFPException,
-     Flags), `FPConditionCode`/`SetFPConditionCode` (to add, Figure 2.25/2.26 p.23-24);
-   * CP0: the field readers of `Manual/CP0.lean`, `CPRRead`, `CPRWrite`,
-     `IsCoprocessorRegisterImplemented`;
-   * UNPREDICTABLE / UNDEFINED: read a field of `Pseudo.oracle` and `resolve` it; add the field to
-     `Oracle` with the manual sentence, and its model choice to `modelOracle` with the SPEC-NOTES pin.
-5. **Never** name a model definition (`readReg`, `execBody`, `decode`, masks, `fpUpdate`, …); gate step 1
-   rejects it. Compute a field from its bit positions (`bit a.Status 1` is `StatusEXL`).
-6. **Write conditions as `Bool`** (`if x != 0#2 then`, `if bit t 32 != bit t 31 then`) rather than
-   `Prop` (`≠`): `simp` cannot rewrite inside a `Decidable` instance and the refinement proof breaks.
-7. **Coprocessor Unusable and CTI-in-slot** are not in the Operation: `Cycle.Execute` does them from
-   the word's encoding space and from `IsCTI`.
-8. Run `lake exe EquivHarness` after each family: every mismatch is investigated (spec bug: fix the
-   transcription; model bug: SPEC-NOTES entry with the reproducer, fix the model).
-
-## II.2 Worked example 1: ADD (MD00086 Vol II-A Rev 6.06, ADD, p.33)
-
-~~~lean
-/-- **ADD rd, rs, rt** — MD00086 Vol II-A Rev 6.06, ADD, p.33.
-```
-temp ← (GPR[rs]31||GPR[rs]31..0) + (GPR[rt]31||GPR[rt]31..0)
-if temp32 ≠ temp31 then
-   SignalException(IntegerOverflow)
-else
-   GPR[rd] ← temp
-endif
-``` -/
-def ADD (rs rt rd : W32) : Pseudo Unit := do
-  let x ← GPR (reg rs)
-  let y ← GPR (reg rt)
-  -- temp ← (GPR[rs]31||GPR[rs]31..0) + (GPR[rt]31||GPR[rt]31..0)
-  let temp : BitVec 33 := (BitVec.ofBool (bit x 31) ++ x) + (BitVec.ofBool (bit y 31) ++ y)
-  -- if temp32 ≠ temp31 then SignalException(IntegerOverflow)
-  if bit temp 32 ≠ bit temp 31 then SignalException .IntegerOverflow
-  -- else GPR[rd] ← temp
-  else setGPR (reg rd) (low temp 32)
-~~~
-(ADD's test `≠` between two `Bool`s predates rule 6; new code writes `!=`.)
-`enc` line: `| .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)` (SPECIAL `000000` … ADD
-`100000`, p.33). Refinement: `Refine.add_refines` (`Refine/IntArith.lean`): the 33-bit overflow test
-is the model's `addOverflows` (`add_ovf`), the low 32 bits are `x + y` (`add33_low`).
-
-## II.3 Worked example 2: BEQL (MD00086 Vol II-A Rev 6.06, BEQL, p.73)
-
-~~~lean
-/-- **BEQL rs, rt, offset** — MD00086 Vol II-A Rev 6.06, BEQL, p.73.
-```
-I:   target_offset ← sign_extend(offset || 0^2)
-     condition ← (GPR[rs] = GPR[rt])
-I+1: if condition then
-        PC ← PC + target_offset
-     else
-        NullifyCurrentInstruction()
-     endif
-```
-In `I+1`, `PC` is the address of the delay slot, the branch's `PC + 4`. -/
-def BEQL (rs rt offset : W32) : Pseudo Unit := do
-  -- I: target_offset ← sign_extend(offset || 0^2)
-  let target_offset := sign_extend (imm16 offset ++ 0#2)
-  -- condition ← (GPR[rs] = GPR[rt])
-  let condition := (← GPR (reg rs)) == (← GPR (reg rt))
-  let pc ← PC
-  -- I+1: if condition then PC ← PC + target_offset else NullifyCurrentInstruction() endif
-  if condition then I1 (.jump ((pc + 4#32) + target_offset)) else I1 .nullify
-~~~
-`enc` line: `| .beql rs rt off => some (iFormat 0x14#32 rs rt off)`. Refinement:
-`Refine.beql_refines` (`Refine/BranchLikely.lean`), with `s.nullified = false`.
-
-# Part III. The approved plan (as handed over)
-
-# Wave 7 plan: an independent manual specification and the refinement of `step`
-
-I explored the repo read-only. I did not run lake and changed no files. The design below rests on four facts I found:
-
-- **HashMap equality is a problem.** `State.physMem` is a `Std.HashMap`. Two maps built by inserting the same bytes in a different order are not equal values. So `step s = specStep s` cannot be stated directly over `State`.
-- **The manual's own vocabulary fits this design.** MD00086 Vol II-A Rev 6.06 §2.2.2 (p.16-26) defines `ValueFPR`/`StoreFPR`, where an odd register with format D is UNPREDICTABLE (p.22-23). It also defines `CheckFPException` (p.23), `SignalException` and `NullifyCurrentInstruction` (p.26), and the `I:`/`I+n:` timing labels (§1.3).
-- **Branch-likely is the main structural difference.** Its manual Operation says "I+1: … else NullifyCurrentInstruction()" (BEQL). The model does this differently (point 5).
-- **`FpOps.lean` mixes two things.** It holds the IEEE operation core and also the FCSR folding (`fpUpdate`, its §9). Only the core may be shared.
-
-## 1. Shape of the spec: an executable interpreter with an explicit choice argument
-
-I recommend a hybrid: a relation defined on top of a function that takes the manual's choices as an argument.
-
-- **`Manual.Arch`** is the manual's state, with functions instead of arrays and maps:
-  - `PC`, `GPR : Fin 32 → W32`, `HI`, `LO`, `FPR`, `FCSR`, `Mem : PAddr → UInt8`, `LLbit`, `LLAddr`
-  - the CP0 registers under the manual's names: `Status`, `Cause`, `EPC`, `BadVAddr`, `ErrorEPC`, `EBase`, `ConfigK0/K23/KU`, `Count`, `Compare`, `CauseTI`, `HWREna`
-  - the inputs `HW : BitVec 6`, `LowPower`, and `BranchDelay : Option VAddr`, documented as "the PC written by the previous instruction's I+1 statements".
-- **`Manual.Impl`** holds the fixed choices of one implementation: Count increments per instruction time, CCRes, PRId, the constant parts of Config/Config1/Config2/Config3/IntCtl/SRSCtl, and whether WAIT restarts on an interrupt that is not enabled. `Manual.modelImpl` is the model's instance.
-- **`Manual.Oracle impl`** has one field for each place the manual allows several outcomes, typed by what it is asked:
-  - `unpredictableWord` (an odd FPR with format D)
-  - `ctiInSlot : (a : Arch) → {a' // Manual.UnpredictableLimits a a'}`, the limits of Vol II-A §1.2 (p.3-4)
-  - `storeClearsLL` (a memory access between LL and SC: "may succeed or fail")
-  - `exceptionClearsLL`
-  - `causeCE` ("loaded, but not defined", Vol III p.87)
-  - `resetUndefined` (registers whose reset state is undefined)
-- **`Manual.InstructionTime impl o : Arch → Arch`** is deterministic once the oracle is given, and it runs, so it can be tested.
-- **The relation** is `Manual.Step impl a a' := ∃ o, Manual.InstructionTime impl o a = a'`. It allows every outcome the manual permits.
-
-Why not a Prop-valued relation or monad: `step` is checked against the spec by equality with one named oracle, which is cheap to prove (`simp only` plus bridge lemmas, no searching for witnesses). The spec can also be run against `step` on the test corpus before any proof work. Determinism is a separate theorem about the oracle.
-
-Pseudocode is written in `Manual.Pseudo := ReaderT (Impl × Oracle) (StateT Arch (Except Signal))`, so `SignalException` aborts the instruction as p.26 says. An Operation looks like the manual:
-
-```
-/-- ADD — MD00086 Vol II-A Rev 6.06, ADD, p.33 -/
-def ADD (rs rt rd) : Pseudo Unit := do
-  let temp := sext33 (← GPR rs) + sext33 (← GPR rt)
-  if temp[32] ≠ temp[31] then SignalException .IntegerOverflow else GPR rd ≔ temp[31:0]
-```
-
-What the spec shares with the model:
-- **Allowed:** `Types.State` (only through `abs`), `Word`, and the `Instruction` inductive as names and fields only. `decode` is not shared: the spec has its own encoding (`Manual.enc`).
-- **Trusted dependency:** the rounding core of `Mips.Fp` (`f32Add` … `cvt*`, `cmp`), wrapped as `Manual.IEEE.*` and declared as trusted. FCSR Cause/Flags/Enables handling and `CheckFPException` are transcribed again from Vol I §6.7.1 and Vol II-A p.23. `fpUpdate`, `envOf` and every `*Mask` constant in `Types.lean` are off limits. The spec defines fields by bit position (`Status.EXL := Status[1]`).
-
-## 2. Files and top theorems
-
-**`Semantics/Manual/` (the spec, a new trusted surface):**
-
-| File | Contents |
-|---|---|
-| `Arch.lean` | `Arch`, `Impl`, `Oracle`, `UnpredictableLimits` |
-| `Pseudocode.lean` | `Pseudo`, `GPR`, `HI`/`LO`, `sign_extend`, `zero_extend`, `memory_address`, `SignalException`, `NullifyCurrentInstruction` (§2.2, p.16-26) |
-| `Memory.lean` | `AddressTranslation` (Vol III App. A.1 p.313-317, Table 4.2 p.30), `LoadMemory`, `StoreMemory`, `AccessLength`, `BigEndianCPU`/`BigEndianMem`/`ReverseEndian` |
-| `FPU.lean` | `ValueFPR`, `StoreFPR`, `FPConditionCode`, `SetFPConditionCode`, `CheckFPException`, `IEEE` |
-| `CP0.lean` | per-register read and write semantics from the Vol III ch.9 tables (`CauseRead`, the side effect of a Compare write) |
-| `Exceptions.lean` | `GeneralExceptionProcessing` (§6.2.3 p.86-88, verbatim, including `vectorBase31..30 ‖ (vectorBase29..0 + vectorOffset)`), per-exception extras (§6.2.9, §6.2.21, §6.2.22, §6.2.26), priorities (Table 6.6 p.83) |
-| `Interrupts.lean` | §6.1 and Table 6.2 p.72-73 |
-| `Timer.lean` | §9.27 and §9.30 |
-| `Reset.lean` | §6.2.5 p.89-90 |
-| `Encoding.lean` | `Manual.enc : Instruction → W32`, one line per format diagram |
-| `Ops/{IntArith,Shift,MulDiv,BitOps,Immediate,Memory,Atomic,Unaligned,Branch,BranchLikely,Jump,Trap,Cp0,FpuArith,FpuConvert,FpuCompare,FpuMove,FpuMemory,FpuBranch}.lean` | one `def` per manual page, named by mnemonic; docstring citation `MD00086 Vol II-A Rev 6.06, <MNEMONIC>, p.N`; the pseudocode lines kept as comments next to the Lean |
-| `Operation.lean` | `Manual.Operation : Instruction → Pseudo Unit` (183 one-line arms since 7R) |
-| `Cycle.lean` | `InstructionTime`: interrupt check → low power → fetch (Fig 2.29 p.25) → decode by `enc` → CTI in delay slot (oracle) → `Operation` → apply `BranchDelay` or `PC+4` → timer; plus `Step`, `Steps` |
-| `Choices.lean` | `modelImpl`, `modelOracle`: each field is a one-line pin citing SPEC-NOTES |
-
-**`Semantics/Refine/` (proofs, not trusted):**
-
-| File | Contents |
-|---|---|
-| `Abs.lean` | `abs : State → Manual.Arch` (field-by-field projection only), with `abs_writeReg`, `abs_writeMem*` (via `HashMap.getElem?_insert`), etc., all under `RegFilesWF` |
-| `Fetch.lean` | `translate_eq`, `readMem*_eq` |
-| `Bridge.lean` | `exceptionEntry_eq`, `takeInterrupt_eq`, `advance_eq`, `fpFinishS/D/Cmp_eq`, `timerTick_eq`, `resetException_eq`, `causeValue_eq` |
-| `Encoding.lean` | `enc_eq_encode` (one theorem per constructor), `decode_iff_manual` (from `decode_encode` plus the converse in `DecodeSpec`) |
-| `<Family>.lean` | `Refine.<ctor>_refines`, one per constructor |
-| `Step.lean` | the top theorems |
-
-**Trusted surface:** add to `Statements.lean`, `StatementsProofs.lean` and `comparator.json`:
-- `step_eq_manual : s.RegFilesWF → abs (step s) = Manual.InstructionTime modelImpl modelOracle (abs s)`
-- `step_refines_manual : s.RegFilesWF → Manual.Step modelImpl (abs s) (abs (step s))`
-- `modelOracle_valid`, which makes the `∃` above meaningful
-- `manual_step_deterministic : Manual.ChoiceFree a → Manual.Step i a a₁ → Manual.Step i a a₂ → a₁ = a₂`
-- `step_unique_of_choiceFree`
-- `run_refines_manual`
-- `resetException_refines_manual`, `resetState_refines_manual`
-
-`ChoiceFree` is decidable. It is false only at an actual choice point, for example a store while `LLbit = 1`, a CTI in a delay slot, or an odd FPR used as a double. CLAUDE.md's trusted list gains `Semantics/Manual/*` and `abs`.
-
-## 3. A proof strategy that keeps build time down
-
-- **Reason about `abs`, not the State record.** Never destructure all 25 State fields and close with `rfl`, which is what makes the existing proofs heavy. Rewrite through the `abs_*` and bridge lemmas instead; HashMap and Array facts are proved once, in `Abs.lean`.
-- **Do the hard bit-level work once,** in `Bridge` and `Fetch`, with `bv_omega`, `BitVec.ext` and `getLsbD` lemmas. Examples: the vector "+" against the model's "|||", `temp32≠temp31` against `addOverflows`, and the lwl/lwr lane formulas (4 offsets × 4 instructions).
-- **One theorem per constructor,** closed by a `manual_refine` macro (`simp only [execBody, Manual.<OP>, Pseudo.run_*, abs_*, bridge…]` with a closed lemma set). The top theorem does `cases instr` and closes each case with `exact Refine.<ctor>_refines …`, so the terms match syntactically and no large `match` is elaborated. This is the opposite of the 13-minute general delay-slot proof.
-- **Rules for agents:**
-  - no `decide` on `BitVec`, no default `simp` set, no `maxHeartbeats 0`
-  - no `bv_decide` or `native_decide`
-  - each `Refine/*.lean` builds in 60 s or less (measure with `lean --profile`)
-  - target at most +180 s on `lake check`
-- **Validate before proving:** a `MipsRun --manual` mode and an EquivHarness check compare `Manual.InstructionTime modelImpl modelOracle` with `step` on `tests/corpus` and `tests/oracle`, along with `#guard`s in `Semantics/Tests/ManualTests.lean`. This finds spec and model bugs before anyone spends effort on proofs.
-
-## 4. Sub-waves
-
-| Sub-wave | Who | What | Files owned |
-|---|---|---|---|
-| **7A, infrastructure + pilot** | 1 Opus (a second joins for Bridge) | All of `Manual/` except `Ops`; `Refine/{Abs,Fetch,Bridge}`; pilots ADD, LW/SW, LWL, BEQ/BEQL, ADD.S, MTC0, with `_refines`; the harness mode | those files |
-| **7B, transcription** (parallel worktrees) | 4 Sonnet | `Ops/*` plus their part of `Encoding.lean` (split as `Encoding/<Group>.lean`); each Operation copied from `mipsdoc.py insn` | S1: integer ALU (Arith, Shift, MulDiv, BitOps, Immediate). S2: Memory, Atomic, Unaligned, Trap. S3: Branch, BranchLikely, Jump, Cp0. S4: FPU |
-| **7B, merge** | orchestrator | Writes `Operation.lean`, runs the harness, triages mismatches into spec bugs and model bugs (model bugs go to SPEC-NOTES with a reproducer) | `Operation.lean` |
-| **7B, review** | Opus | Line-by-line check of each Ops file against the manual; no edits | none |
-| **7C, proofs** | 4 Opus, worktrees | `Refine/<Group>.lean` and `Refine/Encoding/<Group>.lean`, same split as 7B | those files |
-| **7D, closure** | 1 Opus | `Refine/Step.lean`: the top theorems, interrupt, standby, timer and reset paths, determinism, `modelOracle_valid`, trusted-surface edits, docs (README "what is proved", DESIGN, PROOF-NOTES) | those files and docs |
-
-Each sub-wave ends gate-green. The top theorem appears only in 7D, so no `sorry` or stub is ever needed.
-
-## 5. Where the model and the manual differ, and how the spec should say it
-
-1. **Delay slots.** The spec follows the manual's I/I+1 order: the branch's I+1 `PC ←` takes effect with the delay-slot instruction's I part, and is dropped if that instruction signals an exception (EPC = branch, BD = 1, Table 6.11 p.87). A not-taken branch stores `branchPC+8`, which has the same effect. That choice must be stated in `Cycle.lean`.
-2. **Branch-likely nullification (owner decision needed).** In the manual the nullified delay slot is a separate instruction time. The model does it within the branch's own step, so `Count` advances once instead of twice and no interrupt can be taken at the nullified slot.
-   - Option (a): spec merges the branch and the nullified slot into one step, as an `Impl` pin justified by the implementation-dependent Count rate and asynchronous interrupts. I recommend this.
-   - Option (b): faithful two-step spec. It needs a new `State.nullifyNext` field, which is a model and trusted-surface change, and a stuttering simulation.
-3. **Exception entry.** The model clears `LLbit` at every exception and loads `CE = 0`; in the spec both are oracle choices. Vector "+" against "|||" is one lemma. With EXL = 1 the vector offset is 0x180 even for an interrupt, which never matters because interrupts are masked then.
-4. **FP.** `CheckFPException` tests bit 17 (Unimplemented, "E"). The spec must include it, so a lemma "FpOps never sets E" is needed. Flags are updated only when no trap is taken (Vol I §6.7.1).
-5. **LL/SC.**
-   - The model's `llAddr` comparison comes from SC p.347 ("SC will fail if…").
-   - The pin that a store clears LLbit becomes an oracle choice.
-   - ERET clears LLbit, as its Operation says.
-6. **lwl/lwr/swl/swr.** The spec uses the page formulas (`memword7+8*byte..0 ‖ GPR[rt]23-8*byte..0`, an aligned `LoadMemory`), while the model works byte by byte. This is the hardest BitVec lemma.
-7. **The timer runs after the instruction.** This is an `Impl` choice: `mfc0 Count` sees the value from before the tick, and a Compare write clears TI before the tick can set it again. It must be cited as implementation-dependent (§9.27 p.183).
-8. **Interrupt before fetch, and WAIT's I+1.** The interrupt is taken first, with EPC = PC (Table 6.6 / 6.7 p.83-84). The `LowPower` restart on a non-enabled request is the `Impl` flag (WAIT p.442-443).
-9. **Decode.** The model rejects words whose must-be-zero fields are nonzero (strict decode). For those words the spec states "not matching any diagram means RI or CpU per §6.2.21 and Table 6.6", and each such case needs a SPEC-NOTES pin where the manual says UNPREDICTABLE.
-10. **CTI in a delay slot.** The manual allows any outcome within the §1.2 limits; the model's RI must be proved to stay within them (`modelOracle_valid`).
-
-## 6. Definition of done, checked by the gate
-
-**Status at 7D part 2:** 1 (gate green) done; 2 (top theorems in the comparator) done; 3: the
-independence rule is gate step 1 (`scripts/manual_independence.py`), and that every constructor has a
-refinement is checked by the build itself (`allInstrRefines` in `Refine/Instr.lean` is a `cases` over
-`Instruction` closed by `instrRefines_<ctor>`; a constructor without one leaves a goal open); an
-`Operation` arm that is `none` would make that constructor's refinement false (`Execute` is then
-`none`), and a missing `Manual.enc` line breaks `decode_enc` (`Refine/Decode.lean`) for every
-constructor `decode` produces; a TRACE.md "manual clause / refinement" column is not done; 4 (the
-harness in the EquivHarness step) done in 7A; 5 (README) done in 7D part 2.
-
-1. The full gate is green.
-2. The top theorems are in the comparator.
-3. A new gate step, or an extension of `trace.py --check-manual`, checks that:
-   - every `Instruction` constructor has an arm in `Manual.Operation`, a cited `Ops` def whose page is confirmed with `mipsdoc.py` (when the manual texts are present), a `Manual.enc` line, and `Refine.<ctor>_refines` plus `enc_eq_encode_<ctor>`
-   - **independence:** `Semantics/Manual/*` imports only `Word`, `Types`, `Instruction`, `FpOps`, and uses none of the names defined in `Step.lean`/`State.lean`, `decode`, any `*Mask`, `fpUpdate` or `envOf` (the forbidden list is generated from those files)
-   - `docs/TRACE.md` gets a "manual clause / refinement" column.
-4. The `--manual` harness is part of the EquivHarness step.
-5. README marks `_spec_raw` as restatements and `step_eq_manual` as the independent correctness result. A list of the `modelOracle`/`modelImpl` pins is in SPEC-NOTES.
-
-### Critical Files for Implementation
-- Semantics/Step.lean
-- Semantics/State.lean
-- Semantics/Types.lean
-- Semantics/FpOps.lean
-- Semantics/Statements.lean
-- scripts/trace.py
-- Semantics/Specs/DecodeSpec.lean
-
-## I.6 Wave 8: exact choice points, the third UNPREDICTABLE restriction, RECIP accuracy
+## IV.5 Wave 8: exact choice points, the third UNPREDICTABLE restriction, RECIP accuracy
 
 **`ChoiceFree` (`Manual/Relation.lean`).** `ConsultsOracle ins a` lists, per Operation that reads the
 oracle, the condition under which the read is reached and its value can change the result: the loads
@@ -504,7 +429,7 @@ p.336). The bound against the exact result and `RSQRT.fmt`'s 2-ULP bound (p.343)
 of `modelOracle_valid`, `manual_step_deterministic` and `step_unique_of_choiceFree` is unchanged; their
 meaning changed with `Oracle.Valid` and `ChoiceFree` (README, (b′)).
 
-## I.7 Wave 9: `ChoiceFree` is exact (proved), three rows refined, test robustness
+## IV.6 Wave 9: `ChoiceFree` is exact (proved), three rows refined, test robustness
 
 **`choiceFree_exact` (trusted, `Refine/ChoiceExact.lean`).**
 
@@ -591,7 +516,7 @@ the instruction after `wait` and otherwise re-arms (same check, `EXL = 1`) and r
 In the model neither fallback runs; expectations unchanged. Load test: 40 runs of
 `scripts/oracle.py --only irq_wait_timer` under `stress-ng --cpu 88` on 44 cores: 40 pass.
 
-## I.8 Wave 10: the IEEE core proved; `RECIP`/`RSQRT` against the exact result
+## IV.7 Wave 10: the IEEE core proved; `RECIP`/`RSQRT` against the exact result
 
 **The shared core is no longer only trusted.** `Manual.IEEE.*` still wraps the rounding core of
 `Semantics/FpOps.lean`, but the core is now proved against the IEEE 754 definition the manual references
@@ -625,7 +550,7 @@ opposite directions, RN on two half-ULP errors (`rsqrt_core`).
 **Trusted surface 159 → 175**: the 16 floating-point statements listed in `docs/PROOF-NOTES.md`, "Wave 10".
 
 
-## I.9 Wave 11: the shared FP core proved on every operand
+## IV.8 Wave 11: the shared FP core proved on every operand
 
 **What the refinement shares is now proved, not trusted.** The manual specification (`Semantics/Manual/FPU.lean`,
 `Manual.IEEE.*`) still calls the FP functions of `Semantics/FpOps.lean` for the arithmetic, the conversions and the

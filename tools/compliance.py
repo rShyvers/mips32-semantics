@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""compliance.py -- helper for docs/spec/COMPLIANCE.md (read-only; Python 3 stdlib only).
+"""compliance.py -- helper for docs/spec/COMPLIANCE.md and R6-COVERAGE.md (read-only; Python 3 stdlib only).
 
   compliance.py cp0 [--fields]   every Vol III chapter 9 register section (9.4 .. 9.70): number, title,
                                  printed page and its "Compliance Level:" line; --fields adds the rows of
@@ -8,8 +8,9 @@
                                  architecture-level tags printed on its Format lines and its printed pages
   compliance.py counts           the two counts the matrix relies on (register sections, list entries)
   compliance.py check [FILE]     verify that FILE (default docs/spec/COMPLIANCE.md) lists every register
-                                 section once (IDs `A9.n`) and every instruction-list entry once, in order
-                                 (IDs `D1`..`Dn`, key in backticks); exit status 1 on any mismatch
+                                 section once (IDs `A9.n`) and that the sibling R6-COVERAGE.md classifies every
+                                 instruction-list entry once (classes a-f, counts match, no open gap (f));
+                                 exit status 1 on any mismatch
 
 It imports manuals/mipsdoc.py from the code branch (this docs branch is mounted at <repo>/docs);
 the manual texts must have been fetched (manuals/fetch.sh).
@@ -107,7 +108,11 @@ def cmd_counts():
 
 
 def cmd_check(path):
-    path = path or os.path.join(HERE, "..", "spec", "COMPLIANCE.md")
+    """Section A of COMPLIANCE.md lists every Vol III 9.4..9.70 section once; R6-COVERAGE.md classifies every
+    Vol II-A list entry once (key in the first cell) and its class table matches the rows."""
+    here = os.path.join(HERE, "..", "spec")
+    path = path or os.path.join(here, "COMPLIANCE.md")
+    cov = os.path.join(os.path.dirname(path), "R6-COVERAGE.md")
     text = open(path, encoding="utf-8").read()
     ok = True
     want_a = [s[0] for s in cp0_sections()]
@@ -116,16 +121,23 @@ def cmd_check(path):
         ok = False
         print("A table mismatch: missing", sorted(set(want_a) - set(got_a)), "extra/duplicate",
               sorted({x for x in got_a if got_a.count(x) != 1 or x not in want_a}))
-    want_d = [e[0] for e in insn_entries()]
-    got = re.findall(r"^\| D(\d+) \| `([^`]+)` \|", text, re.M)
-    got_d = [k for _, k in got]
-    ids = [int(i) for i, _ in got]
-    if got_d != want_d or ids != list(range(1, len(want_d) + 1)):
+    want_d = sorted(e[0].split()[0] for e in insn_entries())  # first name of a multi-name key
+    rows = re.findall(r"^\| ([^|]+?) \| [^|]* \| ([a-f]) \|", open(cov, encoding="utf-8").read(), re.M)
+    got_d = sorted(k.split()[0] for k, _ in rows)
+    if got_d != want_d:
         ok = False
-        print("D table mismatch: missing", [k for k in want_d if k not in got_d],
-              "extra/duplicate", [k for k in got_d if got_d.count(k) != 1 or k not in want_d],
-              "order/ids ok:", got_d == want_d and ids == list(range(1, len(want_d) + 1)))
-    print(f"A rows {len(got_a)}/{len(want_a)}, D rows {len(got_d)}/{len(want_d)}:", "OK" if ok else "MISMATCH")
+        print("coverage mismatch: missing", [k for k in want_d if k not in got_d],
+              "extra/duplicate", sorted({k for k in got_d if got_d.count(k) != 1 or k not in want_d}))
+    counts = {c: sum(1 for _, x in rows if x == c) for c in "abcdef"}
+    table = dict(re.findall(r"^\| \(([a-f])\)[^|]*\| (\d+) \|", open(cov, encoding="utf-8").read(), re.M))
+    if {k: int(v) for k, v in table.items()} != counts:
+        ok = False
+        print("class counts mismatch: table", table, "rows", counts)
+    if counts["f"] != 0:
+        ok = False
+        print("open gaps in R6-COVERAGE.md:", counts["f"])
+    print(f"A rows {len(got_a)}/{len(want_a)}, coverage rows {len(got_d)}/{len(want_d)}, classes {counts}:",
+          "OK" if ok else "MISMATCH")
     return 0 if ok else 1
 
 

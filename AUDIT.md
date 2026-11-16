@@ -1,13 +1,118 @@
 # Audit record: what was checked against the manuals
 
-A compact record of the manual-grounded checks made during the work that produced this tree, and the decisions
-taken. Sources are named in brackets: `SN` = `docs/spec/SPEC-NOTES.md` (section/item), `PN` = `docs/PROOF-NOTES.md`,
-`oracle` = a `# oracle:` directive in `tests/oracle/*.asm` (or `ASM_DIRECTIVES` in `scripts/oracle.py`), a commit hash =
-its message (`git log`). A claim that none of these sources supports is not here. This is a record of checks, not a
-certificate: it states what was looked at, not that nothing else is wrong. Manual references: MD00086 Vol II-A Rev 6.06
-(Vol II), MD00090 Vol III Rev 6.02 (Vol III), MD00082 Vol I-A Rev 6.01 (Vol I), printed pages.
+A compact record of the manual-grounded checks made on this tree and the decisions taken. Part A is the record of the current model,
+MIPS32 **Release 6** (re-audit of wave R6-7). Part B is the audit record of the pre-Release-6 model (Release 2, tag
+`mips32r2-final`), kept as history: its sections describe that model and are not statements about the current one.
+Sources are named in brackets: `SN` = `docs/spec/SPEC-NOTES.md` (section/item), `PN` = `docs/PROOF-NOTES.md`, `oracle` = a `# oracle:`
+directive in `tests/oracle/*.asm` (or `ASM_DIRECTIVES` in `scripts/oracle.py`), a commit hash = its message (`git log`). A claim that
+none of these sources supports is not here. This is a record of checks, not a certificate: it states what was looked at, not that nothing
+else is wrong. Manual references: MD00086 Vol II-A Rev 6.06 (Vol II), MD00090 Vol III Rev 6.02 (Vol III), MD00082 Vol I-A Rev 6.01
+(Vol I), printed pages.
 
-## 1. Method
+# Part A. Release 6 (wave R6-7 re-audit)
+
+Wave R6-7 (commit 0e7ef66, merged 63e01a2) closed Release 6 coverage with two audits and a re-audit of every pin and every oracle
+directive. Work was done in worktrees with `manuals/mipsdoc.py`; image-only pages (EXT p.183, ALIGN p.39, CFC1 p.130's relational glyph,
+Status Table 9.47 p.190) were read by rendering the PDF page. The detailed tables are the wave's working notes (pins:
+`PINS-R6.md`, coverage: `COVERAGE-R6.md`); the coverage result is `docs/spec/R6-COVERAGE.md`, and the pins are in `docs/spec/SPEC-NOTES.md`.
+
+## A.1 Pins re-audited (PINS-R6.md)
+
+Four groups, 89 rows in all: (A) the `Impl` constants of `Manual/Choices.lean` (`modelImpl`: Count rate, PRId, Config 0..5, SRSCtl,
+IntCtl, FIR, `CCASupported`); (B) the `Oracle` choice points (`modelOracle`); (C) misprint and erratum readings and the profile
+decisions D1-D13; (D) the directives of `tests/oracle/*.asm` (105 `expect-deviation`, 92 `unpredictable`, 0 `known-model-bug`).
+Verdicts: **63 OK**, 4 OK with a note or an extended comment, 5 notes (legitimate, worth recording), **16 citations corrected**, **1 wrong
+directive (fixed)**, **no wrong choice**. Examples of corrected citations:
+
+* `Config3 = 0x8C00_3000`: the BP/BI quotation was a merged paraphrase; now two verbatim quotes, "Release 6: BadInstrP is always
+  implemented." and "Release 6: BadInstr is always implemented." (Vol III §9.48 p.246), ULRI and RXI p.248.
+* `SRSCtl = 0`: Vol III Chapter 7 p.103 says "shadow set zero", not "set 0".
+* `FIR = 0x00F3_0000`: §6.5.1 starts Vol I p.87; Table 6.5 is p.88-90 (`Has2008` p.88; `F64` "In Release 6, StatusFR is read-only 1" p.89;
+  Table 6.4 note 3 p.85).
+* `storeClearsLL`/`loadClearsLL`: the pre-Release-6 wording "there is no `Config5`" is wrong for Release 6; SC p.347-348 with
+  `Config5.LLB = 1` ("In Release 6, Config5LLB is read-only 1", Vol III Table 9.69 p.264).
+* `unpredictableEncoding`: the pages do not call a JALR hint UNPREDICTABLE (JALR p.196 defines two values, JALR.HB p.198), the
+  docstring now says so.
+* Directive citations: `exc_sc_misaligned` (SC p.349, quote added), `fp_cfc1_ri_fs1` (CFC1 `fs = 1` "Release 6 traps" is on p.129, not p.130),
+  `fp_flush_to_zero_fs` (Vol I §6.7.2.4 p.102), `fp_nan_propagation_quiet` ("(or the default QNaN)" contradicted "When possible, this
+  QNaN result is one of the operand QNaN values", p.82), `cp0_config_k0_rw` (bit 7 is in `MT`, not `Impl`), `sc_without_ll` (on Release 6 it is
+  not UNPREDICTABLE: success or failure is mandated with `Config5.LLB = 1`, SC p.348).
+
+## A.2 Wrong directive fixed
+
+`tests/oracle/cti_in_delay_slot_reserved.asm` carried six `unpredictable` lines (gpr, cause, epc, status, pc, term) for a control transfer
+instruction in a delay slot, citing "BEQ p.72: CTI in a delay slot is UNPREDICTABLE". That is the pre-Release-6 text. BEQ p.72 and JALR p.196
+read: "Pre-Release 6: ... UNPREDICTABLE"; "Release 6: ... Release 6 implementations are required to signal a Reserved Instruction
+exception" (Vol I §5.3.2.1 p.62 says the same). The directive declared a mandated behaviour as not comparable, so a regression would
+have passed. The six lines were removed and the header rewritten with the Release 6 citations; every field is now compared and QEMU agrees
+(`python3 scripts/oracle.py --only cti_in_delay_slot_reserved`). The model's side is `forbidden_slot_cti_reserved` and
+`branch_in_delay_slot_reserved_instruction` on the trusted surface.
+
+## A.3 Probes run, and the model fixes they caused
+
+* `div/mod/divu/modu rd, rs, $zero`: model and QEMU `mips32r6-generic` agree, so the `Oracle.divByZero` docstring's QEMU claim holds.
+* `cfc1 $s0, $5` (FRE): the model read 0 without an exception; QEMU signals Reserved Instruction. The pages support QEMU
+  (CFC1 p.129 Restrictions; p.130 `ConfigAR <= 2` read as `< 2`). Model changed in R6-7: CFC1 `fs = 5` raises Reserved Instruction, which removes the
+  `cfc1Unpredictable` choice point; `cfc1_spec_raw` keeps its text, its meaning changed.
+* Gap found by the coverage audit (A.4): DVP and EVP raised Reserved Instruction; reproducer `tests/oracle/r6gap_dvp_evp.asm` (model RI four times,
+  QEMU no-op) before the fix.
+
+## A.4 Coverage audit (COVERAGE-R6.md)
+
+Every instruction page of MD00086 Vol II-A Rev 6.06 (`python3 manuals/mipsdoc.py list`: **263 pages**, the duplicate titles DIV and
+MUL counted per page) was classified against the profile of CLAUDE.md:
+
+| class | pages |
+|---|---:|
+| (a) implemented | 137 |
+| (b) removed in Release 6 | 77 |
+| (c) optional module or feature absent | 36 |
+| (d) TLB instruction, Reserved Instruction under the Fixed Mapping MMU | 6 |
+| (e) assembler idiom | 7 |
+| (f) gap (open) | 0 |
+
+Evidence per row: for (a), the constructor, decode/encode (`decode_encode`), step arm, `_spec_raw` and `_refines` (`trace.py --check`, 203/203);
+for (b), (c), (d), a `decode` probe of the removed or absent encoding (words from `llvm-mc-21 -show-encoding` or built from the page diagram) and the
+exception it raises by encoding space (COP0: Coprocessor Unusable outside Kernel Mode, else Reserved Instruction; COP1: Coprocessor
+Unusable with `CE = 1` if `CU1 = 0`, else Reserved Instruction; COP2: Coprocessor Unusable with `CE = 2`; else Reserved Instruction);
+for (e), `AsmTests` guards, `encodings.list` and the QEMU oracle. **One gap class was found: DVP and EVP** (DVP p.172-173, EVP p.181-182:
+no-ops with `Config5.VP = 0`), closed by two new constructors (201 → 203). Idiom changes: the bgtc/blec/bgtuc/bleuc operand-swap forms
+(B<cond>C p.83) were added to the assembler (llvm-mc-21 rejects them; the QEMU oracle program `r6gap_reversed_compact` checks taken and not taken; the
+p.83 text for BLEUC reads "GPR rt ... GPR rt", a misprint for rs), and SSNOP is rejected (SSNOP p.387: "Assemblers targeting specifically Release 6
+should reject the SSNOP instruction with an error"; the word 0x00000040 still decodes as `sll`).
+New gate check from this audit: every constructor must be executed by some QEMU oracle program (203/203, gate step 7).
+
+## A.5 Where the spec is looser or stricter than the manual (recorded, not model bugs)
+
+* **Looser: LL/SC same-block rule.** With `Config5.LLB = 1` a store to the LL block must fail the SC and a load must not (SC p.347-348; Vol III
+  Table 9.69 p.264). The oracle fields `storeClearsLL`/`loadClearsLL` take no address, so `Manual.Step` also admits oracles that Release 6 forbids for
+  same-block accesses. The model's constants (`true`, `false`) are the only correct ones for every address. Tightening needs the
+  implementation-dependent block size in `Impl`.
+* **Stricter: `BadInstrP` in a forbidden slot.** Vol III §9.26 p.181 makes `BadInstrP` UNPREDICTABLE outside a branch delay slot, and speaks only of
+  a delay slot; Vol I §5.3.2.2 p.62 treats delay and forbidden slots alike for EPC and BD. `Manual.GeneralExceptionProcessing` fixes `BadInstrP` to the
+  compact branch word instead of asking `Oracle.badInstrP`. A permitted value; the spec is stricter than the manual there.
+* **Note: `Config4.IE`.** Table 9.68 p.254 states two readings (TLBINV/TLBINVF must be supported; required for TLB implementations) that conflict with TLBINV p.423 and
+  TLBINVF p.426 ("on processors that include a BAT or Fixed Mapping MMU (ConfigMT = 2 or 3)" the operation raises Reserved Instruction). Pin: `IE = 0` and RI.
+* **Note: `LLAddr.PAddr`** not implemented (reads 0, writes ignored): Vol III Table 9.72 p.270 permits "as many of the bits ... as it finds convenient"; `LLB` is implemented.
+* **Note: WAIT.** The prose (p.442) says it resumes on an interrupt "even if interrupts are not enabled"; the Release 6 pseudocode (p.442-443) tests
+  `interrupt_pending_and_not_masked_out` (IP & IM). The pseudocode is transcribed (D9).
+* **Note: `PAUSE`** with `LLbit = 1` enters standby with `EPC ← PC + 4`; `DescheduleInstructionStream()` is undefined in the manual and is read as WAIT-like (PAUSE p.317).
+* **Note: COP2.** COP2-space words signal Coprocessor Unusable with `CE = 2` (no CP2; Vol III §6.2.22 p.100); QEMU raises Reserved Instruction (declared deviation,
+  `tests/oracle/r6gap_absent_modules.asm`).
+* **Note: `Status` bit 28** is `RW`, not `CU0` (Vol III Table 9.47 p.190, image-only page, read in the PDF), although §3.5.3 p.23 still lists CU0.
+
+Misprint readings recorded in the pins (each with its page): ALIGN `tmp_rt_lo` read as `tmp_rs_lo` (p.39); the CFC1 relational glyph (p.130); the
+`-2^63-1` of the `.L` and CVT.W pages read as the Table 6.3 values (p.82); MADDF/MSUBF `vfr` and MADDF twice (p.260); B<cond>C `PC+4+sign_extend(offset)`
+read as `target_offset` (p.84, D11); BOVC/BNVC and BC1EQZ/BC1NEZ offsets (p.107-108, p.54-55); MIN/MAX function codes from the diagrams (p.262) rather than Table A.15 (p.456); "StatusBD" read as
+`CauseBD` (Vol I p.62).
+
+# Part B. The Release 2 model (history, tag `mips32r2-final`)
+
+The record below was written for the pre-Release-6 model (Release 2, big-endian, 32-bit FPU, legacy NaNs, branch-likely, HI/LO) and is kept
+as written. Decisions in it that Release 6 reversed (HI/LO, legacy NaN, `FIR = 0x0033_0000`, `LLbit` cleared by every exception entry, the
+`mul` pin, the QEMU 24Kf oracle) do not describe the current model; see Part A, `docs/PROOF-NOTES.md` (R6-1 to R6-7) and `docs/spec/SPEC-NOTES.md`.
+
+## B.1 Method
 
 - Revisions: the latest revisions are normative and read for pre-Release-6 wording; Rev 2.50 citations that remain in
   comments are historical [PN "Module headers"; CLAUDE.md].
@@ -17,7 +122,7 @@ certificate: it states what was looked at, not that nothing else is wrong. Manua
 - Differential evidence was added as a second line: MARS (`tests/corpus`) and QEMU 24Kf with an LLVM encoding oracle
   (`tests/oracle`) [fddea0e]. Where QEMU departs from the manual the manual won and the difference is declared (section 4).
 
-## 2. Decisions taken from the manuals (behaviour)
+## B.2 Decisions taken from the manuals (behaviour)
 
 | Topic | Decision | Manual |
 |---|---|---|
@@ -39,7 +144,7 @@ certificate: it states what was looked at, not that nothing else is wrong. Manua
 | `RECIP`/`RSQRT` | pinned to `1.0 / x` and `1.0 / sqrt(x)`; the oracle declares accuracy `unpredictable` [SN §9.13; oracle `fp_recip_rsqrt_inexact`] | Vol II RECIP.fmt, p.336; RSQRT.fmt, p.343 |
 | NaN operand order | first quiet NaN operand in operand order [SN §9.13; `Format.nanResult`]; the oracle declares the choice `unpredictable` [oracle `fp_nan_propagation_quiet`] | Vol I §6.3.1.5, p.82 |
 
-## 3. Pins added by the independent audit (all in SN §9)
+## B.3 Pins added by the independent audit (all in SN §9)
 
 | Pin | SN item | Manual |
 |---|---|---|
@@ -54,7 +159,7 @@ certificate: it states what was looked at, not that nothing else is wrong. Manua
 | `pause`/`nal` decode as `sll`/`bltzal $0`; assembler mnemonics since 6b88488 | 16 | Vol II PAUSE p.317, NAL p.306 |
 | the `LLbit`-clearing store list includes `swxc1`/`sdxc1` | 7 | Vol II SC, p.348 |
 
-## 4. Where an oracle disagreed with the manual (the manual won)
+## B.4 Where an oracle disagreed with the manual (the manual won)
 
 Declared in the tests and tabulated in SN §10; each citation was re-checked with `mipsdoc.py` while writing this record.
 `exc_sc_misaligned` (SC p.349); `exc_lwxc1_misaligned`, `exc_ldxc1_misaligned`, `exc_swxc1_misaligned`,
@@ -63,7 +168,7 @@ Declared in the tests and tabulated in SN §10; each citation was re-checked wit
 fddea0e: 135 tests, 126 pass, 9 declared QEMU deviations, 0 known model bugs; encodings 581 identical, 13 declared, 0 mismatches.
 MARS divergences (SN §9 items 1, 3, 4, 5; item 14) are the other source of declared differences.
 
-## 5. Corrections made to citations and claims
+## B.5 Corrections made to citations and claims
 
 - SN §9 item 11 cited "bltzal/bgezal(+likely) with rs = 31 (pp. 97-98)"; the pages are BLTZAL p.98, BGEZAL p.76,
   BLTZALL p.99, BGEZALL p.80 (`mipsdoc.py list`). Corrected, and the content of the pin written out (item 18).
@@ -79,7 +184,7 @@ MARS divergences (SN §9 items 1, 3, 4, 5; item 14) are the other source of decl
 - README, DESIGN and MIPS-COVERAGE-GAPS had described a 76-instruction, single-precision, partially proved model; they were rewritten
   against `scripts/trace.py` output and the sources.
 
-## 6. The model as of wave 6 (commits f620266 to 0f72c83 and the wave-6 tree)
+## B.6 The model as of wave 6 (commits f620266 to 0f72c83 and the wave-6 tree)
 
 What the model is now, with the manual sections each part was checked against; details in SN §9 items 6, 9-10, 23, 25-29 and
 `docs/spec/COMPLIANCE.md` (every Vol III chapter 9 register and every Vol II instruction-list entry, with a verdict; after wave 6:
@@ -98,7 +203,7 @@ What the model is now, with the manual sections each part was checked against; d
 | `IntCtl`, `SRSCtl`, shadow sets | constants `0xE000_0000` and 0 (`HSS = 0`); `SRSMap` RI (UNPREDICTABLE access); `rdpgpr`/`wrpgpr` on shadow set 0 [wave 6; SN §9.29] | Vol III §9.33-9.35, p.199-207; §7, p.103; Vol II RDPGPR p.335, WRPGPR p.444 |
 | Trusted surface | `Semantics/Statements.lean`, 139 statements after wave 6 (116 before; 216 now, see `docs/PROOF-NOTES.md`); 68 of the older statements gained the hypothesis `executesInstr s = true` in wave 6, a weakening forced by interrupts (SN §9.29) [PN "The comparator arrangement"] | - |
 
-## 7. Known gaps in this record
+## B.7 Known gaps in this record
 
 - The semantics is not machine-checked against the manuals; the checks above are lookups and reviews by the authors.
 - UNPREDICTABLE pins are choices, not facts about the architecture.

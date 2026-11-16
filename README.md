@@ -1,6 +1,6 @@
 # mips32-semantics — `documentation` branch
 
-This is an orphan branch that holds only the project's prose documentation. The code branch holds the semantics: the
+This is an orphan branch that holds only the project's prose documentation. It describes the MIPS32 Release 6 model (the Release 2 model is kept at tag `mips32r2-final` of the code repository). The code branch holds the semantics: the
 Lean sources, proofs, tests and the gate. Mount this branch at `docs/` inside a checkout of the code branch. Repo-relative
 paths in both branches, such as `docs/spec/SPEC-NOTES.md` and `../Semantics/Step.lean`, then resolve:
 
@@ -16,8 +16,9 @@ paths in both branches, such as `docs/spec/SPEC-NOTES.md` and `../Semantics/Step
 | `TRACE.md` | GENERATED instruction traceability matrix (`scripts/trace.py`) |
 | `spec/INSTRUCTION-REF.md` | Per-instruction semantics with manual citations (document, revision, section, printed page) |
 | `spec/SPEC-NOTES.md` | Pins (choices the manual leaves open) and divergences of MARS/QEMU from the manual |
-| `spec/COMPLIANCE.md` | Compliance matrix against the manuals (`tools/compliance.py check`) |
-| `spec/MIPS-COVERAGE-GAPS.md` | What the model does not cover |
+| `spec/R6-COVERAGE.md` | All 263 pages of Vol II-A 6.06 classified (implemented, removed in R6, optional module absent, TLB, idiom, gap) |
+| `spec/COMPLIANCE.md` | Compliance matrix of the CP0 registers (Vol III ch. 9) against the manuals (`tools/compliance.py check`) |
+| `spec/MIPS-COVERAGE-GAPS.md` | What the model does not cover: 0 open gaps, and what the profile leaves out on purpose |
 
 ## Keeping it in step with the code
 
@@ -25,7 +26,7 @@ paths in both branches, such as `docs/spec/SPEC-NOTES.md` and `../Semantics/Step
 fails when any of these holds:
 
 1. `TRACE.md` differs from fresh `scripts/trace.py` output.
-2. `tools/compliance.py check` fails. This needs the manual texts, fetched with `manuals/fetch.sh` on the code branch.
+2. `tools/compliance.py check` fails (CP0 register matrix and R6 coverage table must list every manual section / instruction page once). This needs the manual texts, fetched with `manuals/fetch.sh` on the code branch.
 3. The code under `Semantics/`, `tests/`, `scripts/` or the Lean roots changed after the `SYNC` commit.
 
 `./check.sh --fix` regenerates `TRACE.md`. After reviewing the docs against the code changes, `./check.sh --sync`
