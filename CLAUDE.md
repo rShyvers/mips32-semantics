@@ -1,4 +1,4 @@
-# semantic-mips -- agent rules (auto-loaded; obey)
+# mips32-semantics -- agent rules (auto-loaded; obey)
 
 Formal semantics of MIPS32 in Lean 4: decode/encode, assembler, small-step `step`, and machine-checked spec theorems.
 Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals by review.

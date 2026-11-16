@@ -10,7 +10,7 @@ import Semantics.Env
 /-!
 # MipsRun — thin "assemble and run one `.asm` program" executable
 
-Issue #1: the VibeCheck demo (`rShyvers/VibeCheck`) lets a user paste MIPS
+The demo (`rShyvers/mips32-semantics-demo`, formerly VibeCheck) lets a user paste MIPS
 assembly into a web page; a small server there shells out to this binary and
 renders its output. Everything this needs already exists as pure functions
 (`Asm.assemble`, `Env.load`, `Env.runHosted`) — this file is only the CLI/IO

@@ -1,4 +1,4 @@
-# Semantic MIPS
+# MIPS32 Semantics
 
 A small-step operational semantics of a pre-Release-6 MIPS32 processor in Lean 4. The repository also has an
 assembler, machine-checked proofs that the semantics refines an independent transcription of the architecture
@@ -160,4 +160,4 @@ vendor/mars/                   the MARS 4.5 jar (differential oracle only)
 
 MARS 4.5 (`vendor/mars/Mars4_5.jar`) is a third-party simulator, vendored here only as a differential-testing
 oracle; see its own license. Everything else in this repository was written for this project. The semantics was
-extracted from [VibeCheck](https://github.com/rShyvers/VibeCheck) so it can be read, built and reviewed on its own.
+extracted from the demo [mips32-semantics-demo](https://github.com/rShyvers/mips32-semantics-demo) (formerly VibeCheck) so it can be read, built and reviewed on its own.
