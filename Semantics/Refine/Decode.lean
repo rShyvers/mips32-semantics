@@ -23,7 +23,7 @@ open Manual DecodeSpec
 set_option hygiene false in
 local macro "ext_by_toNat" : tactic =>
   `(tactic| (simp only [BitVec.toNat_eq, opcodeOf, rsOf, rtOf, rdOf, shamtOf, functOf, immOf,
-      targetOf, coOf, code20Of, code10Of, code19Of, off9Of, bit6Of,
+      targetOf, coOf, code20Of, code10Of, code19Of, off9Of, bit6Of, sa3Of, sa2Of, pcrelOf, imm19Of,
       BitVec.extractLsb, BitVec.toNat_setWidth, BitVec.extractLsb'_toNat,
       Nat.shiftRight_eq_div_pow] at *; have := BitVec.isLt x; have := BitVec.isLt w; omega))
 
@@ -52,6 +52,17 @@ theorem ext_trap {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf 
 theorem ext_wait {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : coOf x = coOf w)
     (h3 : code19Of x = code19Of w) (h4 : functOf x = functOf w) : x = w := by ext_by_toNat
 
+-- BEGIN R6-4
+/-- A word with a split `sa` field (`LSA`, `ALIGN`) by its fields. -/
+theorem ext_rt2 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
+    (h3 : rtOf x = rtOf w) (h4 : rdOf x = rdOf w) (h5 : sa3Of x = sa3Of w) (h6 : sa2Of x = sa2Of w)
+    (h7 : functOf x = functOf w) : x = w := by ext_by_toNat
+
+/-- A PCREL word with a 19-bit immediate (`ADDIUPC`, `LWPC`) by its fields. -/
+theorem ext_pc19 {x w : W32} (h1 : opcodeOf x = opcodeOf w) (h2 : rsOf x = rsOf w)
+    (h3 : pcrelOf x = pcrelOf w) (h4 : imm19Of x = imm19Of w) : x = w := by ext_by_toNat
+-- END R6-4
+
 /-! ## Ranges of the narrow fields -/
 
 theorem coOf_lt (w : W32) : (coOf w).toNat < 2 := by simp [coOf, BitVec.extractLsb]; omega
@@ -64,6 +75,11 @@ theorem code10Of_lt' (w : W32) : (code10Of w).toNat < 1024 := code10Of_lt w
 theorem code19Of_lt' (w : W32) : (code19Of w).toNat < 524288 := code19Of_lt w
 theorem opcodeOf_lt (w : W32) : (opcodeOf w).toNat < 64 := by
   simp [opcodeOf, BitVec.extractLsb]; omega
+-- BEGIN R6-4
+theorem sa3Of_lt' (w : W32) : (sa3Of w).toNat < 8 := sa3Of_lt w
+theorem pcrelOf_lt' (w : W32) : (pcrelOf w).toNat < 4 := pcrelOf_lt w
+theorem imm19Of_lt' (w : W32) : (imm19Of w).toNat < 524288 := imm19Of_lt w
+-- END R6-4
 
 /-! ## The diagrams are the model's encoding -/
 
@@ -112,8 +128,9 @@ theorem enc_eq_encode (i : Instruction) (h : i.WellFormed) : enc i = some (encod
       BitVec.or_zero, show (1#32 <<< 5 : W32) = 32#32 by decide]
   case eret => decide
   all_goals
-    simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, fld, field, maskLow,
-      mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, BitVec.or_assoc,
+    simp only [enc, encode, rFormat, iFormat, trapFormat, codeFormat, off9Format, sa2Format, pc19Format,
+      fld, field, maskLow,
+      mkRT, mkIT, mkJT, mkOff9, mkCode20, mkTrap, mkWait, mkRT2, mkPc19, BitVec.or_assoc,
       mask1, mask2, mask3, mask4, mask5, mask6, mask9, mask10, mask16, mask19, mask20, mask26, BitVec.shiftLeft_zero, BitVec.reduceAnd, BitVec.zero_and,
       BitVec.zero_shiftLeft, BitVec.or_zero, BitVec.zero_or]
 
@@ -134,6 +151,12 @@ attribute [local simp] ext_msbd ins_msb opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mk
   rsOf_lt rtOf_lt rdOf_lt shamtOf_lt immOf_lt targetOf_lt functOf_lt off9Of_lt
   code20Of_lt code10Of_lt code19Of_lt immOf_lt' targetOf_lt' code20Of_lt' code10Of_lt'
   code19Of_lt' coOf_lt bit6Of_lt off9Of_lt' opcodeOf_lt
+  -- BEGIN R6-4
+  opcodeOf_or_mkRT2 rsOf_or_mkRT2 rtOf_or_mkRT2 rdOf_or_mkRT2 sa3Of_or_mkRT2 sa2Of_or_mkRT2
+  functOf_or_mkRT2 shamtOf_or_mkRT2 opcodeOf_mkRT2 rsOf_mkRT2 rtOf_mkRT2 rdOf_mkRT2 sa3Of_mkRT2
+  sa2Of_mkRT2 functOf_mkRT2 opcodeOf_or_mkPc19 rsOf_or_mkPc19 pcrelOf_or_mkPc19 imm19Of_or_mkPc19
+  pcrelOf_mkIT sa3Of_or_mkRT and_3 sa2Of_lt sa3Of_lt' pcrelOf_lt' imm19Of_lt imm19Of_lt'
+  -- END R6-4
 
 /-- One field of a decoded word: the field lemmas, then arithmetic on the guards. -/
 local macro "field_goal" : tactic =>
@@ -149,7 +172,9 @@ local macro "word_goal" : tactic =>
     | (apply ext_code20 <;> field_goal)
     | (apply ext_trap <;> field_goal)
     | (apply ext_wait <;> field_goal)
-    | (apply ext_off9 <;> field_goal))
+    | (apply ext_off9 <;> field_goal)
+    | (apply ext_rt2 <;> field_goal)    -- R6-4
+    | (apply ext_pc19 <;> field_goal))  -- R6-4
 
 set_option maxHeartbeats 1000000 in
 /-- **A word `decode` accepts is the encoding of the instruction it returns.** -/

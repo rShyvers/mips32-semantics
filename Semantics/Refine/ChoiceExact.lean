@@ -73,6 +73,13 @@ theorem consults_row (ins : Instruction) (a : Arch) (h : ConsultsOracle ins a = 
   case mthc1 x₁ x₂ => exact rw_mthc1 x₁ x₂ a h
   case ext x₁ x₂ x₃ x₄ => exact rw_ext x₁ x₂ x₃ x₄ a h
   case ins x₁ x₂ x₃ x₄ => exact rw_ins x₁ x₂ x₃ x₄ a h
+  -- BEGIN R6-4
+  case lwpc x₁ x₂ => exact rw_lwpc x₁ x₂ a h
+  case div x₁ x₂ x₃ => exact rw_div x₁ x₂ x₃ a h
+  case mod x₁ x₂ x₃ => exact rw_mod x₁ x₂ x₃ a h
+  case divu x₁ x₂ x₃ => exact rw_divu x₁ x₂ x₃ a h
+  case modu x₁ x₂ x₃ => exact rw_modu x₁ x₂ x₃ a h
+  -- END R6-4
   all_goals simp [ConsultsOracle] at h
 
 /-! ## Telling two instruction times apart -/

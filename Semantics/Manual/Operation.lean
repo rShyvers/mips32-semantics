@@ -18,6 +18,9 @@ import Semantics.Manual.Ops.FpuControl
 import Semantics.Manual.Ops.FpuConvert
 import Semantics.Manual.Ops.FpuMemory
 import Semantics.Manual.Ops.FpuMove
+-- BEGIN R6-4
+import Semantics.Manual.Ops.PcRel
+-- END R6-4
 
 /-!
 # Manual.Operation — the Operation section of each instruction
@@ -158,5 +161,24 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .nal off => some (Ops.NAL off)
   | .bal off => some (Ops.BAL off)
   | .pause => some Ops.PAUSE
+  -- BEGIN R6-4
+  | .mul rs rt rd => some (Ops.MUL rs rt rd)
+  | .muh rs rt rd => some (Ops.MUH rs rt rd)
+  | .mulu rs rt rd => some (Ops.MULU rs rt rd)
+  | .muhu rs rt rd => some (Ops.MUHU rs rt rd)
+  | .div rs rt rd => some (Ops.DIV rs rt rd)
+  | .mod rs rt rd => some (Ops.MOD rs rt rd)
+  | .divu rs rt rd => some (Ops.DIVU rs rt rd)
+  | .modu rs rt rd => some (Ops.MODU rs rt rd)
+  | .seleqz rs rt rd => some (Ops.SELEQZ rs rt rd)
+  | .selnez rs rt rd => some (Ops.SELNEZ rs rt rd)
+  | .lsa rs rt rd sa => some (Ops.LSA rs rt rd sa)
+  | .align rs rt rd bp => some (Ops.ALIGN rs rt rd bp)
+  | .bitswap rd rt => some (Ops.BITSWAP rd rt)
+  | .addiupc rs imm => some (Ops.ADDIUPC rs imm)
+  | .lwpc rs off => some (Ops.LWPC rs off)
+  | .auipc rs imm => some (Ops.AUIPC rs imm)
+  | .aluipc rs imm => some (Ops.ALUIPC rs imm)
+  -- END R6-4
 
 end Manual

@@ -17,6 +17,9 @@ import Semantics.Refine.FpuConvert
 import Semantics.Refine.FpuMemory
 import Semantics.Refine.FpuMove
 import Semantics.Refine.FpuControl
+-- BEGIN R6-4
+import Semantics.Refine.PcRel
+-- END R6-4
 
 /-!
 # Refine.Instr — the per-instruction refinement of every constructor (7D)
@@ -27,7 +30,7 @@ in: the invariant `Inv s` (`Refine/Defs.lean`), and `w` is a fetched word
 that `decode`s to `i` (so `enc i = some w` by `decode_enc`, `Refine/Decode.lean`).
 
 `instrRefines_<ctor>` restates `<ctor>_refines` in that shape, one theorem per constructor of
-`Instruction` (119, generated in constructor order), and `allInstrRefines` collects them by
+`Instruction` (136, generated in constructor order), and `allInstrRefines` collects them by
 `cases`. `allInstrRefines` is also the completeness check of plan §6.3 for the refinements: a
 constructor added to `Instruction` without an `instrRefines_<ctor>` leaves a case of its proof open
 and the build fails.
@@ -284,8 +287,64 @@ theorem instrRefines_cvtWD (fd fs : W32) : InstrRefines (.cvtWD fd fs) :=
 theorem instrRefines_cvtSD (fd fs : W32) : InstrRefines (.cvtSD fd fs) :=
   fun s w hg _ hw => cvtSD_refines s hg.1 fd fs w hw
 
+-- BEGIN R6-4
+theorem instrRefines_mul (rs rt rd : W32) : InstrRefines (.mul rs rt rd) :=
+  fun s w hg _ hw => mul_refines s hg.1 rs rt rd w hw
+theorem instrRefines_muh (rs rt rd : W32) : InstrRefines (.muh rs rt rd) :=
+  fun s w hg _ hw => muh_refines s hg.1 rs rt rd w hw
+theorem instrRefines_mulu (rs rt rd : W32) : InstrRefines (.mulu rs rt rd) :=
+  fun s w hg _ hw => mulu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_muhu (rs rt rd : W32) : InstrRefines (.muhu rs rt rd) :=
+  fun s w hg _ hw => muhu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_div (rs rt rd : W32) : InstrRefines (.div rs rt rd) :=
+  fun s w hg _ hw => div_refines s hg.1 rs rt rd w hw
+theorem instrRefines_mod (rs rt rd : W32) : InstrRefines (.mod rs rt rd) :=
+  fun s w hg _ hw => mod_refines s hg.1 rs rt rd w hw
+theorem instrRefines_divu (rs rt rd : W32) : InstrRefines (.divu rs rt rd) :=
+  fun s w hg _ hw => divu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_modu (rs rt rd : W32) : InstrRefines (.modu rs rt rd) :=
+  fun s w hg _ hw => modu_refines s hg.1 rs rt rd w hw
+theorem instrRefines_seleqz (rs rt rd : W32) : InstrRefines (.seleqz rs rt rd) :=
+  fun s w hg _ hw => seleqz_refines s hg.1 rs rt rd w hw
+theorem instrRefines_selnez (rs rt rd : W32) : InstrRefines (.selnez rs rt rd) :=
+  fun s w hg _ hw => selnez_refines s hg.1 rs rt rd w hw
+theorem instrRefines_lsa (rs rt rd sa : W32) : InstrRefines (.lsa rs rt rd sa) :=
+  fun s w hg _ hw => lsa_refines s hg.1 rs rt rd sa w hw
+theorem instrRefines_align (rs rt rd bp : W32) : InstrRefines (.align rs rt rd bp) :=
+  fun s w hg _ hw => align_refines s hg.1 rs rt rd bp w hw
+theorem instrRefines_bitswap (rd rt : W32) : InstrRefines (.bitswap rd rt) :=
+  fun s w hg _ hw => bitswap_refines s hg.1 rd rt w hw
+theorem instrRefines_addiupc (rs imm : W32) : InstrRefines (.addiupc rs imm) :=
+  fun s w hg _ hw => addiupc_refines s hg.1 rs imm w hw
+theorem instrRefines_lwpc (rs off : W32) : InstrRefines (.lwpc rs off) :=
+  fun s w hg _ hw => lwpc_refines s hg.1 rs off w hw
+theorem instrRefines_auipc (rs imm : W32) : InstrRefines (.auipc rs imm) :=
+  fun s w hg _ hw => auipc_refines s hg.1 rs imm w hw
+theorem instrRefines_aluipc (rs imm : W32) : InstrRefines (.aluipc rs imm) :=
+  fun s w hg _ hw => aluipc_refines s hg.1 rs imm w hw
+-- END R6-4
+
 theorem allInstrRefines (i : Instruction) : InstrRefines i := by
   cases i
+  -- BEGIN R6-4
+  case mul rs rt rd => exact instrRefines_mul rs rt rd
+  case muh rs rt rd => exact instrRefines_muh rs rt rd
+  case mulu rs rt rd => exact instrRefines_mulu rs rt rd
+  case muhu rs rt rd => exact instrRefines_muhu rs rt rd
+  case div rs rt rd => exact instrRefines_div rs rt rd
+  case mod rs rt rd => exact instrRefines_mod rs rt rd
+  case divu rs rt rd => exact instrRefines_divu rs rt rd
+  case modu rs rt rd => exact instrRefines_modu rs rt rd
+  case seleqz rs rt rd => exact instrRefines_seleqz rs rt rd
+  case selnez rs rt rd => exact instrRefines_selnez rs rt rd
+  case lsa rs rt rd sa => exact instrRefines_lsa rs rt rd sa
+  case align rs rt rd bp => exact instrRefines_align rs rt rd bp
+  case bitswap rd rt => exact instrRefines_bitswap rd rt
+  case addiupc rs imm => exact instrRefines_addiupc rs imm
+  case lwpc rs off => exact instrRefines_lwpc rs off
+  case auipc rs imm => exact instrRefines_auipc rs imm
+  case aluipc rs imm => exact instrRefines_aluipc rs imm
+  -- END R6-4
   case add rs rt rd => exact instrRefines_add rs rt rd
   case addu rs rt rd => exact instrRefines_addu rs rt rd
   case sub rs rt rd => exact instrRefines_sub rs rt rd

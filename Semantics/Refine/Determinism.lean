@@ -61,7 +61,7 @@ outcomes do not name the state; its two `.arbitrary` outcomes (`fprOddWrite`, `c
 change `FPR` or `FCSR` only, so `LowPower`, the CP0 state, memory and the interrupt inputs `HW` are
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
   · intro a r v
@@ -89,6 +89,7 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intro _ _ _ _ _ _; trivial
   · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]
   · intro _ _ _ _ _ _; rfl
+  · intro _ _ _ _ _ _; rfl  -- R6-4: divByZero
   -- UNDEFINED
   · intros; trivial
   · intros; trivial

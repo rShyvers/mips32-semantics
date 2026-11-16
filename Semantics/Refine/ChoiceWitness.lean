@@ -41,6 +41,7 @@ structure WP where
   anr : AbsNegNaN := .A'
   qd : Bool := true
   qs : Bool := true
+  dz : W32 := 0#32  -- R6-4: `divByZero`
 
 /-- UNPREDICTABLE / UNDEFINED operations resolved as Reserved Instruction. -/
 def sigRI : Outcome := .signal .ReservedInstruction
@@ -64,10 +65,11 @@ def wo (p : WP) (ce : BitVec 2) : Oracle where
   absNegNaN := p.anr
   cvtQNaNToD := fun _ => if p.qd then QA64 else QB64
   cvtQNaNToS := fun _ => if p.qs then QA32 else QB32
+  divByZero := fun _ _ _ => p.dz  -- R6-4
 
 /-- **Every witness oracle is valid.** -/
 theorem wo_valid (p : WP) (ce : BitVec 2) : (wo p ce).Valid := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   all_goals (try simp only [NIOutcome, NIValue])
   all_goals (intros; first | exact trivial | rfl | skip)
   · simp only [wo]; split

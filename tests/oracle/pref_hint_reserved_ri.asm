@@ -1,9 +1,8 @@
 # Release 6: PREF with hint 24..31 raises Reserved Instruction (ExcCode 10). The handler counts the exceptions in $s4 and skips the instruction.
-# The model executes every PREF as a no-op: a known model bug.
+# (R6-4: the model raises it too; the known-model-bug declarations are removed.)
 # MD00086 Vol II-A Rev 6.06 PREF Table 5.2 p.322-323 (hints 24, 25, 26-29, 30, 31: 'Release 6: ... not implemented in the Release 6 architecture and generate(s)
 # a Reserved Instruction exception (RI)').
-# oracle: known-model-bug gpr:s4 MD00086 Vol II-A Rev 6.06 PREF Table 5.2 p.322-323: hints 24..31 raise Reserved Instruction in Release 6; model (lead, Exec Memory/decoder): PREF is a no-op for every hint
-# oracle: known-model-bug gpr:k0 same (the handler's EPC never read in the model)
+# oracle: expect gpr:s4=8
 .data
 d: .word 1, 2
 res: .space 64

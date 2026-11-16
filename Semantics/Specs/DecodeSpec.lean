@@ -53,8 +53,8 @@ private theorem m9 (i : Nat) : (511#32).getLsbD i = decide (i < 9) :=
 local macro "field_ext" : tactic =>
   `(tactic| (apply BitVec.eq_of_getLsbD_eq; intro i hi
              simp [opcodeOf, rsOf, rtOf, rdOf, shamtOf, functOf, immOf, targetOf,
-               coOf, code20Of, code10Of, code19Of, off9Of, bit6Of,
-               mkRT, mkIT, mkJT, mkCode20, mkTrap, mkWait, mkOff9,
+               coOf, code20Of, code10Of, code19Of, off9Of, bit6Of, sa3Of, sa2Of, pcrelOf, imm19Of,
+               mkRT, mkIT, mkJT, mkCode20, mkTrap, mkWait, mkOff9, mkRT2, mkPc19,
                field, maskLow, m5, m6, m16, m26, m1, m2, m3, m4, m9, m10, m19, m20]
              try grind))
 
@@ -91,6 +91,49 @@ theorem bit6Of_or_mkOff9 (x a b c e : W32) :
     bit6Of (x ||| mkOff9 a b c e) = (x >>> 6) &&& 1#32 := by field_ext
 theorem functOf_or_mkOff9 (x a b c e : W32) :
     functOf (x ||| mkOff9 a b c e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
+
+-- BEGIN R6-4
+/-! ## Field extraction: `x ||| mkRT2 ..` (Release 6 `LSA`, `ALIGN`) and `x ||| mkPc19 ..` (`ADDIUPC`,
+`LWPC`) -/
+
+theorem opcodeOf_or_mkRT2 (x a b c h l e : W32) : opcodeOf (x ||| mkRT2 a b c h l e) = x >>> 26 := by
+  field_ext
+theorem rsOf_or_mkRT2 (x a b c h l e : W32) :
+    rsOf (x ||| mkRT2 a b c h l e) = ((x >>> 21) &&& 31#32) ||| (a &&& 31#32) := by field_ext
+theorem rtOf_or_mkRT2 (x a b c h l e : W32) :
+    rtOf (x ||| mkRT2 a b c h l e) = ((x >>> 16) &&& 31#32) ||| (b &&& 31#32) := by field_ext
+theorem rdOf_or_mkRT2 (x a b c h l e : W32) :
+    rdOf (x ||| mkRT2 a b c h l e) = ((x >>> 11) &&& 31#32) ||| (c &&& 31#32) := by field_ext
+theorem sa3Of_or_mkRT2 (x a b c h l e : W32) :
+    sa3Of (x ||| mkRT2 a b c h l e) = ((x >>> 8) &&& 7#32) ||| (h &&& 7#32) := by field_ext
+theorem sa2Of_or_mkRT2 (x a b c h l e : W32) :
+    sa2Of (x ||| mkRT2 a b c h l e) = ((x >>> 6) &&& 3#32) ||| (l &&& 3#32) := by field_ext
+theorem functOf_or_mkRT2 (x a b c h l e : W32) :
+    functOf (x ||| mkRT2 a b c h l e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
+theorem shamtOf_or_mkRT2 (x a b c h l e : W32) :
+    shamtOf (x ||| mkRT2 a b c h l e) =
+      ((x >>> 6) &&& 31#32) ||| ((h &&& 7#32) <<< 2) ||| (l &&& 3#32) := by field_ext
+theorem opcodeOf_mkRT2 (a b c h l e : W32) : opcodeOf (mkRT2 a b c h l e) = 0#32 := by field_ext
+theorem rsOf_mkRT2 (a b c h l e : W32) : rsOf (mkRT2 a b c h l e) = a &&& 31#32 := by field_ext
+theorem rtOf_mkRT2 (a b c h l e : W32) : rtOf (mkRT2 a b c h l e) = b &&& 31#32 := by field_ext
+theorem rdOf_mkRT2 (a b c h l e : W32) : rdOf (mkRT2 a b c h l e) = c &&& 31#32 := by field_ext
+theorem sa3Of_mkRT2 (a b c h l e : W32) : sa3Of (mkRT2 a b c h l e) = h &&& 7#32 := by field_ext
+theorem sa2Of_mkRT2 (a b c h l e : W32) : sa2Of (mkRT2 a b c h l e) = l &&& 3#32 := by field_ext
+theorem functOf_mkRT2 (a b c h l e : W32) : functOf (mkRT2 a b c h l e) = e &&& 63#32 := by field_ext
+
+theorem opcodeOf_or_mkPc19 (x a k i : W32) : opcodeOf (x ||| mkPc19 a k i) = x >>> 26 := by field_ext
+theorem rsOf_or_mkPc19 (x a k i : W32) :
+    rsOf (x ||| mkPc19 a k i) = ((x >>> 21) &&& 31#32) ||| (a &&& 31#32) := by field_ext
+theorem pcrelOf_or_mkPc19 (x a k i : W32) :
+    pcrelOf (x ||| mkPc19 a k i) = ((x >>> 19) &&& 3#32) ||| (k &&& 3#32) := by field_ext
+theorem imm19Of_or_mkPc19 (x a k i : W32) :
+    imm19Of (x ||| mkPc19 a k i) = (x &&& 524287#32) ||| (i &&& 524287#32) := by field_ext
+
+theorem pcrelOf_mkIT (op a b imm : W32) : pcrelOf (mkIT op a b imm) = (b >>> 3) &&& 3#32 := by
+  field_ext
+theorem sa3Of_or_mkRT (x a b c d e : W32) :
+    sa3Of (x ||| mkRT a b c d e) = ((x >>> 8) &&& 7#32) ||| ((d >>> 2) &&& 7#32) := by field_ext
+-- END R6-4
 
 /-! ## Field extraction: `mkCode20 ..`, `mkTrap ..`, `mkWait ..` -/
 
@@ -155,6 +198,9 @@ theorem and_63 (a : W32) (h : a.toNat < 64) : a &&& 63#32 = a := and_lowMask 6 (
 theorem and_511 (a : W32) (h : a.toNat < 2 ^ 9) : a &&& 511#32 = a := and_lowMask 9 (by decide) a h
 theorem and_1023 (a : W32) (h : a.toNat < 2 ^ 10) : a &&& 1023#32 = a :=
   and_lowMask 10 (by decide) a h
+-- BEGIN R6-4
+theorem and_3 (a : W32) (h : a.toNat < 4) : a &&& 3#32 = a := and_lowMask 2 (by decide) a h
+-- END R6-4
 theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
   and_lowMask 19 (by decide) a h
 theorem and_1048575 (a : W32) (h : a.toNat < 2 ^ 20) : a &&& 1048575#32 = a :=
@@ -196,6 +242,16 @@ theorem code10Of_lt (w : W32) : (code10Of w).toNat < 2 ^ 10 := by
   simp [code10Of, BitVec.extractLsb]; omega
 theorem code19Of_lt (w : W32) : (code19Of w).toNat < 2 ^ 19 := by
   simp [code19Of, BitVec.extractLsb]; omega
+-- BEGIN R6-4
+theorem sa2Of_lt (w : W32) : (sa2Of w).toNat < 4 := by
+  simp [sa2Of, BitVec.extractLsb]; omega
+theorem sa3Of_lt (w : W32) : (sa3Of w).toNat < 8 := by
+  simp [sa3Of, BitVec.extractLsb]; omega
+theorem pcrelOf_lt (w : W32) : (pcrelOf w).toNat < 4 := by
+  simp [pcrelOf, BitVec.extractLsb]; omega
+theorem imm19Of_lt (w : W32) : (imm19Of w).toNat < 2 ^ 19 := by
+  simp [imm19Of, BitVec.extractLsb]; omega
+-- END R6-4
 
 end DecodeSpec
 
@@ -211,6 +267,12 @@ attribute [local simp] opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT s
   opcodeOf_mkTrap functOf_mkTrap rsOf_mkTrap rtOf_mkTrap code10Of_mkTrap
   opcodeOf_mkWait coOf_mkWait functOf_mkWait code19Of_mkWait
   and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_511 and_1023 and_524287 and_1048575
+  -- BEGIN R6-4
+  opcodeOf_or_mkRT2 rsOf_or_mkRT2 rtOf_or_mkRT2 rdOf_or_mkRT2 sa3Of_or_mkRT2 sa2Of_or_mkRT2
+  functOf_or_mkRT2 shamtOf_or_mkRT2 opcodeOf_mkRT2 rsOf_mkRT2 rtOf_mkRT2 rdOf_mkRT2 sa3Of_mkRT2
+  sa2Of_mkRT2 functOf_mkRT2 opcodeOf_or_mkPc19 rsOf_or_mkPc19 pcrelOf_or_mkPc19 imm19Of_or_mkPc19
+  pcrelOf_mkIT sa3Of_or_mkRT and_3
+  -- END R6-4
 
 -- ~120 constructors, each unfolding the full `decode` match: needs more than
 -- the default heartbeat budget.
@@ -264,12 +326,13 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   have h4 := shamtOf_lt w; have h5 := immOf_lt w; have h6 := targetOf_lt w
   have h7 := off9Of_lt w
   have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
+  have h13 := sa2Of_lt w; have h14 := imm19Of_lt w  -- R6-4
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
     decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf] at h
   repeat' split at h
   all_goals
     (cases h <;>
-      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h10, h11, h12,
+      simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h10, h11, h12, h13, h14,
         and_self, true_and])
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc

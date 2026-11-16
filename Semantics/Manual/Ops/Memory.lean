@@ -7,8 +7,18 @@ Sub-wave 7A transcribes the pilots `LW` and `SW`. The alignment rule is in each 
 section (the Release 6 Operation leaves it out: "The pseudocode is not completely adapted for Release 6
 misalignment support"); it is transcribed as the first statement: this profile takes an Address Error
 for every misaligned access ("Release 6 allows hardware to provide address misalignment support in lieu
-of requiring natural alignment", e.g. LDC1 p.215; the pin of DECISIONS D3).
--- W4: the misaligned-access pin is recorded with its citation in SPEC-NOTES.
+of requiring natural alignment", e.g. LDC1 p.215; the pin of DECISIONS D3). **The misaligned-access
+pin**: "Release 6 requires misaligned memory accesses to be supported by all Release 6-compliant
+implementations for all ordinary memory instructions"; "The Release 6 requirement to support misaligned
+memory accesses using trap and emulate is system-level, not necessarily hardware-level" (MD00082 Vol I-A
+Rev 6.01 §4.5, p.44, an image page read in the PDF); "it is permitted for a processor implementation to produce the
+Address Error exception for all misaligned accesses, with the appropriate exception handler software"
+(Appendix B.2, p.128; "Whether an Address Error is generated is implementation-dependent", MD00090 Vol
+III Rev 6.02 §6.2.9, p.92). This profile takes that option for every load and store; the alternative
+is hardware support (Full Misalignment Support, p.128). `LL`/`SC` take the Address Error in every
+implementation: "misalignment support is NOT provided for the load-linked/store conditional
+instructions ... All such instructions continue to produce the Address Error exception if misaligned"
+(p.128).
 The byte-lane selection (`byte ← vAddr1..0 xor BigEndianCPU^2`) follows `BigEndianMem`, little-endian
 on this profile (`Manual.BigEndianMem`).
 -/
@@ -247,15 +257,20 @@ architecturally visible state or alter the meaning of a program"; "PREF does not
 addressing-related exceptions, including TLB exceptions. If the address specified would cause an
 addressing exception, the exception condition is ignored and no data movement occurs"; p.323:
 "Prefetch does not take any TLB-related or address-related exceptions under any circumstances".
-The implementation does nothing (a permitted action; `PrepareForStore`, hint 30, is the one action the
-manual allows to change state, and is not taken). So the translation, whose failure is ignored, and
-`Prefetch` leave the state unchanged, and only the effective address is computed. -/
-def PREF (base _hint offset : W32) : Pseudo Unit := do
+The implementation does nothing (a permitted action). So the translation, whose failure is ignored, and
+`Prefetch` leave the state unchanged, and only the effective address is computed. The hints 24..31
+(Table 5.2, p.322-323) are "not implemented in the Release 6 architecture and generate a Reserved
+Instruction exception (RI)" (24, 26-29, 31: Reserved for Architecture; 25 writeback_invalidate and 30
+PrepareForStore: "Reserved for Architecture in Release 6"); `Prefetch` with such a hint signals it.
+Hints 0..23 are prefetches (2, 3 and their L2/L3 forms "behave as a NOP if not implemented", p.323). -/
+def PREF (base hint offset : W32) : Pseudo Unit := do
   -- vAddr ← GPR[base] + sign_extend(offset)
   let _vAddr := (← GPR (reg base)) + sign_extend (imm9 offset)
   -- (pAddr, CCA) ← AddressTranslation(vAddr, DATA, LOAD): a failure is ignored (p.321)
-  -- Prefetch(CCA, pAddr, vAddr, DATA, hint): no architecturally visible action (p.321)
-  pure ()
+  -- Prefetch(CCA, pAddr, vAddr, DATA, hint): hints 24..31 signal Reserved Instruction (Table 5.2,
+  -- p.322-323); every other hint: no architecturally visible action (p.321)
+  if 24 ≤ (low hint 5).toNat then SignalException .ReservedInstruction
+  else pure ()
 
 /-- **SYNC stype** — MD00086 Vol II-A Rev 6.06, SYNC, p.407 (diagram) and p.410 (Operation).
 ```

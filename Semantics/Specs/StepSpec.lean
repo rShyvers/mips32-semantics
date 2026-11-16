@@ -34,6 +34,9 @@ import Semantics.Specs.Loader
 import Semantics.Specs.Hosted
 import Semantics.Specs.Timer
 import Semantics.Specs.Interrupt
+-- BEGIN R6-4
+import Semantics.Specs.PcRel
+-- END R6-4
 
 /-!
 # StepSpec — index of the specification of `step`
@@ -95,11 +98,12 @@ Every theorem is fully proved. Notes on how individual proofs came about are in
 | Delay slots | `DelaySlot.lean` | `delay_slot_commits_target`, `branch_in_delay_slot_reserved_instruction` (the rest is proof device) |
 | Invariants | `Invariants.lean` | `step_preserves_zero_register`, `run_preserves_zero_register` (the rest is proof device) |
 | Register-file sizes | `RegFileSize.lean` | `step_preserves_wellFormed`, `run_initialState_wellFormed`: the `regs.size = 32` / `fpRegs.size = 32` side conditions are invariants (the rest is proof device) |
-| R-type arithmetic / logic | `Arith.lean` | the `_spec_raw` statements; overflow corollaries |
+| R-type arithmetic / logic | `Arith.lean` | the `_spec_raw` statements; overflow corollaries; the Release 6 `mul`/`muh`/`mulu`/`muhu`, `div`/`mod`/`divu`/`modu` (the zero-divisor pin), `seleqz`/`selnez`, `lsa` |
 | Shifts, rotates | `Shift.lean` | the `_spec_raw` statements; `rotr` is not `srl` |
-| Bit operations | `BitOps.lean` | `clo`/`clz`/`seb`/`seh`/`wsbh`/`ext`/`ins` statements |
+| Bit operations | `BitOps.lean` | `clo`/`clz`/`seb`/`seh`/`wsbh`/`ext`/`ins`/`align`/`bitswap` statements |
+| PC-relative (Release 6) | `PcRel.lean` | `addiupc`/`auipc`/`aluipc`/`lwpc`: `PC` is the instruction's own address |
 | Immediates | `Immediate.lean` | sign- vs zero-extension of the immediate in each statement |
-| Loads / stores | `Memory.lean` | alignment conditions and `AdEL`/`AdES`; sign/zero extension; `sync`/`synci`/`pref` no-ops |
+| Loads / stores | `Memory.lean` | alignment conditions and `AdEL`/`AdES`; sign/zero extension; `sync`/`synci` no-ops; `pref` a no-op or Reserved Instruction (hints 24..31) |
 | `ll` / `sc` | `Atomic.lean` | when `sc` succeeds; `LLbit` |
 | Branches | `Branch.lean` | taken / not-taken corollaries; the link register of `nal`/`bal` |
 | Jumps | `Jump.lean` | target computation; `jal_sets_ra`, `jalr_sets_rd` |

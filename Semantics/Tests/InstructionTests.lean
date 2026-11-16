@@ -431,9 +431,11 @@ example : decode (encode (.sc 29#32 8#32 0x100#32)) = some (.sc 29#32 8#32 0x100
 #guard decode (mkRT 29#32 8#32 0#32 0#32 0x34#32) = some (.teq 29#32 8#32 0#32)
 #guard decode (mkRT 0#32 0#32 0#32 0#32 0x0d#32) = some (.break 0#32)
 
--- funct 0x35 sits between teq (0x34) and tne (0x36) and is reserved/unused
--- in the real MIPS32 trap family; no mnemonic maps to it.
-#guard decode (mkRT 0#32 0#32 0#32 0#32 0x35#32) = none
+-- funct 0x35 sits between teq (0x34) and tne (0x36); Release 6 assigns it to SELEQZ (MD00086 Vol
+-- II-A Rev 6.06, SELEQZ SELNEZ, p.369; R6-4: this test expected `none` before). With `sa ≠ 0` it does
+-- not decode (an UNPREDICTABLE nonzero unnamed field).
+#guard decode (mkRT 0#32 0#32 0#32 0#32 0x35#32) = some (.seleqz 0#32 0#32 0#32)
+#guard decode (mkRT 0#32 0#32 0#32 1#32 0x35#32) = none
 #guard decode (encode (.addS 8#32 7#32 6#32)) = some (.addS 8#32 7#32 6#32)
 #guard decode (encode (.addD 8#32 7#32 6#32)) = some (.addD 8#32 7#32 6#32)
 #guard decode (encode (.ldc1 29#32 5#32 0x1234#32)) = some (.ldc1 29#32 5#32 0x1234#32)
@@ -709,3 +711,43 @@ example : decode ((0x1c#32 <<< 26) ||| mkRT 29#32 8#32 3#32 0#32 0x02#32) = none
 example : decode 0x4c8628a0#32 = none := by decide
 example : decode (mkRT 29#32 4#32 3#32 0#32 0x01#32) = none := by decide
 example : decode (mkIT 0x11#32 0x08#32 0x1c#32 0x1234#32) = none := by decide
+
+-- BEGIN R6-4
+-- Release 6 integer instructions: round trips, the words llvm-mc gives (Tests/AsmTests.lean
+-- `r6IntWords`), and the neighbouring encodings that do not decode.
+example : decode (encode (.mul 29#32 8#32 3#32)) = some (.mul 29#32 8#32 3#32) := by decide
+example : decode (encode (.muh 29#32 8#32 3#32)) = some (.muh 29#32 8#32 3#32) := by decide
+example : decode (encode (.mulu 29#32 8#32 3#32)) = some (.mulu 29#32 8#32 3#32) := by decide
+example : decode (encode (.muhu 29#32 8#32 3#32)) = some (.muhu 29#32 8#32 3#32) := by decide
+example : decode (encode (.div 29#32 8#32 3#32)) = some (.div 29#32 8#32 3#32) := by decide
+example : decode (encode (.mod 29#32 8#32 3#32)) = some (.mod 29#32 8#32 3#32) := by decide
+example : decode (encode (.divu 29#32 8#32 3#32)) = some (.divu 29#32 8#32 3#32) := by decide
+example : decode (encode (.modu 29#32 8#32 3#32)) = some (.modu 29#32 8#32 3#32) := by decide
+example : decode (encode (.seleqz 29#32 8#32 3#32)) = some (.seleqz 29#32 8#32 3#32) := by decide
+example : decode (encode (.selnez 29#32 8#32 3#32)) = some (.selnez 29#32 8#32 3#32) := by decide
+example : decode (encode (.lsa 29#32 8#32 3#32 2#32)) = some (.lsa 29#32 8#32 3#32 2#32) := by decide
+example : decode (encode (.align 29#32 8#32 3#32 3#32)) = some (.align 29#32 8#32 3#32 3#32) := by decide
+example : decode (encode (.bitswap 8#32 3#32)) = some (.bitswap 8#32 3#32) := by decide
+example : decode (encode (.addiupc 8#32 0x7ffff#32)) = some (.addiupc 8#32 0x7ffff#32) := by decide
+example : decode (encode (.lwpc 8#32 0x40000#32)) = some (.lwpc 8#32 0x40000#32) := by decide
+example : decode (encode (.auipc 8#32 0x8001#32)) = some (.auipc 8#32 0x8001#32) := by decide
+example : decode (encode (.aluipc 8#32 0xffff#32)) = some (.aluipc 8#32 0xffff#32) := by decide
+-- llvm-mc words: mul $t0,$t1,$t2; lsa $t0,$t1,$t2,3; align $t0,$t1,$t2,2; bitswap $t0,$t1; addiupc $t0,-8
+example : decode 0x012a4098#32 = some (.mul 9#32 10#32 8#32) := by decide
+example : decode 0x012a4085#32 = some (.lsa 9#32 10#32 8#32 2#32) := by decide
+example : decode 0x7d2a42a0#32 = some (.align 9#32 10#32 8#32 2#32) := by decide
+example : decode 0x7c094020#32 = some (.bitswap 8#32 9#32) := by decide
+example : decode 0xed07fffe#32 = some (.addiupc 8#32 0x7fffe#32) := by decide
+-- MUL/DIV with `sa` other than 00010/00011 (`sa` = 0 is the removed HI/LO form, Table A.23, p.462)
+example : decode (mkRT 9#32 10#32 8#32 0#32 0x18#32) = none := by decide
+example : decode (mkRT 9#32 10#32 8#32 1#32 0x1a#32) = none := by decide
+example : decode (mkRT 9#32 10#32 8#32 4#32 0x1b#32) = none := by decide
+-- LSA with bits 10..8 nonzero, SELNEZ with `sa` nonzero, BITSWAP with `rs` nonzero: unnamed fields
+example : decode (mkRT 9#32 10#32 8#32 4#32 0x05#32) = none := by decide
+example : decode (mkRT 9#32 10#32 8#32 1#32 0x37#32) = none := by decide
+example : decode ((0x1f#32 <<< 26) ||| mkRT 1#32 9#32 8#32 0#32 0x20#32) = none := by decide
+-- PCREL: LWUPC (bits 20..19 = 10, MIPS64), LDPC (11 0xx) and the reserved 11 10x do not decode
+example : decode (mkIT 0x3b#32 8#32 0x10#32 0#32) = none := by decide
+example : decode (mkIT 0x3b#32 8#32 0x18#32 0#32) = none := by decide
+example : decode (mkIT 0x3b#32 8#32 0x1c#32 0#32) = none := by decide
+-- END R6-4
