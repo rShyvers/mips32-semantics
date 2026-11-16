@@ -560,7 +560,7 @@ theorem control_register_cases :
     readControl 0xFFFFFFFF#32 26 = some 0x0003F07C#32 ∧                 -- FEXR
     readControl 0xFFFFFFFF#32 28 = some 0x00000F87#32 ∧                 -- FENR
     readControl 0xFFFFFFFF#32 1 = none ∧ readControl 0#32 4 = none ∧    -- UFR, UNFR
-    readControl 0#32 2 = none ∧ readControl 0#32 5 = some 0#32 ∧        -- FRE: UNPREDICTABLE, pin 0
+    readControl 0#32 2 = none ∧ readControl 0#32 5 = none ∧             -- FRE: absent (FIR.FREP = 0), W7
     -- FENR bit 2 ↔ FS (FCSR bit 24)
     readFENR 0x01000000#32 = 0x04#32 ∧
     -- writes touch only their own fields

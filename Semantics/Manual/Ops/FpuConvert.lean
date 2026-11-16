@@ -14,6 +14,9 @@ written to fd" (ROUND.W.fmt, p.342). The default results for `FCSR.NAN2008 = 1` 
 Table 6.3, p.82 (0 for a NaN, `2^31 - 1` / `2^63 - 1` too big, `-2^31` / `-2^63` too small). The pages
 print the too-small result as "-2^31–1" / "-2^63–1" (e.g. ROUND.L.fmt p.341, CVT.L.fmt p.154), which
 is not representable; Table 6.3 gives `0x8000 0000` / `0x8000 0000 0000 0000` (misprint, SPEC-NOTES).
+CVT.W.fmt (p.160) prints the doubleword values ("2^63–1", "-2^63–1") for its word result although
+its range check is "-2^31 to 2^31-1" (same page): read as the Table 6.3 word values like the other
+W pages (CEIL.W p.128, FLOOR.W p.186, ROUND.W p.342, TRUNC.W p.441).
 -/
 
 namespace Manual.Ops

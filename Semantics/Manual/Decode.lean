@@ -204,12 +204,9 @@ def candidates (w : W32) : List Instruction :=
     .aui (f 25 21) (f 20 16) (f 15 0),
     .nal (f 15 0),
     .bal (f 15 0),
-    -- BEGIN R6-2
     .eretnc,
     .sigrie (f 15 0),
     .cache (f 25 21) (f 20 16) (f 15 7),
-    -- END R6-2
-    -- BEGIN R6-4
     .mul (f 25 21) (f 20 16) (f 15 11),
     .muh (f 25 21) (f 20 16) (f 15 11),
     .mulu (f 25 21) (f 20 16) (f 15 11),
@@ -227,8 +224,6 @@ def candidates (w : W32) : List Instruction :=
     .lwpc (f 25 21) (f 18 0),
     .auipc (f 25 21) (f 15 0),
     .aluipc (f 25 21) (f 15 0),
-    -- END R6-4
-    -- BEGIN R6-3
     .bc (f 25 0),
     .balc (f 25 0),
     .beqc (f 25 21) (f 20 16) (f 15 0),
@@ -253,8 +248,6 @@ def candidates (w : W32) : List Instruction :=
     .bnvc (f 25 21) (f 20 16) (f 15 0),
     .jic (f 20 16) (f 15 0),
     .jialc (f 20 16) (f 15 0),
-    -- END R6-3
-    -- BEGIN R6-5
     .roundLS (f 10 6) (f 15 11),
     .roundLD (f 10 6) (f 15 11),
     .truncLS (f 10 6) (f 15 11),
@@ -267,8 +260,6 @@ def candidates (w : W32) : List Instruction :=
     .cvtLD (f 10 6) (f 15 11),
     .cvtSL (f 10 6) (f 15 11),
     .cvtDL (f 10 6) (f 15 11),
-    -- END R6-5
-    -- BEGIN R6-6B
     .cmpS (f 4 0) (f 10 6) (f 15 11) (f 20 16),
     .cmpD (f 4 0) (f 10 6) (f 15 11) (f 20 16),
     .bc1eqz (f 20 16) (f 15 0),
@@ -294,8 +285,9 @@ def candidates (w : W32) : List Instruction :=
     .maxS (f 10 6) (f 15 11) (f 20 16),
     .maxD (f 10 6) (f 15 11) (f 20 16),
     .maxaS (f 10 6) (f 15 11) (f 20 16),
-    .maxaD (f 10 6) (f 15 11) (f 20 16)
-    -- END R6-6B
+    .maxaD (f 10 6) (f 15 11) (f 20 16),
+    .dvp (f 20 16),
+    .evp (f 20 16)
     ]
 
 /-- **Decode by the format diagrams** (module doc): the instruction whose diagram `w` is; else an

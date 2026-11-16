@@ -136,7 +136,6 @@ def SLTU (rs rt rd : W32) : Pseudo Unit := do
   -- else GPR[rd] ← 0^GPRLEN
   else setGPR (reg rd) 0#32
 
--- BEGIN R6-4
 /-! ## Release 6: same-width multiply and divide, select, scaled address
 
 `signed_word(x)` / `unsigned_word(x)` (p.301, p.169; not defined further by the manual) read the 32-bit
@@ -300,6 +299,5 @@ GPR[rt]`). On a 32-bit CPU `sign_extend.32` of the 32-bit sum is the sum. -/
 def LSA (rs rt rd sa : W32) : Pseudo Unit := do
   -- GPR[rd] ← sign_extend.32( GPR[rs] << (sa+1) + GPR[rt] )
   setGPR (reg rd) (sign_extend (((← GPR (reg rs)) <<< ((low sa 2).toNat + 1)) + (← GPR (reg rt))))
--- END R6-4
 
 end Manual.Ops

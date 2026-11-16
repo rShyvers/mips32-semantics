@@ -73,10 +73,8 @@ def CP0Same (x y : Arch) : Prop :=
   x.ErrorEPC = y.ErrorEPC ∧ x.EBase = y.EBase ∧ x.ConfigK0 = y.ConfigK0 ∧
   x.ConfigK23 = y.ConfigK23 ∧ x.ConfigKU = y.ConfigKU ∧ x.Count = y.Count ∧
   x.Compare = y.Compare ∧ x.CauseTI = y.CauseTI ∧ x.HWREna = y.HWREna ∧ x.HW = y.HW ∧
-  -- BEGIN R6-2
   x.UserLocal = y.UserLocal ∧ x.BadInstr = y.BadInstr ∧ x.BadInstrP = y.BadInstrP ∧
   x.KScratch = y.KScratch ∧ x.Config5SBRI = y.Config5SBRI
-  -- END R6-2
 
 /-- **The state inaccessible in the mode of `a` is the same in `x` and `y`**: in User Mode the
 physical memory no User Mode address reaches, and the CP0 registers while CP0 is not usable. -/
@@ -156,27 +154,20 @@ UNDEFINED outcome and no Reset changes the interrupt inputs `HW` (the `HW` claus
 def Oracle.Valid (o : Oracle) : Prop :=
   -- restrictions 2 and 3 on every UNPREDICTABLE operation
   (∀ a i, OutcomeValid a (o.jalrRsIsRd a i)) ∧
-  -- BEGIN R6-3
   (∀ a i, OutcomeValid a (o.linkSourceIs31 a i)) ∧
-  -- END R6-3
   (∀ a fs t, OutcomeValid a (o.ctc1Unpredictable a fs t)) ∧
   (∀ a, OutcomeValid a (o.extOutOfRange a)) ∧
   (∀ a, OutcomeValid a (o.insLsbAboveMsb a)) ∧
   (∀ a w, OutcomeValid a (o.unpredictableEncoding a w)) ∧
   -- restriction 1 on every UNPREDICTABLE operation and value
   (∀ i, NIOutcome (o.jalrRsIsRd · i)) ∧
-  -- BEGIN R6-3
   (∀ i, NIOutcome (o.linkSourceIs31 · i)) ∧
-  -- END R6-3
   (∀ fs t, NIOutcome (o.ctc1Unpredictable · fs t)) ∧
   NIOutcome o.extOutOfRange ∧
   NIOutcome o.insLsbAboveMsb ∧
   (∀ w, NIOutcome (o.unpredictableEncoding · w)) ∧
   (∀ r, NIValue (o.fprUpper · r)) ∧  -- R6-5
-  (∀ fs, NIValue (o.cfc1Unpredictable · fs)) ∧
-  -- BEGIN R6-2
   NIValue o.badInstrNoWord ∧ NIValue o.badInstrP ∧
-  -- END R6-2
   (∀ i, NIValue (o.divByZero · i)) ∧  -- R6-4
   -- the UNDEFINED operations
   (∀ a v, UndefinedOutcomeValid a (o.ebaseWriteBEV0 a v)) ∧
@@ -220,8 +211,8 @@ is not choice-free anyway, `ChoiceFree`). One row per Operation that reads the o
 * every store of a 32-bit result into an FPR (`fprUpper`: the upper half of the 64-bit FPR is
   UNPREDICTABLE, MD00082 Vol I-A Rev 6.01 §6.6.2, p.98): `LWC1`, `MTC1`, `MOV.S`, `ABS.S`, `NEG.S`
   and every operation with an S or W result;
-* `CFC1` of `FRE` (`fs` = 5, `cfc1Unpredictable`), unless `rt = 0` (the value is written to
-  `GPR[0]`, which has no effect); `CTC1` in an `UNPREDICTABLE` arm;
+* `CTC1` in an `UNPREDICTABLE` arm (`CFC1` has none: its `FRE` arm signals Reserved Instruction,
+  `Manual.Ops.CFC1`);
 * `MTC0` of a different Exception Base to `EBase` while `BEV = 0` (`ebaseWriteBEV0`);
 * `EXT`/`INS` with an UNPREDICTABLE field combination; `JALR`/`JALR.HB` with `rs = rd`;
 * the Release 6 compact branch-and-link (`BLEZALC`, ..., `BNEZALC`) with `rt = 31`
@@ -236,7 +227,6 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .lb .., a | .lbu .., a | .lh .., a | .lhu .., a | .lw .., a
   | .sb .., a | .sh .., a | .sw .., a | .swc1 .., a => a.LLbit
   | .ldc1 .., a | .sdc1 .., a => a.LLbit
-  | .cfc1 rt fs, _ => fs == 5#32 && reg rt != 0
   | .ctc1 rt fs, a => CTC1Unpredictable fs (low (readGPR a (reg rt)) 32)
   | .mtc0 rt rd sel, a =>
     rd.toNat == 15 && sel.toNat == 1 && !StatusBEV a &&
@@ -244,40 +234,32 @@ def ConsultsOracle : Instruction → Arch → Bool
   | .ext _ _ pos size, _ => decide ((low pos 5).toNat + (low (size - 1#32) 5).toNat > 31)
   | .ins _ _ pos size, _ => decide (((low pos 5).toNat : Int) > ((low (pos + size - 1#32) 5).toNat : Int))
   | .jalr rs rd, _ | .jalrHb rs rd, _ => reg rs == reg rd
-  -- BEGIN R6-3
   | .blezalc rt _, _ | .bgezalc rt _, _ | .bgtzalc rt _, _ | .bltzalc rt _, _ | .beqzalc rt _, _
   | .bnezalc rt _, _ => reg rt == 31
-  -- END R6-3
-  -- BEGIN R6-5: a 32-bit result stored into a 64-bit FPR (`fprUpper`)
+  -- A 32-bit result stored into a 64-bit FPR (`fprUpper`)
   | .lwc1 .., _ | .mtc1 .., _ | .movS .., _ | .absS .., _ | .negS .., _
   | .addS .., _ | .subS .., _ | .mulS .., _ | .divS .., _ | .sqrtS .., _ | .recipS .., _
   | .rsqrtS .., _ | .roundWS .., _ | .truncWS .., _ | .ceilWS .., _ | .floorWS .., _ | .cvtWS .., _
   | .roundWD .., _ | .truncWD .., _ | .ceilWD .., _ | .floorWD .., _ | .cvtWD .., _
   | .cvtSD .., _ | .cvtSW .., _ | .cvtSL .., _ => true
   | .cvtDS _ fs, a => Mips.Fp.isQNaN32 ((a.FPR (reg fs)).extractLsb' 0 32)
-  -- END R6-5
-  -- BEGIN R6-6B: the 32-bit FPR results of the Release 6 FP instructions (`fprUpper`)
+  -- The 32-bit FPR results of the Release 6 FP instructions (`fprUpper`)
   | .cmpS .., _ | .selS .., _ | .seleqzS .., _ | .selnezS .., _ | .maddfS .., _ | .msubfS .., _
   | .maxS .., _ | .minS .., _ | .maxaS .., _ | .minaS .., _ | .classS .., _ | .rintS .., _ => true
-  -- END R6-6B
-  -- BEGIN R6-4
   | .lwpc .., a => a.LLbit
   | .div _ rt rd, a | .mod _ rt rd, a | .divu _ rt rd, a | .modu _ rt rd, a =>
     readGPR a (reg rt) == 0#32 && reg rd != 0
-  -- END R6-4
   | _, _ => false
 
 /-- A context that differs from another in the oracle only. -/
 def ctxOf (i : Impl) (o : Oracle) : Ctx := { impl := i, oracle := o }
 
--- BEGIN R6-2
 /-- The instruction fetch at `PC` delivers a word (computed with the model's oracle; the fetch reads
 no oracle field). Where it does not, `BadInstr` is UNPREDICTABLE (`Oracle.badInstrNoWord`). -/
 def FetchOK (i : Impl) (a : Arch) : Bool :=
   match (InstructionFetch.run (ctxOf i modelOracle) { arch := a }).1 with
   | .ok _ => true
   | .signal _ => false
--- END R6-2
 
 /-- **No oracle choice that can change the result is made in the instruction time from `a`**
 (decidable; module doc). `false` when an interrupt or an exception other than Coprocessor Unusable is

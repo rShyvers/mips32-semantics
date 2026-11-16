@@ -132,7 +132,6 @@ macro "bits32" : tactic => `(tactic| (
     Mips.Fp.fcsrWritableMask, Mips.Fp.fcsr2008Bits, bits, bit]
   rcases i with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|i <;> simp <;> omega))
 
--- BEGIN R6-5
 /-- `FCSRRead` (the R/W fields and `ABS2008 = NAN2008 = 1`) is the model's `readFCSR`. -/
 theorem fcsrRead_abs (s : State) : FCSRRead (abs s) = Mips.Fp.readFCSR s.fcsr := rfl
 
@@ -202,7 +201,6 @@ theorem fcsrReservedZero_extract (s : State) (h : FcsrReservedZero s) :
   have := congrArg (·.getLsbD (18 + i)) h
   simp only [BitVec.getLsbD_and, BitVec.getLsbD_zero] at this
   rcases i with _|_|_|_|_|i <;> simp_all <;> omega
--- END R6-5
 
 /-- `CheckFPException()` (Figure 2.24, p.23) is the model's `Mips.Fp.fcsrTrapPending`. -/
 theorem checkFP_run (c : Ctx) (f : Frame) :

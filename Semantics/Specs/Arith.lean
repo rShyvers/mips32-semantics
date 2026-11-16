@@ -294,7 +294,6 @@ theorem sltu_spec_raw (s : State) (w rs rt rd : W32)
           (setRegsSpec (initialState textBase) [(8, 0xffffffff#32), (9, 1#32)])
         readReg s 10 == 0#32) = true
 
--- BEGIN R6-4
 /-! ## Release 6: MUL/MUH/MULU/MUHU, DIV/MOD/DIVU/MODU, SELEQZ/SELNEZ, LSA -/
 
 /-- **`mul` writes the low word of the product** (MD00086 Vol II-A Rev 6.06, MUL MUH MULU MUHU, p.300-301;
@@ -417,4 +416,3 @@ theorem lsa_spec_raw (s : State) (w rs rt rd sa : W32)
 #guard (let s := stepIn (prog1Spec (.lsa 8#32 9#32 10#32 3#32))
           (setRegsSpec (initialState textBase) [(8, 1#32), (9, 2#32)])
         readReg s 10 == 18#32) = true
--- END R6-4

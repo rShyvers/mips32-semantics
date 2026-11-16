@@ -44,7 +44,6 @@ def execJump (s : State) : Instruction → Option State
     let target := readReg s (regIdx rs)
     let s' := writeReg s (regIdx rd) linkVal
     { s' with pc := pcNext, pendingBranch := some target }
-  -- BEGIN R6-3
   -- JIC/JIALC (MD00086 Vol II-A Rev 6.06, JIC p.205, JIALC p.203): `temp ← GPR[rt] +
   -- sign_extend(offset)` (the offset is not shifted), JIALC `GPR[31] ← PC + 4`, then `PC ← temp` at
   -- once ("has neither a delay slot nor a forbidden slot"; `Config3.ISA = Config1.CA = 0`, MIPS32
@@ -54,5 +53,4 @@ def execJump (s : State) : Instruction → Option State
   | .jialc rt off => some <|
     let temp := readReg s (regIdx rt) + signExt16 off
     { writeReg s 31 (s.pc + 4#32) with pc := temp, pendingBranch := none }
-  -- END R6-3
   | _ => none

@@ -63,7 +63,6 @@ def ERET : Pseudo Unit := do
   Pseudo.modify fun x => { x with LLbit := false }
   -- ClearHazards(): no architectural state
 
--- BEGIN R6-2
 /-- **ERETNC** — MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180.
 ```
 if StatusERL = 1 then
@@ -173,7 +172,6 @@ def WAIT (_code : W32) : Pseudo Unit := do
   -- else SignalException(CoprocessorUnusable, 0)
   else SignalException (.CoprocessorUnusable 0)
   -- I+1: Manual.InstructionTime (the next instruction time)
--- END R6-2
 
 /-- **PAUSE** — MD00086 Vol II-A Rev 6.06, PAUSE, p.317.
 ```

@@ -73,7 +73,6 @@ theorem break_refines (s : State) (hg : Good s) (code w : W32)
     gep_take s .Breakpoint rfl excCodeBp (by decide)]
   rfl
 
--- BEGIN R6-2
 /-- **SIGRIE refines** (MD00086 Vol II-A Rev 6.06, SIGRIE, p.375): Reserved Instruction on both
 sides. -/
 theorem sigrie_refines (s : State) (hg : Good s) (code w : W32)
@@ -84,6 +83,5 @@ theorem sigrie_refines (s : State) (hg : Good s) (code w : W32)
   rw [show modelCtx.oracle = modelOracle from rfl, show modelCtx.impl = modelImpl from rfl,
     gep_take s .ReservedInstruction rfl excCodeRI (by decide)]
   rfl
--- END R6-2
 
 end Refine

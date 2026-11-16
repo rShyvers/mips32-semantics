@@ -126,7 +126,6 @@ theorem jalrHb_refines (s : State) (hg : Good s) (rs rd w : W32)
       abs_writeReg _ _ _ hsz, pc_add_eight]
     by_cases hd : regIdx rd = 0 <;> simp [I1, Complete, writeGPR, abs, readReg, readFpReg64, hd]
 
--- BEGIN R6-3
 /-! ## The Release 6 compact jumps (JIC p.205, JIALC p.203)
 
 No delay slot and no forbidden slot: `PC ← temp` at time `I` on both sides. `modelImpl` has
@@ -182,6 +181,5 @@ theorem jialc_refines (s : State) (hg : Good s) (rt off w : W32) (hw : enc (.jia
       setPC, abs_pc_pb]
     rw [← abs_writeReg _ _ _ hsz]
     simp [Complete]
--- END R6-3
 
 end Refine

@@ -70,7 +70,6 @@ if ArchitectureRevision ≥ 2 then vectorBase ← EBase31..12 || 0x000". -/
 def vectorBase (a : Arch) : W32 :=
   if StatusBEV a then 0xBFC00200#32 else EBaseRead a &&& ~~~0xFFF#32
 
--- BEGIN R6-2
 /-- **The faulting instruction word** (`BadInstr`, MD00090 Vol III Rev 6.02 §9.25, Table 9.42, p.179:
 "Faulting instruction word"): the word the instruction fetch at `PC` delivers (`InstructionFetch`).
 "When a synchronous exception occurs for which there is no valid instruction word (for example TLB
@@ -86,7 +85,6 @@ maps it to (`FixedMapping` with the current `StatusERL`, `MemElemAt`), without t
 the prior branch of `BadInstrP`: the branch at `PC - 4` was fetched from there. -/
 def InstructionWordAt (a : Arch) (vAddr : W32) : W32 :=
   MemElemAt a.Mem (FixedMapping (StatusERL a) vAddr)
--- END R6-2
 
 /-- **General exception processing** for exception `e` signalled by the instruction at `a.PC`
 (MD00090 Vol III Rev 6.02 §6.2.3, Operation, p.87-88):
@@ -140,13 +138,11 @@ def GeneralExceptionProcessing (i : Impl) (o : Oracle) (e : Exception) (a0 : Arc
       Status := a.Status ||| (1#32 <<< 1)   -- StatusEXL ← 1
       PC := base.extractLsb' 30 2 ++ (base.extractLsb' 0 30 + off.extractLsb' 0 30)
       BranchDelay := none
-      -- BEGIN R6-2
       -- BadInstr / BadInstrP: every exception synchronous to an instruction (not the Interrupt)
       BadInstr := if e = .Interrupt then a.BadInstr else FaultingInstructionWord i o a0
       BadInstrP :=
         if e = .Interrupt then a.BadInstrP
         else if inSlot then InstructionWordAt a0 (a0.PC - 4#32) else o.badInstrP a0
-      -- END R6-2
       }
 
 end Manual

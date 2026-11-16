@@ -59,7 +59,6 @@ signal a Reserved Instruction exception" (MD00086 Vol II-A Rev 6.06, JALR, p.196
 Rev 6.01 §5.3.2.1, p.62). `execInstr` raises Reserved Instruction when one of these is reached with
 `s.pendingBranch = some _`, i.e. directly after any branch or jump with a delay slot, taken or not,
 and in the forbidden slot of a conditional compact branch that was not taken.
--- BEGIN R6-3
 The Release 6 compact branches and jumps are CTIs too ("all branches and jumps"): `bc`, `balc`,
 the B<cond>C, the B*ZALC, `bovc`, `bnvc`, `jic`, `jialc`. **Forbidden slot**: "If a control
 transfer instruction (CTI) is placed in the forbidden slot of a compact branch, Release 6
@@ -68,30 +67,23 @@ not taken" (MD00086 Vol II-A Rev 6.06, B<cond>C, p.84); a not-taken conditional 
 `pendingBranch := some (pc + 8)` (`Exec/Branch.lean`), so the same check covers it. A taken compact
 branch, and `bc`/`balc`/`jic`/`jialc`, leave no slot ("neither a delay slot nor a forbidden slot",
 MD00082 Vol I-A Rev 6.01 §5.3.2.2, p.62).
--- END R6-3
 `eretnc` is a CTI as well (ERETNC, p.179). -/
 def isBranchLike (instr : Instruction) : Bool :=
   match instr with
   | .beq _ _ _ | .bne _ _ _ | .blez _ _ | .bgtz _ _ | .bltz _ _ | .bgez _ _ | .nal _ | .bal _
   | .j _ | .jal _ | .jalr _ _ | .jalrHb _ _ | .eret | .wait _ | .pause => true
-  -- BEGIN R6-2
   -- ERETNC: "Release 6 implementations are required to signal a Reserved Instruction exception if
   -- ERETNC is executed in the delay slot or Release 6 forbidden slot of a branch or jump
   -- instruction" (MD00086 Vol II-A Rev 6.06, ERETNC, p.179).
   | .eretnc => true
-  -- END R6-2
-  -- BEGIN R6-3
   | .bc _ | .balc _ | .beqc _ _ _ | .bnec _ _ _ | .bltc _ _ _ | .bgec _ _ _ | .bltuc _ _ _
   | .bgeuc _ _ _ | .blezc _ _ | .bgezc _ _ | .bgtzc _ _ | .bltzc _ _ | .beqzc _ _ | .bnezc _ _
   | .blezalc _ _ | .bgezalc _ _ | .bgtzalc _ _ | .bltzalc _ _ | .beqzalc _ _ | .bnezalc _ _
   | .bovc _ _ _ | .bnvc _ _ _ | .jic _ _ | .jialc _ _ => true
-  -- END R6-3
-  -- BEGIN R6-6B
   -- BC1EQZ/BC1NEZ: "If a control transfer instruction (CTI) is executed in the delay slot of a branch
   -- or jump, Release 6 implementations are required to signal a Reserved Instruction exception"
   -- (MD00086 Vol II-A Rev 6.06, BC1EQZ BC1NEZ, p.54).
   | .bc1eqz _ _ | .bc1nez _ _ => true
-  -- END R6-6B
   | _ => false
 
 /-- Signed-overflow predicate for `add`/`addi`, following INSTRUCTION-REF's
@@ -164,7 +156,6 @@ def exceptionVector (s : State) : W32 :=
   if s.cp0Status &&& statusBevMask == 0#32 then ebaseValue s ||| exceptionVectorOffset
   else exceptionVectorBevAddr
 
--- BEGIN R6-2
 /-- **The instruction word at the virtual address `va`, read without the address check**: the
 aligned word of physical memory at the Fixed Mapping translation of `va` (`fixedMappingPA` with the
 current `Status.ERL`), in the byte order of `profile`. It is the word an instruction fetch at `va`
@@ -181,7 +172,6 @@ exception occurs for which there is no valid instruction word (for example TLB R
 Fetch), the value stored in BadInstr is UNPREDICTABLE" (p.179): for an instruction fetch that fails
 (Address Error) the model stores `0` (pin). -/
 def faultingInstr (s : State) : W32 := (readMemWord s s.pc).getD 0#32
--- END R6-2
 
 /-- The state after taking a general exception with `Cause.ExcCode = excCode`
 from `s`, where `s.pc` is the faulting instruction (MD00090 Vol III Rev 6.02
@@ -234,11 +224,9 @@ def exceptionEntry (s : State) (excCode : W32) (ce : W32 := 0#32) (sync : Bool :
       cp0Status := s.cp0Status ||| statusExlMask
       pc := exceptionVector s
       pendingBranch := none
-      -- BEGIN R6-2
       cp0BadInstr := if sync then faultingInstr s else s.cp0BadInstr
       cp0BadInstrP :=
         if sync then (if inSlot then instrWordAt s (s.pc - 4#32) else 0#32) else s.cp0BadInstrP
-      -- END R6-2
       }
 
 /-- Raise a general exception: the state after exception entry (the
@@ -273,9 +261,9 @@ exactly in Kernel Mode. -/
 def cp0Usable (s : State) : Bool := kernelMode s
 
 /-- The coprocessor-0 instructions of the model: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `eretnc`,
-`wait`, `rdpgpr`, `wrpgpr` and `cache`. Each page lists Coprocessor Unusable among its exceptions
-(MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, ERETNC p.180,
-WAIT p.443, RDPGPR p.335, WRPGPR p.444, CACHE p.119), which is raised when "A COP0
+`wait`, `rdpgpr`, `wrpgpr`, `cache`, `dvp` and `evp`. Each page lists Coprocessor Unusable among its
+exceptions (MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, ERETNC
+p.180, WAIT p.443, RDPGPR p.335, WRPGPR p.444, CACHE p.119, DVP p.173, EVP p.182), which is raised when "A COP0
 or Cache instruction was executed while the processor was running in a mode other than Debug
 Mode or Kernel Mode, and the CU0 bit in the Status register was a zero" (MD00090 Vol III
 Rev 6.02 §6.2.22, p.100). The other COP0 instructions (TLB instructions, `DERET`) are not
@@ -283,9 +271,8 @@ implemented: their words do not decode and are covered by `isCop0Word`. -/
 def usesCop0 (instr : Instruction) : Bool :=
   match instr with
   | .mfc0 _ _ _ | .mtc0 _ _ _ | .di _ | .ei _ | .eret | .wait _ | .rdpgpr _ _ | .wrpgpr _ _ => true
-  -- BEGIN R6-2
   | .eretnc | .cache _ _ _ => true
-  -- END R6-2
+  | .dvp _ | .evp _ => true
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 0 or is a CACHE instruction:
@@ -322,18 +309,14 @@ def usesCop1 (instr : Instruction) : Bool :=
   | .addD _ _ _ | .subD _ _ _ | .mulD _ _ _ | .divD _ _ _
   | .sqrtD _ _ | .absD _ _ | .movD _ _ | .negD _ _ | .recipD _ _ | .rsqrtD _ _
   | .roundWD _ _ | .truncWD _ _ | .ceilWD _ _ | .floorWD _ _ | .cvtWD _ _ | .cvtSD _ _ => true
-  -- BEGIN R6-5
   | .cvtLS _ _ | .cvtLD _ _ | .roundLS _ _ | .roundLD _ _ | .truncLS _ _ | .truncLD _ _
   | .ceilLS _ _ | .ceilLD _ _ | .floorLS _ _ | .floorLD _ _ | .cvtSL _ _ | .cvtDL _ _ => true
-  -- END R6-5
-  -- BEGIN R6-6B
   | .cmpS _ _ _ _ | .cmpD _ _ _ _ | .bc1eqz _ _ | .bc1nez _ _
   | .selS _ _ _ | .selD _ _ _ | .seleqzS _ _ _ | .seleqzD _ _ _ | .selnezS _ _ _ | .selnezD _ _ _
   | .maddfS _ _ _ | .maddfD _ _ _ | .msubfS _ _ _ | .msubfD _ _ _
   | .maxS _ _ _ | .maxD _ _ _ | .minS _ _ _ | .minD _ _ _
   | .maxaS _ _ _ | .maxaD _ _ _ | .minaS _ _ _ | .minaD _ _ _
   | .classS _ _ | .classD _ _ | .rintS _ _ | .rintD _ _ => true
-  -- END R6-6B
   | _ => false
 
 /-- Whether a word that does **not** decode belongs to coprocessor 1's encoding space: opcode COP1
@@ -360,7 +343,6 @@ def isCop2Word (w : W32) : Bool :=
 def fpEnv (s : State) : Mips.Fp.Env := Mips.Fp.envOf s.fcsr
 
 
--- BEGIN R6-5
 /-- The double (or longword) in the FPR named by `f`: the whole 64-bit register (`ValueFPR(fpr,
 D)` with `FR = 1`, MD00086 Vol II-A Rev 6.06, Figure 2.22, p.22: "valueFPR ← FPR[fpr]"). -/
 def readFpD (s : State) (f : W32) : BitVec 64 :=
@@ -370,7 +352,6 @@ def readFpD (s : State) (f : W32) : BitVec 64 :=
 `FR = 1`, Figure 2.23, p.23: "FPR[fpr] ← value"). -/
 def writeFpD (s : State) (f : W32) (v : BitVec 64) : State :=
   writeFpReg64 s (regIdx f) v
--- END R6-5
 
 /-- Complete an FP instruction that computed the 32-bit result `r.1` (a
 single, or a word fixed-point value) for `FPR[fd]` and raised the IEEE
@@ -470,7 +451,6 @@ p.250; `SP`, `CDMM`, `MT` ("For Release 6 and after, this bit must be 0"), `SM` 
 Release 6), `TL`, p.251. So `0x8C00_3000`. -/
 def config3Value : W32 := 0x8C003000
 
--- BEGIN R6-2
 /-- `Config4` (CP0 register 16, select 4; MD00090 Vol III Rev 6.02 §9.49, Table 9.68, p.253-258),
 read-only here: `M` = 1 (bit 31: "If the Config5 register is implemented, this bit should read as a
 1", p.253; Config5 is required in Release 6, `config5Value`); `KScrExist` (23..16) = `0xFC`: "For
@@ -505,7 +485,6 @@ def ccaSupported (v : BitVec 3) : Bool := v == 2#3 || v == 3#3
 /-- `Config5.XNP` as `rdhwr` register 5 reads it (MD00090 Vol III Rev 6.02 Table 9.40, p.176: "If
 set to 1, then LLX/SCX family of instructions is not present"; DECISIONS D13): 1. -/
 def xnpValue : W32 := 1#32
--- END R6-2
 
 /-! ## Timer (Count / Compare) -/
 
@@ -662,10 +641,8 @@ def hwrValue (s : State) (rd : W32) : Option W32 :=
   | 1 => some synciStepValue
   | 2 => some s.cp0Count
   | 3 => some ccResValue
-  -- BEGIN R6-2
   | 5 => some xnpValue
   | 29 => some s.cp0UserLocal
-  -- END R6-2
   | _ => none
 
 /-- **`rdhwr` access to register `rd` is allowed** (MD00086 Vol II-A Rev 6.06, RDHWR, Restrictions,

@@ -3,34 +3,35 @@ import Semantics.Specs.Fixtures
 import Semantics.Specs.DelaySlot
 
 /-!
-# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`/`eretnc`, `wait`, `rdpgpr`/`wrpgpr`, `cache`; and `pause`
+# Cp0 — coprocessor 0: `mfc0`/`mtc0`, `di`/`ei`, `eret`/`eretnc`, `wait`, `rdpgpr`/`wrpgpr`, `cache`, `dvp`/`evp`; and `pause`
 
-Constructors: `mfc0` `mtc0` `di` `ei` `eret` `eretnc` `wait` `rdpgpr` `wrpgpr` `cache`, and `pause`
+Constructors: `mfc0` `mtc0` `di` `ei` `eret` `eretnc` `wait` `rdpgpr` `wrpgpr` `cache` `dvp` `evp`, and `pause`
 (not a coprocessor-0 instruction; here because it enters standby like `wait`).
 
 Manual pages (MD00086 Vol II-A Rev 6.06, printed page, as listed per constructor in `docs/TRACE.md`):
   MFC0 p.266; MTC0 p.290-291; DI p.164; EI p.176; ERET p.177-178; ERETNC p.179-180; WAIT p.442-443;
-  RDPGPR p.335; WRPGPR p.444; CACHE p.114-119; PAUSE p.317-318.
+  RDPGPR p.335; WRPGPR p.444; CACHE p.114-119; DVP p.172-173; EVP p.181-182; PAUSE p.317-318.
 
 Reference: `docs/spec/INSTRUCTION-REF.md`, section "Coprocessor 0 / traps and exceptions (real MIPS32 ISA)".
 
 Every one of these instructions except `pause` needs coprocessor 0: outside Kernel Mode it raises
 Coprocessor Unusable with `Cause.CE = 0` and does nothing else (`cp0_instruction_user_mode_unusable`,
-one theorem for all ten; MD00090 Vol III Rev 6.02 §6.2.22, p.100). The per-instruction `_spec_raw`
+one theorem for all twelve; MD00090 Vol III Rev 6.02 §6.2.22, p.100). The per-instruction `_spec_raw`
 theorems state the other case: they assume `hcp0 : cp0Usable s = true`, which is exactly Kernel
 Mode (`cp0Usable_iff_kernelMode`: Release 6 has no `Status.CU0`; §3.5.3, p.23).
 
 The CP0 register file is the layout table `cp0Layout` (`Exec/Cp0.lean`); `cp0ReadAt_eq` and
 `cp0WriteAt_eq` write it out register by register, `mfc0_spec_raw`/`mtc0_spec_raw` are the steps.
 
-## Theorems in this file (39)
+## Theorems in this file (41)
 
   `cp0ReadAt_eq` `cp0WriteAt_eq` `mfc0_spec_layout` `mfc0_spec_raw` `mtc0_spec_layout`
   `mtc0_spec_raw` `mfc0_unimplemented_reads_zero` `mtc0_unimplemented_ignored` `mfc0_config3`
   `mfc0_config4` `mfc0_config5` `mtc0_config5` `mfc0_llAddr` `mtc0_llAddr` `mtc0_llAddr_clears`
   `mtc0_llAddr_never_sets` `cp0_scratch_round_trip` `causeWriteMask_eq` `statusWriteMask_eq`
   `di_spec_raw` `ei_spec_raw` `eret_spec_raw` `eretnc_spec_raw` `eretnc_keeps_llBit`
-  `eretnc_in_delay_slot_reserved_instruction` `cache_spec_raw` `cache_noop` `eret_clears_llBit`
+  `eretnc_in_delay_slot_reserved_instruction` `cache_spec_raw` `cache_noop` `dvp_spec_raw`
+  `evp_spec_raw` `eret_clears_llBit`
   `eret_in_delay_slot_reserved_instruction` `wait_spec_raw` `wait_preserves_state` `pause_spec_raw`
   `pause_llbit_clear` `rdpgpr_spec_raw` `wrpgpr_spec_raw` `cp0Usable_iff_kernelMode`
   `cp0_instruction_user_mode_unusable` `usesCop1_of_usesCop0` `hwrenaWriteMask_eq`
@@ -394,14 +395,12 @@ theorem causeWriteMask_eq : causeWriteMask = 0x08800300#32 := rfl
 Supervisor Mode, coprocessors 2/3, `RP`, `FR`, `RE`, `MX`, `TS`, `SR`, `NMI`). -/
 theorem statusWriteMask_eq : statusWriteMask = 0x3040ff17#32 := rfl
 
--- BEGIN R6-2
 /-- The write mask of `HWREna` is bits 0..3 (`CPUNum`, `SYNCI_Step`, `CC`, `CCRes`), 5 (`XNP`) and 29
 (`ULR`): the `rdhwr` registers the model implements; "If RDHWR register ‘n’ is not implemented, bit
 ‘n’ of this field returns a zero and is ignored on a write" (MD00090 Vol III Rev 6.02 Table 9.39,
 p.175; Table 9.40, p.176: XNP "Required (Release 6)", "In Release 6, the UserLocal register is
 required"). -/
 theorem hwrenaWriteMask_eq : hwrenaWriteMask = 0x2000002F#32 := rfl
--- END R6-2
 
 /-- **`di`: `$rt ← Status`, then `Status.IE ← 0`** (MD00086 Vol II-A
 Rev 6.06, DI, p.164). The value written to `$rt` is the `Status` before the
@@ -443,7 +442,6 @@ theorem eret_spec_raw (s : State) (w : W32)
         { s with pc := s.cp0Epc, cp0Status := s.cp0Status &&& ~~~statusExlMask, llBit := false }) := by
   cp0_step_spec
 
--- BEGIN R6-2
 /-- **`eretnc`** (MD00086 Vol II-A Rev 6.06, ERETNC, p.179-180), executed outside a delay slot: the
 Operation of `eret` without `LLbit ← 0`: "ERETNC is identical to ERET except that an ERETNC will not
 clear the LLbit that is set by execution of an LL instruction" (p.179): `if Status.ERL = 1 then PC ←
@@ -516,7 +514,32 @@ theorem cache_noop (s : State) (w base op off : W32)
   have hacc : accessAllowed s (readReg s (regIdxSpec base) + signExt9 off) = true := by
     simp [accessAllowed, hk]
   rw [translate_of_allowed s _ hacc]
--- END R6-2
+
+/-- **`dvp rt` is a no-op** (MD00086 Vol II-A Rev 6.06, DVP, p.172: "For implementations that do not
+support multi-threading (Config5VP=0), this instruction must be treated as a NOP instruction"; this
+profile has `Config5.VP = 0`, MD00090 Vol III Rev 6.02 Table 9.69, p.263): only `pc` advances, and
+`GPR[rt]` is not written. Coprocessor 0 must be usable (`hcp0`; "If access to Coprocessor 0 is not
+enabled, a Coprocessor Unusable Exception is signaled", p.172); otherwise see
+`cp0_instruction_user_mode_unusable`. -/
+theorem dvp_spec_raw (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.dvp rt))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick { s with pc := s.pc + 4#32 } := by
+  have h : step s = timerTick (mkNext s s) := by cp0_step_spec
+  rw [h]
+  unfold mkNext advance
+  rw [hpb]
+
+/-- **`evp rt` is a no-op** (MD00086 Vol II-A Rev 6.06, EVP, p.181: with `Config5VP = 0` "this
+instruction must be treated as a NOP instruction"): only `pc` advances. -/
+theorem evp_spec_raw (s : State) (w rt : W32)
+    (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.evp rt))
+    (hpb : s.pendingBranch = none) (hcp0 : cp0Usable s = true) (hexec : executesInstr s = true) :
+    step s = timerTick { s with pc := s.pc + 4#32 } := by
+  have h : step s = timerTick (mkNext s s) := by cp0_step_spec
+  rw [h]
+  unfold mkNext advance
+  rw [hpb]
 
 /-- **`eret` clears `LLbit`**, whichever return address it uses — so an
 `sc` after an exception return fails (see `sc_spec_raw`). -/
@@ -616,20 +639,18 @@ theorem usesCop1_of_usesCop0 (instr : Instruction) (h : usesCop0 instr = true) :
     usesCop1 instr = false := by
   cases instr <;> first | rfl | exact absurd h Bool.false_ne_true
 
--- BEGIN R6-2
 /-- **Coprocessor 0 is usable exactly in Kernel Mode** (MD00090 Vol III Rev 6.02 §3.5.3, p.23:
 "Access to Coprocessor 0 registers are enabled under any of the following conditions: The processor
 is running in Kernel Mode or Debug Mode, as defined above. The CU0 bit in the Status register is 1."
 Release 6 has no `CU0`: bit 28 of `Status` is the software bit `RW`, Table 9.47, p.190; Debug Mode
 is not implemented). -/
 theorem cp0Usable_iff_kernelMode (s : State) : cp0Usable s = true ↔ kernelMode s = true := Iff.rfl
--- END R6-2
 
 /-- **Every coprocessor-0 instruction executed outside Kernel Mode raises Coprocessor Unusable with
 `Cause.CE = 0`, and does nothing else.** The instructions are `usesCop0`: `mfc0`, `mtc0`, `di`,
-`ei`, `eret`, `eretnc`, `wait`, `rdpgpr`, `wrpgpr`, `cache` (each page lists "Coprocessor Unusable"
-among its exceptions: MD00086 Vol II-A Rev 6.06, MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET
-p.178, ERETNC p.180, WAIT p.443, RDPGPR p.335, WRPGPR p.444, CACHE p.119). The rule: "A COP0 or
+`ei`, `eret`, `eretnc`, `wait`, `rdpgpr`, `wrpgpr`, `cache`, `dvp`, `evp` (each page lists "Coprocessor
+Unusable" among its exceptions: MD00086 Vol II-A Rev 6.06, MFC0 p.266, MTC0 p.291, DI p.164, EI p.176,
+ERET p.178, ERETNC p.180, WAIT p.443, RDPGPR p.335, WRPGPR p.444, CACHE p.119, DVP p.173, EVP p.182). The rule: "A COP0 or
 Cache instruction was executed while the processor was running in a mode other than Debug Mode or
 Kernel Mode, and the CU0 bit in the Status register was a zero"; `Cause.CE` = "unit number of the
 coprocessor being referenced" (MD00090 Vol III Rev 6.02 §6.2.22, p.100). Release 6 has no `CU0`, so

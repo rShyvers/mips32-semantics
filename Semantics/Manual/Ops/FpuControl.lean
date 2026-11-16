@@ -18,6 +18,18 @@ has no `AR` field and, read as `ConfigAR`, Release 6 would never write `GPR[rt]`
 reads a control register into nothing. Read as the unconditional `GPR[rt] ← temp` of the earlier
 releases (SPEC-NOTES). Its `else` arm "if Config2AR ≥ 2 SignalException(ReservedInstruction)" and the
 same arm of CTC1 are read with `ConfigAR`, as their comment "/*Release 6 traps*/" says.
+
+**Misprint (fs = 5).** The `FRE` arm reads "if ConfigAR ≤ 2 then temp ← UNPREDICTABLE else if not
+Config5UFR then SignalException(ReservedInstruction) endif; temp ← 0^31 || Config5FRE" (p.130; the `≤`
+read in the PDF image). Release 6 has `ConfigAR = 2`, so read literally the Release 6 `FRE` read would
+be dead code, against the Description: "The definition of this instruction has been extended in
+Release 6 to allow user code to read and modify the Config5FRE bit" (p.129). Read as `ConfigAR < 2`
+(the comparison of the `Config2AR < 2` line below), the Release 6 arm is the `else`: this profile has
+no `FRE` (`FIR.FREP = 0`, MD00082 Vol I-A Rev 6.01 Table 6.5, p.88: "If FREP=1, then Config5UFE and
+Config5FRE are available"; `Config5.UFR` R0, MD00090 Vol III Rev 6.02 Table 9.69, p.264), so `not
+Config5UFR` signals Reserved Instruction. That is also what the Restrictions require: "In Release 6
+and later, a Reserved Instruction exception occurs if fs specifies a register that does not exist"
+(p.129). QEMU `mips32r6-generic` signals it too (`tests/oracle/fp_cfc1_ri_fs5.asm`).
 -/
 
 namespace Manual.Ops
@@ -35,8 +47,9 @@ elseif fs = 4 then /* UNFR */
    if ConfigAR >= 2 SignalException(ReservedInstruction) /* Release 6 traps */ endif
    temp <- UNPREDICTABLE
 elseif fs = 5 then /* user read of FRE, if permitted */
-   if ConfigAR <= 2 then temp <- UNPREDICTABLE
-   else ... endif
+   if ConfigAR <= 2 then temp <- UNPREDICTABLE      (misprint: read as ConfigAR < 2, module doc)
+   else if not Config5UFR then SignalException(ReservedInstruction) endif
+        temp <- 0^31 || Config5FRE endif
 elseif fs = 25 then /* FCCR */  temp <- 0^24 || FCSR31..25 || FCSR23
 elseif fs = 26 then /* FEXR */  temp <- 0^14 || FCSR17..12 || 0^5 || FCSR6..2 || 0^2
 elseif fs = 28 then /* FENR */  temp <- 0^20 || FCSR11..7 || 0^4 || FCSR24 || FCSR1..0
@@ -50,7 +63,6 @@ if Config2AR < 2 then GPR[rt] <- temp endif     (misprint: read as GPR[rt] <- te
 `FCSR` is read with its read-only bits (`FCSRRead`). -/
 def CFC1 (rt fs : W32) : Pseudo Unit := do
   let a ← Pseudo.get
-  let o ← Pseudo.oracle
   let i ← Pseudo.impl
   -- if fs = 0 then temp <- FIR
   let temp ← (if fs == 0#32 then pure i.FIR
@@ -58,8 +70,9 @@ def CFC1 (rt fs : W32) : Pseudo Unit := do
     else if fs == 1#32 then SignalException .ReservedInstruction
     -- elseif fs = 4 then if ConfigAR >= 2 SignalException(ReservedInstruction)
     else if fs == 4#32 then SignalException .ReservedInstruction
-    -- elseif fs = 5 then if ConfigAR <= 2 then temp <- UNPREDICTABLE
-    else if fs == 5#32 then pure (o.cfc1Unpredictable a fs)
+    -- elseif fs = 5 then (ConfigAR < 2 is false, module doc) if not Config5UFR then
+    --   SignalException(ReservedInstruction)   (Config5UFR = 0: no FRE on this profile)
+    else if fs == 5#32 then SignalException .ReservedInstruction
     -- elseif fs = 25 then temp <- 0^24 || FCSR31..25 || FCSR23
     else if fs == 25#32 then
       pure (0#24 ++ (FCSRRead a).extractLsb' 25 7 ++ BitVec.ofBool (bit (FCSRRead a) 23) : BitVec 32)

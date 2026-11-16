@@ -5,8 +5,8 @@ import Semantics.Refine.BridgeFpuMove
 
 `CFC1` and `CTC1`: the FCCR/FEXR/FENR/FCSR views of the manual's Operation (MD00086 Vol II-A Rev 6.06,
 CFC1 p.129-130, CTC1 p.149-150) against `Mips.Fp.readControl`/`writeControl`, the UNPREDICTABLE arms
-under `modelOracle` (`cfc1Unpredictable` reads 0; `ctc1Unpredictable` writes the page's value with the
-reserved bits ignored, Reserved Instruction for `FRE`/`NFRE`), and `CTC1`'s `CheckFPException()`
+under `modelOracle` (`ctc1Unpredictable` writes the page's value with the reserved bits ignored,
+Reserved Instruction for `FRE`/`NFRE`; `CFC1` of `FRE` signals Reserved Instruction on both sides, W7), and `CTC1`'s `CheckFPException()`
 after the write ("The register is written before the exception occurs", p.149) against
 `Mips.Fp.fcsrTrapPending`. Release 6 (R6-5): `UFR`/`UNFR` and every register that does not exist
 raise Reserved Instruction on both sides ("Release 6 traps"; the manual transcribes the Release 6 arms).
@@ -30,9 +30,7 @@ theorem cfc1_run (s : State) (rt fs : W32) :
       match Mips.Fp.readControl s.fcsr fs.toNat with
       | some v => (.ok (), { arch := writeGPR (abs s) (reg rt) v })
       | none => (.signal .ReservedInstruction, { arch := abs s }) := by
-  have hU : ∀ x, modelCtx.oracle.cfc1Unpredictable (abs s) x = 0#32 := fun _ => rfl
-  simp only [Pseudo.run, Ops.CFC1, bind, Pseudo.get, Pseudo.oracle, Pseudo.impl, hU,
-    fcsrRead_abs]
+  simp only [Pseudo.run, Ops.CFC1, bind, Pseudo.get, Pseudo.impl, fcsrRead_abs]
   by_cases h0 : fs = 0#32
   · subst h0; simp only [beq_self_eq_true, ↓reduceIte, fir_model]; rfl
   by_cases h1 : fs = 1#32

@@ -50,10 +50,8 @@ def ResetException (o : Oracle) (a0 : Arch) : Arch :=
       PC := 0xBFC00000#32
       BranchDelay := none
       LowPower := false
-      -- BEGIN R6-2
       Config5SBRI := false
       LLbit := false
-      -- END R6-2
       }
 
 end Manual

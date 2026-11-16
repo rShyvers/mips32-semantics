@@ -614,7 +614,6 @@ def CompareSpec (f : Format) (cond : BitVec 4) (a b : Nat) (res : Bool × Flags)
 
 end Format
 
--- BEGIN R6-6C
 /-! ### `CMP.condn.fmt` (MD00086 Vol II-A Rev 6.06, p.136-140) -/
 
 /-- **The 32 `CMP.condn.fmt` predicates**, by the 5-bit `condn` field: the "Relation `> < = ?`"
@@ -774,7 +773,6 @@ def RintSpec (f : Format) (e : Env) (a : Nat) (res : Nat × Flags) : Prop :=
       res.2 = (if (i : Rat) = x then {} else { inexact := true })
 
 end Format
--- END R6-6C
 
 /-! ### The FCSR after an FP operation (§6.7.1, p.98-99; CheckFPException, Vol II-A §2.2.2.3.3, p.23) -/
 
@@ -817,7 +815,6 @@ def OpStep {α : Type} (Op : α × Flags → Prop) (fcsr : BitVec 32) (o : FpOut
   ∃ r : α × Flags, Op r ∧ ∃ new trap, FcsrSpec fcsr r.2 new trap ∧
     (trap = true → o = .trap new) ∧ (trap = false → o = .done new r.1)
 
--- BEGIN R6-6A
 /-! ### `MADDF.fmt`, `MSUBF.fmt`: fused multiply-add (MD00086 Vol II-A Rev 6.06, p.259-260) -/
 
 namespace Format
@@ -886,6 +883,5 @@ def FmaSpec (f : Format) (e : Env) (sub : Bool) (c a b : Nat) (res : Nat × Flag
     else f.RoundEnvSpec e (Cut.ofRat v) res
 
 end Format
--- END R6-6A
 
 end Mips.Fp

@@ -27,8 +27,8 @@ on the values of the encodings:
   encoding, Table 6.2 (p.80-81), the `FCSR.NAN2008 = 1` NaN encoding of Release 6; the spec's own,
   not the model's.
 * `RecipFlagsOK`, `Impl.RecipFlags` — the Invalid Operation and Division-by-Zero conditions the
-  manual mandates for `RECIP.fmt`/`RSQRT.fmt` by the class of the operand, and the Inexact of an
-  operand flushed under `FCSR.FS = 1` (otherwise Overflow, Underflow, Inexact left free: they belong
+  manual mandates for `RECIP.fmt`/`RSQRT.fmt` by the class of the operand (a subnormal operand
+  flushed under `FCSR.FS = 1` counting as a zero), and the Inexact of such a flushed operand (otherwise Overflow, Underflow, Inexact left free: they belong
   to the approximate result).
 * `Impl.Valid` — a valid implementation: `Impl.WF`, the three bounds and `Impl.RecipFlags`.
 -/
@@ -139,9 +139,12 @@ of a division and a square root (MD00082 Vol I-A Rev 6.01):
   dividend is `1.0`), not Invalid Operation;
 * any other operand (finite non-zero or infinite): no Division by Zero (the divisor `fs` or `√fs` is
   not zero); Invalid Operation exactly for `RSQRT` of a negative operand ("Square root: An operand of
-  less than 0", §6.7.2.1, p.100; `-∞` included). A subnormal operand with `FCSR.FS = 1` is excepted:
-  "Prior to Release 5, it is implementation-dependent whether subnormal operand values are flushed to
-  zero before the operation is carried out" (§6.7.2.4, p.102), and a flushed operand is a zero.
+  less than 0", §6.7.2.1, p.100; `-∞` included). A subnormal operand with `FCSR.FS = 1` is excepted
+  from this item, and is the next one;
+* a subnormal operand with `FCSR.FS = 1`: it is a zero of the same sign ("As of Release 5, every
+  input subnormal value is replaced with zero of the same sign"; "All the other floating point
+  exceptions are signaled according to the new values of the operands or the results", §6.7.2.4,
+  p.102), so Division by Zero, not Invalid Operation, as for a zero operand (`RSQRT`: `√-0 = -0`).
 
 "Normally an IEEE arithmetic operation can cause only one exception condition; the only case in which
 two exceptions can occur at the same time are Inexact With Overflow and Inexact With Underflow"
@@ -166,6 +169,7 @@ def RecipFlagsOK (eb fb : Nat) (sq : Bool) (e : Mips.Fp.Env) (n : Nat) (fl : Mip
   (FPIsNaN eb fb n = false → FPIsZero eb fb n = true → fl.divZero = true ∧ fl.invalid = false) ∧
   (FPIsNaN eb fb n = false → FPIsZero eb fb n = false → (e.flush = false ∨ FPIsSubnormal eb fb n = false) →
     fl.divZero = false ∧ fl.invalid = (sq && FPSign eb fb n)) ∧
+  (e.flush = true → FPIsSubnormal eb fb n = true → fl.divZero = true ∧ fl.invalid = false) ∧
   (e.flush = true → FPIsSubnormal eb fb n = true → fl.inexact = true)
 
 /-- **The IEEE conditions `RECIP.fmt` and `RSQRT.fmt` signal** are those `RecipFlagsOK` requires, for

@@ -374,6 +374,10 @@ step_oracle() {
   st=$(grep -E '^SUMMARY: [0-9]+ tests' "$log" | tail -1)
   sm=$(grep -E '^ENCODINGS: ' "$log" | tail -1)
   [ -n "$st" ] && [ -n "$sm" ] || { NOTE="no oracle SUMMARY/ENCODINGS line"; return 1; }
+  local cv
+  cv=$(grep -E '^COVERAGE: ' "$log" | tail -1)
+  [ -n "$cv" ] || { NOTE="no oracle COVERAGE line (every Instruction constructor must be executed by an oracle program)"; return 1; }
+  grep -q '^COVERAGE FAIL' "$log" && { NOTE="oracle coverage: $(grep '^COVERAGE FAIL' "$log" | tail -1)"; return 1; }
   local n p d k f sk
   n=$(echo "$st" | sed -n 's/^SUMMARY: \([0-9]*\) tests.*/\1/p')
   p=$(echo "$st" | sed -n 's/.* \([0-9]*\) pass.*/\1/p')
@@ -386,7 +390,7 @@ step_oracle() {
   local es ed
   es=$(echo "$sm" | sed -n 's/.* \([0-9]*\) same.*/\1/p'); ed=$(echo "$sm" | sed -n 's/.* \([0-9]*\) declared.*/\1/p')
   X_ORACLE=$n
-  NOTE="$n tests: $p pass, $d declared QEMU deviations, $k known model bugs, $sk skipped; encodings $es same, $ed declared"
+  NOTE="$n tests: $p pass, $d declared QEMU deviations, $k known model bugs, $sk skipped; encodings $es same, $ed declared; ${cv#COVERAGE: }"
 }
 
 step_trace() {

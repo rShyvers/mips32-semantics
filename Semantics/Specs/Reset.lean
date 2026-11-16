@@ -91,7 +91,6 @@ theorem resetState_spec :
     resetState.cp0HWREna = 0#32 := by
   decide
 
--- BEGIN R6-2
 /-- **The Release 6 CP0 registers across the Reset exception** (MD00090 Vol III Rev 6.02): the field
 tables give `Config5.SBRI` the reset state 0 (Table 9.69, p.263), so `Config5` reads `0x2010` after
 reset; `LLAddr.LLB` is `LLbit`, which the Reset exception clears, so `LLAddr` reads 0 (Table 9.72,
@@ -117,7 +116,6 @@ theorem resetState_r6 :
     resetState.cp0BadInstrP = 0#32 ∧ (∀ k, resetState.cp0KScratch k = 0#32) ∧
     resetState.cp0Config5SBRI = false :=
   ⟨rfl, rfl, rfl, fun _ => rfl, rfl⟩
--- END R6-2
 
 /-- **The boot convention** (`Env.lean`): the program starts at `entry` in Kernel Mode with
 `Status = CU1` only (`BEV = ERL = EXL = UM = 0`), `$sp = spInit`, no branch pending; nothing else

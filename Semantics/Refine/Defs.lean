@@ -52,25 +52,21 @@ def abs (s : State) : Arch where
   HW := s.hwInt
   LowPower := s.standby
   BranchDelay := s.pendingBranch
-  -- BEGIN R6-2
   UserLocal := s.cp0UserLocal
   BadInstr := s.cp0BadInstr
   BadInstrP := s.cp0BadInstrP
   KScratch := s.cp0KScratch
   Config5SBRI := s.cp0Config5SBRI
-  -- END R6-2
 
 /-- **The states the refinement is stated for**: both register files have 32 entries
 (`State.RegFilesWF`, preserved by `step`, `step_preserves_wellFormed`) and `$zero` reads 0 (preserved
 by `step`, `step_preserves_zero_register`). -/
 def Good (s : State) : Prop := s.regs.size = 32 ∧ s.fpRegs.size = 32 ∧ readReg s 0 = 0#32
 
--- BEGIN R6-5
 /-- The stored FCSR holds only its R/W fields (MD00082 Vol I-A Rev 6.01, Table 6.8, p.92-94): the
 Release 6 reserved FCC bits 31..25, 23 ("R0", p.92), `Impl` 22..21 (not implemented), bit 20, and the
 read-only `ABS2008` 19 / `NAN2008` 18 (added on read, `Mips.Fp.readFCSR`) are 0 in `State.fcsr`. -/
 def FcsrReservedZero (s : State) : Prop := s.fcsr &&& 0xFEFC0000#32 = 0#32
--- END R6-5
 
 /-- `Status` holds only implemented (writable) bits. -/
 def StatusImplemented (s : State) : Prop := s.cp0Status &&& statusWriteMask = s.cp0Status

@@ -11,8 +11,9 @@ usable); `none` for every instruction of another family.
 /-- The effect of CFC1 and CTC1; `none` for every other instruction. -/
 def execFpuControl (s : State) : Instruction → Option State
   -- `cfc1` (MD00086 Vol II-A Rev 6.06, CFC1, p.129-130, Release 6): FIR (0), FCCR (25),
-  -- FEXR (26), FENR (28), FCSR (31) via `Mips.Fp.readControl`; `FRE` (5) reads `UNPREDICTABLE`,
-  -- pinned to 0; every other register number raises Reserved Instruction ("Release 6 traps").
+  -- FEXR (26), FENR (28), FCSR (31) via `Mips.Fp.readControl`; every other register number,
+  -- `FRE` (5) included (no `FRE` with `FIR.FREP = 0`; p.130's "ConfigAR ≤ 2" read as `< 2`,
+  -- `Manual.Ops.CFC1`), raises Reserved Instruction ("Release 6 traps").
   -- The page's final `if Config2AR < 2 then GPR[rt] ← temp` would never write `GPR[rt]` in Release
   -- 6; read as the unconditional write of the earlier releases (misprint, SPEC-NOTES).
   | .cfc1 rt fs => some <|

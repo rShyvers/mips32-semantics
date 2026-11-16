@@ -1,7 +1,5 @@
 import Semantics.Refine.BridgeIntAlu
--- BEGIN R6-4
 import Semantics.Refine.IntArith
--- END R6-4
 
 /-!
 # Refine.BitOps — count leading bits, sign extension, byte swap against `execInstr` (sub-wave 7C S1)
@@ -186,7 +184,6 @@ theorem ins_refines (s : State) (hg : Good s) (rt rs pos size w : W32)
       ins_eq (readReg s (regIdx rs)) (readReg s (regIdx rt)) (low pos 5).toNat
         (low (pos + size - 1#32) 5).toNat (by omega) (low5_lt _)]
 
--- BEGIN R6-4
 /-! ## Release 6: ALIGN, BITSWAP -/
 
 /-- **ALIGN refines** (MD00086 Vol II-A Rev 6.06, ALIGN, p.39): both sides shift by the 2-bit `bp`. -/
@@ -221,6 +218,5 @@ theorem bitswap_refines (s : State) (hg : Good s) (rd rt w : W32)
   refine refine_gpr s hg _ _ (Ops.BITSWAP rd rt) rd (bitswapWord (readReg s (regIdx rt)))
     (fun h => nomatch h) (by alu_space) (by alu_space) rfl ?_ (execInstr_body s _ rfl rfl rfl)
   alu_run [Ops.BITSWAP, readGPR_abs s hg.2.2, bitswap_eq]
--- END R6-4
 
 end Refine

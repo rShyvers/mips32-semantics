@@ -201,7 +201,6 @@ inductive Instruction where
   AUI, p.47: "GPR[rt] ← GPR[rs] + sign_extend(immediate << 16)"). "In Release 6, LUI is an
   assembly idiom for AUI with rs=0" (p.47; LUI p.233): `lui rt, imm` is `aui rt, $0, imm`. -/
   | aui   (rs rt imm : W32)
-  -- BEGIN R6-4
   -- Release 6 integer instructions (MD00086 Vol II-A Rev 6.06). Same-width multiply and divide
   -- (SPECIAL, the `sa` field selects the low/high or quotient/remainder half; Table A.23, p.462).
   /-- `MUL rd, rs, rt`: `$rd = ` the low word of the signed 64-bit product (SPECIAL, `sa` = 00010,
@@ -249,7 +248,6 @@ inductive Instruction where
   /-- `ALUIPC rs, imm`: `$rs = ~0x0FFFF & (PC + sign_extend(imm << 16))` (PCREL, bits 20..16 =
   11111; ALUIPC, p.43). -/
   | aluipc (rs imm : W32)
-  -- END R6-4
   -- I-type load/store: rs = base, rt = dest/src, imm = raw offset field
   /-- `$rt = MEM32[$rs + offset]`, word-aligned (opcode 0x23). -/
   | lw  (rs rt imm : W32)
@@ -494,7 +492,6 @@ inductive Instruction where
   | cvtWD (fd fs : W32)
   /-- Double → single, rounding per FCSR.RM (fmt = D, funct 0x20). -/
   | cvtSD (fd fs : W32)
-  -- BEGIN R6-2
   /-- `ERETNC`: exception return without clearing `LLbit` (MD00086 Vol II-A Rev 6.06, ERETNC,
   p.179-180: COP0, `CO` = 1, bits 24..7 zero, bit 6 = 1, funct `ERET` = 0x18). "ERETNC is identical
   to ERET except that an ERETNC will not clear the LLbit"; required by `Config5.LLB = 1` ("ERETNC
@@ -511,8 +508,6 @@ inductive Instruction where
   case should perform no operation" (p.119). A coprocessor-0 instruction for the usability check
   ("A COP0 or Cache instruction", MD00090 Vol III Rev 6.02 §6.2.22, p.100). -/
   | cache (base op off : W32)
-  -- END R6-2
-  -- BEGIN R6-3
   -- Release 6 compact branches and jumps (MD00086 Vol II-A Rev 6.06): no delay slot. The
   -- conditional ones have a forbidden slot (the next instruction, when not taken); BC, BALC, JIC
   -- and JIALC have neither (MD00082 Vol I-A Rev 6.01 §5.3.2, p.62). Several share a primary opcode
@@ -577,8 +572,6 @@ inductive Instruction where
   | jic (rt off : W32)
   /-- `JIALC rt, offset`: `GPR[31] ← PC + 4`, then as `jic` (POP76, `rs = 0`; JIALC, p.203). -/
   | jialc (rt off : W32)
-  -- END R6-3
-  -- BEGIN R6-5
   -- The longword (L, 64-bit fixed point) conversions a 64-bit Release 6 FPU requires ("Release 6
   -- on a 64-bit FPU requires S, D, W, and L data formats", MD00082 Vol I-A Rev 6.01 Table 6.4 note
   -- 3, p.85). COP1 R-format, `ft` = 0; fields `fd` (= `sa`), `fs` (= `rd`).
@@ -608,8 +601,6 @@ inductive Instruction where
   | cvtSL (fd fs : W32)
   /-- `CVT.D.L`: longword → double, rounding per FCSR.RM (fmt = L, funct 0x21; CVT.D.fmt, p.153). -/
   | cvtDL (fd fs : W32)
-  -- END R6-5
-  -- BEGIN R6-6B
   -- The Release 6 FP instructions (MD00086 Vol II-A Rev 6.06). COP1 R-format: `ft` = `rt`, `fs` = `rd`,
   -- `fd` = `sa`.
   /-- `CMP.condn.S fd, fs, ft`: `FPR[fd] ← FPR[fs] compare_cond FPR[ft]` as a 32-bit mask of all ones or
@@ -683,7 +674,19 @@ inductive Instruction where
   | rintS (fd fs : W32)
   /-- `RINT.D` (fmt = D, funct 0x1a; p.337-338). -/
   | rintD (fd fs : W32)
-  -- END R6-6B
+  -- Virtual processors (DVP/EVP): no-ops without multi-threading (`Config5.VP = 0`).
+  /-- `DVP rt`: disable the other virtual processors (MD00086 Vol II-A Rev 6.06, DVP, p.172-173:
+  COP0, `rs` = `MFMC0` = 01011, `rt` 20..16, bits 15..6 zero, bit 5 `sc` = 1, bits 4..3 zero, bits
+  2..0 = 100). "For implementations that do not support multi-threading (Config5VP=0), this
+  instruction must be treated as a NOP instruction" (p.172); this profile has `Config5.VP = 0`
+  (MD00090 Vol III Rev 6.02 Table 9.69, p.263; DECISIONS D5), so it is a no-op: `GPR[rt]` is not
+  written. A coprocessor-0 instruction ("If access to Coprocessor 0 is not enabled, a Coprocessor
+  Unusable Exception is signaled", p.172). -/
+  | dvp (rt : W32)
+  /-- `EVP rt`: enable the virtual processors (MD00086 Vol II-A Rev 6.06, EVP, p.181-182: as DVP
+  with `sc` = 0). With `Config5.VP = 0` "this instruction must be treated as a NOP instruction"
+  (p.181); a coprocessor-0 instruction. -/
+  | evp (rt : W32)
   deriving Repr, DecidableEq
 
 /-- Extract the 6-bit opcode field (bits 31..26), zero-extended to a `W32`. -/
@@ -711,7 +714,6 @@ def immOf (w : W32) : W32 := (w.extractLsb 15 0).zeroExtend 32
 /-- Extract the raw 26-bit jump-target field (bits 25..0), zero-extended to a `W32`. -/
 def targetOf (w : W32) : W32 := (w.extractLsb 25 0).zeroExtend 32
 
--- BEGIN R6-3
 /-- Extract the raw 21-bit offset field of `BEQZC`/`BNEZC` (bits 20..0; B<cond>C, MD00086 Vol II-A
 Rev 6.06 p.82), zero-extended to a `W32`. -/
 def off21Of (w : W32) : W32 := (w.extractLsb 20 0).zeroExtend 32
@@ -719,7 +721,6 @@ def off21Of (w : W32) : W32 := (w.extractLsb 20 0).zeroExtend 32
 /-- A `BEQZC`/`BNEZC` word: `opcode` bits 31..26, `rs` bits 25..21, 21-bit `offset` bits 20..0. -/
 def mkOff21 (opcode rs off : W32) : W32 :=
   field 6 26 opcode ||| field 5 21 rs ||| field 21 0 off
--- END R6-3
 
 /-- Extract the `CO` bit (25) of a COP0 word. -/
 def coOf (w : W32) : W32 := (w.extractLsb 25 25).zeroExtend 32
@@ -760,7 +761,6 @@ SPECIAL3 = 0x1f is or-ed in by `encode`): `base` 25..21, `rt` 20..16, `offset` 1
 def mkOff9 (base rt off funct : W32) : W32 :=
   field 5 21 base ||| field 5 16 rt ||| field 9 7 off ||| field 6 0 funct
 
--- BEGIN R6-4
 /-- Extract bits 10..8 (the fixed sub-field of `LSA` and `ALIGN` above their 2-bit `sa`/`bp`). -/
 def sa3Of (w : W32) : W32 := (w.extractLsb 10 8).zeroExtend 32
 
@@ -782,7 +782,6 @@ def mkRT2 (rs rt rd hi lo funct : W32) : W32 :=
 immediate 18..0. The opcode PCREL = 0x3b is or-ed in by `encode`. -/
 def mkPc19 (rs sub imm : W32) : W32 :=
   field 5 21 rs ||| field 2 19 sub ||| field 19 0 imm
--- END R6-4
 
 /-- `decodeIf c i` is `some i` when the must-be-zero check `c` holds, `none`
 otherwise. Used by the decoder tables to reject non-canonical encodings. -/
@@ -862,7 +861,6 @@ def decodeSpecial (w : W32) : Option Instruction :=
   | 0x30 => some (.tge rs rt (code10Of w))
   | 0x33 => some (.tltu rs rt (code10Of w))
   | 0x31 => some (.tgeu rs rt (code10Of w))
-  -- BEGIN R6-4
   -- MUL/MUH, MULU/MUHU, DIV/MOD, DIVU/MODU: `sa` 00010 / 00011 selects (Table A.23, p.462).
   | 0x18 => if shamt == 2#32 then some (.mul rs rt rd) else decodeIf (shamt == 3#32) (.muh rs rt rd)
   | 0x19 => if shamt == 2#32 then some (.mulu rs rt rd) else decodeIf (shamt == 3#32) (.muhu rs rt rd)
@@ -872,7 +870,6 @@ def decodeSpecial (w : W32) : Option Instruction :=
   | 0x37 => decodeIf (z shamt) (.selnez rs rt rd)
   -- LSA: bits 10..8 zero, the 2-bit `sa` in bits 7..6 (LSA p.232).
   | 0x05 => decodeIf (z (sa3Of w)) (.lsa rs rt rd (sa2Of w))
-  -- END R6-4
   | _ => none
 
 /-- **REGIMM** (opcode 1), keyed by `rt` (Table A.4, p.452). Release 6 keeps BLTZ, BGEZ, SYNCI and
@@ -888,9 +885,7 @@ def decodeRegimm (w : W32) : Option Instruction :=
   | 0x10 => decodeIf (rs == 0#32) (.nal imm)
   | 0x11 => decodeIf (rs == 0#32) (.bal imm)
   | 0x1f => some (.synci rs imm)
-  -- BEGIN R6-2
   | 0x17 => decodeIf (rs == 0#32) (.sigrie imm)
-  -- END R6-2
   | _ => none
 
 /-- **SPECIAL3** (opcode 0x1f), keyed by `funct` (Table A.6, p.453; BSHFL Table A.10, p.454).
@@ -905,17 +900,13 @@ def decodeSpecial3 (w : W32) : Option Instruction :=
   let z (x : W32) : Bool := x == 0#32
   match (functOf w).toNat with
   | 0x20 =>  -- BSHFL: `rs` must be zero; the `sa` sub-field selects
-    -- BEGIN R6-4
     -- ALIGN: bits 10..8 = 010, `bp` in bits 7..6, any `rs` (ALIGN p.39).
     if sa3Of w == 2#32 then some (.align rs rt rd (sa2Of w)) else
-    -- END R6-4
     match shamt.toNat with
     | 0x10 => decodeIf (z rs) (.seb rd rt)
     | 0x18 => decodeIf (z rs) (.seh rd rt)
     | 0x02 => decodeIf (z rs) (.wsbh rd rt)
-    -- BEGIN R6-4
     | 0x00 => decodeIf (z rs) (.bitswap rd rt)  -- BITSWAP (p.92)
-    -- END R6-4
     | _ => none
   -- `ext`: the `rd` field holds `msbd = size - 1`, `shamt` holds `lsb = pos`;
   -- `lsb + msbd > 31` is UNPREDICTABLE and rejected.
@@ -929,10 +920,8 @@ def decodeSpecial3 (w : W32) : Option Instruction :=
   | 0x36 => decodeIf (z (bit6Of w)) (.ll rs rt (off9Of w))
   | 0x26 => decodeIf (z (bit6Of w)) (.sc rs rt (off9Of w))
   | 0x35 => decodeIf (z (bit6Of w)) (.pref rs rt (off9Of w))
-  -- BEGIN R6-2
   -- `cache`: 9-bit offset in bits 15..7, bit 6 zero, `op` in bits 20..16 (CACHE p.114).
   | 0x25 => decodeIf (z (bit6Of w)) (.cache rs rt (off9Of w))
-  -- END R6-2
   | _ => none
 
 /-- **COP0** (opcode 0x10), keyed by bit 25 (`CO`) and then `funct`, else by `rs` (Tables A.11-A.13,
@@ -954,9 +943,7 @@ def decodeCop0 (w : W32) : Option Instruction :=
   if coOf w == 1#32 then
     match (functOf w).toNat with
     | 0x18 =>
-      -- BEGIN R6-2
       if shamt == 1#32 then decodeIf (rs == 16#32 && z rt && z rd) .eretnc else
-      -- END R6-2
       decodeIf (rs == 16#32 && z rt && z rd && z shamt) .eret
     | 0x20 => some (.wait (code19Of w))
     | _ => none
@@ -971,13 +958,15 @@ def decodeCop0 (w : W32) : Option Instruction :=
     match (functOf w).toNat with
     | 0x00 => decodeIf (rd == 12#32 && z shamt) (.di rt)
     | 0x20 => decodeIf (rd == 12#32 && z shamt) (.ei rt)
+    -- `dvp`/`evp` (DVP p.172, EVP p.181): `rd` and bits 10..6 zero, bits 5..0 = `sc`||00||100.
+    | 0x24 => decodeIf (z rd && z shamt) (.dvp rt)
+    | 0x04 => decodeIf (z rd && z shamt) (.evp rt)
     | _ => none
   -- `RDPGPR` (0x0a) / `WRPGPR` (0x0e): bits 10..0 must be zero.
   | 0x0a => decodeIf (z shamt && z (functOf w)) (.rdpgpr rd rt)
   | 0x0e => decodeIf (z shamt && z (functOf w)) (.wrpgpr rd rt)
   | _ => none
 
--- BEGIN R6-6B
 /-- The Release 6 COP1 functions of one format (S or D) that take `fd, fs, ft`, or `fd, fs` with
 `ft = 0` (`unary`). -/
 structure R6Cop1Fmt where
@@ -1029,17 +1018,14 @@ def cmpCondns : List Nat := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1
 
 /-- Whether `c` is one of `cmpCondns`. -/
 def cmpCondnOK (c : W32) : Bool := cmpCondns.contains c.toNat
--- END R6-6B
 
 /-- **COP1** `fmt = S` (`rs` = 0x10), keyed by `funct` (Table A.15, p.456). Fields: `ft` = `rt`,
 `fs` = `rd`, `fd` = `sa`; unary operations require `ft = 0`. Release 6 removed MOVCF (0x11),
 MOVZ/MOVN (0x12/0x13) and C.cond.fmt (0x30-0x3f).
--- BEGIN R6-6B
 Release 6 adds SEL 0x10, SELEQZ 0x14, SELNEZ 0x17, MADDF 0x18, MSUBF 0x19, RINT 0x1a and CLASS 0x1b
 (`ft = 0`), MIN 0x1c, MINA 0x1d, MAX 0x1e, MAXA 0x1f (`decodeR6Fmt`). The function values of MIN/MINA/
 MAX/MAXA are those of the instruction page's diagrams (MAX.fmt, p.262: MIN `011100`, MINA `011101`,
-MAX `011110`, MAXA `011111`); Table A.15 (p.456) prints MIN, MAX, MINA, MAXA in that order instead.
--- END R6-6B -/
+MAX `011110`, MAXA `011111`); Table A.15 (p.456) prints MIN, MAX, MINA, MAXA in that order instead. -/
 def decodeCop1S (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -1062,16 +1048,12 @@ def decodeCop1S (w : W32) : Option Instruction :=
   | 0x16 => decodeIf (z rt) (.rsqrtS shamt rd)
   | 0x21 => decodeIf (z rt) (.cvtDS shamt rd)
   | 0x24 => decodeIf (z rt) (.cvtWS shamt rd)
-  -- BEGIN R6-5
   | 0x08 => decodeIf (z rt) (.roundLS shamt rd)
   | 0x09 => decodeIf (z rt) (.truncLS shamt rd)
   | 0x0a => decodeIf (z rt) (.ceilLS shamt rd)
   | 0x0b => decodeIf (z rt) (.floorLS shamt rd)
   | 0x25 => decodeIf (z rt) (.cvtLS shamt rd)
-  -- END R6-5
-  -- BEGIN R6-6B
   | f => decodeR6Fmt decodeR6FmtS f shamt rd rt
-  -- END R6-6B
 
 /-- **COP1** `fmt = D` (`rs` = 0x11), keyed by `funct` (Table A.16, p.457); as `decodeCop1S`, with
 the same Release 6 functions (`decodeR6Fmt`). -/
@@ -1097,25 +1079,19 @@ def decodeCop1D (w : W32) : Option Instruction :=
   | 0x16 => decodeIf (z rt) (.rsqrtD shamt rd)
   | 0x20 => decodeIf (z rt) (.cvtSD shamt rd)
   | 0x24 => decodeIf (z rt) (.cvtWD shamt rd)
-  -- BEGIN R6-5
   | 0x08 => decodeIf (z rt) (.roundLD shamt rd)
   | 0x09 => decodeIf (z rt) (.truncLD shamt rd)
   | 0x0a => decodeIf (z rt) (.ceilLD shamt rd)
   | 0x0b => decodeIf (z rt) (.floorLD shamt rd)
   | 0x25 => decodeIf (z rt) (.cvtLD shamt rd)
-  -- END R6-5
-  -- BEGIN R6-6B
   | f => decodeR6Fmt decodeR6FmtD f shamt rd rt
-  -- END R6-6B
 
 /-- **COP1** (opcode 0x11), keyed by `rs` (Table A.14, p.456). Release 6 removed BC1 (`rs` =
 0x08: BC1F/BC1T/BC1FL/BC1TL).
--- BEGIN R6-6B
 Release 6 adds BC1EQZ (`rs` = 0x09) and BC1NEZ (`rs` = 0x0d) (Table A.14, p.456; BC1EQZ BC1NEZ,
 p.54), and CMP.condn.S / CMP.condn.D encoded with `fmt = W` / `L` and function `0 condn` (Table A.17,
 p.457: "Release 6 introduces the CMP.condn fmt instruction family ... .S and .D for CMP.condn fmt are
-encoded as .W 10100 and .L 10101"); only the `condn` values of Table A.17 decode (`cmpCondnOK`).
--- END R6-6B -/
+encoded as .W 10100 and .L 10101"); only the `condn` values of Table A.17 decode (`cmpCondnOK`). -/
 def decodeCop1 (w : W32) : Option Instruction :=
   let rt := rtOf w
   let rd := rdOf w
@@ -1135,25 +1111,16 @@ def decodeCop1 (w : W32) : Option Instruction :=
     match (functOf w).toNat with
     | 0x20 => decodeIf (z rt) (.cvtSW shamt rd)
     | 0x21 => decodeIf (z rt) (.cvtDW shamt rd)
-    -- BEGIN R6-6B
     | _ => decodeIf (cmpCondnOK (functOf w)) (.cmpS (functOf w) shamt rd rt)
-    -- END R6-6B
-  -- BEGIN R6-5
   | 0x15 =>  -- fmt = L
     match (functOf w).toNat with
     | 0x20 => decodeIf (z rt) (.cvtSL shamt rd)
     | 0x21 => decodeIf (z rt) (.cvtDL shamt rd)
-    -- BEGIN R6-6B
     | _ => decodeIf (cmpCondnOK (functOf w)) (.cmpD (functOf w) shamt rd rt)
-    -- END R6-6B
-  -- END R6-5
-  -- BEGIN R6-6B
   | 0x09 => some (.bc1eqz rt (immOf w))
   | 0x0d => some (.bc1nez rt (immOf w))
-  -- END R6-6B
   | _ => none
 
--- BEGIN R6-3
 /-! ### The Release 6 compact branches: one opcode, several instructions
 
 Release 6 packs several compact branches into one primary opcode and tells them apart by comparing
@@ -1192,7 +1159,6 @@ def decodeLtGe (zero : W32 → W32 → Instruction) (two ovf : W32 → W32 → W
 `z rs offset21` (BEQZC, BNEZC). -/
 def decodeJumpOrZ (jmp z : W32 → W32 → Instruction) (w : W32) : Instruction :=
   if rsOf w == 0#32 then jmp (rtOf w) (immOf w) else z (rsOf w) (off21Of w)
--- END R6-3
 
 /-- **The Release 6 primary opcode table** (Table A.2, p.451). Removed by Release 6 (do not decode):
 ADDI (0x08), COP1X (0x13: "Release 6 removes all pre-Release 6 COP1X instructions", Table A.21,
@@ -1216,7 +1182,6 @@ def decodePrimary (w : W32) : Option Instruction :=
   | 0x03 => some (.jal (targetOf w))
   | 0x04 => some (.beq rs rt imm)
   | 0x05 => some (.bne rs rt imm)
-  -- BEGIN R6-3
   | 0x06 => if z rt then some (.blez rs imm) else some (decodeZeroEqTwo .blezalc .bgezalc .bgeuc w)
   | 0x07 => if z rt then some (.bgtz rs imm) else some (decodeZeroEqTwo .bgtzalc .bltzalc .bltuc w)
   | 0x08 => some (decodeLtGe .beqzalc .beqc .bovc w)
@@ -1227,7 +1192,6 @@ def decodePrimary (w : W32) : Option Instruction :=
   | 0x3a => some (.balc (targetOf w))
   | 0x36 => some (decodeJumpOrZ .jic .beqzc w)
   | 0x3e => some (decodeJumpOrZ .jialc .bnezc w)
-  -- END R6-3
   | 0x09 => some (.addiu rs rt imm)
   | 0x0a => some (.slti rs rt imm)
   | 0x0b => some (.sltiu rs rt imm)
@@ -1250,14 +1214,12 @@ def decodePrimary (w : W32) : Option Instruction :=
   | 0x35 => some (.ldc1 rs rt imm)
   | 0x39 => some (.swc1 rs rt imm)
   | 0x3d => some (.sdc1 rs rt imm)
-  -- BEGIN R6-4
   | 0x3b =>  -- PCREL
     match (pcrelOf w).toNat with
     | 0 => some (.addiupc rs (imm19Of w))
     | 1 => some (.lwpc rs (imm19Of w))
     | _ => if rt == 0x1e#32 then some (.auipc rs imm)
            else decodeIf (rt == 0x1f#32) (.aluipc rs imm)
-  -- END R6-4
   | _ => none
 
 /-- **The decoder table of each release.** An instruction is available in a release exactly when
@@ -1319,7 +1281,6 @@ def encode (i : Instruction) : W32 :=
   | .ori   rs rt imm => mkIT 0x0d#32 rs rt imm
   | .xori  rs rt imm => mkIT 0x0e#32 rs rt imm
   | .aui   rs rt imm => mkIT 0x0f#32 rs rt imm
-  -- BEGIN R6-4
   | .mul  rs rt rd => mkRT rs rt rd 2#32 0x18#32
   | .muh  rs rt rd => mkRT rs rt rd 3#32 0x18#32
   | .mulu rs rt rd => mkRT rs rt rd 2#32 0x19#32
@@ -1337,7 +1298,6 @@ def encode (i : Instruction) : W32 :=
   | .lwpc rs off => (0x3b#32 <<< 26) ||| mkPc19 rs 1#32 off
   | .auipc rs imm => mkIT 0x3b#32 rs 0x1e#32 imm
   | .aluipc rs imm => mkIT 0x3b#32 rs 0x1f#32 imm
-  -- END R6-4
   | .lw rs rt imm => mkIT 0x23#32 rs rt imm
   | .sw rs rt imm => mkIT 0x2b#32 rs rt imm
   | .lb rs rt imm => mkIT 0x20#32 rs rt imm
@@ -1428,12 +1388,9 @@ def encode (i : Instruction) : W32 :=
   | .cvtSD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x20#32
   | .cvtSW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x20#32
   | .cvtDW fd fs => (0x11#32 <<< 26) ||| mkRT 0x14#32 0#32 fs fd 0x21#32
-  -- BEGIN R6-2
   | .eretnc => (0x10#32 <<< 26) ||| mkRT 0x10#32 0#32 0#32 1#32 0x18#32
   | .sigrie code => mkIT 0x01#32 0#32 0x17#32 code
   | .cache base op off => (0x1f#32 <<< 26) ||| mkOff9 base op off 0x25#32
-  -- END R6-2
-  -- BEGIN R6-3
   -- Compact branches and jumps (Table A.26, p.464): the canonical word of each form.
   | .bc off => (0x32#32 <<< 26) ||| mkJT off
   | .balc off => (0x3a#32 <<< 26) ||| mkJT off
@@ -1459,8 +1416,6 @@ def encode (i : Instruction) : W32 :=
   | .bnvc rs rt off => mkIT 0x18#32 rs rt off
   | .jic rt off => mkIT 0x36#32 0#32 rt off
   | .jialc rt off => mkIT 0x3e#32 0#32 rt off
-  -- END R6-3
-  -- BEGIN R6-5
   | .cvtLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x25#32
   | .cvtLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x25#32
   | .roundLS fd fs => (0x11#32 <<< 26) ||| mkRT 0x10#32 0#32 fs fd 0x08#32
@@ -1473,8 +1428,6 @@ def encode (i : Instruction) : W32 :=
   | .floorLD fd fs => (0x11#32 <<< 26) ||| mkRT 0x11#32 0#32 fs fd 0x0b#32
   | .cvtSL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x20#32
   | .cvtDL fd fs => (0x11#32 <<< 26) ||| mkRT 0x15#32 0#32 fs fd 0x21#32
-  -- END R6-5
-  -- BEGIN R6-6B
   | .cmpS cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x14#32 ft fs fd cond
   | .cmpD cond fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x15#32 ft fs fd cond
   | .bc1eqz ft off => mkIT 0x11#32 0x09#32 ft off
@@ -1501,4 +1454,5 @@ def encode (i : Instruction) : W32 :=
   | .maxD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1e#32
   | .maxaS fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x10#32 ft fs fd 0x1f#32
   | .maxaD fd fs ft => (0x11#32 <<< 26) ||| mkRT 0x11#32 ft fs fd 0x1f#32
-  -- END R6-6B
+  | .dvp rt => (0x10#32 <<< 26) ||| mkRT 0x0b#32 rt 0#32 0#32 0x24#32
+  | .evp rt => (0x10#32 <<< 26) ||| mkRT 0x0b#32 rt 0#32 0#32 0x04#32

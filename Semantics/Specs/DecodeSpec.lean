@@ -92,7 +92,6 @@ theorem bit6Of_or_mkOff9 (x a b c e : W32) :
 theorem functOf_or_mkOff9 (x a b c e : W32) :
     functOf (x ||| mkOff9 a b c e) = (x &&& 63#32) ||| (e &&& 63#32) := by field_ext
 
--- BEGIN R6-4
 /-! ## Field extraction: `x ||| mkRT2 ..` (Release 6 `LSA`, `ALIGN`) and `x ||| mkPc19 ..` (`ADDIUPC`,
 `LWPC`) -/
 
@@ -133,7 +132,6 @@ theorem pcrelOf_mkIT (op a b imm : W32) : pcrelOf (mkIT op a b imm) = (b >>> 3) 
   field_ext
 theorem sa3Of_or_mkRT (x a b c d e : W32) :
     sa3Of (x ||| mkRT a b c d e) = ((x >>> 8) &&& 7#32) ||| ((d >>> 2) &&& 7#32) := by field_ext
--- END R6-4
 
 /-! ## Field extraction: `mkCode20 ..`, `mkTrap ..`, `mkWait ..` -/
 
@@ -177,7 +175,6 @@ theorem opcodeOf_or_mkJT (x t : W32) : opcodeOf (x ||| mkJT t) = x >>> 26 := by 
 theorem targetOf_or_mkJT (x t : W32) :
     targetOf (x ||| mkJT t) = (x &&& 67108863#32) ||| (t &&& 67108863#32) := by field_ext
 
--- BEGIN R6-3
 /-! ## Field extraction: `mkOff21 ..` (BEQZC/BNEZC) -/
 
 private theorem m21 (i : Nat) : (2097151#32).getLsbD i = decide (i < 21) :=
@@ -193,7 +190,6 @@ theorem opcodeOf_mkOff21 (op a off : W32) : opcodeOf (mkOff21 op a off) = op &&&
 theorem rsOf_mkOff21 (op a off : W32) : rsOf (mkOff21 op a off) = a &&& 31#32 := by field_ext21
 theorem off21Of_mkOff21 (op a off : W32) : off21Of (mkOff21 op a off) = off &&& 2097151#32 := by
   field_ext21
--- END R6-3
 
 /-! ## Masks are the identity on in-range fields -/
 
@@ -213,27 +209,21 @@ theorem and_1 (a : W32) (h : a.toNat < 2) : a &&& 1#32 = a := and_lowMask 1 (by 
 theorem and_7 (a : W32) (h : a.toNat < 8) : a &&& 7#32 = a := and_lowMask 3 (by decide) a h
 theorem and_15 (a : W32) (h : a.toNat < 16) : a &&& 15#32 = a := and_lowMask 4 (by decide) a h
 theorem and_63 (a : W32) (h : a.toNat < 64) : a &&& 63#32 = a := and_lowMask 6 (by decide) a h
--- BEGIN R6-6B
 /-- A `condn` of CMP.condn.fmt (`cmpCondnOK`, Table A.17) is below 28. -/
 theorem cmpCondnOK_lt {c : W32} (h : cmpCondnOK c = true) : c.toNat < 28 := by
   simp only [cmpCondnOK, cmpCondns, List.contains_eq_any_beq, List.any_cons, List.any_nil,
     Bool.or_false, Bool.or_eq_true, beq_iff_eq] at h
   omega
--- END R6-6B
 theorem and_511 (a : W32) (h : a.toNat < 2 ^ 9) : a &&& 511#32 = a := and_lowMask 9 (by decide) a h
 theorem and_1023 (a : W32) (h : a.toNat < 2 ^ 10) : a &&& 1023#32 = a :=
   and_lowMask 10 (by decide) a h
--- BEGIN R6-4
 theorem and_3 (a : W32) (h : a.toNat < 4) : a &&& 3#32 = a := and_lowMask 2 (by decide) a h
--- END R6-4
 theorem and_524287 (a : W32) (h : a.toNat < 2 ^ 19) : a &&& 524287#32 = a :=
   and_lowMask 19 (by decide) a h
 theorem and_1048575 (a : W32) (h : a.toNat < 2 ^ 20) : a &&& 1048575#32 = a :=
   and_lowMask 20 (by decide) a h
--- BEGIN R6-3
 theorem and_2097151 (a : W32) (h : a.toNat < 2 ^ 21) : a &&& 2097151#32 = a :=
   and_lowMask 21 (by decide) a h
--- END R6-3
 
 /-! ## Extracted fields are in range -/
 
@@ -259,7 +249,6 @@ theorem code10Of_lt (w : W32) : (code10Of w).toNat < 2 ^ 10 := by
   simp [code10Of, BitVec.extractLsb]; omega
 theorem code19Of_lt (w : W32) : (code19Of w).toNat < 2 ^ 19 := by
   simp [code19Of, BitVec.extractLsb]; omega
--- BEGIN R6-4
 theorem sa2Of_lt (w : W32) : (sa2Of w).toNat < 4 := by
   simp [sa2Of, BitVec.extractLsb]; omega
 theorem sa3Of_lt (w : W32) : (sa3Of w).toNat < 8 := by
@@ -268,11 +257,8 @@ theorem pcrelOf_lt (w : W32) : (pcrelOf w).toNat < 4 := by
   simp [pcrelOf, BitVec.extractLsb]; omega
 theorem imm19Of_lt (w : W32) : (imm19Of w).toNat < 2 ^ 19 := by
   simp [imm19Of, BitVec.extractLsb]; omega
--- END R6-4
--- BEGIN R6-3
 theorem off21Of_lt (w : W32) : (off21Of w).toNat < 2 ^ 21 := by
   simp [off21Of, BitVec.extractLsb]; omega
--- END R6-3
 
 end DecodeSpec
 
@@ -288,15 +274,11 @@ attribute [local simp] opcodeOf_or_mkRT rsOf_or_mkRT rtOf_or_mkRT rdOf_or_mkRT s
   opcodeOf_mkTrap functOf_mkTrap rsOf_mkTrap rtOf_mkTrap code10Of_mkTrap
   opcodeOf_mkWait coOf_mkWait functOf_mkWait code19Of_mkWait
   and_31 and_65535 and_67108863 and_1 and_7 and_15 and_63 and_511 and_1023 and_524287 and_1048575
-  -- BEGIN R6-4
   opcodeOf_or_mkRT2 rsOf_or_mkRT2 rtOf_or_mkRT2 rdOf_or_mkRT2 sa3Of_or_mkRT2 sa2Of_or_mkRT2
   functOf_or_mkRT2 shamtOf_or_mkRT2 opcodeOf_mkRT2 rsOf_mkRT2 rtOf_mkRT2 rdOf_mkRT2 sa3Of_mkRT2
   sa2Of_mkRT2 functOf_mkRT2 opcodeOf_or_mkPc19 rsOf_or_mkPc19 pcrelOf_or_mkPc19 imm19Of_or_mkPc19
   pcrelOf_mkIT sa3Of_or_mkRT and_3
-  -- END R6-4
-  -- BEGIN R6-3
   opcodeOf_mkOff21 rsOf_mkOff21 off21Of_mkOff21 and_2097151
-  -- END R6-3
 
 -- ~120 constructors, each unfolding the full `decode` match: needs more than
 -- the default heartbeat budget.
@@ -338,7 +320,6 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     · simp only [not_and] at e
       simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeIf, h1, h2, h3]
       bv_omega
-  -- BEGIN R6-3
   -- The compact branches: the `rs`/`rt` constraint selects the constructor within its opcode.
   case beqc rs rt off | bnec rs rt off =>
     obtain ⟨h1, h2, h3, h4⟩ := h
@@ -369,8 +350,6 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
     simp [encode, decode, decodeFor, decodePrimary, decodeJumpOrZ, h2, h3, h4]
   case jic rt off | jialc rt off =>
     simp [encode, decode, decodeFor, decodePrimary, decodeJumpOrZ, h]
-  -- END R6-3
-  -- BEGIN R6-6B
   -- CMP.condn.fmt: the `condn` (below 28) is the whole function field, not CVT.S/CVT.D (0x20/0x21).
   case cmpS cond fd fs ft | cmpD cond fd fs ft =>
     obtain ⟨hc, h1, h2, h3⟩ := h
@@ -380,7 +359,6 @@ theorem decode_encode (i : Instruction) (h : i.WellFormed) : decode (encode i) =
       rw [show (63 : Nat) = 2 ^ 6 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod]; omega
     simp [encode, decode, decodeFor, decodePrimary, decodeCop1, decodeIf, h1, h2, h3, e]
     split <;> simp_all <;> omega
-  -- END R6-6B
   all_goals simp [encode, decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm,
     decodeSpecial3, decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf, h,
     decodeR6Fmt, decodeR6FmtS, decodeR6FmtD]  -- R6-6B
@@ -395,23 +373,17 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
   have h7 := off9Of_lt w
   have h10 := code20Of_lt w; have h11 := code10Of_lt w; have h12 := code19Of_lt w
   have h13 := sa2Of_lt w; have h14 := imm19Of_lt w  -- R6-4
-  -- BEGIN R6-3
   have h15 := off21Of_lt w
-  -- END R6-3
   simp only [decode, decodeFor, decodePrimary, decodeSpecial, decodeRegimm, decodeSpecial3,
     decodeCop0, decodeCop1, decodeCop1S, decodeCop1D, decodeIf,
-    -- BEGIN R6-3
     decodeZeroEqTwo, decodeLtGe, decodeJumpOrZ,
-    -- END R6-3
     decodeR6Fmt, decodeR6FmtS, decodeR6FmtD  -- R6-6B
     ] at h
   repeat' split at h
   all_goals
     (cases h <;>
       simp only [Instruction.WellFormed, h1, h2, h3, h4, h5, h6, h7, h10, h11, h12, h13, h14,
-        -- BEGIN R6-3
         h15,
-        -- END R6-3
         and_self, true_and])
   -- Left over: `ext`, `ins` (arithmetic on fields), `mfc0`, `mtc0` (CP0 guard).
   all_goals rename_i hc
@@ -421,8 +393,6 @@ theorem decode_wellFormed (w : W32) (i : Instruction) (h : decode w = some i) :
     | (simp only [Bool.and_eq_true] at hc; exact hc.2)
     | (simp only [Bool.and_eq_true, decide_eq_true_eq] at hc; exact hc.2)
     | (rename_i hp; intro ⟨ha, hb, hs⟩; simp [ha, hb, hs] at hp)
-    -- BEGIN R6-3
     -- the compact branches: the decoder's `rs`/`rt` tests are the `WellFormed` constraint
     | (simp only [beq_iff_eq, beq_eq_false_iff_ne, Bool.not_eq_true', ne_eq,
         and_true, BitVec.toNat_eq, BitVec.toNat_zero] at *; omega)
-    -- END R6-3

@@ -69,12 +69,10 @@ is a function of the FPRs (accessible); its `.arbitrary` outcomes (`ctc1Unpredic
 unchanged. -/
 theorem modelOracle_valid : modelOracle.Valid := by
   -- R6-3: two more conjuncts (`linkSourceIs31`)
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩, ?_⟩
   -- restrictions 2 and 3
   · intros; trivial
-  -- BEGIN R6-3
   · intros; trivial   -- linkSourceIs31: `.proceed`
-  -- END R6-3
   · intro a fs t
     simp only [modelOracle]
     repeat' split
@@ -87,9 +85,7 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intros; trivial
   -- restriction 1
   · intro _ _ _ _ _ _; trivial
-  -- BEGIN R6-3
   · intro _ _ _ _ _ _; trivial   -- linkSourceIs31
-  -- END R6-3
   · intro fs t a b _ _ hab
     obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hab
     simp only [modelOracle]
@@ -104,7 +100,7 @@ theorem modelOracle_valid : modelOracle.Valid := by
   · intro _ _ _ _ _; trivial
   · intro _ _ _ _ _ _; trivial
   · intro r a b _ _ hab; simp only [modelOracle, hab.2.2.1]  -- R6-5: `fprUpper`
-  · intro _ _ _ _ _ _; rfl
+  -- (no `cfc1Unpredictable` value: CFC1 of FRE signals Reserved Instruction)
   -- BadInstr / BadInstrP: constants
   · intro _ _ _ _ _; rfl
   · intro _ _ _ _ _; rfl

@@ -2,9 +2,9 @@
 # tests/oracle/fp_ctc1_fir_ri.)
 # MD00082 Vol I-A Rev 6.01 FIR description p.88 (read-only); MD00090 Vol III Rev 6.02 PRId p.221 (read-only).
 # oracle: expect gpr:s1=0 gpr:s3=0
-# oracle: unpredictable gpr:s0 MD00082 Vol I-A Rev 6.01 FIR: ProcessorID/Revision are implementation-defined; bit 29 (FREP) is an optional feature QEMU mips32r6-generic has (FIR 0x20f30000) and this profile (FIR 0x00f30000) does not
+# oracle: unpredictable gpr:s0 MD00082 Vol I-A Rev 6.01 sec 6.5.1 Table 6.5 p.88-89: Impl/ProcessorID/Revision are implementation constants; bit 29 (FREP, "Optional", p.88) is an optional feature QEMU mips32r6-generic has (FIR 0x20f30000) and this profile (FIR 0x00f30000) does not
 # oracle: unpredictable gpr:t7 same as s0
-# oracle: unpredictable gpr:s2 MD00090 Vol III Rev 6.02 PRId: implementation-defined constant
+# oracle: unpredictable gpr:s2 MD00090 Vol III Rev 6.02 sec 9.40 Table 9.57 p.221: "Preset by hardware" implementation constant
 # oracle: unpredictable gpr:t6 same as s2
 .data
 res: .space 80

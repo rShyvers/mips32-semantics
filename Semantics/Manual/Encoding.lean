@@ -39,7 +39,6 @@ def codeFormat (code fn : W32) : W32 := fld 6 26 0#32 ||| fld 20 6 code ||| fld 
 def off9Format (base rt off fn : W32) : W32 :=
   fld 6 26 0x1F#32 ||| fld 5 21 base ||| fld 5 16 rt ||| fld 9 7 off ||| fld 6 0 fn
 
--- BEGIN R6-4
 /-- `opcode | rs | rt | rd | sub (3 bits) | operand (2 bits) | function`: the Release 6 diagrams whose
 `sa` position holds a 3-bit sub-function and a 2-bit operand, LSA p.232 (`000 sa`) and ALIGN p.39
 (`010 bp`). -/
@@ -49,16 +48,12 @@ def sa2Format (op rs rt rd sub x fn : W32) : W32 :=
 /-- `PCREL | rs | minor (2 bits) | immediate (19 bits)`: ADDIUPC p.37 (`00`), LWPC p.246 (`01`). -/
 def pc19Format (rs minor imm : W32) : W32 :=
   fld 6 26 0x3B#32 ||| fld 5 21 rs ||| fld 2 19 minor ||| fld 19 0 imm
--- END R6-4
--- BEGIN R6-3
 /-- A diagram with a constraint on its fields: the word `w` when `c` holds, no word otherwise. The
 Release 6 compact branches share primary opcodes and are told apart by "constraints such as RS = RT"
 on the `rs`/`rt` fields (MD00086 Vol II-A Rev 6.06 §A.4, p.463; Table A.26, p.464); the diagram of
 each page states its constraint (e.g. BGEZC `rs = rt`, BEQC `rs < rt`, BOVC `rs >= rt`). The
 register fields are compared as the 5-bit numbers the diagram holds (`reg`). -/
 def encIf (c : Bool) (w : W32) : Option W32 := if c then some w else none
--- END R6-3
--- BEGIN R6-6B
 /-- **The `condn` values of CMP.condn.fmt** (MD00086 Vol II-A Rev 6.06, Table A.17, p.457, "MIPS32 COP1
 Encoding of Function Field When rs=W or L"): functions `000000`-`001111` (CMP.AF ... CMP.SULE),
 `010001`-`010011` (CMP.OR, CMP.UNE, CMP.NE) and `011001`-`011011` (CMP.SOR, CMP.SUNE, CMP.SNE). "All
@@ -70,7 +65,6 @@ def CmpCondns : List Nat :=
 
 /-- `cond` is a `condn` of `CmpCondns`. -/
 def CmpCondnOK (cond : W32) : Bool := CmpCondns.contains cond.toNat
--- END R6-6B
 
 /-- **The format diagram of each transcribed instruction** (MD00086 Vol II-A Rev 6.06, the Release 6
 diagram of each page, printed page of the diagram):
@@ -111,13 +105,11 @@ diagram of each page, printed page of the diagram):
   ROUND.W p.342, TRUNC.W p.441, CEIL.W p.128, FLOOR.W p.186, CVT.W p.160, CVT.D p.153, CVT.S p.159.
   The longword conversions (R6-5), fmt S, D and L = `10101`: ROUND.L p.341, TRUNC.L p.440, CEIL.L
   p.127, FLOOR.L p.185, CVT.L p.154 (fmt S/D), CVT.S.L p.159, CVT.D.L p.153 (fmt L).
-  -- BEGIN R6-6B
   The Release 6 FP pages: CMP.condn.fmt p.136 (`COP1 | 10100 (S) / 10101 (D) | ft | fs | fd | 0 |
   condn`, the `condn` values of Table A.17, p.457, `CmpCondnOK`); BC1EQZ `01001` and BC1NEZ `01101`
   p.54 (`COP1 | rs | ft | offset`); with fmt S/D: SEL p.368 (`010000`), SELEQZ `010100` and SELNEZ
   `010111` p.371, MADDF `011000` and MSUBF `011001` p.259, MIN `011100`, MINA `011101`, MAX `011110`,
   MAXA `011111` p.262, RINT p.337 (`00000 fs fd 011010`), CLASS p.132 (`00000 fs fd 011011`).
-  -- END R6-6B
 -/
 def enc : Instruction → Option W32
   | .add rs rt rd => some (rFormat 0#32 rs rt rd 0#32 0x20#32)
@@ -251,15 +243,13 @@ def enc : Instruction → Option W32
   | .nal off => some (iFormat 0x01#32 0#32 0x10#32 off)
   | .bal off => some (iFormat 0x01#32 0#32 0x11#32 off)
   | .pause => some (rFormat 0#32 0#32 0#32 0#32 5#32 0#32)
-  -- BEGIN R6-2
   -- ERETNC p.179 (CO 1 | `0^18` | 1 | `011000`)
   | .eretnc => some (fld 6 26 0x10#32 ||| fld 1 25 1#32 ||| fld 1 6 1#32 ||| fld 6 0 0x18#32)
   -- SIGRIE p.375 (REGIMM `000001` | `00000` | SIGRIE `10111` | code)
   | .sigrie code => some (iFormat 0x01#32 0#32 0x17#32 code)
   -- CACHE p.114, Release 6 diagram (SPECIAL3 | base | op | offset (9) | 0 | CACHE `100101`)
   | .cache base op off => some (off9Format base op off 0x25#32)
-  -- END R6-2
-  -- BEGIN R6-4: the diagram of each Release 6 page (printed page in parentheses)
+  -- The diagram of each Release 6 page (printed page in parentheses)
   | .mul rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x18#32)     -- MUL `00010` SOP30 (p.300)
   | .muh rs rt rd => some (rFormat 0#32 rs rt rd 3#32 0x18#32)     -- MUH `00011` SOP30 (p.300)
   | .mulu rs rt rd => some (rFormat 0#32 rs rt rd 2#32 0x19#32)    -- MULU `00010` SOP31 (p.300)
@@ -277,8 +267,6 @@ def enc : Instruction → Option W32
   | .lwpc rs off => some (pc19Format rs 1#32 off)                   -- PCREL LWPC `01` (p.246)
   | .auipc rs imm => some (iFormat 0x3B#32 rs 0x1E#32 imm)          -- PCREL AUIPC `11110` (p.48)
   | .aluipc rs imm => some (iFormat 0x3B#32 rs 0x1F#32 imm)         -- PCREL ALUIPC `11111` (p.43)
-  -- END R6-4
-  -- BEGIN R6-3
   -- The compact branches and jumps (Table A.26, p.464; the diagram of each page): BC `110010` p.53,
   -- BALC `111010` p.52 (26-bit offset); B<cond>C p.82: BEQC POP10 `001000` and BNEC POP30 `011000`
   -- with `0 < rs < rt`, BLTC POP27 `010111`, BGEC POP26 `010110`, BLTUC POP07 `000111`, BGEUC POP06
@@ -313,8 +301,7 @@ def enc : Instruction → Option W32
   | .bnvc rs rt off => encIf (decide ((reg rt).val ≤ (reg rs).val)) (iFormat 0x18#32 rs rt off)
   | .jic rt off => some (iFormat 0x36#32 0#32 rt off)
   | .jialc rt off => some (iFormat 0x3E#32 0#32 rt off)
-  -- END R6-3
-  -- BEGIN R6-5: COP1 | fmt | `00000` | fs | fd | function (printed page in parentheses)
+  -- COP1 | fmt | `00000` | fs | fd | function (printed page in parentheses)
   | .roundLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x08#32)  -- ROUND.L `001000` (p.341)
   | .roundLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x08#32)
   | .truncLS fd fs => some (rFormat 0x11#32 0x10#32 0#32 fs fd 0x09#32)  -- TRUNC.L `001001` (p.440)
@@ -327,8 +314,7 @@ def enc : Instruction → Option W32
   | .cvtLD fd fs => some (rFormat 0x11#32 0x11#32 0#32 fs fd 0x25#32)
   | .cvtSL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x20#32)    -- CVT.S `100000` fmt L (p.159)
   | .cvtDL fd fs => some (rFormat 0x11#32 0x15#32 0#32 fs fd 0x21#32)    -- CVT.D `100001` fmt L (p.153)
-  -- END R6-5
-  -- BEGIN R6-6B: the Release 6 FP pages (printed page in parentheses)
+  -- The Release 6 FP pages (printed page in parentheses)
   -- CMP.condn.fmt (p.136): bit 5 `0` and `condn` in bits 4..0; a `condn` of Table A.17 is below 32,
   -- so its 6-bit function field has bit 5 clear.
   | .cmpS cond fd fs ft => encIf (CmpCondnOK cond) (rFormat 0x11#32 0x14#32 ft fs fd cond)
@@ -357,7 +343,12 @@ def enc : Instruction → Option W32
   | .maxD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1E#32)
   | .maxaS fd fs ft => some (rFormat 0x11#32 0x10#32 ft fs fd 0x1F#32)     -- MAXA `011111` (p.262)
   | .maxaD fd fs ft => some (rFormat 0x11#32 0x11#32 ft fs fd 0x1F#32)
-  -- END R6-6B
+  -- DVP (p.172), EVP (p.181): COP0, MFMC0 `01011`, `rt`, bits 15..6 zero, `sc` (bit 5) 1 / 0, bits
+  -- 4..3 zero, bits 2..0 `100`.
+  | .dvp rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 1 5 1#32 |||
+      fld 3 0 4#32)
+  | .evp rt => some (fld 6 26 0x10#32 ||| fld 5 21 0x0B#32 ||| fld 5 16 rt ||| fld 1 5 0#32 |||
+      fld 3 0 4#32)
 
 /-- The `opcode` field (bits 31..26). -/
 def opcode (w : W32) : W32 := w >>> 26
@@ -411,7 +402,8 @@ page of each diagram):
   SEH p.366, WSBH p.445, BITSWAP p.92; bits 25..21 and 10..9 of RDHWR p.332; bit 6 of LL p.223, SC p.347, PREF p.321;
   bits 24..7 of ERET p.177 and ERETNC p.179 (bit 6 tells them apart); bit 6 of CACHE p.114; bits
   25..21 of SIGRIE p.375 (REGIMM `rt = 10111`); bits 10..3 of MFC0 p.266,
-  MTC0 p.290; bits 10..6 and 4..0 of DI p.164, EI p.176; bits 10..0 of RDPGPR p.335, WRPGPR p.444;
+  MTC0 p.290; bits 10..6 and 4..0 of DI p.164, EI p.176; bits 15..6 and 4..3 of DVP p.172, EVP p.181
+  (bits 2..0 `100`, `rd` not 12); bits 10..0 of RDPGPR p.335, WRPGPR p.444;
   bits 10..0 of MFC1 p.267, MTC1 p.292, MFHC1 p.271, MTHC1 p.295, CFC1 p.129, CTC1 p.149; bits 20..16
   of the one-operand COP1 functions (SQRT p.382, ABS p.32, MOV p.275, NEG p.307, ROUND.W p.342, TRUNC.W
   p.441, CEIL.W p.128, FLOOR.W p.186, RECIP p.336, RSQRT p.343, CVT.D p.153, CVT.S p.159, CVT.W p.160;
@@ -454,17 +446,14 @@ def UnpredictableEncoding (w : W32) : Bool :=
     else if fn == 0x04 then sa > rd               -- INS: lsb > msb
     else if fn == 0x3B then nz 25 21 || nz 10 9   -- RDHWR
     else if fn == 0x36 || fn == 0x26 || fn == 0x35 then nz 6 6   -- LL, SC, PREF
-    -- BEGIN R6-2
     else if fn == 0x25 then nz 6 6                                 -- CACHE
-    -- END R6-2
     else false
-  -- BEGIN R6-2
   | 0x01 => fldOf w 20 16 == 0x17 && rs != 0                       -- SIGRIE
-  -- END R6-2
   | 0x10 =>  -- COP0
     if fldOf w 25 25 == 1 then fn == 0x18 && nz 24 7   -- ERET
     else if rs == 0x00 || rs == 0x04 then nz 10 3      -- MFC0, MTC0
     else if rs == 0x0B && rd == 12 then nz 10 6 || nz 4 0   -- DI, EI
+    else if rs == 0x0B && fldOf w 2 0 == 4 then nz 15 6 || nz 4 3   -- DVP, EVP
     else if rs == 0x0A || rs == 0x0E then nz 10 0      -- RDPGPR, WRPGPR
     else false
   | 0x11 =>  -- COP1
@@ -477,9 +466,7 @@ def UnpredictableEncoding (w : W32) : Bool :=
       else if (rs == 0x10 && fn == 0x21) || (rs == 0x11 && fn == 0x20) then nz 20 16  -- CVT.D.S, CVT.S.D
       else false
     else if rs == 0x14 then (fn == 0x20 || fn == 0x21) && nz 20 16                 -- CVT.S.W, CVT.D.W
-    -- BEGIN R6-5
     else if rs == 0x15 then (fn == 0x20 || fn == 0x21) && nz 20 16                 -- CVT.S.L, CVT.D.L
-    -- END R6-5
     else false
   | _ => false
 

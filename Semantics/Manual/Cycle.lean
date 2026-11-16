@@ -40,7 +40,6 @@ assigns nothing, and `NAL`) `branchPC + 8`, which is "PC + 4" of the delay slot 
 `branchPC + 4`. Both give the next `PC` the manual gives; `BranchDelay.isSome` is
 `InstructionInBranchDelaySlot`.
 
--- BEGIN R6-3
 **Compact branches and forbidden slots** (Release 6). A compact branch or jump assigns `PC` at time
 `I` when taken (no delay slot). A conditional compact branch that is not taken leaves the next
 instruction in its forbidden slot (`Delay.forbiddenSlot`, set by the page's Operation, `Ops.
@@ -51,7 +50,6 @@ Instruction exception" (MD00082 Vol I-A Rev 6.01 §5.3.2.1, p.62; "but only when
 taken", B<cond>C p.84), and an exception there reports `EPC` = the branch with `BD` set (§5.3.2.2,
 p.62; DECISIONS D6). So point 4's CTI check and the general exception processing apply to it
 unchanged, through `BranchDelay.isSome`.
--- END R6-3
 -/
 
 namespace Manual
@@ -64,21 +62,15 @@ Release 6 compact branches and jumps. -/
 def IsCTI : Instruction → Bool
   | .beq .. | .bne .. | .blez .. | .bgtz .. | .bltz .. | .bgez .. | .nal .. | .bal ..
   | .j .. | .jal .. | .jalr .. | .jalrHb .. | .eret | .wait .. | .pause => true
-  -- BEGIN R6-2
   | .eretnc => true
-  -- END R6-2
-  -- BEGIN R6-3
   | .bc .. | .balc .. | .beqc .. | .bnec .. | .bltc .. | .bgec .. | .bltuc .. | .bgeuc ..
   | .blezc .. | .bgezc .. | .bgtzc .. | .bltzc .. | .beqzc .. | .bnezc ..
   | .blezalc .. | .bgezalc .. | .bgtzalc .. | .bltzalc .. | .beqzalc .. | .bnezalc ..
   | .bovc .. | .bnvc .. | .jic .. | .jialc .. => true
-  -- END R6-3
-  -- BEGIN R6-6B
   -- BC1EQZ/BC1NEZ: "If a control transfer instruction (CTI) is executed in the delay slot of a branch
   -- or jump, Release 6 implementations are required to signal a Reserved Instruction exception"
   -- (BC1EQZ BC1NEZ, p.54)
   | .bc1eqz .. | .bc1nez .. => true
-  -- END R6-6B
   | _ => false
 
 /-- `dec` decodes by the format diagrams: an instruction it returns for `w` has the diagram `w`
@@ -101,9 +93,7 @@ def Complete (a : Arch) (f : Frame) : Arch :=
         BranchDelay := some (match d with
           | .jump t => t
           | .fallThrough => a.PC + 8#32
-          -- BEGIN R6-3
           | .forbiddenSlot => a.PC + 8#32
-          -- END R6-3
           ) }
   | none =>
     match f.pcSet with

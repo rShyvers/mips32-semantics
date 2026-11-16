@@ -106,7 +106,6 @@ def JALR_HB (rs rd : W32) : Pseudo Unit := do
   -- Restrictions: rs = rd is UNPREDICTABLE
   if reg rs == reg rd then unpredictableOr (o.jalrRsIsRd a (.jalrHb rs rd)) body else body
 
--- BEGIN R6-3
 /-! ## The Release 6 compact jumps (no delay slot, no forbidden slot)
 
 "This instruction is an unconditional, always taken, compact jump, and hence has neither a delay slot
@@ -158,6 +157,5 @@ def JIALC (rt offset : W32) : Pseudo Unit := do
   if bits impl.Config3 15 14 == 0#2 && !bit impl.Config1 2 then setPC temp
   -- else PC ← temp_{GPRLEN-1..1} || 0 (ISAMode ← temp_0: not modelled)
   else setPC (bits temp 31 1 ++ 0#1 : BitVec 32)
--- END R6-3
 
 end Manual.Ops

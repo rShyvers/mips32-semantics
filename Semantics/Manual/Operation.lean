@@ -18,15 +18,10 @@ import Semantics.Manual.Ops.FpuControl
 import Semantics.Manual.Ops.FpuConvert
 import Semantics.Manual.Ops.FpuMemory
 import Semantics.Manual.Ops.FpuMove
--- BEGIN R6-4
 import Semantics.Manual.Ops.PcRel
--- END R6-4
--- BEGIN R6-3
 import Semantics.Manual.Ops.CompactBranch
--- END R6-3
--- BEGIN R6-6B
 import Semantics.Manual.Ops.FpuR6
--- END R6-6B
+import Semantics.Manual.Ops.VP
 
 /-!
 # Manual.Operation — the Operation section of each instruction
@@ -167,12 +162,9 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .nal off => some (Ops.NAL off)
   | .bal off => some (Ops.BAL off)
   | .pause => some Ops.PAUSE
-  -- BEGIN R6-2
   | .eretnc => some Ops.ERETNC
   | .sigrie code => some (Ops.SIGRIE code)
   | .cache base op off => some (Ops.CACHE base op off)
-  -- END R6-2
-  -- BEGIN R6-4
   | .mul rs rt rd => some (Ops.MUL rs rt rd)
   | .muh rs rt rd => some (Ops.MUH rs rt rd)
   | .mulu rs rt rd => some (Ops.MULU rs rt rd)
@@ -190,8 +182,6 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .lwpc rs off => some (Ops.LWPC rs off)
   | .auipc rs imm => some (Ops.AUIPC rs imm)
   | .aluipc rs imm => some (Ops.ALUIPC rs imm)
-  -- END R6-4
-  -- BEGIN R6-3
   | .bc off => some (Ops.BC off)
   | .balc off => some (Ops.BALC off)
   | .beqc rs rt off => some (Ops.BEQC rs rt off)
@@ -216,8 +206,6 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .bnvc rs rt off => some (Ops.BNVC rs rt off)
   | .jic rt off => some (Ops.JIC rt off)
   | .jialc rt off => some (Ops.JIALC rt off)
-  -- END R6-3
-  -- BEGIN R6-5
   | .cvtLS fd fs => some (Ops.CVT_L_S fd fs)
   | .cvtLD fd fs => some (Ops.CVT_L_D fd fs)
   | .roundLS fd fs => some (Ops.ROUND_L_S fd fs)
@@ -230,8 +218,6 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .floorLD fd fs => some (Ops.FLOOR_L_D fd fs)
   | .cvtSL fd fs => some (Ops.CVT_S_L fd fs)
   | .cvtDL fd fs => some (Ops.CVT_D_L fd fs)
-  -- END R6-5
-  -- BEGIN R6-6B
   | .cmpS cond fd fs ft => some (Ops.CMP_S cond fd fs ft)
   | .cmpD cond fd fs ft => some (Ops.CMP_D cond fd fs ft)
   | .bc1eqz ft off => some (Ops.BC1EQZ ft off)
@@ -258,6 +244,7 @@ def Operation : Instruction → Option (Pseudo Unit)
   | .classD fd fs => some (Ops.CLASS_D fd fs)
   | .rintS fd fs => some (Ops.RINT_S fd fs)
   | .rintD fd fs => some (Ops.RINT_D fd fs)
-  -- END R6-6B
+  | .dvp rt => some (Ops.DVP rt)
+  | .evp rt => some (Ops.EVP rt)
 
 end Manual

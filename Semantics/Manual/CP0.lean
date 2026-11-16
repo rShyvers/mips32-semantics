@@ -44,7 +44,6 @@ holds. -/
 def StatusCU0 (_a : Arch) : Bool := false
 /-- `StatusCU1` (bit 29). -/
 def StatusCU1 (a : Arch) : Bool := bit a.Status 29
--- BEGIN R6-5
 /-- `StatusFR` (bit 26; Table 9.47, p.191): "This bit must be ignored on write and read as 1 for an
 implementation of Release 6 of the Architecture (and subsequent releases) in which a 64-bit
 floating-point unit is implemented" — this profile's FPU (`Manual.FP32RegistersMode`). It is not
@@ -53,7 +52,6 @@ def StatusFR (_a : Arch) : Bool := true
 
 /-- **Status as read**: the stored bits and `FR` (bit 26). -/
 def StatusRead (a : Arch) : W32 := a.Status ||| (if StatusFR a then 1#32 <<< 26 else 0#32)
--- END R6-5
 
 /-- **The R/W bits of Status** on this profile (Table 9.47, p.189-196): `CU1` (29), `RW` (28, Release
 6, p.190), `BEV` (22), `IM7..IM0` (15..8), `UM` (4), `ERL` (2), `EXL` (1), `IE` (0). `CU3`/`CU2` (no

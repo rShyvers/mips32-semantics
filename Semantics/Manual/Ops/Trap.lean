@@ -81,7 +81,6 @@ def BREAK (_code : W32) : Pseudo Unit := do
   -- SignalException(Breakpoint)
   SignalException .Breakpoint
 
--- BEGIN R6-2
 /-- **SIGRIE code** — MD00086 Vol II-A Rev 6.06, SIGRIE, p.375 ("MIPS32 Release 6").
 ```
 SignalException(ReservedInstruction)
@@ -91,6 +90,5 @@ read it. -/
 def SIGRIE (_code : W32) : Pseudo Unit :=
   -- SignalException(ReservedInstruction)
   SignalException .ReservedInstruction
--- END R6-2
 
 end Manual.Ops

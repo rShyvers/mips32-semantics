@@ -32,11 +32,9 @@ def setRegs (s : State) (kvs : List (Fin 32 × W32)) : State :=
 def setFpRegs (s : State) (kvs : List (Fin 32 × W32)) : State :=
   kvs.foldl (fun acc kv => writeFpReg acc kv.1 kv.2) s
 
--- BEGIN R6-5 (C)
 /-- Set whole 64-bit FPRs (`Status.FR = 1`). -/
 def setFpRegs64 (s : State) (kvs : List (Fin 32 × BitVec 64)) : State :=
   kvs.foldl (fun acc kv => writeFpReg64 acc kv.1 kv.2) s
--- END R6-5 (C)
 
 def prog1 (instr : Instruction) : Program :=
   (∅ : Program).insert textBase (encode instr)
@@ -94,13 +92,11 @@ def nextFpRegEq (r : Outcome) (i : Fin 32) (v : W32) : Bool :=
   | .next s => readFpReg s i == v
   | .halt _ => false
 
--- BEGIN R6-5 (C)
 /-- `r` is a state whose whole 64-bit `FPR[i]` is `v`. -/
 def nextFpReg64Eq (r : Outcome) (i : Fin 32) (v : BitVec 64) : Bool :=
   match r with
   | .next s => readFpReg64 s i == v
   | .halt _ => false
--- END R6-5 (C)
 
 def isNext (r : Outcome) : Bool :=
   match r with

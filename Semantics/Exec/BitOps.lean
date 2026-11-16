@@ -8,14 +8,12 @@ the instruction's effect after `execInstr`'s guards (no control transfer in a de
 usable); `none` for every instruction of another family.
 -/
 
--- BEGIN R6-4
 /-- `BITSWAP` (MD00086 Vol II-A Rev 6.06, p.92): the bits of each byte reversed, each byte in place;
 by swapping adjacent bits, then bit pairs, then nibbles within every byte. -/
 def bitswapWord (v : W32) : W32 :=
   let v := ((v >>> 1) &&& 0x55555555#32) ||| ((v &&& 0x55555555#32) <<< 1)
   let v := ((v >>> 2) &&& 0x33333333#32) ||| ((v &&& 0x33333333#32) <<< 2)
   ((v >>> 4) &&& 0x0F0F0F0F#32) ||| ((v &&& 0x0F0F0F0F#32) <<< 4)
--- END R6-4
 
 /-- The effect of bit counting, sign extension, byte swap and bit-field instructions; `none` for every other instruction. -/
 def execBitOps (s : State) : Instruction → Option State
@@ -64,7 +62,6 @@ def execBitOps (s : State) : Instruction → Option State
       let clearMask := ~~~(mask <<< lsb)
       let newVal := (readReg s (regIdx rt) &&& clearMask) ||| srcField
       mkNext s (writeReg s (regIdx rt) newVal)
-  -- BEGIN R6-4
   -- ALIGN (p.39): `($rt << 8·bp) | ($rs >> 8·(4-bp))`, logical 32-bit shifts (`bp = 0` gives `$rt`).
   | .align rs rt rd bp => some <|
     let b := (bp &&& 3#32).toNat
@@ -73,5 +70,4 @@ def execBitOps (s : State) : Instruction → Option State
   -- BITSWAP (p.92).
   | .bitswap rd rt => some <|
     mkNext s (writeReg s (regIdx rd) (bitswapWord (readReg s (regIdx rt))))
-  -- END R6-4
   | _ => none

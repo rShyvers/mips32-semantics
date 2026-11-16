@@ -1,10 +1,10 @@
 # recip/rsqrt of 3.0 / 2.0 / 10.0 (.s and .d): the result is an approximation with implementation-dependent accuracy (<= 1 ULP), so the
 # result bits and the Inexact flag are not compared; the program checks only that both executors terminate the same way.
 # MD00086 Vol II-A Rev 6.06: RECIP.fmt p.336 / RSQRT.fmt p.343: 'The numeric accuracy of this operation is implementation dependent ... differs from the exact result by no more than one ULP'.
-# oracle: unpredictable fpr MD00086 Rev 6.06 RECIP.fmt p.336 / RSQRT.fmt: numeric accuracy implementation dependent (within 1 ULP)
-# oracle: unpredictable gpr MD00086 Rev 6.06 RECIP.fmt p.336: accuracy and rounding-mode dependence implementation dependent (results stored in GPRs)
-# oracle: unpredictable fcsr MD00086 Rev 6.06 RECIP.fmt p.336: Inexact/Underflow flags of an approximation are implementation dependent
-# oracle: unpredictable mem MD00086 Rev 6.06 RECIP.fmt p.336: stored approximation results
+# oracle: unpredictable fpr MD00086 Vol II-A Rev 6.06 RECIP.fmt p.336 ("The numeric accuracy of this operation is implementation dependent", within 1 ULP; "It is implementation dependent whether the result is affected by the current rounding mode") and RSQRT.fmt p.343 (same, within 2 ULP): approximation results
+# oracle: unpredictable gpr MD00086 Vol II-A Rev 6.06 RECIP.fmt p.336 ("The numeric accuracy of this operation is implementation dependent", within 1 ULP; "It is implementation dependent whether the result is affected by the current rounding mode") and RSQRT.fmt p.343 (same, within 2 ULP): approximation results moved to GPRs
+# oracle: unpredictable fcsr MD00086 Vol II-A Rev 6.06 RECIP.fmt p.336 ("The numeric accuracy of this operation is implementation dependent", within 1 ULP; "It is implementation dependent whether the result is affected by the current rounding mode") and RSQRT.fmt p.343 (same, within 2 ULP): the FCSR Cause/Flags follow the approximation (an implementation-dependent value may be exact or inexact)
+# oracle: unpredictable mem MD00086 Vol II-A Rev 6.06 RECIP.fmt p.336 ("The numeric accuracy of this operation is implementation dependent", within 1 ULP; "It is implementation dependent whether the result is affected by the current rounding mode") and RSQRT.fmt p.343 (same, within 2 ULP): stored approximation results
 .data
 res: .space 160
 .text

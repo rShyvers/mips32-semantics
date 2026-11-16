@@ -332,7 +332,6 @@ syscall
 break
 sync
 nop
-ssnop
 ehb
 pause
 nal
@@ -434,7 +433,6 @@ mfc0 $t0,$15
 mtc0 $t0,$12,0
 mtc0 $t1,$15,1
 mfc0 $t0,$12,7
-# BEGIN R6-2
 eretnc
 sigrie
 sigrie 5
@@ -458,8 +456,7 @@ mfc0 $t0,$0,0
 mtc0 $t0,$1,0
 rdhwr $t0,$5
 rdhwr $t0,$29
-# END R6-2
-# BEGIN R6-4: Release 6 multiply/divide, select, LSA, ALIGN, BITSWAP, PC-relative
+# Release 6 multiply/divide, select, LSA, ALIGN, BITSWAP, PC-relative
 mul $t0,$t1,$t2
 mul $zero,$ra,$s7
 muh $t0,$t1,$t2
@@ -504,8 +501,7 @@ aluipc $t0,0
 aluipc $ra,-1
 aluipc $s0,0x1234
 aluipc $v0,-32768
-# END R6-4
-# BEGIN R6-3: the Release 6 compact branches and jumps (Table A.26, p.464)
+# The Release 6 compact branches and jumps (Table A.26, p.464)
 bc @T
 bc @B
 balc @T
@@ -559,8 +555,6 @@ jic $t0,-32768
 jic $zero,32767
 jialc $ra,8
 jialc $t0,-4
-# END R6-3
-# BEGIN R6-6B
 # --- Release 6 FPU instructions (R6-6): CMP.condn.fmt (cmp.or/une/ne/sor/sune/sne: ENC_MANUAL), BC1EQZ/BC1NEZ, SEL/SELEQZ/SELNEZ, MADDF/MSUBF, MAX/MIN/MAXA/MINA, CLASS, RINT ---
 cmp.af.s $f0,$f2,$f4
 cmp.af.s $f31,$f30,$f29
@@ -698,4 +692,8 @@ rint.s $f0,$f2
 rint.s $f31,$f30
 rint.d $f0,$f2
 rint.d $f31,$f30
-# END R6-6B
+# --- DVP/EVP (Wave R6-7; DVP p.172, EVP p.181: no-ops with Config5.VP = 0) ---
+dvp
+dvp $t0
+evp
+evp $ra

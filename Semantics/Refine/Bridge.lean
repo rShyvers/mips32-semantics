@@ -78,7 +78,6 @@ theorem vector_eq (s : State) :
         BitVec.getLsbD_or, BitVec.getLsbD_zero]
       rcases j with _|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|j <;> simp <;> omega
 
--- BEGIN R6-2
 /-! ## Instruction fetch and the faulting instruction word (`BadInstr`, `BadInstrP`) -/
 
 /-- `readMemWord` of a misaligned address is `none`. -/
@@ -134,7 +133,6 @@ theorem instrWordAt_abs (s : State) (va : W32) :
   show MemElemAt (memOf s.physMem) pa = MemElemAt (memOf s.physMem) (pa &&& ~~~3#32)
   unfold MemElemAt
   rw [BitVec.and_assoc, BitVec.and_self]
--- END R6-2
 
 /-- The model's `ce` argument for an exception (the unit number for Coprocessor Unusable, else 0). -/
 def ceOf : Exception → W32
@@ -177,13 +175,11 @@ theorem gep_eq (s : State) (e : Exception) (he : e ≠ .Interrupt)
   have hce := ce_eq (s := s) e hu
   have hv := vector_eq s
   have hab : AdditionalState e (abs s) = abs (badv e s) := additional_abs e s
-  -- BEGIN R6-2
   have hbi : FaultingInstructionWord modelImpl modelOracle (abs s) = faultingInstr (badv e s) := by
     rw [faultingWord_abs]; cases e <;> rfl
   have hbip : InstructionWordAt (abs s) ((abs s).PC - 4#32) =
       instrWordAt (badv e s) ((badv e s).pc - 4#32) := by
     rw [instrWordAt_abs]; cases e <;> rfl
-  -- END R6-2
   simp only [GeneralExceptionProcessing, hoff, hab, hv, he, ↓reduceIte, hbi, hbip]
   have hexl' : StatusEXL (abs (badv e s)) = ((badv e s).cp0Status &&& statusExlMask != 0#32) :=
     exl_abs _

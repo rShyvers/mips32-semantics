@@ -2,10 +2,10 @@
 # Config.BE (bit 15) = 0 (little-endian), Config.AT = 0 (MIPS32), Config.AR = 2 (Release 6), Config1.FP (bit 0) = 1, FIR.S/D/L (bits 16,17,21) = 1 (L is required with D: MD00086 Vol II-A Rev 6.06 §3.1 p.30, MD00082 Vol I-A Rev 6.01 Table 6.4 p.85) and FIR.PS (bit 18) = 0 (F64, bit 22, is not compared; FIR bit 29 FREP is optional: QEMU has it (FIR 0x20f30000), the profile model does not (0x00f30000), so FIR is masked with 0x00270000),
 # EBase bits 31..30 = 10, CPUNum (9..0) = 0 and EBase read/write round trip (restored before exit).
 # MD00090 Vol III Rev 6.02: PRId p.221, EBase Table 9.58 p.224, Config Table 9.64 p.233-234, Config1 p.237; MD00082 Vol I-A Rev 6.01 FIR Table 6.5 p.88.
-# oracle: unpredictable gpr:s0 MD00090 Vol III Rev 6.02 PRId: Company/Processor ID/Revision are implementation-defined constants
-# oracle: unpredictable gpr:s1 MD00090 Vol III Rev 6.02 Config: only BE/AT/AR are fixed by the architecture (checked in s2); the rest is implementation-defined
-# oracle: unpredictable gpr:s3 MD00090 Vol III Rev 6.02 Config1: cache/TLB geometry fields are implementation-defined (FP bit checked in s4)
-# oracle: unpredictable gpr:s5 MD00082 Vol I-A Rev 6.01 FIR: ProcessorID/Revision are implementation-defined (fixed bits checked in s6)
+# oracle: unpredictable gpr:s0 MD00090 Vol III Rev 6.02 sec 9.40 Table 9.57 p.221: Company ID/Processor ID/Revision are "Preset by hardware" implementation constants
+# oracle: unpredictable gpr:s1 MD00090 Vol III Rev 6.02 sec 9.45 Table 9.64 p.233-235: only BE/AT/AR are fixed by the profile (checked in s2); Impl (24:16) is "reserved for implementations" (p.233), MT and the K fields are implementation choices
+# oracle: unpredictable gpr:s3 MD00090 Vol III Rev 6.02 sec 9.46 Table 9.65 p.237-240: cache/TLB geometry fields are "Preset by hardware" implementation constants (FP bit checked in s4)
+# oracle: unpredictable gpr:s5 MD00082 Vol I-A Rev 6.01 sec 6.5.1 Table 6.5 p.88-89: Impl/ProcessorID/Revision are implementation constants (fixed bits checked in s6)
 .data
 res: .space 64
 .text

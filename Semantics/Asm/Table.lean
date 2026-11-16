@@ -37,6 +37,14 @@ def removedMnemonics : List String :=
     ["f", "un", "eq", "ueq", "olt", "ult", "ole", "ule",
      "sf", "ngle", "seq", "ngl", "lt", "nge", "le", "ngt"].map fun c => "c." ++ c ++ "." ++ f)
 
+/-- Mnemonics a Release 6 assembler rejects although no table removes them, with the reason:
+"Release 6: the special no-operation instruction SSNOP is deprecated: it behaves the same as a
+conventional NOP ... Assemblers targeting specifically Release 6 should reject the SSNOP instruction with
+an error" (MD00086 Vol II-A Rev 6.06, SSNOP, p.387). The word `sll $0, $0, 1` still executes as a
+`sll` (a no-op). -/
+def rejectedMnemonics : List (String × String) :=
+  [("ssnop", "'ssnop': Release 6 assemblers reject SSNOP (MD00086 Vol II-A Rev 6.06, SSNOP, p.387); use 'nop' or 'ehb'")]
+
 /-- A mnemonic this assembler accepts (instruction, macro or idiom). -/
 def isKnownMnemonic (m : String) : Bool :=
   instrTable.any (·.1 == m) || macroTable.any (·.1 == m) || idiomTable.any (·.1 == m)
@@ -58,6 +66,9 @@ def encodeStmt (c : Ctx) (ops : List String) : Except AsmError (List Instruction
 
 /-- The error for a mnemonic no table knows. -/
 def unknownMnemonicError (m : String) (line : Nat) : AsmError :=
+  match rejectedMnemonics.find? (·.1 == m) with
+  | some (_, msg) => .unknownMnemonic msg line
+  | none =>
   if removedMnemonics.contains m then
     .unknownMnemonic s!"'{m}': the pre-Release 6 instruction is removed in Release 6 (MD00086 Vol II-A Rev 6.06, Table A.1)" line
   else .unknownMnemonic s!"unknown mnemonic '{m}'" line

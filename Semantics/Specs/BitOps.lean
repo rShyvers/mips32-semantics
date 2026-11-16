@@ -289,7 +289,6 @@ theorem ins_outside_field_unchanged (s s' : State) (w rt rs pos size : W32)
           (setRegsSpec (initialState textBase) [(8, 0x159#32), (10, 0x12345678#32)])
         (readReg s 10 &&& ~~~(0x3ff#32 <<< 6)) == (0x12345678#32 &&& ~~~(0x3ff#32 <<< 6))) = true
 
--- BEGIN R6-4
 /-! ## Release 6: ALIGN, BITSWAP -/
 
 /-- **`align` writes `($rt << 8·bp) | ($rs >> 8·(4-bp))`**, logical 32-bit shifts (ALIGN, p.39, an image
@@ -318,4 +317,3 @@ theorem bitswap_spec_raw (s : State) (w rd rt : W32)
 #guard (let s := stepIn (prog1Spec (.bitswap 10#32 9#32))
           (setRegsSpec (initialState textBase) [(9, 0x01020380#32)])
         readReg s 10 == 0x8040c001#32) = true
--- END R6-4

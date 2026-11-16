@@ -67,7 +67,6 @@ theorem writeReg_regs_size (s : State) (i : Fin 32) (v : W32) :
     (writeReg s i v).regs.size = s.regs.size := by
   unfold writeReg; split <;> simp [Array.size_setIfInBounds]
 
--- BEGIN R6-5
 theorem readFpReg64_writeFpReg64 (s : State) (i j : Fin 32) (v : BitVec 64)
     (hsz : s.fpRegs.size = 32) :
     readFpReg64 (writeFpReg64 s i v) j = if j = i then v else readFpReg64 s j := by
@@ -109,6 +108,5 @@ theorem abs_writeFpReg (s : State) (i : Fin 32) (v : W32) (hsz : s.fpRegs.size =
     abs (writeFpReg s i v) =
       { abs s with FPR := update (abs s).FPR i ((readFpReg64 s i).extractLsb' 32 32 ++ v) } :=
   abs_writeFpReg64 s i _ hsz
--- END R6-5
 
 end Refine

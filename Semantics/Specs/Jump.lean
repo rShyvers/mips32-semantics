@@ -202,7 +202,6 @@ theorem jalr_rd_eq_rs_targets_original_value (s : State) (w rs : W32)
         s.pendingBranch == some 0x80020000#32 && readReg s 9 == textBase + 8#32 &&
             s.pendingBranch ≠ some (readReg s 9)) = true
 
--- BEGIN R6-3
 /-- **`jic`: `pc ← GPR[rt] + sext(offset)` at once** (JIC p.205: "temp ← GPR[rt] + sign_extend(offset)
 ... PC ← temp"; the offset is not shifted; "neither a delay slot nor a forbidden slot"). A target that
 is not word-aligned raises Address Error when it is fetched (p.205), i.e. at the next step. -/
@@ -229,4 +228,3 @@ theorem jialc_ra_targets_original_value (s : State) (w off : W32)
     (step s).pc = readReg s 31 + signExt16 off := by
   rw [jialc_spec_raw s w 31#32 off hfetch hdecode hpb hexec]
   rfl
--- END R6-3

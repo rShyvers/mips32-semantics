@@ -24,7 +24,6 @@ def luiOp : Enc := fun c ops =>
 /-- `rdhwr rt, rd[, sel]` (Release 6 adds `sel`, RDHWR p.332). -/
 def rdhwrOp : Enc := copSel "hardware" .rdhwr
 
--- BEGIN R6-4
 /-- `rd, rs, rt, k` with `k` in `lo..hi`, encoded as the 2-bit field `k - lo` (`lsa`: shift 1..4, field
 `sa` = shift - 1, LSA p.232; `align`: `bp` 0..3, ALIGN p.39). -/
 def rdRsRtK (what : String) (lo : Int) (mk : (rs rt rd k : W32) → Instruction) : Enc := fun c ops =>
@@ -52,7 +51,6 @@ def pcRel16 (mk : (rs imm : W32) → Instruction) : Enc := fun c ops =>
   match ops with
   | [s, i] => do pure (mk (← gpr c s) (← auiImm c i))
   | _ => badShape c "rs, imm"
--- END R6-4
 
 /-- Integer arithmetic, logic, shifts, bit operations and immediates. -/
 def intTable : EncTable :=
@@ -94,7 +92,7 @@ def intTable : EncTable :=
     ("xori",  rtRsImm uimm16 .xori),
     ("aui",   rtRsImm auiImm .aui),
     ("lui",   luiOp),
-    -- BEGIN R6-4: Release 6 multiply/divide, select, LSA, ALIGN, BITSWAP, PC-relative
+    -- Release 6 multiply/divide, select, LSA, ALIGN, BITSWAP, PC-relative
     ("mul",  rdRsRt fun rd rs rt => .mul rs rt rd),
     ("muh",  rdRsRt fun rd rs rt => .muh rs rt rd),
     ("mulu", rdRsRt fun rd rs rt => .mulu rs rt rd),
@@ -112,6 +110,5 @@ def intTable : EncTable :=
     ("lwpc",    pcRel19 .lwpc),
     ("auipc",   pcRel16 .auipc),
     ("aluipc",  pcRel16 .aluipc) ]
-    -- END R6-4
 
 end Asm

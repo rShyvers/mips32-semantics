@@ -62,9 +62,11 @@ assembler errors (`removedMnemonics`).
   `$ra`); `jr[.hb] rs` = `jalr[.hb] $0, rs`.
 - Optional code operands (GNU as syntax): `break [code[, code2]]`, `syscall [code]`, `teq rs,
   rt[, code]` (all six register traps), `sync [stype]`, `wait [code]`, `mfc0`/`mtc0 rt, rd[,
-  sel]`, `di`/`ei [rt]`.
-- Idioms and macros: see `Asm/Pseudo.lean` (`nop`, `ssnop`, `ehb`, `move`, `b`, `beqz`, `bnez`,
-  `neg`, `negu`, `not`, `abs`, `blt`/`bge`/`bgt`/`ble`(`u`) via `$at`, `jr`, `jr.hb`, `li`, `la`).
+  sel]`, `di`/`ei`/`dvp`/`evp [rt]`.
+- Idioms and macros: see `Asm/Pseudo.lean` (`nop`, `ehb`, `move`, `b`, `beqz`, `bnez`,
+  `neg`, `negu`, `not`, `abs`, `blt`/`bge`/`bgt`/`ble`(`u`) via `$at`, `jr`, `jr.hb`, the
+  reversed-operand compact branches `bgtc`/`blec`/`bgtuc`/`bleuc`, `li`, `la`). `ssnop` is rejected
+  (SSNOP p.387: "Assemblers targeting specifically Release 6 should reject the SSNOP instruction").
 - `.set noreorder`, `.set noat`, `.set at` are accepted. This assembler never reorders, so `.set
   noreorder` changes nothing; after `.set noat` the idioms that expand through `$at` are
   rejected. `.set reorder` is **rejected** (it would ask the assembler to fill delay slots), as

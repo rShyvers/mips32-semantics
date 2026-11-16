@@ -254,7 +254,6 @@ theorem branch_in_delay_slot_reserved_instruction (s : State) (w : W32) (instr :
     step s = timerTick (takeException s excCodeRI) := by
   sorry
 
--- BEGIN R6-3
 /-- **A compact branch** (Release 6; MD00086 Vol II-A Rev 6.06, B<cond>C, p.82-85): `beqc` taken
 goes to `pc + 4 + (offset << 2)` at once, with no delay slot; not taken, the next instruction is in
 its forbidden slot, represented as the delay slot of a not-taken branch (`pendingBranch := some (pc +
@@ -284,7 +283,6 @@ theorem forbidden_slot_cti_reserved (s : State) (w w2 rs rt off : W32) (instr : 
     (hcti : isBranchLikeSpec instr = true) (hexec2 : executesInstr (step s) = true) :
     step (step s) = timerTick (takeException (step s) excCodeRI) := by
   sorry
--- END R6-3
 
 /-! ## R-type arithmetic
 
@@ -789,9 +787,9 @@ Proved in `Semantics/Specs/` — Cp0.lean, Mode.lean, Reset.lean. -/
 
 /-- **Every coprocessor-0 instruction executed outside Kernel Mode raises
 Coprocessor Unusable with `Cause.CE = 0`, and does nothing else** (beyond the exception entry).
-`usesCop0`: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `eretnc`, `wait`, `rdpgpr`, `wrpgpr`, `cache`
-(MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178, ERETNC p.180,
-WAIT p.443, CACHE p.119, "Exceptions: Coprocessor Unusable"); the rule is MD00090 Vol III
+`usesCop0`: `mfc0`, `mtc0`, `di`, `ei`, `eret`, `eretnc`, `wait`, `rdpgpr`, `wrpgpr`, `cache`,
+`dvp`, `evp` (MD00086 Vol II-A Rev 6.06: MFC0 p.266, MTC0 p.291, DI p.164, EI p.176, ERET p.178,
+ERETNC p.180, WAIT p.443, CACHE p.119, DVP p.173, EVP p.182, "Exceptions: Coprocessor Unusable"); the rule is MD00090 Vol III
 Rev 6.02 §6.2.22, p.100 ("A COP0 or Cache instruction was executed while the processor was running
 in a mode other than Debug Mode or Kernel Mode, and the CU0 bit in the Status register was a
 zero"; Release 6 has no CU0, Table 9.47, p.190). `hnb` excludes a CTI in a delay slot (UNDEFINED; pinned to Reserved Instruction,
@@ -1152,9 +1150,10 @@ theorem lwc1_misaligned_spec (s : State) (w rs ft imm : W32)
 
 /-- **`cfc1`**: `$rt ←` FP control register `fs` — `Mips.Fp.readControl`: FIR (0), FCCR (25, reads 0:
 the FCCs are reserved in Release 6), FEXR (26), FENR (28), FCSR (31, with the read-only `ABS2008` =
-`NAN2008` = 1); `FRE` (5) reads `UNPREDICTABLE`, pinned to 0; every other number (`UFR`/`UNFR` 1, 4
-included) raises Reserved Instruction ("In Release 6 and later, a Reserved Instruction exception
-occurs if fs specifies a register that does not exist", MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
+`NAN2008` = 1); every other number (`UFR`/`UNFR` 1, 4 and `FRE` 5 included: no `FRE` with
+`FIR.FREP = 0`, p.130's "ConfigAR ≤ 2" read as `< 2`, `Manual.Ops.CFC1`) raises Reserved Instruction
+("In Release 6 and later, a Reserved Instruction exception occurs if fs specifies a register that
+does not exist", MD00086 Vol II-A Rev 6.06, CFC1, p.129-130) -/
 theorem cfc1_spec_raw (s : State) (w rt fs : W32)
     (hfetch : readMemWord s s.pc = some w) (hdecode : decode w = some (.cfc1 rt fs))
     (hpb : s.pendingBranch = none) (hcu : cu1Enabled s = true) (hexec : executesInstr s = true) :
@@ -2157,7 +2156,6 @@ theorem f64ToW32_spec (rm : Mips.Fp.RoundingMode) (fl : Bool) (x : BitVec 64) :
       (Mips.Fp.f64ToW32 rm fl x) := by
   sorry
 
--- BEGIN R6-5
 
 /-- **`CVT.L.S`, `ROUND/TRUNC/CEIL/FLOOR.L.S`** in every direction `rm`, on every operand, the
 operand flushed under FCSR.FS (MD00086 Vol II-A Rev 6.06, CVT.L.fmt p.154, ROUND.L p.341, TRUNC.L p.440,
@@ -2196,7 +2194,6 @@ otherwise the integer rounded under the FCSR environment (`Mips.Fp.Format.FromIn
 theorem w64ToF64_spec (e : Mips.Fp.Env) (x : BitVec 64) :
     Mips.Fp.binary64.FromIntSpec e x.toInt ((Mips.Fp.w64ToF64 e x).1.toNat, (Mips.Fp.w64ToF64 e x).2) := by
   sorry
--- END R6-5
 
 /-- **Tables 3.1/3.2 are the Operation's predicate** (MD00086 C.cond.fmt p.111-113): for every
 condition field and relation, `(cond2 and less) or (cond1 and equal) or (cond0 and unordered)` is the
@@ -2259,7 +2256,6 @@ theorem fcsrSpec_unique {old : BitVec 32} {fl : Mips.Fp.Flags} {n1 n2 : BitVec 3
     (h1 : Mips.Fp.FcsrSpec old fl n1 t1) (h2 : Mips.Fp.FcsrSpec old fl n2 t2) : n1 = n2 ∧ t1 = t2 := by
   sorry
 
--- BEGIN R6-2
 /-! ## Release 6 privileged architecture (wave R6-2)
 
 Proved in `Semantics/Specs/` — Exception.lean, Cp0.lean, Trap.lean. -/
@@ -2338,9 +2334,7 @@ theorem mtc0_unimplemented_ignored (s : State) (w rt rd sel : W32)
     step s = timerTick { s with pc := s.pc + 4#32 } := by
   sorry
 
--- END R6-2
 
--- BEGIN R6-6A
 
 /-- **`MADDF.S` / `MSUBF.S` on every operand** (MD00086 Vol II-A Rev 6.06, MADDF.fmt / MSUBF.fmt
 p.259-260): for all encodings of `fd` (`c`), `fs` (`a`), `ft` (`b`), both signs of the product
@@ -2369,8 +2363,6 @@ theorem f64Fma_spec (e : Mips.Fp.Env) (sub : Bool) (c a b : BitVec 64) :
       ((Mips.Fp.f64Fma e sub c a b).1.toNat, (Mips.Fp.f64Fma e sub c a b).2) := by
   sorry
 
--- END R6-6A
--- BEGIN R6-6C
 
 /-- **Table 3.9 is the Operation's predicate** (MD00086 Vol II-A Rev 6.06, CMP.condn.fmt p.138-140):
 for all 32 `condn` values and every relation, `cond4 xor ((cond2 and less) or (cond1 and equal) or
@@ -2436,6 +2428,5 @@ theorem f64Rint_spec (e : Mips.Fp.Env) (a : BitVec 64) :
     Mips.Fp.binary64.RintSpec e a.toNat ((Mips.Fp.f64Rint e a).1.toNat, (Mips.Fp.f64Rint e a).2) := by
   sorry
 
--- END R6-6C
 
 end Trusted
