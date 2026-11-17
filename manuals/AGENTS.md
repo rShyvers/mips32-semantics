@@ -37,15 +37,13 @@ fetchable; see `LOCAL-SOURCES.md`). `section ieee 6.3`, `toc ieee`, `search -d i
 tool says so and the selftest still passes; then a claim about 754-2019 is unverified here, say so.
 
 ## Which revision to trust
-The latest revisions (v1/v2/v3) are normative. The model targets a pre-Release-6
-MIPS32 processor with the Release 2 feature set and legacy FP (`FIR.Has2008=0`).
-So read the "Pre-Release 6" wording (pages are marked "removed in Release 6"
-for delay-slot branches, branch-likely, HI/LO, `lwl`/`lwr`, ...) and ignore
-Release 6-only instructions (`BALC`, `ALUIPC`, `CMP.cond.fmt`, `MADDF`, `SELEQZ`,
-...) and R6-only register text. Where `insn X` shows both a legacy and an R6
-page (`DIV` vs `DIV MOD DIVU MODU`), the plain name is the legacy one. Rev 2.50
-is the Release 2 baseline the project docs cite by page; use `--rev 2.50`
-when a citation must match it.
+The latest revisions (v1/v2/v3) are normative. The model targets MIPS32
+Release 6: little-endian, 64-bit FPU, IEEE 754-2008 NaNs (`FIR.Has2008=1`).
+So read the Release 6 wording; pages marked "removed in Release 6"
+(branch-likely, HI/LO, `lwl`/`lwr`, `C.cond.fmt`, ...) are not in the model.
+Where `insn X` shows both a legacy and an R6 page (`DIV` vs
+`DIV MOD DIVU MODU`), the R6 page applies. Rev 2.50 (`--rev 2.50`) is only
+for the Release 2 model kept at tag `mips32r2-final`.
 
 ## Citing
 Give document number, revision, instruction or section name, and printed page

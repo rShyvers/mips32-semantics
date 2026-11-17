@@ -6,11 +6,11 @@ description: Step-by-step recipe to add or complete one MIPS32 instruction end t
 # /new-instruction -- definition of done, in order
 
 Conventions are by pattern; open the neighbouring instruction of the same shape and copy it. Files change often, so grep, do not trust line numbers.
-Own these files for the duration (one writer per file): `Instruction.lean`, `Step.lean`, `Asm.lean`, the one `Semantics/Specs/<Family>.lean`,
+Own these files for the duration (one writer per file): `Instruction.lean`, the family's `Semantics/Exec/<Family>.lean`, its `Semantics/Asm/<Family>.lean`, the one `Semantics/Specs/<Family>.lean`,
 the matching `Semantics/Tests/*.lean`, `INSTRUCTION-REF.md`, one new test program. Check first that the instruction is in the target profile
-(pre-R6, Release 2, 32-bit FPU, legacy FP) and is not listed as out of scope in `docs/spec/MIPS-COVERAGE-GAPS.md` section 2.
+(MIPS32 Release 6, see CLAUDE.md) and is not classified as removed or optional in `docs/spec/R6-COVERAGE.md`.
 
-0. Look it up first (`/mips-manual`): `mipsdoc.py insn NAME`; note the Pre-R6 semantics, exceptions raised, delay-slot/likely behaviour,
+0. Look it up first (`/mips-manual`): `mipsdoc.py insn NAME`; note the Release 6 semantics, exceptions raised, delay-slot/forbidden-slot behaviour,
    UNPREDICTABLE cases (each needs a pin in SPEC-NOTES), printed page.
 1. `Semantics/Instruction.lean`: add a constructor to `inductive Instruction` next to its family, with the field shape of its siblings
    (R-type `rs rt rd`/`shamt`, I-type `rs rt imm`, J `target`, FP `fmt fs ft fd`...), each field `W32` and commented with the manual page.
@@ -35,7 +35,7 @@ the matching `Semantics/Tests/*.lean`, `INSTRUCTION-REF.md`, one new test progra
    (`oracle.py --encodings` checks it against `llvm-mc`; every constructor's mnemonic must be listed).
 6. On the `documentation` branch (mounted at `docs/`; `git worktree add docs documentation`), `docs/spec/INSTRUCTION-REF.md`: a `### mnemonic (FORM)` section (and a row in the summary table) with Lean names, Pre-R6 semantics, exceptions, and a
    citation (document+revision+section+printed page). Pins and divergences go in `docs/spec/SPEC-NOTES.md`; remove the item from `MIPS-COVERAGE-GAPS.md`.
-7. Tests, in this order of preference: a `tests/oracle/<name>.asm` program (QEMU 24Kf compares final registers/memory/CP0; directives `# oracle: ...`,
+7. Tests, in this order of preference: a `tests/oracle/<name>.asm` program (QEMU `mips32r6-generic` compares final registers/memory/CP0; directives `# oracle: ...`,
    see `scripts/README.md`; a QEMU difference from the manual is a declared `expect-deviation` with a citation, never a silent mismatch); and, if MARS
    supports the instruction, `tests/corpus/<name>.asm` (print observable results with syscalls 1/11/10; `lake exe DiffHarness`).
 8. `scripts/gate.sh --fix` (regenerates the README coverage table); then `docs/check.sh --fix` (regenerates `docs/TRACE.md`) and check the

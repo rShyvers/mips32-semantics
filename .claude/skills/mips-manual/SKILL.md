@@ -19,10 +19,11 @@ run `manuals/fetch.sh` (needs `pdftotext`). Details: `manuals/AGENTS.md`. Do not
 - Documents: `v1` Vol I-A 6.01, `v2` Vol II-A 6.06, `v3` Vol III 6.02 (latest, normative); `v2old`/`v3old` Rev 2.50; `v1r3`, `v1r0`.
 
 ## Reading rule (this project's target)
-Pre-Release-6 MIPS32, Release 2 feature set, big-endian, legacy FP (`FIR.Has2008=0`). Read the "Pre-Release 6" wording;
-ignore R6-only instructions (BALC, ALUIPC, CMP.cond.fmt, MADDF, SELEQZ...) and R6-only register text. Where a lookup shows a
-legacy and an R6 page (DIV vs DIV MOD DIVU MODU), the plain name is the legacy one. Latest revisions win over Rev 2.50
-unless the claim is explicitly about Release 2 numbering.
+MIPS32 Release 6 (CLAUDE.md, "Target profile"): little-endian, 64-bit FPU (`Status.FR=1`), IEEE 754-2008 NaNs
+(`FIR.Has2008=1`), Fixed Mapping MMU, no optional modules. Read the Release 6 wording;
+instructions marked "removed in Release 6" (branch-likely, HI/LO, LWL/LWR, C.cond.fmt, ...) are not in the model. Where a
+lookup shows a legacy and an R6 page (DIV vs DIV MOD DIVU MODU), the R6 page applies. Rev 2.50 is only for the Release 2
+model kept at tag `mips32r2-final`.
 
 ## Citation format
 Document number + revision + instruction or section + PRINTED page, e.g.

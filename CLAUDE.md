@@ -4,7 +4,7 @@ Formal semantics of MIPS32 in Lean 4: decode/encode, assembler, small-step `step
 Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals by review.
 
 ## Target profile (do not drift)
-- MIPS32 **Release 6** (the final MIPS32), owner decision 2026-11-16, on branch `dev/r6` until it is complete.
+- MIPS32 **Release 6** (the final MIPS32), owner decision 2026-11-16; complete and merged to `main`.
   Little-endian only (`Config5.DEC=0`, `Config.BE=0`), 64-bit FPU (`Status.FR=1`), IEEE 754-2008 NaN
   (`FIR.Has2008=1`, `FCSR.NAN2008=ABS2008=1`), Fixed Mapping MMU, no optional modules (MSA, microMIPS, VZ, MT, DSP,
   EVA, XPA, MCU, CRC, GINV, VP, EJTAG). Misaligned load/store = Address Error. The pre-R6 Release 2 model is kept
@@ -34,7 +34,7 @@ Validated differentially against MARS 4.5 and QEMU/LLVM, and against the manuals
 stripped) + manual-spec independence: `scripts/manual_independence.py` (token pre-check) and `scripts/manual_deps.py` →
 `scripts/ManualIndependence.lean` (walks the Lean environment from every `Manual.*` constant against an allow-list); 2 `lake build` of all targets, zero project warnings; 3 `lake check` kernel replay, axioms subset of
 {propext, Classical.choice, Quot.sound}; 4 `lake comparator` ("Your solution is okay!"); 5 DiffHarness vs real MARS
-(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness (incl. the manual-spec check: `Manual.InstructionTime` vs `step` through `Refine.abs`); 7 oracle (`scripts/oracle.py` selftest + QEMU 24Kf/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
+(needs java; pass count must equal the number of `tests/corpus/*.asm`); 6 EquivHarness (incl. the manual-spec check: `Manual.InstructionTime` vs `step` through `Refine.abs`); 7 oracle (`scripts/oracle.py` selftest + QEMU `mips32r6-generic`/LLVM differential, behaviour and encodings; FAILs without qemu/llvm, undeclared mismatches fail, declared QEMU deviations and known model bugs are counted); 8 traceability
 (`trace.py --check`: every constructor has step arm, spec theorem, `_refines`; `--check-readme`); 9 manuals tool selftest (SKIP if texts absent; any SKIP in a full run makes the gate RED, no stamp); 10 hygiene.
 - While iterating: `scripts/gate.sh --quick` (steps 1,8,9,10; NOT green, no stamp). Use `--only STEP`/`--from STEP`.
 - Before reporting done / before commit: `scripts/gate.sh --fix` (full; regenerates the README coverage table). Only a full green run
@@ -59,7 +59,7 @@ stripped) + manual-spec independence: `scripts/manual_independence.py` (token pr
   `Tactics` (the `step_spec` / `fp_step_spec` / `cp0_step_spec` proof scripts). Index and reading guide: `Specs/StepSpec.lean` (it holds no theorem).
 - Trusted surface: `Semantics/Statements.lean` (221 statements, proofs `sorry`, imported by nothing; it imports `Refine/Defs`, `Manual/*`, `FpOpsSpec`, `Manual/Accuracy`) + `Semantics/StatementsProofs.lean`
   (same statements proved from Specs) + `comparator.json`. `FpOpsFacts.lean`, `FpCompareFacts.lean` kernel-checked FP facts.
-- Independent manual spec (Wave 7, design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
+- Independent manual spec (design + transcription guide in `docs/MANUAL-SPEC.md`): `Semantics/Manual/` = the manual's
   pseudocode transcribed (`Arch`, `Pseudocode`, `Memory`, `FPU`, `CP0`, `Exceptions`, `Interrupts`, `Timer`, `Reset`, `Encoding`, `Decode` (the spec's OWN
   decoder `Manual.Decode`/`decodeDiagram`, from the format diagrams; the top theorems use it),
   `Ops/*` one def per manual page, `Operation`, `Cycle` (`InstructionTime`), `Choices` (`modelImpl`/`modelOracle` pins)). It may import

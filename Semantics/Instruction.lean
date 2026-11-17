@@ -165,6 +165,7 @@ inductive Instruction where
   `HWREna` bit `rd` set, otherwise (and for every other `rd`/`sel`) Reserved Instruction
   (`Step.lean`). -/
   | rdhwr (rt rd sel : W32)
+  -- I-type arithmetic and logic with a 16-bit immediate
   /-- `$rt = $rs + sext16(imm)`, wraps (opcode 0x09). -/
   | addiu (rs rt imm : W32)
   /-- `$rt = ($rs < sext16(imm)) ? 1 : 0`, signed (opcode 0x0a). -/
@@ -321,6 +322,7 @@ inductive Instruction where
   | tltu (rs rt code : W32)
   /-- `if $rs >=u $rt then trap`, unsigned (opcode 0, funct 0x31). `code` = bits 15..6, ignored by execution. -/
   | tgeu (rs rt code : W32)
+  -- Breakpoint, memory barrier and prefetch
   /-- Unconditional Breakpoint exception (opcode 0, funct 0x0d); `code` =
   bits 25..6, "available for use as software parameters" (MD00086 Vol II-A
   Rev 6.06, BREAK, p.109). -/
@@ -395,7 +397,7 @@ inductive Instruction where
   /-- `MEM64[$rs + sext(imm)] = {FPR[ft+1],FPR[ft]}`, doubleword-aligned
   (opcode 0x3d). -/
   | sdc1 (rs ft imm : W32)
-  -- Arithmetic, single (fmt = S = 0x10).
+  -- FP arithmetic and conversions, single (fmt = S = 0x10).
   /-- `fd = fs + ft` (funct 0x00). -/
   | addS (fd fs ft : W32)
   /-- `fd = fs − ft` (funct 0x01). -/
@@ -432,7 +434,7 @@ inductive Instruction where
   | cvtSW (fd fs : W32)
   /-- Word → double, exact (fmt = W, funct 0x21). -/
   | cvtDW (fd fs : W32)
-  -- Arithmetic, double (fmt = D = 0x11).
+  -- FP arithmetic and conversions, double (fmt = D = 0x11).
   /-- `fd = fs + ft` (funct 0x00). -/
   | addD (fd fs ft : W32)
   /-- `fd = fs − ft` (funct 0x01). -/
@@ -465,6 +467,7 @@ inductive Instruction where
   | cvtWD (fd fs : W32)
   /-- Double → single, rounding per FCSR.RM (fmt = D, funct 0x20). -/
   | cvtSD (fd fs : W32)
+  -- Privileged and system instructions: ERETNC, SIGRIE, CACHE
   /-- `ERETNC`: exception return without clearing `LLbit` (MD00086 Vol II-A Rev 6.06, ERETNC,
   p.179-180: COP0, `CO` = 1, bits 24..7 zero, bit 6 = 1, funct `ERET` = 0x18). "ERETNC is identical
   to ERET except that an ERETNC will not clear the LLbit"; required by `Config5.LLB = 1` ("ERETNC
@@ -545,9 +548,9 @@ inductive Instruction where
   | jic (rt off : W32)
   /-- `JIALC rt, offset`: `GPR[31] ← PC + 4`, then as `jic` (POP76, `rs = 0`; JIALC, p.203). -/
   | jialc (rt off : W32)
-  -- The longword (L, 64-bit fixed point) conversions a 64-bit Release 6 FPU requires ("Release 6
-  -- on a 64-bit FPU requires S, D, W, and L data formats", MD00082 Vol I-A Rev 6.01 Table 6.4 note
-  -- 3, p.85). COP1 R-format, `ft` = 0; fields `fd` (= `sa`), `fs` (= `rd`).
+  -- Longword conversions: the L-format (64-bit fixed point) ones a 64-bit Release 6 FPU
+  -- requires ("Release 6 on a 64-bit FPU requires S, D, W, and L data formats", MD00082 Vol I-A
+  -- Rev 6.01 Table 6.4 note 3, p.85). COP1 R-format, `ft` = 0; fields `fd` (= `sa`), `fs` (= `rd`).
   /-- `CVT.L.S`: single → longword, rounding per FCSR.RM (fmt = S, funct 0x25; MD00086 Vol II-A
   Rev 6.06, CVT.L.fmt, p.154). -/
   | cvtLS (fd fs : W32)
@@ -574,7 +577,8 @@ inductive Instruction where
   | cvtSL (fd fs : W32)
   /-- `CVT.D.L`: longword → double, rounding per FCSR.RM (fmt = L, funct 0x21; CVT.D.fmt, p.153). -/
   | cvtDL (fd fs : W32)
-  -- The Release 6 FP instructions (MD00086 Vol II-A Rev 6.06). COP1 R-format: `ft` = `rt`, `fs` = `rd`,
+  -- Release 6 FP instructions: compare, branch on FPR, select, fused multiply-add, min/max,
+  -- class and round (MD00086 Vol II-A Rev 6.06). COP1 R-format: `ft` = `rt`, `fs` = `rd`,
   -- `fd` = `sa`.
   /-- `CMP.condn.S fd, fs, ft`: `FPR[fd] ← FPR[fs] compare_cond FPR[ft]` as a 32-bit mask of all ones or
   all zeros (COP1, `rs` = 10100, bit 5 = 0, `condn` in bits 4..0; CMP.condn.fmt, p.136-140). `cond` is
