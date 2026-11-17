@@ -157,8 +157,11 @@ manuals/                       mipsdoc.py, fetch.sh, SHA256SUMS (manual PDFs and
 vendor/mars/                   the MARS 4.5 jar (differential oracle only)
 ```
 
-## Provenance
+## License
 
-MARS 4.5 (`vendor/mars/Mars4_5.jar`) is third-party software, vendored only as a differential-testing oracle, under
-its own license. Everything else in this repository was written for this project. A demo built on an earlier
-version of these semantics is at [mips32-semantics-demo](https://github.com/rShyvers/mips32-semantics-demo).
+Licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE).
+
+MARS 4.5 (`vendor/mars/Mars4_5.jar`) is third-party software under the MIT license, vendored unmodified only as a
+differential-testing oracle. The MIPS manuals are not included; the sources cite them with short quotations only.
+A demo built on an earlier version of these semantics is at
+[mips32-semantics-demo](https://github.com/rShyvers/mips32-semantics-demo).

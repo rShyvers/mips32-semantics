@@ -1,6 +1,7 @@
 name = "Semantics"
 version = "0.1.0"
-keywords = ["math"]
+keywords = ["mips", "semantics", "formal-verification"]
+license = "Apache-2.0"
 # Targets.
 #  * `Checked` (default): the library `lake check` kernel-replays. It imports the model, every spec file
 #    (through the index `Semantics.Specs.StepSpec`), the comparator solution module `Semantics.StatementsProofs`,

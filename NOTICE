@@ -1,0 +1,16 @@
+mips32-semantics
+Copyright 2026 The mips32-semantics authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components
+----------------------
+vendor/mars/Mars4_5.jar: MARS 4.5, the MIPS Assembler and Runtime Simulator.
+Copyright (c) 2003-2013 Pete Sanderson and Kenneth Vollmar. Licensed under the MIT license; the full
+notice is MARSlicense.txt inside the jar. It is vendored unmodified, as a differential-testing oracle only.
+
+Architecture manuals
+--------------------
+MIPS32 is a trademark of its owner. The MIPS architecture manuals (MD00082, MD00086, MD00090) and the
+IEEE 754 standard are not included in this repository. Source comments cite them by document, revision
+and page, with short quotations only.
